@@ -80,10 +80,12 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
         breakdown["rule_id"] = rule.get("rule_id")
     else:
         # Valeurs par défaut ENV
+        # Modes avec livraison domicile ou collecte domicile = tarif HOME
+        _home_modes = {DeliveryMode.RELAY_TO_HOME, DeliveryMode.HOME_TO_HOME, DeliveryMode.HOME_TO_RELAY}
         base_price = (
-            settings.BASE_PRICE_RELAY
-            if quote.delivery_mode == DeliveryMode.RELAY_TO_RELAY
-            else settings.BASE_PRICE_HOME
+            settings.BASE_PRICE_HOME
+            if quote.delivery_mode in _home_modes
+            else settings.BASE_PRICE_RELAY
         )
         price_per_kg   = 0.0
         min_price      = settings.MIN_PRICE

@@ -1,0 +1,30 @@
+﻿[ +994 ms] Resolve mutations for :app:createDebugApkListingFileRedirect (Thread[#414,Execution worker Thread 4,5,main]) started.
+[   +1 ms] :app:createDebugApkListingFileRedirect (Thread[#414,Execution worker Thread 4,5,main]) started.
+[   +1 ms] > Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+[        ] Caching disabled for task ':app:createDebugApkListingFileRedirect' because:
+[        ]   Build cache is disabled
+[        ]   Caching has been disabled for the task
+[        ] Skipping task ':app:createDebugApkListingFileRedirect' as it is up-to-date.
+[        ] Resolve mutations for :app:assembleDebug (Thread[#414,Execution worker Thread 4,5,main]) started.
+[        ] :app:assembleDebug (Thread[#414,Execution worker Thread 4,5,main]) started.
+[+1994 ms] > Task :app:assembleDebug
+[        ] Caching disabled for task ':app:assembleDebug' because:
+[        ]   Build cache is disabled
+[        ] Task ':app:assembleDebug' is not up-to-date because:
+[        ]   Task has not declared any outputs despite executing actions.
+[+3895 ms] Could not execute [report metric STATISTICS_COLLECT_METRICS_OVERHEAD]
+[        ] Could not execute [report metric STATISTICS_COLLECT_METRICS_OVERHEAD]
+[ +603 ms] [Incubating] Problems report is available at: file:///C:/Users/Utilisateur/Pickupoint/mobile/build/reports/problems/problems-report.html
+[        ] Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+[        ] You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+[  +12 ms] For more on this, please refer to https://docs.gradle.org/8.14/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+[  +77 ms] BUILD SUCCESSFUL in 2m 30s
+[        ] 246 actionable tasks: 16 executed, 230 up-to-date
+[+2606 ms] Watched directory hierarchies: [C:\src\flutter\packages\flutter_tools\gradle, C:\Users\Utilisateur\Pickupoint\mobile\android]
+[+1430 ms] Running Gradle task 'assembleDebug'... (completed in 155,3s)
+[ +126 ms] Calculate SHA1: LocalDirectory: 'c:\Users\Utilisateur\Pickupoint\mobile\build\app\outputs\flutter-apk'/app-debug.apk
+[+7606 ms] âˆš Built build\app\outputs\flutter-apk\app-debug.apk
+[  +85 ms] "flutter apk" took 166â€¯476ms.
+[ +710 ms] Running 1 shutdown hook
+[  +54 ms] Shutdown hooks complete
+[ +332 ms] exiting with code 0

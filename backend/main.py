@@ -10,7 +10,7 @@ from config import settings
 from database import connect_db, close_db
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -56,6 +56,7 @@ app.add_middleware(
 # Routers — publics (sans auth)
 app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(confirm.router, prefix="/confirm", tags=["Confirmation GPS"])  # lien SMS/WhatsApp
 
 # Routers — avec auth
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

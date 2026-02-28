@@ -101,22 +101,36 @@ async def drop_at_relay(
     return updated
 
 
-@router.post("/{parcel_id}/arrive-relay", summary="Colis arrivé relais destination (agent)")
+@router.post("/{parcel_id}/arrive-relay", summary="Réceptionner un colis au relais (normal ou redirigé)")
 async def arrive_relay(
     parcel_id: str,
     current_user: dict = Depends(require_role(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    updated = await transition_status(
-        parcel_id, ParcelStatus.AT_DESTINATION_RELAY,
-        actor_id=current_user["user_id"], actor_role=current_user["role"],
-    )
-    # Marquer disponible immédiatement
-    return await transition_status(
-        parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
-        actor_id=current_user["user_id"], actor_role=current_user["role"],
-    )
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    current_status = parcel["status"]
+
+    if current_status == ParcelStatus.REDIRECTED_TO_RELAY.value:
+        # Colis redirigé après échec de livraison → disponible directement
+        return await transition_status(
+            parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
+            actor_id=current_user["user_id"], actor_role=current_user["role"],
+            notes="Réception colis redirigé après échec de livraison",
+        )
+    else:
+        # Colis normal en transit depuis l'origine → relais destination
+        await transition_status(
+            parcel_id, ParcelStatus.AT_DESTINATION_RELAY,
+            actor_id=current_user["user_id"], actor_role=current_user["role"],
+        )
+        return await transition_status(
+            parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
+            actor_id=current_user["user_id"], actor_role=current_user["role"],
+        )
 
 
 @router.post("/{parcel_id}/handout", summary="Remise destinataire (scan + PIN)")
