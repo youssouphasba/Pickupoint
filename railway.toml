@@ -1,6 +1,7 @@
 [build]
 # Railway détecte le Dockerfile automatiquement
-dockerfilePath = "backend/Dockerfile"
+context = "backend"
+dockerfilePath = "Dockerfile"
 watchPatterns = ["backend/**"]
 
 [deploy]
