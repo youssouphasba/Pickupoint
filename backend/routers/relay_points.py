@@ -64,14 +64,27 @@ async def get_relay_point(relay_id: str):
 async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_user)):
     cursor = db.parcels.find(
         {
-            "$or": [{"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}],
-            "status": {"$in": [
-                "dropped_at_origin_relay", "at_destination_relay", "available_at_relay"
-            ]},
+            "$or": [
+                # Colis normaux passant par ce relais (origine ou destination)
+                {
+                    "$or": [
+                        {"origin_relay_id": relay_id},
+                        {"destination_relay_id": relay_id},
+                    ],
+                    "status": {"$in": [
+                        "dropped_at_origin_relay", "at_destination_relay", "available_at_relay"
+                    ]},
+                },
+                # Colis redirigés après échec de livraison, assignés à ce relais
+                {
+                    "redirect_relay_id": relay_id,
+                    "status": "redirected_to_relay",
+                },
+            ]
         },
         {"_id": 0},
     )
-    return {"parcels": await cursor.to_list(length=100)}
+    return {"parcels": await cursor.to_list(length=200)}
 
 
 @router.post("", response_model=RelayPoint, summary="Créer un relais (admin)")

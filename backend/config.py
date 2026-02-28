@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     DEBUG: bool = True
+    BASE_URL: str = "https://pickupoint-production.up.railway.app"
 
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"

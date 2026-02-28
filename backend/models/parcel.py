@@ -50,11 +50,15 @@ class ParcelCreate(BaseModel):
     origin_relay_id:       Optional[str] = None
     destination_relay_id:  Optional[str] = None
     delivery_address:      Optional[Address] = None
+    origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur capturé dans l'app
     weight_kg:             float = 0.5
     dimensions:            Optional[Dict[str, float]] = None
     declared_value:        Optional[float] = None
     is_insured:            bool = False
     description:           Optional[str] = None
+    # Confirmation GPS bidirectionnelle
+    initiated_by:          str = "sender"    # "sender" | "recipient"
+    sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
 
 
 class ParcelEvent(BaseModel):
