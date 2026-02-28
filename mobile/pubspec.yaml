@@ -1,0 +1,58 @@
+name: pickupoint
+description: Plateforme livraison & points relais — Sénégal
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.0
+  riverpod_annotation: ^2.3.0
+
+  # Navigation
+  go_router: ^13.0.0
+
+  # HTTP
+  dio: ^5.4.0
+
+  # Stockage sécurisé (tokens JWT)
+  flutter_secure_storage: ^9.0.0
+
+  # QR Code (scan + génération)
+  mobile_scanner: ^4.0.0
+  qr_flutter: ^4.1.0
+
+  # Géolocalisation (driver)
+  geolocator: ^11.0.0
+
+  # Paiement Flutterwave (webview)
+  flutter_inappwebview: ^6.0.0
+
+  # Notifications locales
+  flutter_local_notifications: ^17.0.0
+
+  # UI utilitaires
+  cached_network_image: ^3.3.0
+  shimmer: ^3.0.0
+  intl: ^0.19.0
+
+  # Icônes
+  flutter_svg: ^2.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.0
+  riverpod_generator: ^2.4.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
