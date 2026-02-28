@@ -1,0 +1,31 @@
+Analyzing mobile...                                             
+
+  error - The argument type 'CardTheme' can't be assigned to the parameter type 'CardThemeData?'.  - lib\core\theme\app_theme.dart:89:16 - argument_type_not_assignable
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\admin\screens\admin_dashboard.dart:70:22 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\admin\screens\admin_dashboard.dart:72:41 - deprecated_member_use
+warning - The value of 'refresh' should be used - lib\features\admin\screens\admin_payouts_screen.dart:83:11 - unused_result
+warning - Unused import: '../../../shared/widgets/loading_button.dart' - lib\features\auth\screens\otp_screen.dart:5:8 - unused_import
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\client\screens\create_parcel_screen.dart:204:62 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\features\client\screens\create_parcel_screen.dart:241:19 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\features\client\screens\create_parcel_screen.dart:249:21 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\client\screens\parcel_detail_screen.dart:59:47 - deprecated_member_use
+  error - Undefined name 'apiClientProvider' - lib\features\client\screens\parcel_detail_screen.dart:136:38 - undefined_identifier
+  error - The argument type 'Map<dynamic, dynamic>' can't be assigned to the parameter type 'Map<String, dynamic>'.  - lib\features\client\screens\quote_screen.dart:33:42 - argument_type_not_assignable
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\client\screens\tracking_screen.dart:82:45 - deprecated_member_use
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_home.dart:47:13 - unused_result
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_home.dart:48:13 - unused_result
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_home.dart:149:11 - unused_result
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_home.dart:150:11 - unused_result
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_wallet_screen.dart:21:15 - unused_result
+warning - The value of 'refresh' should be used - lib\features\driver\screens\driver_wallet_screen.dart:22:15 - unused_result
+  error - The getter 'relayPointId' isn't defined for the type 'User' - lib\features\relay\providers\relay_provider.dart:9:25 - undefined_getter
+  error - The getter 'name' isn't defined for the type 'User' - lib\features\relay\screens\relay_home.dart:18:27 - undefined_getter
+warning - The value of 'refresh' should be used - lib\features\relay\screens\relay_wallet_screen.dart:20:15 - unused_result
+warning - The value of 'refresh' should be used - lib\features\relay\screens\relay_wallet_screen.dart:21:15 - unused_result
+  error - The named parameter 'padding' isn't defined - lib\features\relay\screens\relay_wallet_screen.dart:113:7 - undefined_named_parameter
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\shared\widgets\parcel_status_badge.dart:43:40 - deprecated_member_use
+  error - The getter 'timestamp' isn't defined for the type 'ParcelEvent' - lib\shared\widgets\timeline_widget.dart:14:26 - undefined_getter
+  error - The getter 'timestamp' isn't defined for the type 'ParcelEvent' - lib\shared\widgets\timeline_widget.dart:14:48 - undefined_getter
+  error - The getter 'timestamp' isn't defined for the type 'ParcelEvent' - lib\shared\widgets\timeline_widget.dart:64:46 - undefined_getter
+
+27 issues found. (ran in 2.1s)

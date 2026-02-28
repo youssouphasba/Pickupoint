@@ -1,0 +1,300 @@
+﻿[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\a47d5637537769f67b73ee939563baf9\transformed\firebase-components-16.1.0 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\2f4e2f53d6b877d46745bfd8ac89245a\transformed\firebase-encoders-json-17.1.0 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\3fa8e79cd8db3f45e68aba6069087b9c\transformed\exifinterface-1.3.2 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\d3f841e02046474fbe379f196c0079a0\transformed\core-1.0.0 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\41da3581b097eddb67d7e3185ab75b41\transformed\relinker-1.4.5 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for LibrarySymbolTableTransform: C:\Users\Utilisateur\.gradle\caches\8.14\transforms\d03aeab38fff498aba6e29524f9072a9\transformed\image-1.0.0-beta1 because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[ +203 ms] Caching disabled for task ':app:processDebugResources' because:
+[        ]   Build cache is disabled
+[        ] Task ':app:processDebugResources' is not up-to-date because:
+[        ]   No history is available.
+[        ] The input changes require a full rebuild for incremental task ':app:processDebugResources'.
+[  +98 ms] :flutter_inappwebview_android:compileDebugJavaWithJavac (Thread[#598,Execution worker,5,main]) started.
+[+1407 ms] > Task :app:processDebugResources
+[   +1 ms] Aapt output file C:\Users\Utilisateur\Pickupoint\mobile\build\app\intermediates\linked_resources_binary_format\debug\processDebugResources\linked-resources-binary-format-debug.ap_
+[ +583 ms] > Task :flutter_inappwebview_android:compileDebugJavaWithJavac
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.8.0/annotation-1.8.0.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download12156502370043338511bin
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/annotation/annotation/1.8.0/annotation-1.8.0.module to C:\Users\Utilisateur\.gradle\.tmp\gradle_download2844719409618854268bin
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.pom]
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download10125278447053734671bin
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.7.1/kotlinx-coroutines-android-1.7.1.pom]
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.7.1/kotlinx-coroutines-android-1.7.1.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download3953101445277581553bin
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-bom/1.7.1/kotlinx-coroutines-bom-1.7.1.pom]
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/1.7.1/kotlinx-coroutines-core-1.7.1.pom]
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-bom/1.7.1/kotlinx-coroutines-bom-1.7.1.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download8857765452575013333bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/1.7.1/kotlinx-coroutines-core-1.7.1.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download3751294184945252944bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.7.1/kotlinx-coroutines-android-1.7.1.module to C:\Users\Utilisateur\.gradle\.tmp\gradle_download1806763043518252071bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core/1.7.1/kotlinx-coroutines-core-1.7.1.module to C:\Users\Utilisateur\.gradle\.tmp\gradle_download16050541603386677128bin
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.8.0/annotation-jvm-1.8.0.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download3762063530121476574bin
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.8.0/annotation-jvm-1.8.0.module to C:\Users\Utilisateur\.gradle\.tmp\gradle_download8202565710696786853bin
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.8.22/kotlin-stdlib-common-1.8.22.pom]
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.8.22/kotlin-stdlib-common-1.8.22.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download2783128541775769012bin
+[        ] Resource missing. [HTTP GET: https://dl.google.com/dl/android/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.1/kotlinx-coroutines-core-jvm-1.7.1.pom]
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.1/kotlinx-coroutines-core-jvm-1.7.1.pom to C:\Users\Utilisateur\.gradle\.tmp\gradle_download17356493965416831782bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.1/kotlinx-coroutines-core-jvm-1.7.1.module to C:\Users\Utilisateur\.gradle\.tmp\gradle_download16321977948333759998bin
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.swiperefreshlayout\swiperefreshlayout\1.1.0\2aeac64056fe6cc0420afad0b699a7f9257b8ebe\swiperefreshlayout-1.1.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.webkit\webkit\1.12.0\f2670575fcc4766fb5f8f4be1e5aca5187c3079a\webkit-1.12.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.browser\browser\1.8.0\ba4defb5ed7790335783a908f93dd08d7715d148\browser-1.8.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.appcompat\appcompat\1.6.1\6c7577004b7ebbee5ed87d512b578dd20e3c8c31\appcompat-1.6.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.activity\activity\1.8.1\144ff894c8c32584ca9e99ebae0a2a28b294d371\activity-1.8.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.fragment\fragment\1.7.1\c7d4fcacda7c02f3b29e4d232f5f21cfa6aa7451\fragment-1.7.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.appcompat\appcompat-resources\1.6.1\3fe43025e50b556f319b1ff82a730d5a376a31e\appcompat-resources-1.6.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.drawerlayout\drawerlayout\1.0.0\dd02c7e207136e1272b33815cc61e57676ed13a2\drawerlayout-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.loader\loader\1.0.0\8af8b6cec0da85c207d03e15840e0722cbc71e70\loader-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-livedata-core-ktx\2.7.0\746c75e5d0a819d11e255ad137083a51c746e953\lifecycle-livedata-core-ktx-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-livedata\2.7.0\42ad14e1ee00719636e31a36e8cd50d7ce5c45c6\lifecycle-livedata-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-viewmodel\2.7.0\ea64fb2e504d200f2b7f03c76f51edd7e9ef62a9\lifecycle-viewmodel-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-viewmodel-savedstate\2.7.0\1fa14bde5efb3a96fa4fb8ced995f7fdfe99dfd\lifecycle-viewmodel-savedstate-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-livedata-core\2.7.0\d95c9c0b74a6b9882c416c688f6cf201dc416bed\lifecycle-livedata-core-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.core\core-ktx\1.13.1\f595b8c10fad9099f71a3c1fc6ded1c9b5010190\core-ktx-1.13.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.viewpager\viewpager\1.0.0\1f90e13820f96c2fb868f9674079a551678d68b2\viewpager-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.vectordrawable\vectordrawable-animated\1.1.0\fcda1161354501471c30a4e077af6b5c4d4eddc6\vectordrawable-animated-1.1.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.vectordrawable\vectordrawable\1.1.0\eac7a364fff534035a2a6cb17770a1288315f69f\vectordrawable-1.1.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://storage.googleapis.com/download.flutter.io/io/flutter/flutter_embedding_debug/1.0.0-1527ae0ec577a4ef50e65f6fefcfc1326707d9bf/flutter_embedding_debug-1.0.0-1527ae0ec577a4ef50e65f6fefcfc1326707d9bf.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download7595219909805569076bin
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.customview\customview\1.0.0\30f5ff6075d112f8076e733b24410e68159735b6\customview-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.core\core\1.13.1\4606d420282fe1e5c8d5c4e647ec188e1045b7be\core-1.13.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.savedstate\savedstate\1.2.1\e364fc9dec32aa569d855f85864e50250318a093\savedstate-1.2.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.interpolator\interpolator\1.0.0\8a01fa254a23b9388571eb6334b03707c7d122d7\interpolator-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.cursoradapter\cursoradapter\1.0.0\74014983a86b83cbce534dec4e7aa9312f5f5d82\cursoradapter-1.0.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-runtime\2.7.0\e46d7c73ab6cb3e288f51a0ad96bf372e90ceb31\lifecycle-runtime-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-process\2.7.0\10fc9ecc045a9931724c43e710c55680a772d96a\lifecycle-process-2.7.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.arch.core\core-runtime\2.2.0\39705982680d78556b679ef9d5400d4f17509b0b\core-runtime-2.2.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.versionedparcelable\versionedparcelable\1.1.1\18e18071e7715679e0593c570217edeb5ca48b9e\versionedparcelable-1.1.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.window\window\1.2.0\1d080d0a72684227bf6eb9af56264542708f8d16\window-1.2.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.window\window-java\1.2.0\924d0a3ca93fac4acb32c6a972e9fa1e283f1f07\window-java-1.2.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.annotation\annotation-experimental\1.4.0\c7a2038d831d0cfbfb9a440890b287c2e839ecf\annotation-experimental-1.4.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common/2.7.0/lifecycle-common-2.7.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download112495363267717517bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\io.flutter\flutter_embedding_debug\1.0.0-1527ae0ec577a4ef50e65f6fefcfc1326707d9bf\2a1804166a42638ea1a69214a80d2fe97f9abe6\flutter_embedding_debug-1.0.0-1527ae0ec577a4ef50e65f6fefcfc1326707d9bf.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-common\2.7.0\85334205d65cca70ed0109c3acbd29e22a2d9cb1\lifecycle-common-2.7.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/collection/collection/1.1.0/collection-1.1.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download17146779228930852367bin
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/lifecycle/lifecycle-common-java8/2.7.0/lifecycle-common-java8-2.7.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download18176112842293791032bin
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/arch/core/core-common/2.2.0/core-common-2.2.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download14148320029572955632bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.lifecycle\lifecycle-common-java8\2.7.0\2ad14aed781c4a73ed4dbb421966d408a0a06686\lifecycle-common-java8-2.7.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.arch.core\core-common\2.2.0\5e1b8b81dfd5f52c56a8d53b18ca759c19a301f3\core-common-2.2.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.collection\collection\1.1.0\1f27220b47669781457de0d600849a5de0e89909\collection-1.1.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains\annotations\23.0.0\8cc20c07506ec18e0834947b84a864bfc094484e\annotations-23.0.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://dl.google.com/dl/android/maven2/androidx/annotation/annotation-jvm/1.8.0/annotation-jvm-1.8.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download14992575200983261757bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.1/kotlinx-coroutines-core-jvm-1.7.1.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download12865941516523119326bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.8.20/kotlin-stdlib-jdk7-1.8.20.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download8946582517958247810bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-android/1.7.1/kotlinx-coroutines-android-1.7.1.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download3164713839157110863bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib-jdk7\1.8.20\3aa51faf20aae8b31e1a4bc54f8370673d7b7df4\kotlin-stdlib-jdk7-1.8.20.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.startup\startup-runtime\1.1.1\9d4ba67056aff98b69eadc1477c19a1e67cb9470\startup-runtime-1.1.1.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlinx\kotlinx-coroutines-android\1.7.1\c2d86b569f10b7fc7e28d3f50c0eed97897d77a7\kotlinx-coroutines-android-1.7.1.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.8.20/kotlin-stdlib-jdk8-1.8.20.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download7697249132173971344bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib-common/1.8.22/kotlin-stdlib-common-1.8.22.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download11758294987755642622bin
+[        ] Downloading https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.8.22/kotlin-stdlib-1.8.22.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download18398289346783888342bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.annotation\annotation-jvm\1.8.0\b8a16fe526014b7941c1debaccaf9c5153692dbb\annotation-jvm-1.8.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\androidx.tracing\tracing\1.2.0\a6ac2cc501278fdc99c56b428548e0cd1e9300f7\tracing-1.2.0.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib-jdk8\1.8.20\73576ddf378c5b4f1f6b449fe6b119b8183fc078\kotlin-stdlib-jdk8-1.8.20.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\com.getkeepsafe.relinker\relinker\1.4.5\222d7b0624248da9336bbfccff8a129e3e280ce8\relinker-1.4.5.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://repo.maven.apache.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download12826128909758069710bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\com.google.guava\listenablefuture\1.0\c949a840a6acbc5268d088e47b04177bf90b3cad\listenablefuture-1.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib-common\1.8.22\1a8e3601703ae14bb58757ea6b2d8e8e5935a586\kotlin-stdlib-common-1.8.22.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[ +779 ms] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib\1.8.22\636bf8b320e7627482771bbac9ed7246773c02bd\kotlin-stdlib-1.8.22.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlinx\kotlinx-coroutines-core-jvm\1.7.1\63a0779cf668e2a47d13fda7c3b0c4f8dc7762f4\kotlinx-coroutines-core-jvm-1.7.1.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[+6593 ms] The message received from the daemon indicates that the daemon has disappeared.
+[  +20 ms] Build request sent: Build{id=aa6a3e0b-172c-4e35-a5bb-25f9e7bdc754, currentDir=c:\Users\Utilisateur\Pickupoint\mobile\android}
+[        ] Attempting to read last messages from the daemon log...
+[  +46 ms] Daemon pid: 10836
+[        ]   log file: C:\Users\Utilisateur\.gradle\daemon\8.14\daemon-10836.out.log
+[        ] ----- Last 20 lines from daemon log file - daemon-10836.out.log -----
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib-jdk8\1.8.20\73576ddf378c5b4f1f6b449fe6b119b8183fc078\kotlin-stdlib-jdk8-1.8.20.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for AarToClassTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\com.getkeepsafe.relinker\relinker\1.4.5\222d7b0624248da9336bbfccff8a129e3e280ce8\relinker-1.4.5.aar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Downloading https://repo.maven.apache.org/maven2/com/google/guava/listenablefuture/1.0/listenablefuture-1.0.jar to C:\Users\Utilisateur\.gradle\.tmp\gradle_download12826128909758069710bin
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\com.google.guava\listenablefuture\1.0\c949a840a6acbc5268d088e47b04177bf90b3cad\listenablefuture-1.0.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib-common\1.8.22\1a8e3601703ae14bb58757ea6b2d8e8e5935a586\kotlin-stdlib-common-1.8.22.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlin\kotlin-stdlib\1.8.22\636bf8b320e7627482771bbac9ed7246773c02bd\kotlin-stdlib-1.8.22.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.
+[        ] Caching disabled for IdentityTransform: C:\Users\Utilisateur\.gradle\caches\modules-2\files-2.1\org.jetbrains.kotlinx\kotlinx-coroutines-core-jvm\1.7.1\63a0779cf668e2a47d13fda7c3b0c4f8dc7762f4\kotlinx-coroutines-core-jvm-1.7.1.jar because:
+[        ]   Build cache is disabled
+[        ]   Caching not enabled.----- End of the daemon log -----
+[        ] JVM crash log found: file:///c:/Users/Utilisateur/Pickupoint/mobile/android/hs_err_pid10836.log
+[  +31 ms] FAILURE: Build failed with an exception.
+[        ] * What went wrong:
+[        ] Gradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)
+[        ] * Try:
+[        ] > Run with --debug option to get more log output.
+[        ] > Run with --scan to get full insights.
+[        ] > Get more help at https://help.gradle.org.
+[        ] * Exception is:
+[        ] org.gradle.launcher.daemon.client.DaemonDisappearedException: Gradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)
+[        ] 	at org.gradle.launcher.daemon.client.DaemonClient.handleDaemonDisappearance(DaemonClient.java:283)
+[        ] 	at org.gradle.launcher.daemon.client.DaemonClient.monitorBuild(DaemonClient.java:256)
+[        ] 	at org.gradle.launcher.daemon.client.DaemonClient.executeBuild(DaemonClient.java:209)
+[        ] 	at org.gradle.launcher.daemon.client.DaemonClient.execute(DaemonClient.java:158)
+[        ] 	at org.gradle.launcher.daemon.client.DaemonClient.execute(DaemonClient.java:97)
+[        ] 	at org.gradle.launcher.cli.RunBuildAction.run(RunBuildAction.java:56)
+[        ] 	at org.gradle.internal.Actions$RunnableActionAdapter.execute(Actions.java:167)
+[        ] 	at org.gradle.launcher.cli.DefaultCommandLineActionFactory$ParseAndBuildAction.execute(DefaultCommandLineActionFactory.java:371)
+[        ] 	at org.gradle.launcher.cli.DefaultCommandLineActionFactory$ParseAndBuildAction.execute(DefaultCommandLineActionFactory.java:335)
+[        ] 	at org.gradle.launcher.cli.DebugLoggerWarningAction.execute(DebugLoggerWarningAction.java:74)
+[        ] 	at org.gradle.launcher.cli.DebugLoggerWarningAction.execute(DebugLoggerWarningAction.java:30)
+[        ] 	at org.gradle.launcher.cli.WelcomeMessageAction.execute(WelcomeMessageAction.java:97)
+[        ] 	at org.gradle.launcher.cli.WelcomeMessageAction.execute(WelcomeMessageAction.java:40)
+[        ] 	at org.gradle.launcher.cli.NativeServicesInitializingAction.execute(NativeServicesInitializingAction.java:50)
+[        ] 	at org.gradle.launcher.cli.NativeServicesInitializingAction.execute(NativeServicesInitializingAction.java:27)
+[        ] 	at org.gradle.launcher.cli.ExceptionReportingAction.execute(ExceptionReportingAction.java:41)
+[        ] 	at org.gradle.launcher.cli.ExceptionReportingAction.execute(ExceptionReportingAction.java:26)
+[        ] 	at org.gradle.launcher.cli.DefaultCommandLineActionFactory$WithLogging.execute(DefaultCommandLineActionFactory.java:483)
+[        ] 	at org.gradle.launcher.Main.doAction(Main.java:35)
+[        ] 	at org.gradle.launcher.bootstrap.EntryPoint.run(EntryPoint.java:52)
+[        ] 	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+[        ] 	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+[        ] 	at org.gradle.launcher.bootstrap.ProcessBootstrap.runNoExit(ProcessBootstrap.java:72)
+[        ] 	at org.gradle.launcher.bootstrap.ProcessBootstrap.run(ProcessBootstrap.java:39)
+[        ] 	at org.gradle.launcher.GradleMain.main(GradleMain.java:31)
+[        ] 	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+[        ] 	at java.base/java.lang.reflect.Method.invoke(Unknown Source)
+[        ] 	at org.gradle.wrapper.BootstrapMainStarter.start(BootstrapMainStarter.java:30)
+[        ] 	at org.gradle.wrapper.WrapperExecutor.execute(WrapperExecutor.java:129)
+[        ] 	at org.gradle.wrapper.GradleWrapperMain.main(GradleWrapperMain.java:61)
+[ +118 ms] Running Gradle task 'assembleDebug'... (completed in 78,7s)
+[  +28 ms] "flutter apk" took 80â€¯782ms.
+[  +90 ms] Gradle task assembleDebug failed with exit code 1
+[   +1 ms] 
+           #0      throwToolExit (package:flutter_tools/src/base/common.dart:34:3)
+           #1      AndroidGradleBuilder.buildGradleApp (package:flutter_tools/src/android/gradle.dart:592:7)
+           <asynchronous suspension>
+           #2      AndroidGradleBuilder.buildApk (package:flutter_tools/src/android/gradle.dart:234:5)
+           <asynchronous suspension>
+           #3      BuildApkCommand.runCommand (package:flutter_tools/src/commands/build_apk.dart:131:5)
+           <asynchronous suspension>
+           #4      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1559:27)
+           <asynchronous suspension>
+           #5      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #6      CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+           <asynchronous suspension>
+           #7      FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:487:9)
+           <asynchronous suspension>
+           #8      AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #9      FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:422:5)
+           <asynchronous suspension>
+           #10     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+           <asynchronous suspension>
+           #11     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+           <asynchronous suspension>
+           #12     main (package:flutter_tools/executable.dart:103:3)
+           <asynchronous suspension>
+
+
+[        ] Running 1 shutdown hook
+[   +4 ms] Shutdown hooks complete
+[ +106 ms] exiting with code 1
