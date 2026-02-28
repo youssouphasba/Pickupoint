@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"
-    DB_NAME: str = "pickupoint"
+    DB_NAME: str = "Pickupoint"
 
     # JWT
     JWT_SECRET: str = "changeme_minimum_32_chars_here_please"
