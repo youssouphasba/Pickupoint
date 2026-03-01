@@ -225,11 +225,10 @@ async def transition_status(
         await distribute_delivery_revenue(parcel)
 
     # Créer mission livreur quand le colis passe en OUT_FOR_DELIVERY (livraison domicile)
-    # OU quand le colis passe en IN_TRANSIT depuis le relais origine (relay_to_relay)
+    # OU quand le colis est déposé au relais origine (pour le transit relay_to_relay)
     if new_status == ParcelStatus.OUT_FOR_DELIVERY:
         await _create_delivery_mission(parcel, current_status)
-    elif (new_status == ParcelStatus.IN_TRANSIT
-          and current_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY):
+    elif new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
         await _create_relay_transit_mission(parcel)
 
     # Échec livraison → trouver le relais de repli le plus proche automatiquement
@@ -351,7 +350,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
 
 async def _create_relay_transit_mission(parcel: dict) -> None:
     """
-    Crée une mission de transit relay_to_relay quand le colis passe en IN_TRANSIT.
+    Crée une mission de transit relay_to_relay quand le colis passe en DROPPED_AT_ORIGIN_RELAY.
     Le livreur transporte du relais origine au relais destination.
     """
     from models.delivery import MissionStatus
