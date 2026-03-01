@@ -224,6 +224,14 @@ async def transition_status(
     if new_status == ParcelStatus.DELIVERED:
         await distribute_delivery_revenue(parcel)
 
+    # Créer mission livreur quand le colis passe en OUT_FOR_DELIVERY (livraison domicile)
+    # OU quand le colis passe en IN_TRANSIT depuis le relais origine (relay_to_relay)
+    if new_status == ParcelStatus.OUT_FOR_DELIVERY:
+        await _create_delivery_mission(parcel, current_status)
+    elif (new_status == ParcelStatus.IN_TRANSIT
+          and current_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY):
+        await _create_relay_transit_mission(parcel)
+
     # Échec livraison → trouver le relais de repli le plus proche automatiquement
     if new_status == ParcelStatus.DELIVERY_FAILED:
         delivery_loc = parcel.get("delivery_location")
@@ -246,9 +254,6 @@ async def transition_status(
                         nearest["relay_id"], parcel_id,
                     )
 
-    # Auto-créer une mission livreur quand le colis part en livraison domicile
-    if new_status == ParcelStatus.OUT_FOR_DELIVERY:
-        await _create_delivery_mission(parcel, current_status)
 
     # Notifier le changement
     await notify_parcel_status_change(parcel, new_status)
@@ -342,6 +347,69 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     }
     await db.delivery_missions.insert_one(mission_doc)
     logger.info("Mission créée: %s pour colis %s", mission_doc["mission_id"], parcel["parcel_id"])
+
+
+async def _create_relay_transit_mission(parcel: dict) -> None:
+    """
+    Crée une mission de transit relay_to_relay quand le colis passe en IN_TRANSIT.
+    Le livreur transporte du relais origine au relais destination.
+    """
+    from models.delivery import MissionStatus
+
+    # Éviter les doublons
+    existing = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"]})
+    if existing:
+        return
+
+    # Pickup = relais origine
+    origin_id = parcel.get("origin_relay_id")
+    origin = await db.relay_points.find_one({"relay_id": origin_id}, {"_id": 0}) if origin_id else None
+    pickup_label  = origin["name"] if origin else "Relais origine"
+    pickup_city   = (origin or {}).get("address", {}).get("city", "Dakar")
+    pickup_geopin = ((origin or {}).get("address") or {}).get("geopin")
+
+    # Livraison = relais destination
+    dest_id = parcel.get("destination_relay_id")
+    dest    = await db.relay_points.find_one({"relay_id": dest_id}, {"_id": 0}) if dest_id else None
+    delivery_label  = dest["name"] if dest else "Relais destination"
+    delivery_city   = (dest or {}).get("address", {}).get("city", "Dakar")
+    delivery_geopin = ((dest or {}).get("address") or {}).get("geopin")
+
+    from config import settings
+    quoted      = parcel.get("quoted_price") or 0
+    earn_amount = round(quoted * settings.DRIVER_RATE)
+
+    now = datetime.now(timezone.utc)
+    mission_doc = {
+        "mission_id":       f"msn_{uuid.uuid4().hex[:12]}",
+        "parcel_id":        parcel["parcel_id"],
+        "tracking_code":    parcel.get("tracking_code"),
+        "driver_id":        None,
+        "status":           MissionStatus.PENDING.value,
+        "pickup_type":      "relay",
+        "pickup_relay_id":  origin_id,
+        "pickup_label":     pickup_label,
+        "pickup_city":      pickup_city,
+        "pickup_geopin":    pickup_geopin,
+        "delivery_label":   delivery_label,
+        "delivery_city":    delivery_city,
+        "delivery_geopin":  delivery_geopin,
+        "recipient_name":   parcel.get("recipient_name"),
+        "recipient_phone":  parcel.get("recipient_phone"),
+        "earn_amount":      earn_amount,
+        "driver_location":     None,
+        "location_updated_at": None,
+        "proof_type":    None,
+        "proof_data":    None,
+        "failure_reason": None,
+        "assigned_at":   None,
+        "completed_at":  None,
+        "created_at":    now,
+        "updated_at":    now,
+    }
+    await db.delivery_missions.insert_one(mission_doc)
+    logger.info("Mission transit relay_to_relay: %s pour colis %s",
+                mission_doc["mission_id"], parcel["parcel_id"])
 
 
 async def _record_event(

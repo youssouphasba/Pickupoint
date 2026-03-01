@@ -16,13 +16,25 @@ async def track_parcel(tracking_code: str):
         {"tracking_code": tracking_code},
         {
             "_id": 0,
-            "parcel_id": 0,       # On n'expose jamais le parcel_id en public
             "sender_user_id": 0,
             "payment_ref": 0,
+            "pickup_code": 0,     # codes de sécurité non exposés publiquement
+            "delivery_code": 0,
         },
     )
     if not parcel:
         raise not_found_exception("Colis")
+
+    # Inclure la timeline publique
+    parcel_id = parcel.get("parcel_id")
+    if parcel_id:
+        timeline = await get_parcel_timeline(parcel_id)
+        public_timeline = [
+            {k: v for k, v in evt.items() if k not in ("actor_id", "metadata")}
+            for evt in timeline
+        ]
+        parcel["events"] = public_timeline
+
     return parcel
 
 

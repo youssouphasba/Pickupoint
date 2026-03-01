@@ -1,0 +1,343 @@
+﻿Running Gradle task 'assembleDebug'...                          
+flutter : Warning: 
+Flutter support for 
+your project's Kotlin 
+version (1.9.22) will 
+soon be dropped. 
+Please upgrade your 
+Kotlin version to a 
+version of at least 
+2.1.0 soon.
+Au caractère Ligne:1 
+: 1
++ flutter build apk 
+--debug > build_error_
+log_v2.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (Warning: F   
+ lutte...ast 2.1.0    
+ soon.:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+Alternatively, use 
+the flag "--android-sk
+ip-build-dependency-va
+lidation" to bypass 
+this check.
+
+Potential fix: Your 
+project's KGP version 
+is typically defined 
+in the plugins block 
+of the 
+`settings.gradle` 
+file (C:\Users\Utilisa
+teur\Pickupoint\mobile
+\android/settings.grad
+le), by a plugin with 
+the id of org.jetbrain
+s.kotlin.android. 
+If you don't see a 
+plugins block, your 
+project was likely 
+created with an older 
+template version, in 
+which case it is most 
+likely defined in the 
+top-level 
+build.gradle file (C:\
+Users\Utilisateur\Pick
+upoint\mobile\android/
+build.gradle) by the 
+ext.kotlin_version 
+property.
+
+lib/core/router/app_ro
+uter.dart:107:70: 
+Error: Couldn't find 
+constructor 
+'RelayHome'.
+          
+GoRoute(path: 
+'/relay',          
+builder: (_, __) => 
+const RelayHome()),
+                      
+                      
+                      
+   ^^^^^^^^^
+lib/features/client/sc
+reens/client_profile_s
+creen.dart:26:31: 
+Error: Property 
+'phone' cannot be 
+accessed on 'User?' 
+because it is 
+potentially null.
+ - 'User' is from 'pac
+kage:pickupoint/core/m
+odels/user.dart' ('lib
+/core/models/user.dart
+').
+Try accessing using 
+?. instead.
+              
+authState?.user.phone 
+?? 'Non connect├®',
+                      
+        ^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:361:46: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+          _sectionTitl
+e(Icons.where_to_vote,
+ isReverse ? 'Vous 
+recevez le colisÔÇª' 
+: 'Le colis est 
+livr├®ÔÇª'),
+                      
+                      
+ ^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:368:19: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+            desc: 
+isReverse
+                  
+^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:379:19: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+            desc: 
+isReverse
+                  
+^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:390:38: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+          _sectionTitl
+e(Icons.place, 
+isReverse ? 
+'L\'exp├®diteur 
+d├®pose le colisÔÇª' 
+: 'Vous d├®posez le 
+colisÔÇª'),
+                      
+               
+^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:397:19: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+            desc: 
+isReverse
+                  
+^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:410:20: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+            title: 
+isReverse ? 'Le 
+livreur va chez 
+l\'exp├®diteur' : 'Le 
+livreur vient chez 
+vous',
+                   
+^^^^^^^^^
+lib/features/client/sc
+reens/create_parcel_sc
+reen.dart:411:19: 
+Error: The getter 
+'isReverse' isn't 
+defined for the type '
+_CreateParcelScreenSta
+te'.
+ - '_CreateParcelScree
+nState' is from 'packa
+ge:pickupoint/features
+/client/screens/create
+_parcel_screen.dart' (
+'lib/features/client/s
+creens/create_parcel_s
+creen.dart').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'isReverse'.
+            desc: 
+isReverse
+                  
+^^^^^^^^^
+lib/features/client/wi
+dgets/relay_selector_m
+odal.dart:104:20: 
+Error: Method 
+'toLowerCase' cannot 
+be called on 
+'String?' because it 
+is potentially null.
+Try calling using ?. 
+instead.
+        r.district.toL
+owerCase().contains(q)
+ ||
+                   
+^^^^^^^^^^^
+Target kernel_snapshot
+_program failed: 
+Exception
+
+
+FAILURE: Build failed 
+with an exception.
+
+* What went wrong:
+Execution failed for 
+task ':app:compileFlut
+terBuildDebug'.
+> Process 'command 'C:
+\src\flutter\bin\flutt
+er.bat'' finished 
+with non-zero exit 
+value 1
+
+* Try:
+> Run with 
+--stacktrace option 
+to get the stack 
+trace.
+> Run with --info or 
+--debug option to get 
+more log output.
+> Run with --scan to 
+get full insights.
+> Get more help at htt
+ps://help.gradle.org.
+
+BUILD FAILED in 30s
+Running Gradle task 'assembleDebug'...                             31,9s
+Gradle task 
+assembleDebug failed 
+with exit code 1

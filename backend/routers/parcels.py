@@ -113,23 +113,34 @@ async def arrive_relay(
         raise not_found_exception("Colis")
 
     current_status = parcel["status"]
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
 
     if current_status == ParcelStatus.REDIRECTED_TO_RELAY.value:
-        # Colis redirigé après échec de livraison → disponible directement
+        # Colis redirigé après échec → disponible directement
         return await transition_status(
             parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
-            actor_id=current_user["user_id"], actor_role=current_user["role"],
-            notes="Réception colis redirigé après échec de livraison",
+            notes="Réception colis redirigé après échec de livraison", **actor,
         )
+
+    elif current_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+        # Relais destination réceptionne un colis qui vient du relais origine
+        # Chemin obligatoire : DROPPED → IN_TRANSIT → AT_DESTINATION_RELAY → AVAILABLE_AT_RELAY
+        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé", **actor)
+        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
+        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+
+    elif current_status == ParcelStatus.IN_TRANSIT.value:
+        # Arrivée au relais destination depuis le transit
+        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
+        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+
+    elif current_status == ParcelStatus.AT_DESTINATION_RELAY.value:
+        # Déjà au relais, juste marquer disponible
+        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+
     else:
-        # Colis normal en transit depuis l'origine → relais destination
-        await transition_status(
-            parcel_id, ParcelStatus.AT_DESTINATION_RELAY,
-            actor_id=current_user["user_id"], actor_role=current_user["role"],
-        )
-        return await transition_status(
-            parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
-            actor_id=current_user["user_id"], actor_role=current_user["role"],
+        raise bad_request_exception(
+            f"Impossible de réceptionner un colis en statut '{current_status}'"
         )
 
 
