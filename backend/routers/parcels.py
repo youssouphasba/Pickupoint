@@ -51,7 +51,13 @@ async def list_parcels(
             "$or": [{"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}]
         } if relay_id else {"sender_user_id": current_user["user_id"]}
     else:
-        query = {"sender_user_id": current_user["user_id"]}
+        # Client : voit ses colis ENVOYÉS et les colis qu'il reçoit (recipient_phone)
+        query = {
+            "$or": [
+                {"sender_user_id": current_user["user_id"]},
+                {"recipient_phone": current_user.get("phone")},
+            ]
+        }
 
     if status:
         query["status"] = status
