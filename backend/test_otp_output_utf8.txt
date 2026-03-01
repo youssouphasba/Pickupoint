@@ -1,0 +1,25 @@
+﻿Requesting OTP...
+{'sent': False, 'phone': '+221770000000'}
+Verifying OTP...
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfNjM1NmM3YWE4ODllIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzcyMzQxMjIxLCJ0eXBlIjoiYWNjZXNzIn0.E0buAWHyMaL6KAMNiq76WPc4w9IvUNBJbSn_zJCHQVQ",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfNjM1NmM3YWE4ODllIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc0OTI2MDIxLCJ0eXBlIjoicmVmcmVzaCJ9.jGthnB6Ly_5LqdFbtxSL8dxb83rqytaSmvjOkoTYVM8",
+  "token_type": "bearer",
+  "user": {
+    "user_id": "usr_6356c7aa889e",
+    "phone": "+221770000000",
+    "name": "Jane Doe (Admin)",
+    "email": "admin@pickupoint.sn",
+    "role": "admin",
+    "is_active": true,
+    "is_phone_verified": true,
+    "relay_point_id": null,
+    "store_id": null,
+    "external_ref": null,
+    "language": "fr",
+    "currency": "XOF",
+    "country_code": "SN",
+    "created_at": "2026-02-28T23:39:54.061000",
+    "updated_at": "2026-03-01T02:59:35.852000"
+  }
+}

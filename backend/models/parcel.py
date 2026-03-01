@@ -31,6 +31,9 @@ class Parcel(BaseModel):
     payment_status:        str   = "pending"                   # "pending", "paid", "refunded"
     payment_method:        Optional[str] = None                # "wave", "orange_money", ...
     payment_ref:           Optional[str] = None
+    # Codes de validation Sécurité (Phase 3)
+    pickup_code:           str   = ""                          # 6 chiffres — expéditeur/relais -> livreur
+    delivery_code:         str   = ""                          # 6 chiffres — destinataire -> livreur
     # Statut machine d'états
     status:                ParcelStatus = ParcelStatus.CREATED
     # Driver assigné

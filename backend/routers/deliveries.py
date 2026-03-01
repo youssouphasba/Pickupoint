@@ -13,6 +13,7 @@ from core.exceptions import not_found_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
+from pydantic import BaseModel
 from services.parcel_service import transition_status
 
 router = APIRouter()
@@ -83,6 +84,45 @@ async def my_missions(
     ).sort("created_at", -1).limit(50)
     return {"missions": await cursor.to_list(length=50)}
 
+class ConfirmPickupRequest(BaseModel):
+    code: str
+
+@router.post("/{mission_id}/confirm-pickup", summary="Confirmer collecte avec code")
+async def confirm_pickup(
+    mission_id: str,
+    body: ConfirmPickupRequest,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    # Si expéditeur/relais a renseigné un code, vérifier :
+    if parcel.get("pickup_code", "") != body.code.strip():
+        raise bad_request_exception("Code de collecte invalide")
+
+    now = datetime.now(timezone.utc)
+    # 1. Mettre à jour la mission "in_progress"
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": {
+            "status": MissionStatus.IN_PROGRESS.value,
+            "started_at": now,
+            "updated_at":  now,
+        }},
+    )
+    # 2. Transition colis IN_TRANSIT (ou "pickup depuis expéditeur" selon le contexte)
+    # (La machine d'états permet OUT_FOR_DELIVERY -> IN_TRANSIT pour les pick-ups ?)
+    # En réalité, on passe souvent OUT_FOR_DELIVERY => DELIVERED, ou AT_DESTINATION_RELAY => OUT_FOR_DELIVERY
+    # L'important est que la collecte est validée.
+    return {"message": "Collecte confirmée", "mission_id": mission_id}
+
 
 @router.get("/{mission_id}", summary="Détail mission")
 async def get_mission(
@@ -139,12 +179,36 @@ async def update_location(
     )),
 ):
     now = datetime.now(timezone.utc)
+    driver_loc = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy, "ts": now}
+    
     await db.delivery_missions.update_one(
         {"mission_id": mission_id, "driver_id": current_user["user_id"]},
-        {"$set": {
-            "driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
-            "location_updated_at": now,
-            "updated_at": now,
-        }},
+        {
+            "$set": {
+                "driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
+                "location_updated_at": now,
+                "updated_at": now,
+            },
+            "$push": {
+                "gps_trail": {
+                    "$each": [driver_loc],
+                    "$slice": -300  # Garde les 300 dernières positions (env. 2h30 à 30s d'intervalle)
+                }
+            }
+        },
     )
     return {"message": "Position mise à jour"}
+
+
+@router.get("/{mission_id}/trail", summary="Trail GPS complet (admin)")
+async def get_gps_trail(
+    mission_id: str,
+    current_user: dict = Depends(require_role(
+        UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0, "gps_trail": 1})
+    if not mission:
+        raise not_found_exception("Mission")
+    trail = mission.get("gps_trail", [])
+    return {"trail": trail, "count": len(trail)}

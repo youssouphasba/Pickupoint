@@ -116,6 +116,16 @@ async def distribute_delivery_revenue(parcel: dict):
     """
     from config import settings
 
+    # COD : paiement à la livraison — le client paye en cash au livreur
+    # Le livreur reverse la plateforme et les relais via son wallet (Phase 2)
+    # Phase 1 : log seulement, on ne crédite pas le wallet automatiquement
+    if parcel.get("who_pays") == "recipient":
+        logger.info(
+            "COD livraison %s — montant %s XOF — à réconcilier manuellement",
+            parcel.get("parcel_id"), parcel.get("paid_price") or parcel.get("quoted_price", 0)
+        )
+        return
+
     price = parcel.get("paid_price") or parcel.get("quoted_price", 0)
     if price <= 0:
         return

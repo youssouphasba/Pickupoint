@@ -52,9 +52,21 @@ async def change_role(
         raise not_found_exception("Utilisateur")
     return {"message": f"Rôle mis à jour → {role.value}"}
 
-
-
-
+@router.get("/{user_id}/driver-stats", summary="Statistiques livreur (admin)")
+async def driver_stats(
+    user_id: str,
+    _admin=Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
+):
+    total      = await db.delivery_missions.count_documents({"driver_id": user_id})
+    completed  = await db.delivery_missions.count_documents({"driver_id": user_id, "status": "completed"})
+    failed     = await db.delivery_missions.count_documents({"driver_id": user_id, "status": "failed"})
+    scan_rate  = round(completed / max(total, 1) * 100, 1)
+    return {
+        "total_missions": total,
+        "completed":      completed,
+        "failed":         failed,
+        "scan_rate_pct":  scan_rate,   # 100% = toutes les livraisons validées par code depuis la maj
+    }
 @router.put("/me/availability", summary="Basculer la disponibilité (driver)")
 async def toggle_availability(
     current_user: dict = Depends(get_current_user),

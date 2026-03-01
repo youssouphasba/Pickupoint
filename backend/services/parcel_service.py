@@ -14,9 +14,14 @@ from models.common import ParcelStatus, DeliveryMode
 from models.parcel import ParcelCreate, ParcelEvent, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import distribute_delivery_revenue
-from services.notification_service import notify_parcel_status_change
+from services.notification_service import notify_parcel_status_change, notify_delivery_code
 
+import random
 logger = logging.getLogger(__name__)
+
+def _generate_code() -> str:
+    """Génère un code numérique à 6 chiffres."""
+    return f"{random.randint(100000, 999999)}"
 
 # ── Machine d'états ───────────────────────────────────────────────────────────
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
@@ -141,6 +146,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         "who_pays":              data.who_pays,
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
+        "pickup_code":           _generate_code(),
+        "delivery_code":         _generate_code(),
         "paid_price":            None,
         "payment_status":        "pending",
         "payment_method":        None,
@@ -160,6 +167,14 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         to_status=ParcelStatus.CREATED,
         actor_id=sender_user_id,
         actor_role="client",
+    )
+
+    # ── Envoyer le code de livraison au destinataire par SMS/WhatsApp ──
+    await notify_delivery_code(
+        phone=data.recipient_phone,
+        recipient_name=data.recipient_name,
+        tracking_code=tracking_code,
+        delivery_code=parcel_doc["delivery_code"],
     )
 
     return {k: v for k, v in parcel_doc.items() if k != "_id"}
