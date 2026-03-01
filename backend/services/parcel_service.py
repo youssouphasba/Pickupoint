@@ -15,7 +15,6 @@ from models.parcel import ParcelCreate, ParcelEvent, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import distribute_delivery_revenue
 from services.notification_service import notify_parcel_status_change
-from services.otp_service import _send_via_twilio
 
 logger = logging.getLogger(__name__)
 
@@ -100,19 +99,6 @@ async def find_nearest_relay(lat: float, lng: float) -> Optional[dict]:
     return nearest
 
 
-async def _send_confirmation_sms(phone: str, token: str, role: str, base_url: str) -> None:
-    """Envoie le lien de confirmation GPS par WhatsApp puis SMS en fallback."""
-    url   = f"{base_url}/confirm/{token}"
-    emoji = "📦" if role == "recipient" else "📤"
-    msg   = (
-        f"{emoji} Votre colis PickuPoint est prêt !\n"
-        f"Confirmez votre position de {'livraison' if role == 'recipient' else 'collecte'} :\n"
-        f"{url}\n"
-        f"(Appuyez sur le lien, puis sur le grand bouton 📍)"
-    )
-    await _send_via_twilio(phone, msg)
-
-
 async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
     """Crée un nouveau colis avec devis et tracking code."""
     from models.parcel import ParcelQuote
@@ -120,25 +106,20 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         delivery_mode=data.delivery_mode,
         origin_relay_id=data.origin_relay_id,
         destination_relay_id=data.destination_relay_id,
+        origin_location=data.origin_location,
         delivery_address=data.delivery_address,
         weight_kg=data.weight_kg,
         is_insured=data.is_insured,
         declared_value=data.declared_value,
+        is_express=data.is_express,
+        who_pays=data.who_pays,
     )
     quote: QuoteResponse = await calculate_price(quote_req)
-
-    from config import settings
-    from routers.confirm import generate_confirm_tokens
 
     now = datetime.now(timezone.utc)
     parcel_id     = _parcel_id()
     tracking_code = generate_tracking_code()
     expires_at    = now + timedelta(days=7)
-
-    recipient_token, sender_token = generate_confirm_tokens()
-
-    # Mode : expéditeur initie (normal) ou destinataire initie (inverse)
-    initiated_by = getattr(data, "initiated_by", "sender")
 
     parcel_doc = {
         "parcel_id":             parcel_id,
@@ -150,11 +131,15 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         "origin_relay_id":       data.origin_relay_id,
         "destination_relay_id":  data.destination_relay_id,
         "delivery_address":      data.delivery_address.model_dump() if data.delivery_address else None,
+        "origin_location":       data.origin_location.model_dump() if data.origin_location else None,
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
         "is_insured":            data.is_insured,
         "description":           data.description,
+        "is_express":            data.is_express,
+        "who_pays":              data.who_pays,
+        "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
         "paid_price":            None,
         "payment_status":        "pending",
@@ -164,16 +149,6 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         "assigned_driver_id":    None,
         "redirect_relay_id":     None,
         "external_ref":          None,
-        # ── Confirmation GPS bidirectionnelle ──
-        "initiated_by":          initiated_by,
-        "recipient_confirm_token": recipient_token,
-        "sender_confirm_token":    sender_token,
-        "delivery_confirmed":    False,
-        "pickup_confirmed":      bool(data.origin_location),   # True si GPS déjà fourni dans l'app
-        "delivery_location":     None,  # confirmé par destinataire
-        "pickup_location":       data.origin_location.model_dump() if data.origin_location else None,
-        "delivery_voice_note":   None,
-        "pickup_voice_note":     None,
         "created_at":            now,
         "updated_at":            now,
         "expires_at":            expires_at,
@@ -186,28 +161,6 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         actor_id=sender_user_id,
         actor_role="client",
     )
-
-    # ── Envoi SMS/WhatsApp automatique ──────────────────────────────────────
-    base_url = getattr(settings, "BASE_URL", "https://pickupoint-production.up.railway.app")
-
-    # Modes domicile → envoyer lien GPS au destinataire pour confirmer sa position
-    _home_dest_modes = {DeliveryMode.RELAY_TO_HOME, DeliveryMode.HOME_TO_HOME}
-    if data.delivery_mode in _home_dest_modes:
-        await _send_confirmation_sms(data.recipient_phone, recipient_token, "recipient", base_url)
-
-    # Modes collecte domicile → envoyer lien GPS à l'expéditeur (si pas déjà capturé dans l'app)
-    _home_origin_modes = {DeliveryMode.HOME_TO_HOME, DeliveryMode.HOME_TO_RELAY}
-    if data.delivery_mode in _home_origin_modes and not data.origin_location:
-        # Envoyer le lien de confirmation de collecte à l'expéditeur lui-même
-        sender_phone = getattr(data, "sender_phone", None)
-        if sender_phone:
-            await _send_confirmation_sms(sender_phone, sender_token, "sender", base_url)
-
-    if initiated_by == "recipient":
-        # Flux inverse : envoyer lien à l'expéditeur physique pour confirmer le pickup
-        sender_phone = getattr(data, "sender_phone", None)
-        if sender_phone:
-            await _send_confirmation_sms(sender_phone, sender_token, "sender", base_url)
 
     return {k: v for k, v in parcel_doc.items() if k != "_id"}
 
@@ -278,11 +231,102 @@ async def transition_status(
                         nearest["relay_id"], parcel_id,
                     )
 
+    # Auto-créer une mission livreur quand le colis part en livraison domicile
+    if new_status == ParcelStatus.OUT_FOR_DELIVERY:
+        await _create_delivery_mission(parcel, current_status)
+
     # Notifier le changement
     await notify_parcel_status_change(parcel, new_status)
 
     updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     return updated
+
+
+async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> None:
+    """
+    Crée une delivery_mission quand un colis passe en OUT_FOR_DELIVERY.
+    - from AT_DESTINATION_RELAY : livreur prend au relais de destination
+    - from CREATED              : livreur va chercher chez l'expéditeur (HOME_TO_*)
+    - from IN_TRANSIT           : cas relay_to_home via transit
+    """
+    from models.delivery import MissionStatus
+
+    # Éviter les doublons
+    existing = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"]})
+    if existing:
+        return
+
+    # ── Point de collecte (pickup) ────────────────────────────────────────────
+    if from_status == ParcelStatus.AT_DESTINATION_RELAY:
+        # Livreur vient chercher au relais de destination
+        relay_id = parcel.get("destination_relay_id")
+        relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0}) if relay_id else None
+        pickup_type  = "relay"
+        pickup_relay_id   = relay_id
+        pickup_label = relay["name"] if relay else "Relais de destination"
+        pickup_city  = (relay or {}).get("address", {}).get("city", "Dakar") if relay else "Dakar"
+        pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
+    else:
+        # Livreur va chercher chez l'expéditeur (HOME_TO_*)
+        pickup_loc = parcel.get("pickup_location") or {}
+        pickup_type  = "gps"
+        pickup_relay_id   = None
+        pickup_label = (pickup_loc.get("label") or pickup_loc.get("notes") or "Position expéditeur")
+        pickup_city  = pickup_loc.get("city", "Dakar")
+        pickup_geopin = pickup_loc.get("geopin")
+
+    # ── Point de livraison ────────────────────────────────────────────────────
+    delivery_addr = parcel.get("delivery_address") or {}
+    delivery_label = (delivery_addr.get("label") or delivery_addr.get("notes") or "Adresse destinataire")
+    delivery_city  = delivery_addr.get("city", "Dakar")
+    delivery_geopin = delivery_addr.get("geopin")
+
+    # ── Rémunération livreur selon le taux configuré ──────────────────────────
+    from config import settings
+    quoted = parcel.get("quoted_price") or parcel.get("paid_price") or 0
+    mode   = parcel.get("delivery_mode", "")
+    # HOME_TO_HOME : driver reçoit 85 % (pas de relais), sinon 70 %
+    driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
+                   if mode == "home_to_home" else settings.DRIVER_RATE)
+    earn_amount = round(quoted * driver_rate)
+
+    now = datetime.now(timezone.utc)
+    mission_doc = {
+        "mission_id":       f"msn_{uuid.uuid4().hex[:12]}",
+        "parcel_id":        parcel["parcel_id"],
+        "tracking_code":    parcel.get("tracking_code"),
+        "driver_id":        None,          # rempli quand un livreur accepte
+        "status":           MissionStatus.PENDING.value,
+        # Pickup
+        "pickup_type":      pickup_type,   # 'relay' | 'gps'
+        "pickup_relay_id":  pickup_relay_id,
+        "pickup_label":     pickup_label,
+        "pickup_city":      pickup_city,
+        "pickup_geopin":    pickup_geopin,
+        # Livraison
+        "delivery_label":   delivery_label,
+        "delivery_city":    delivery_city,
+        "delivery_geopin":  delivery_geopin,
+        # Infos destinataire (pour appeler)
+        "recipient_name":   parcel.get("recipient_name"),
+        "recipient_phone":  parcel.get("recipient_phone"),
+        # Rémunération
+        "earn_amount":      earn_amount,
+        # Tracking livreur
+        "driver_location":     None,
+        "location_updated_at": None,
+        # Preuve
+        "proof_type":    None,
+        "proof_data":    None,
+        "failure_reason": None,
+        # Timestamps
+        "assigned_at":   None,
+        "completed_at":  None,
+        "created_at":    now,
+        "updated_at":    now,
+    }
+    await db.delivery_missions.insert_one(mission_doc)
+    logger.info("Mission créée: %s pour colis %s", mission_doc["mission_id"], parcel["parcel_id"])
 
 
 async def _record_event(

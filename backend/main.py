@@ -10,7 +10,7 @@ from config import settings
 from database import connect_db, close_db
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -67,6 +67,7 @@ app.include_router(deliveries.router, prefix="/api/deliveries", tags=["Deliverie
 app.include_router(pricing.router, prefix="/api/pricing", tags=["Pricing"])
 app.include_router(wallets.router, prefix="/api/wallets", tags=["Wallets"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
 
 
 @app.get("/health", tags=["Health"])

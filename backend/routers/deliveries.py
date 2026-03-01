@@ -1,10 +1,12 @@
 """
 Router deliveries : missions de livraison pour les drivers.
 """
+import math
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception
@@ -20,17 +22,53 @@ def _mission_id() -> str:
     return f"msn_{uuid.uuid4().hex[:12]}"
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
 @router.get("/available", summary="Missions disponibles (drivers)")
 async def available_missions(
+    lat:       Optional[float] = Query(None, description="Latitude du livreur"),
+    lng:       Optional[float] = Query(None, description="Longitude du livreur"),
+    radius_km: float           = Query(5.0,  description="Rayon de recherche en km"),
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    cursor = db.delivery_missions.find(
-        {"status": MissionStatus.PENDING.value},
-        {"_id": 0},
-    ).limit(50)
-    return {"missions": await cursor.to_list(length=50)}
+    """
+    Retourne les missions en attente, triées par distance au pickup.
+    - Si lat/lng fournis : filtre par rayon_km, ajoute distance_km, tri croissant.
+    - Sinon : retourne toutes les missions (fallback GPS refusé).
+    """
+    query: dict = {"status": MissionStatus.PENDING.value}
+    missions = await db.delivery_missions.find(query, {"_id": 0}).to_list(length=200)
+
+    if lat is not None and lng is not None:
+        result = []
+        for m in missions:
+            geopin = m.get("pickup_geopin") or {}
+            plat   = geopin.get("lat")
+            plng   = geopin.get("lng")
+            if plat is not None and plng is not None:
+                dist = _haversine_km(lat, lng, plat, plng)
+                if dist <= radius_km:
+                    m["distance_km"] = round(dist, 2)
+                    result.append(m)
+            else:
+                # Pickup sans coordonnées (relay sans geopin) → inclus sans filtre
+                m["distance_km"] = None
+                result.append(m)
+        # Trier : missions avec distance connue en premier (croissant), puis sans coordonnées
+        result.sort(key=lambda m: m.get("distance_km") if m.get("distance_km") is not None else 9999)
+        return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
+
+    # Fallback : pas de GPS (permission refusée) → toutes les missions
+    missions.sort(key=lambda m: m["created_at"])
+    return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
 @router.get("/my", summary="Mes missions (driver)")
@@ -71,6 +109,7 @@ async def accept_mission(
         raise bad_request_exception("Mission déjà prise en charge")
 
     now = datetime.now(timezone.utc)
+    # Marquer la mission comme assignée
     await db.delivery_missions.update_one(
         {"mission_id": mission_id},
         {"$set": {
@@ -78,6 +117,14 @@ async def accept_mission(
             "status":      MissionStatus.ASSIGNED.value,
             "assigned_at": now,
             "updated_at":  now,
+        }},
+    )
+    # Mettre à jour le colis avec le livreur assigné
+    await db.parcels.update_one(
+        {"parcel_id": mission["parcel_id"]},
+        {"$set": {
+            "assigned_driver_id": current_user["user_id"],
+            "updated_at": now,
         }},
     )
     return {"message": "Mission acceptée", "mission_id": mission_id}

@@ -53,19 +53,40 @@ async def change_role(
     return {"message": f"Rôle mis à jour → {role.value}"}
 
 
-@router.post("/register-driver", summary="S'enregistrer comme livreur")
-async def register_driver(current_user: dict = Depends(get_current_user)):
-    await db.users.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": {"role": UserRole.DRIVER.value, "updated_at": datetime.now(timezone.utc)}},
-    )
-    return {"message": "Vous êtes maintenant enregistré comme livreur"}
 
 
-@router.post("/register-relay", summary="S'enregistrer comme agent relais")
-async def register_relay(current_user: dict = Depends(get_current_user)):
+@router.put("/me/availability", summary="Basculer la disponibilité (driver)")
+async def toggle_availability(
+    current_user: dict = Depends(get_current_user),
+):
+    """Permet au livreur de se mettre disponible ou hors-ligne."""
+    current = current_user.get("is_available", False)
+    new_val  = not current
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
-        {"$set": {"role": UserRole.RELAY_AGENT.value, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {"is_available": new_val, "updated_at": datetime.now(timezone.utc)}},
     )
-    return {"message": "Vous êtes maintenant enregistré comme agent relais"}
+    return {"is_available": new_val}
+
+
+@router.put("/{user_id}/relay-point", summary="Lier un point relais à un agent (admin)")
+async def assign_relay_point(
+    user_id: str,
+    relay_id: str,
+    _admin=Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
+):
+    """Associe relay_point_id à l'utilisateur agent relais."""
+    relay = await db.relay_points.find_one({"relay_id": relay_id})
+    if not relay:
+        raise not_found_exception("Point relais")
+    result = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "relay_point_id": relay_id,
+            "role": UserRole.RELAY_AGENT.value,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    if result.matched_count == 0:
+        raise not_found_exception("Utilisateur")
+    return {"message": f"Agent {user_id} lié au relais {relay_id}"}

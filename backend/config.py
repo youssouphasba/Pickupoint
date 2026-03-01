@@ -32,16 +32,24 @@ class Settings(BaseSettings):
     FLUTTERWAVE_PUBLIC_KEY:    Optional[str] = None
     FLUTTERWAVE_WEBHOOK_SECRET: Optional[str] = None  # verif-hash header
 
-    # Pricing defaults (XOF)
-    BASE_PRICE_RELAY: float = 500.0
-    BASE_PRICE_HOME: float = 1000.0
-    PRICE_PER_KM: float = 50.0
-    MIN_PRICE: float = 500.0
+    # Pricing base (XOF) — validé le 2026-03-01
+    BASE_RELAY_TO_RELAY: float = 700.0
+    BASE_RELAY_TO_HOME:  float = 1100.0
+    BASE_HOME_TO_RELAY:  float = 900.0
+    BASE_HOME_TO_HOME:   float = 1300.0
+    PRICE_PER_KM:        float = 100.0   # XOF / km
+    PRICE_PER_KG:        float = 100.0   # XOF / kg au-delà de FREE_WEIGHT_KG
+    FREE_WEIGHT_KG:      float = 2.0
+    MIN_PRICE:           float = 700.0
+    INSURANCE_RATE:      float = 0.02    # 2 % de la valeur déclarée
+    EXPRESS_MULTIPLIER:  float = 1.40    # +40 %
+    NIGHT_MULTIPLIER:    float = 1.20    # +20 % (20h-7h et dimanche)
+    DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
 
-    # Commission splits (%)
-    COMMISSION_DRIVER: float = 20.0
-    COMMISSION_ORIGIN_RELAY: float = 10.0
-    COMMISSION_DEST_RELAY: float = 15.0
+    # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
+    PLATFORM_RATE:    float = 0.15
+    RELAY_RATE:       float = 0.15
+    DRIVER_RATE:      float = 0.70
 
     model_config = SettingsConfigDict(
         env_file=[".env", "../.env"],  # cherche dans backend/ puis dans la racine

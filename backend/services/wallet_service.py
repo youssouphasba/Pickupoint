@@ -105,57 +105,87 @@ async def debit_wallet(
 
 async def distribute_delivery_revenue(parcel: dict):
     """
-    Distribue les revenus entre driver, relais origine, relais destination et plateforme.
-    Les taux sont configurables via system_configs (défauts hardcodés ici).
+    Distribue les revenus à chaque livraison réussie.
+
+    Taux validés (config.py) : plateforme 15 %, relais 15 %, livreur 70 %.
+    Répartition par mode de livraison :
+      RELAY_TO_RELAY : 15% plateforme + 7.5% relais origine + 7.5% relais dest + 70% driver
+      RELAY_TO_HOME  : 15% plateforme + 15% relais origine + 70% driver
+      HOME_TO_RELAY  : 15% plateforme + 15% relais destination + 70% driver
+      HOME_TO_HOME   : 15% plateforme + 85% driver (pas de relais)
     """
+    from config import settings
+
     price = parcel.get("paid_price") or parcel.get("quoted_price", 0)
     if price <= 0:
         return
 
-    # Lire les taux depuis system_configs (ou valeurs par défaut)
-    config = await db.system_configs.find_one({"key": "revenue_split"}, {"_id": 0}) or {}
-    driver_rate       = config.get("driver_rate", 0.20)
-    origin_rate       = config.get("origin_rate", 0.10)
-    destination_rate  = config.get("destination_rate", 0.15)
-
+    mode      = parcel.get("delivery_mode", "")
     parcel_id = parcel.get("parcel_id")
 
-    # Driver
-    if parcel.get("assigned_driver_id"):
-        driver_amount = round(price * driver_rate)
+    platform_rate = settings.PLATFORM_RATE   # 0.15
+    relay_rate    = settings.RELAY_RATE       # 0.15
+    driver_rate   = settings.DRIVER_RATE      # 0.70
+
+    # ── Calcul des parts par mode ─────────────────────────────────────────────
+    if mode == "relay_to_relay":
+        relay_each    = relay_rate / 2          # 7.5 % chaque relais
+        driver_share  = driver_rate             # 70 %
+        origin_share  = relay_each
+        dest_share    = relay_each
+    elif mode == "relay_to_home":
+        driver_share  = driver_rate             # 70 %
+        origin_share  = relay_rate              # 15 % relais origine
+        dest_share    = 0.0
+    elif mode == "home_to_relay":
+        driver_share  = driver_rate             # 70 %
+        origin_share  = 0.0
+        dest_share    = relay_rate              # 15 % relais destination
+    else:  # home_to_home ou inconnu
+        driver_share  = driver_rate + relay_rate  # 85 % (pas de relais)
+        origin_share  = 0.0
+        dest_share    = 0.0
+
+    # ── Créditer le driver ────────────────────────────────────────────────────
+    if parcel.get("assigned_driver_id") and driver_share > 0:
         await credit_wallet(
             owner_id=parcel["assigned_driver_id"],
             owner_type="driver",
-            amount=driver_amount,
+            amount=round(price * driver_share),
             description=f"Commission livraison {parcel_id}",
             parcel_id=parcel_id,
         )
 
-    # Relais origine
-    if parcel.get("origin_relay_id"):
-        origin_relay = await db.relay_points.find_one(
+    # ── Créditer le relais origine ────────────────────────────────────────────
+    if parcel.get("origin_relay_id") and origin_share > 0:
+        relay = await db.relay_points.find_one(
             {"relay_id": parcel["origin_relay_id"]}, {"_id": 0}
         )
-        if origin_relay:
+        if relay:
             await credit_wallet(
-                owner_id=origin_relay["owner_user_id"],
+                owner_id=relay["owner_user_id"],
                 owner_type="relay",
-                amount=round(price * origin_rate),
+                amount=round(price * origin_share),
                 description=f"Commission relais origine {parcel_id}",
                 parcel_id=parcel_id,
             )
 
-    # Relais destination
+    # ── Créditer le relais destination (ou relais de repli) ───────────────────
     dest_relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
-    if dest_relay_id:
-        dest_relay = await db.relay_points.find_one(
+    if dest_relay_id and dest_share > 0:
+        relay = await db.relay_points.find_one(
             {"relay_id": dest_relay_id}, {"_id": 0}
         )
-        if dest_relay:
+        if relay:
             await credit_wallet(
-                owner_id=dest_relay["owner_user_id"],
+                owner_id=relay["owner_user_id"],
                 owner_type="relay",
-                amount=round(price * destination_rate),
+                amount=round(price * dest_share),
                 description=f"Commission relais destination {parcel_id}",
                 parcel_id=parcel_id,
             )
+
+    logger.info(
+        "Revenus distribués — colis=%s mode=%s prix=%s XOF",
+        parcel_id, mode, price,
+    )

@@ -1,115 +1,156 @@
 """
-Service de tarification : calcul du prix d'un colis selon les zones et règles configurées.
+Service de tarification PickuPoint.
+
+Formule :
+  sous_total = base_mode + (distance_km × PRICE_PER_KM)
+             + (max(0, weight_kg - FREE_WEIGHT_KG) × PRICE_PER_KG)
+             + assurance
+  prix = sous_total × coefficient_dynamique × (EXPRESS_MULTIPLIER si express)
+  prix = max(prix, MIN_PRICE)  — arrondi à 50 XOF supérieurs
 """
+import math
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from config import settings
 from database import db
 from models.common import DeliveryMode
 from models.parcel import ParcelQuote, QuoteResponse
+from services.dynamic_pricing import get_dynamic_coefficient
 
 logger = logging.getLogger(__name__)
 
 
-async def get_zone_for_relay(relay_id: str) -> Optional[str]:
-    """Retourne le zone_id de la première zone contenant ce relay_id."""
-    zone = await db.pricing_zones.find_one(
-        {"relay_ids": relay_id, "is_active": True},
-        {"_id": 0, "zone_id": 1},
-    )
-    return zone["zone_id"] if zone else None
+# ── Distances ─────────────────────────────────────────────────────────────────
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
 
 
-async def find_pricing_rule(
-    delivery_mode: DeliveryMode,
-    origin_zone_id: Optional[str],
-    destination_zone_id: Optional[str],
-) -> Optional[dict]:
+async def _relay_geopin(relay_id: Optional[str]) -> Optional[tuple[float, float]]:
+    """Retourne (lat, lng) du relais ou None."""
+    if not relay_id:
+        return None
+    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0, "address": 1})
+    if not relay:
+        return None
+    geopin = (relay.get("address") or {}).get("geopin")
+    if geopin and geopin.get("lat") is not None and geopin.get("lng") is not None:
+        return geopin["lat"], geopin["lng"]
+    return None
+
+
+async def estimate_distance_km(quote: ParcelQuote) -> float:
     """
-    Cherche la règle de prix la plus spécifique (zones exactes), puis fallback
-    sans zones (règle globale du mode).
+    Calcule la distance Haversine entre le point de départ et d'arrivée.
+    Fallback : DEFAULT_DISTANCE_KM si les coordonnées sont inconnues.
     """
-    # Règle exacte : mode + zones
-    query = {
-        "delivery_mode": delivery_mode.value,
-        "is_active": True,
-        "origin_zone_id": origin_zone_id,
-        "destination_zone_id": destination_zone_id,
-    }
-    rule = await db.pricing_rules.find_one(query, {"_id": 0})
-    if rule:
-        return rule
+    origin_coords:  Optional[tuple[float, float]] = None
+    dest_coords:    Optional[tuple[float, float]] = None
 
-    # Fallback : règle globale sans zones
-    query_global = {
-        "delivery_mode": delivery_mode.value,
-        "is_active": True,
-        "origin_zone_id": None,
-        "destination_zone_id": None,
-    }
-    return await db.pricing_rules.find_one(query_global, {"_id": 0})
+    # Origine
+    if quote.origin_relay_id:
+        origin_coords = await _relay_geopin(quote.origin_relay_id)
+    if not origin_coords and quote.origin_location:
+        gp = (quote.origin_location.geopin if hasattr(quote.origin_location, "geopin") else None)
+        if gp:
+            origin_coords = (gp.lat, gp.lng)
 
+    # Destination
+    if quote.destination_relay_id:
+        dest_coords = await _relay_geopin(quote.destination_relay_id)
+    if not dest_coords and quote.delivery_address:
+        gp = (quote.delivery_address.geopin if hasattr(quote.delivery_address, "geopin") else None)
+        if gp:
+            dest_coords = (gp.lat, gp.lng)
+
+    if origin_coords and dest_coords:
+        km = _haversine_km(*origin_coords, *dest_coords)
+        # Minimum 1 km pour ne pas avoir 0 XOF de distance
+        return max(1.0, round(km, 2))
+
+    logger.debug("GPS inconnu pour le devis — fallback %.1f km", settings.DEFAULT_DISTANCE_KM)
+    return settings.DEFAULT_DISTANCE_KM
+
+
+def _base_price(mode: DeliveryMode) -> float:
+    return {
+        DeliveryMode.RELAY_TO_RELAY: settings.BASE_RELAY_TO_RELAY,
+        DeliveryMode.RELAY_TO_HOME:  settings.BASE_RELAY_TO_HOME,
+        DeliveryMode.HOME_TO_RELAY:  settings.BASE_HOME_TO_RELAY,
+        DeliveryMode.HOME_TO_HOME:   settings.BASE_HOME_TO_HOME,
+    }[mode]
+
+
+def _round_to_50(value: float) -> float:
+    """Arrondit au multiple de 50 supérieur (propre pour le client)."""
+    return math.ceil(value / 50) * 50
+
+
+# ── Point d'entrée principal ──────────────────────────────────────────────────
 
 async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
-    """
-    Calcule le prix total selon :
-    1. Base price + poids × price_per_kg
-    2. Assurance : declared_value × insurance_rate
-    3. Clamp entre min_price et max_price
-    Si aucune règle n'est trouvée, retourne les prix par défaut depuis .env
-    """
-    breakdown: Dict[str, Any] = {}
+    base       = _base_price(quote.delivery_mode)
+    distance   = await estimate_distance_km(quote)
+    dist_cost  = distance * settings.PRICE_PER_KM
+    extra_kg   = max(0.0, quote.weight_kg - settings.FREE_WEIGHT_KG)
+    weight_cost = extra_kg * settings.PRICE_PER_KG
 
-    # Identifier les zones
-    origin_zone_id = None
-    dest_zone_id = None
-    if quote.origin_relay_id:
-        origin_zone_id = await get_zone_for_relay(quote.origin_relay_id)
-    if quote.destination_relay_id:
-        dest_zone_id = await get_zone_for_relay(quote.destination_relay_id)
-
-    rule = await find_pricing_rule(quote.delivery_mode, origin_zone_id, dest_zone_id)
-
-    if rule:
-        base_price   = rule["base_price"]
-        price_per_kg = rule.get("price_per_kg", 0.0)
-        min_price    = rule.get("min_price", settings.MIN_PRICE)
-        max_price    = rule.get("max_price", None)
-        insurance_rate = rule.get("insurance_rate", 0.02)
-        breakdown["rule_id"] = rule.get("rule_id")
-    else:
-        # Valeurs par défaut ENV
-        # Modes avec livraison domicile ou collecte domicile = tarif HOME
-        _home_modes = {DeliveryMode.RELAY_TO_HOME, DeliveryMode.HOME_TO_HOME, DeliveryMode.HOME_TO_RELAY}
-        base_price = (
-            settings.BASE_PRICE_HOME
-            if quote.delivery_mode in _home_modes
-            else settings.BASE_PRICE_RELAY
-        )
-        price_per_kg   = 0.0
-        min_price      = settings.MIN_PRICE
-        max_price      = None
-        insurance_rate = 0.02
-        breakdown["rule_id"] = None
-
-    weight_cost = quote.weight_kg * price_per_kg
-    insurance_cost = 0.0
+    insur_cost = 0.0
     if quote.is_insured and quote.declared_value:
-        insurance_cost = quote.declared_value * insurance_rate
+        insur_cost = max(200.0, quote.declared_value * settings.INSURANCE_RATE)
 
-    total = base_price + weight_cost + insurance_cost
+    sous_total = base + dist_cost + weight_cost + insur_cost
 
-    if max_price is not None:
-        total = min(total, max_price)
-    total = max(total, min_price)
+    # Coefficient dynamique (heure + offre/demande)
+    coeff, coeff_factors = await get_dynamic_coefficient(is_express=quote.is_express)
+    price_with_coeff = sous_total * coeff
 
-    breakdown.update({
-        "base_price":      base_price,
-        "weight_cost":     weight_cost,
-        "insurance_cost":  insurance_cost,
-        "origin_zone_id":  origin_zone_id,
-        "dest_zone_id":    dest_zone_id,
-    })
+    # Express
+    express_cost = 0.0
+    if quote.is_express:
+        express_cost = price_with_coeff * (settings.EXPRESS_MULTIPLIER - 1)
+        price_with_coeff *= settings.EXPRESS_MULTIPLIER
 
-    return QuoteResponse(price=round(total), currency="XOF", breakdown=breakdown)
+    # Min + arrondi 50 XOF
+    final = _round_to_50(max(price_with_coeff, settings.MIN_PRICE))
+
+    # Estimation du temps de livraison affiché
+    estimated_hours = _estimate_delivery_hours(
+        distance, quote.delivery_mode, quote.is_express
+    )
+
+    breakdown = {
+        "base":           base,
+        "distance_km":    distance,
+        "distance_cost":  round(dist_cost),
+        "weight_kg":      quote.weight_kg,
+        "weight_extra_kg": extra_kg,
+        "weight_cost":    round(weight_cost),
+        "insurance_cost": round(insur_cost),
+        "sous_total":     round(sous_total),
+        "coefficient":    coeff,
+        "coeff_factors":  coeff_factors,
+        "is_express":     quote.is_express,
+        "express_cost":   round(express_cost),
+        "who_pays":       quote.who_pays,
+        "estimated_hours": estimated_hours,
+    }
+
+    return QuoteResponse(price=final, currency="XOF", breakdown=breakdown)
+
+
+def _estimate_delivery_hours(distance_km: float, mode: DeliveryMode, is_express: bool) -> str:
+    """Estimation affichée dans l'app (ex: '1h-2h', 'Express ~45 min')."""
+    if is_express:
+        mins = int(distance_km / 25 * 60) + 20  # 25 km/h Dakar + 20 min marge
+        return f"Express ~{mins} min"
+    if mode == DeliveryMode.RELAY_TO_RELAY:
+        return "Même jour" if distance_km < 15 else "24h"
+    # Livraison domicile
+    hours = max(1, int(distance_km / 20))
+    return f"{hours}h-{hours + 1}h"

@@ -23,6 +23,8 @@ class Parcel(BaseModel):
     declared_value:        Optional[float] = None              # XOF
     is_insured:            bool  = False
     description:           Optional[str] = None
+    is_express:            bool  = False
+    who_pays:              str   = "sender"    # "sender" | "recipient"
     # Prix et paiement
     quoted_price:          float                               # XOF
     paid_price:            Optional[float] = None
@@ -56,7 +58,9 @@ class ParcelCreate(BaseModel):
     declared_value:        Optional[float] = None
     is_insured:            bool = False
     description:           Optional[str] = None
-    # Confirmation GPS bidirectionnelle
+    is_express:            bool = False
+    who_pays:              str  = "sender"    # "sender" | "recipient"
+    # GPS expéditeur (HOME_TO_* : capturé dans l'app)
     initiated_by:          str = "sender"    # "sender" | "recipient"
     sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
 
@@ -79,10 +83,13 @@ class ParcelQuote(BaseModel):
     delivery_mode:         DeliveryMode
     origin_relay_id:       Optional[str] = None
     destination_relay_id:  Optional[str] = None
+    origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur
     delivery_address:      Optional[Address] = None
     weight_kg:             float = 0.5
     is_insured:            bool  = False
     declared_value:        Optional[float] = None
+    is_express:            bool  = False
+    who_pays:              str   = "sender"    # "sender" | "recipient"
 
 
 class QuoteResponse(BaseModel):
