@@ -24,20 +24,27 @@ async def simulate_scenario_1_relay_to_relay():
     await connect_db()
     print("\n--- DÉMARRAGE SCÉNARIO 1 : RELAY TO RELAY ---")
     
-    # 1. Sélectionner des utilisateurs et des relais au hasard
-    client = await db.users.find_one({"role": "client"})
-    driver = await db.users.find_one({"role": "driver"})
-    relays = await db.relay_points.find().limit(2).to_list(length=2)
+    # 1. Forcer l'utilisation des utilisateurs de test habituels
+    client = await db.users.find_one({"phone": "+221701234567"}) or await db.users.find_one({"role": "client"})
+    driver = await db.users.find_one({"phone": "+221770000003"}) or await db.users.find_one({"role": "driver"})
     
-    if not client or not driver or len(relays) < 2:
-        print("Erreur : Il manque des données (client, livreur ou 2 relais) dans la DB pour simuler.")
+    # Agent de test pour le relais origine
+    agent_origin = await db.users.find_one({"phone": "+221770000002"})
+    
+    if not client or not driver or not agent_origin:
+        print("Erreur : Il manque des utilisateurs de test dans la base (+221770000003 ou +221770000002).")
         return
         
-    origin_relay = relays[0]
-    dest_relay = relays[1]
+    # Le relais origine DOIT être celui assigné à l'agent de test !
+    origin_relay = await db.relay_points.find_one({"relay_id": agent_origin.get("relay_point_id")})
     
-    # Trouver les agents de ces relais (le owner pour simplifier)
-    agent_origin = await db.users.find_one({"user_id": origin_relay["owner_user_id"]})
+    # Un relais destination au hasard (différent de l'origine)
+    dest_relay = await db.relay_points.find_one({"relay_id": {"$ne": origin_relay["relay_id"]}})
+    
+    if not origin_relay or not dest_relay:
+        print("Erreur : Impossible de trouver le relais d'origine de l'agent ou un relais de destination.")
+        return
+        
     agent_dest = await db.users.find_one({"user_id": dest_relay["owner_user_id"]})
     
     now = datetime.now(timezone.utc)
