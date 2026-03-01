@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 
 from core.dependencies import get_current_user, require_role
-from core.exceptions import not_found_exception, bad_request_exception
+from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
@@ -198,6 +198,43 @@ async def update_location(
         },
     )
     return {"message": "Position mise à jour"}
+
+
+@router.post("/{mission_id}/release", summary="Libérer une mission (driver)")
+async def release_mission(
+    mission_id: str,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """
+    Le livreur libère une mission qu'il a acceptée mais ne peut pas honorer.
+    La mission repasse en PENDING, disponible pour d'autres livreurs.
+    Impossible si la collecte est déjà confirmée (statut IN_PROGRESS).
+    """
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    if mission["status"] != MissionStatus.ASSIGNED.value:
+        raise bad_request_exception("Impossible de libérer : collecte déjà confirmée ou mission terminée")
+    if mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception()
+
+    now = datetime.now(timezone.utc)
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": {
+            "status":      MissionStatus.PENDING.value,
+            "driver_id":   None,
+            "assigned_at": None,
+            "updated_at":  now,
+        }},
+    )
+    await db.parcels.update_one(
+        {"parcel_id": mission["parcel_id"]},
+        {"$set": {"assigned_driver_id": None, "updated_at": now}},
+    )
+    return {"message": "Mission libérée, disponible pour d'autres livreurs"}
 
 
 @router.get("/{mission_id}/trail", summary="Trail GPS complet (admin)")

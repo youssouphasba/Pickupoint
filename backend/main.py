@@ -1,5 +1,7 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -22,13 +24,53 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
 
+async def _auto_release_stuck_missions() -> None:
+    """
+    Toutes les 2 min : libère les missions ASSIGNED depuis plus de 15 min
+    sans que le livreur ait confirmé la collecte (started_at absent).
+    """
+    from database import db as _db
+    while True:
+        await asyncio.sleep(120)  # vérification toutes les 2 minutes
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+            cursor = _db.delivery_missions.find({
+                "status":      "assigned",
+                "assigned_at": {"$lt": cutoff},
+                "started_at":  None,          # collecte jamais confirmée
+            })
+            released = 0
+            async for mission in cursor:
+                now = datetime.now(timezone.utc)
+                await _db.delivery_missions.update_one(
+                    {"mission_id": mission["mission_id"]},
+                    {"$set": {
+                        "status":      "pending",
+                        "driver_id":   None,
+                        "assigned_at": None,
+                        "updated_at":  now,
+                    }},
+                )
+                await _db.parcels.update_one(
+                    {"parcel_id": mission["parcel_id"]},
+                    {"$set": {"assigned_driver_id": None, "updated_at": now}},
+                )
+                released += 1
+            if released:
+                logger.info(f"Auto-release : {released} mission(s) libérée(s) après 15 min d'inactivité")
+        except Exception as exc:
+            logger.error(f"Erreur auto-release missions : {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await connect_db()
+    task = asyncio.create_task(_auto_release_stuck_missions())
     logger.info("PickuPoint API started")
     yield
     # Shutdown
+    task.cancel()
     await close_db()
     logger.info("PickuPoint API stopped")
 
