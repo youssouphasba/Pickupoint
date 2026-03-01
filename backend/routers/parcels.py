@@ -89,6 +89,7 @@ async def cancel_parcel(parcel_id: str, current_user: dict = Depends(get_current
 @router.post("/{parcel_id}/drop-at-relay", summary="Scan entrée relais origine (agent)")
 async def drop_at_relay(
     parcel_id: str,
+    body: Optional[dict] = None,
     current_user: dict = Depends(require_role(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -104,6 +105,7 @@ async def drop_at_relay(
 @router.post("/{parcel_id}/arrive-relay", summary="Réceptionner un colis au relais (normal ou redirigé)")
 async def arrive_relay(
     parcel_id: str,
+    body: Optional[dict] = None,
     current_user: dict = Depends(require_role(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
