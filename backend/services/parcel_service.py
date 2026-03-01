@@ -323,6 +323,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "pickup_city":      pickup_city,
         "pickup_geopin":    pickup_geopin,
         # Livraison
+        "delivery_type":    "gps",             # 'gps' = domicile, 'relay' = relais
         "delivery_label":   delivery_label,
         "delivery_city":    delivery_city,
         "delivery_geopin":  delivery_geopin,
@@ -390,6 +391,8 @@ async def _create_relay_transit_mission(parcel: dict) -> None:
         "pickup_label":     pickup_label,
         "pickup_city":      pickup_city,
         "pickup_geopin":    pickup_geopin,
+        "delivery_type":    "relay",            # 'relay' = relais destinataire
+        "delivery_relay_id": parcel.get("destination_relay_id"),
         "delivery_label":   delivery_label,
         "delivery_city":    delivery_city,
         "delivery_geopin":  delivery_geopin,
