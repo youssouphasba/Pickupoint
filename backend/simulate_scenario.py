@@ -64,43 +64,30 @@ async def simulate_scenario_1_relay_to_relay():
     }
     await db.parcels.insert_one(parcel_doc)
     
-    # Fonction helper pour les transitions rapides
-    async def fast_transition(status, role, user):
-        await asyncio.sleep(1) # Simuler un petit délai
-        await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": {"status": status.value}})
-        await db.parcel_events.insert_one({
-            "event_id": _event_id(),
-            "parcel_id": parcel_id,
-            "event_type": "STATUS_CHANGED",
-            "to_status": status.value,
-            "actor_id": user["user_id"],
-            "actor_role": role,
-            "created_at": datetime.now(timezone.utc)
-        })
-        print(f"✅ --> Changement de statut: {status.name} (par {role})")
-        
-    print(f"🏪 2. Dépôt au relais origine '{origin_relay['name']}'")
-    await fast_transition(ParcelStatus.DROPPED_AT_ORIGIN_RELAY, "relay_agent", agent_origin)
-    
-    print(f"🚚 3. Livreur '{driver['phone']}' récupère le colis")
-    await fast_transition(ParcelStatus.IN_TRANSIT, "driver", driver)
-    
-    print(f"🏪 4. Livreur dépose au relais destination '{dest_relay['name']}'")
-    await fast_transition(ParcelStatus.AT_DESTINATION_RELAY, "driver", driver)
-    
-    print(f"📦 5. Agent du relais '{dest_relay['name']}' réceptionne")
-    await fast_transition(ParcelStatus.AVAILABLE_AT_RELAY, "relay_agent", agent_dest)
-    
-    print(f"🤝 6. Destinataire donne le code {delivery_code} pour retirer")
-    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": {"status": ParcelStatus.DELIVERED.value}})
+    # Création de l'événement initial
     await db.parcel_events.insert_one({
-        "event_id": _event_id(), "parcel_id": parcel_id, "event_type": "STATUS_CHANGED",
-        "to_status": ParcelStatus.DELIVERED.value, "actor_id": agent_dest["user_id"], 
-        "actor_role": "relay_agent", "created_at": datetime.now(timezone.utc),
-        "notes": f"Livré avec code {delivery_code}"
+        "event_id": _event_id(),
+        "parcel_id": parcel_id,
+        "event_type": "STATUS_CHANGED",
+        "to_status": ParcelStatus.CREATED.value,
+        "actor_id": client["user_id"],
+        "actor_role": "client",
+        "created_at": datetime.now(timezone.utc)
     })
-    print(f"✅ --> Changement de statut: DELIVERED (par relay_agent)")
-    print(f"\n🎉 Scénario 1 terminé ! Retrouvez le colis {parcel_id} dans l'application.")
+
+    print(f"\n✅ Colis {parcel_id} créé avec succès !")
+    print(f"🔑 Code de suivi : {tracking_code}")
+    print(f"📍 Relais Origine : {origin_relay['name']} ({origin_relay['relay_id']})")
+    print(f"📍 Relais Destination : {dest_relay['name']} ({dest_relay['relay_id']})")
+    print(f"\n👉 PROCHAINE ÉTAPE MANUELLE :")
+    print(f"Connectez-vous en tant qu'agent du relais '{origin_relay['name']}'")
+    print(f"et utilisez le 'Scanner' pour scanner le colis (Status: DROPPED_AT_ORIGIN).")
+
+    """
+    # Les étapes suivantes sont désactivées pour permettre le test manuel
+    async def fast_transition(status, role, user):
+        ...
+    """
 
 async def main():
     print("Démarrage du simulateur de scénarios PickuPoint...")
