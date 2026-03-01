@@ -65,17 +65,17 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
     cursor = db.parcels.find(
         {
             "$or": [
-                # Colis normaux passant par ce relais (origine ou destination)
+                # Relais ORIGINE : colis déposé ici, en attente du livreur
                 {
-                    "$or": [
-                        {"origin_relay_id": relay_id},
-                        {"destination_relay_id": relay_id},
-                    ],
-                    "status": {"$in": [
-                        "dropped_at_origin_relay", "at_destination_relay", "available_at_relay"
-                    ]},
+                    "origin_relay_id": relay_id,
+                    "status": "dropped_at_origin_relay",
                 },
-                # Colis redirigés après échec de livraison, assignés à ce relais
+                # Relais DESTINATION : colis en cours d'arrivée ou disponible ici
+                {
+                    "destination_relay_id": relay_id,
+                    "status": {"$in": ["at_destination_relay", "available_at_relay"]},
+                },
+                # Relais DE REPLI : colis redirigé après échec de livraison
                 {
                     "redirect_relay_id": relay_id,
                     "status": "redirected_to_relay",
