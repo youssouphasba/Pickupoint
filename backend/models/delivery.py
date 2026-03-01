@@ -45,6 +45,12 @@ class ProofOfDelivery(BaseModel):
     location:   Optional[GeoPin] = None
 
 
+class CodeDelivery(BaseModel):
+    delivery_code: str
+    driver_lat:    Optional[float] = None   # pour géofence 500m
+    driver_lng:    Optional[float] = None
+
+
 class LocationUpdate(BaseModel):
     lat: float
     lng: float

@@ -98,6 +98,7 @@ async def log_delivery_data(
     delivery_duration_minutes: Optional[int] = None,
     failed: bool = False,
     failure_reason: Optional[str] = None,
+    validated_by_code: bool = True,  # Toujours True pour l'instant depuis la Phase 3 (code obligatoire)
 ) -> None:
     """
     Enregistre les métriques de chaque livraison terminée.
@@ -121,6 +122,7 @@ async def log_delivery_data(
             "delivery_duration_min": delivery_duration_minutes,
             "failed":              failed,
             "failure_reason":      failure_reason,
+            "validated_by_code":   validated_by_code,
             "logged_at":           datetime.now(timezone.utc),
         })
     except Exception as e:

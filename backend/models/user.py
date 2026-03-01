@@ -12,6 +12,7 @@ class User(BaseModel):
     role:              UserRole   = UserRole.CLIENT
     is_active:         bool       = True
     is_phone_verified: bool       = False
+    is_available:      bool       = False   # driver disponible
     # Pour relay agents
     relay_point_id:    Optional[str] = None
     # Connexion future projet_stock
@@ -21,6 +22,12 @@ class User(BaseModel):
     language:          str = "fr"
     currency:          str = "XOF"
     country_code:      str = "SN"
+    # Programme fidélité
+    loyalty_points:    int          = 0
+    loyalty_tier:      str          = "bronze"   # "bronze" | "silver" | "gold"
+    referral_code:     str          = ""
+    referred_by:       Optional[str] = None      # user_id du parrain
+    referral_credited: bool          = False
     # Timestamps
     created_at:        datetime
     updated_at:        datetime

@@ -92,3 +92,21 @@ async def _send_sms(phone: str, body: str):
         client.messages.create(body=body, from_=settings.TWILIO_SMS_NUMBER, to=phone)
     except Exception as e:
         logger.warning(f"SMS non envoyé à {phone} : {e}")
+
+async def notify_delivery_code(
+    phone: str,
+    recipient_name: str,
+    tracking_code: str,
+    delivery_code: str,
+) -> None:
+    """Envoie le code de livraison au destinataire par WhatsApp/SMS."""
+    msg = (
+        f"Bonjour {recipient_name},\n"
+        f"Un colis vous est destiné (réf. {tracking_code}).\n"
+        f"Votre code de réception : *{delivery_code}*\n"
+        f"Donnez ce code au livreur pour valider la remise. Ne le partagez pas."
+    )
+    try:
+        await _send_sms(phone, msg)
+    except Exception as e:
+        logger.warning("Impossible d'envoyer le code livraison: %s", e)

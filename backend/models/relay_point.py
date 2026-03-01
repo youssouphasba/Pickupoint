@@ -11,6 +11,7 @@ class RelayPoint(BaseModel):
     name:             str
     address:          Address
     phone:            str
+    description:      Optional[str] = None
     # Capacité et horaires
     max_capacity:     int = 20
     current_load:     int = 0
@@ -34,6 +35,7 @@ class RelayPointCreate(BaseModel):
     name:          str
     address:       Address
     phone:         str
+    description:   Optional[str] = None
     max_capacity:  int = 20
     opening_hours: Optional[Dict[str, str]] = None
     store_id:      Optional[str] = None
@@ -43,6 +45,7 @@ class RelayPointUpdate(BaseModel):
     name:          Optional[str]             = None
     address:       Optional[Address]         = None
     phone:         Optional[str]             = None
+    description:   Optional[str]             = None
     max_capacity:  Optional[int]             = None
     opening_hours: Optional[Dict[str, str]] = None
     is_active:     Optional[bool]            = None
