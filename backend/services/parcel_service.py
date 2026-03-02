@@ -15,6 +15,7 @@ from models.parcel import ParcelCreate, ParcelEvent, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import distribute_delivery_revenue
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
+from services.payment_service import create_payment_link
 
 import random
 logger = logging.getLogger(__name__)
@@ -104,7 +105,32 @@ async def find_nearest_relay(lat: float, lng: float) -> Optional[dict]:
     return nearest
 
 
-async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
+async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5) -> list[str]:
+    """Trouve les X livreurs les plus proches actifs récemment."""
+    from models.common import UserRole
+    # Actif depuis < 30 min et disponible
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    
+    cursor = db.users.find({
+        "role": UserRole.DRIVER.value,
+        "is_active": True,
+        "is_available": True,
+        "last_driver_location_at": {"$gte": cutoff}
+    })
+    drivers = await cursor.to_list(length=100)
+    
+    candidates = []
+    for d in drivers:
+        loc = d.get("last_driver_location")
+        if loc and loc.get("lat") and loc.get("lng"):
+            dist = _haversine_km(lat, lng, loc["lat"], loc["lng"])
+            candidates.append({"id": d["user_id"], "dist": dist})
+    
+    candidates.sort(key=lambda x: x["dist"])
+    return [c["id"] for c in candidates[:limit]]
+
+
+async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: str = "") -> dict:
     """Crée un nouveau colis avec devis et tracking code."""
     from models.parcel import ParcelQuote
     quote_req = ParcelQuote(
@@ -169,15 +195,36 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str) -> dict:
         actor_role="client",
     )
 
+    # ── Générer le lien de paiement Flutterwave (si l'expéditeur paye) ──
+    payment_url = None
+    if data.who_pays == "sender":
+        payment_res = await create_payment_link(
+            parcel_id=parcel_id,
+            tracking_code=tracking_code,
+            amount=quote.price,
+            customer_phone=sender_phone,
+            customer_name=data.recipient_name if data.initiated_by == "recipient" else "L'expéditeur",
+        )
+        if payment_res.get("success"):
+            payment_url = payment_res["payment_link"]
+            # Optionnel : stocker le tx_ref dans le doc
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {"payment_ref": payment_res.get("tx_ref")}}
+            )
+
     # ── Envoyer le code de livraison au destinataire par SMS/WhatsApp ──
     await notify_delivery_code(
         phone=data.recipient_phone,
         recipient_name=data.recipient_name,
         tracking_code=tracking_code,
         delivery_code=parcel_doc["delivery_code"],
+        payment_url=payment_url if data.who_pays == "recipient" else None, # On envoie le lien au destinataire s'il paye
     )
 
-    return {k: v for k, v in parcel_doc.items() if k != "_id"}
+    result = {k: v for k, v in parcel_doc.items() if k != "_id"}
+    result["payment_url"] = payment_url
+    return result
 
 
 async def transition_status(
@@ -223,6 +270,11 @@ async def transition_status(
     # Créditer wallets si livraison réussie
     if new_status == ParcelStatus.DELIVERED:
         await distribute_delivery_revenue(parcel)
+        # ── Gamification (Phase 8) ──
+        driver_id = parcel.get("assigned_driver_id")
+        if driver_id:
+            from services.gamification_service import update_driver_gamification
+            await update_driver_gamification(driver_id, "delivery_completed")
 
     # Créer mission livreur quand le colis passe en OUT_FOR_DELIVERY (livraison domicile)
     # OU quand le colis est déposé au relais origine (pour le transit relay_to_relay)
@@ -332,6 +384,11 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "recipient_phone":  parcel.get("recipient_phone"),
         # Rémunération
         "earn_amount":      earn_amount,
+        # Dispatch en Cascade (Phase 7)
+        "candidate_drivers": [],  # rempli après calcul
+        "ping_index":        0,
+        "ping_expires_at":   None,
+        "is_broadcast":      False,
         # Tracking livreur
         "driver_location":     None,
         "location_updated_at": None,
@@ -345,8 +402,24 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "created_at":    now,
         "updated_at":    now,
     }
+    
+    # ── Calcul du Cascade ──
+    if pickup_geopin:
+        candidates = await _find_nearest_candidate_drivers(pickup_geopin["lat"], pickup_geopin["lng"])
+        if candidates:
+            mission_doc["candidate_drivers"] = candidates
+            mission_doc["ping_expires_at"]   = now + timedelta(seconds=30)
+            # Notifier le premier driver
+            from services.notification_service import notify_new_mission_ping
+            await notify_new_mission_ping(candidates[0], mission_doc)
+        else:
+            mission_doc["is_broadcast"] = True # Aucun livreur proche → broadcast immédiat
+    else:
+        mission_doc["is_broadcast"] = True
+
     await db.delivery_missions.insert_one(mission_doc)
-    logger.info("Mission créée: %s pour colis %s", mission_doc["mission_id"], parcel["parcel_id"])
+    logger.info("Mission créée: %s pour colis %s (Cascade: %s)", 
+                mission_doc["mission_id"], parcel["parcel_id"], not mission_doc["is_broadcast"])
 
 
 async def _create_relay_transit_mission(parcel: dict) -> None:
@@ -399,6 +472,11 @@ async def _create_relay_transit_mission(parcel: dict) -> None:
         "recipient_name":   parcel.get("recipient_name"),
         "recipient_phone":  parcel.get("recipient_phone"),
         "earn_amount":      earn_amount,
+        # Dispatch en Cascade (Phase 7)
+        "candidate_drivers": [],
+        "ping_index":        0,
+        "ping_expires_at":   None,
+        "is_broadcast":      False,
         "driver_location":     None,
         "location_updated_at": None,
         "proof_type":    None,
@@ -409,9 +487,23 @@ async def _create_relay_transit_mission(parcel: dict) -> None:
         "created_at":    now,
         "updated_at":    now,
     }
+
+    # ── Calcul du Cascade ──
+    if pickup_geopin:
+        candidates = await _find_nearest_candidate_drivers(pickup_geopin["lat"], pickup_geopin["lng"])
+        if candidates:
+            mission_doc["candidate_drivers"] = candidates
+            mission_doc["ping_expires_at"]   = now + timedelta(seconds=30)
+            from services.notification_service import notify_new_mission_ping
+            await notify_new_mission_ping(candidates[0], mission_doc)
+        else:
+            mission_doc["is_broadcast"] = True
+    else:
+        mission_doc["is_broadcast"] = True
+
     await db.delivery_missions.insert_one(mission_doc)
-    logger.info("Mission transit relay_to_relay: %s pour colis %s",
-                mission_doc["mission_id"], parcel["parcel_id"])
+    logger.info("Mission transit relay_to_relay: %s pour colis %s (Cascade: %s)",
+                mission_doc["mission_id"], parcel["parcel_id"], not mission_doc["is_broadcast"])
 
 
 async def _record_event(

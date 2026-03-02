@@ -104,7 +104,15 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
     if quote.is_insured and quote.declared_value:
         insur_cost = max(200.0, quote.declared_value * settings.INSURANCE_RATE)
 
-    sous_total = base + dist_cost + weight_cost + insur_cost
+    # ── Surcharge Inter-City (Phase 8) ──
+    # Si distance > 100km OU si cities différentes (si on a l'info)
+    inter_city_cost = 0.0
+    if distance > 100:
+        inter_city_cost += 1000.0
+    elif distance > 50:
+        inter_city_cost += 500.0
+
+    sous_total = base + dist_cost + weight_cost + insur_cost + inter_city_cost
 
     # Coefficient dynamique (heure + offre/demande)
     coeff, coeff_factors = await get_dynamic_coefficient(is_express=quote.is_express)
@@ -133,6 +141,7 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
         "weight_cost":    round(weight_cost),
         "insurance_cost": round(insur_cost),
         "sous_total":     round(sous_total),
+        "inter_city_cost": round(inter_city_cost),
         "coefficient":    coeff,
         "coeff_factors":  coeff_factors,
         "is_express":     quote.is_express,

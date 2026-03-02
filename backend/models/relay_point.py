@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict
 from pydantic import BaseModel
-from models.common import Address
+from models.common import Address, RelayType
 
 
 class RelayPoint(BaseModel):
@@ -10,6 +10,7 @@ class RelayPoint(BaseModel):
     agent_user_ids:   List[str] = []
     name:             str
     address:          Address
+    relay_type:       RelayType = RelayType.STANDARD
     phone:            str
     description:      Optional[str] = None
     # Capacité et horaires
@@ -34,6 +35,7 @@ class RelayPoint(BaseModel):
 class RelayPointCreate(BaseModel):
     name:          str
     address:       Address
+    relay_type:    RelayType = RelayType.STANDARD
     phone:         str
     description:   Optional[str] = None
     max_capacity:  int = 20
@@ -48,4 +50,5 @@ class RelayPointUpdate(BaseModel):
     description:   Optional[str]             = None
     max_capacity:  Optional[int]             = None
     opening_hours: Optional[Dict[str, str]] = None
+    relay_type:    Optional[RelayType]      = None
     is_active:     Optional[bool]            = None

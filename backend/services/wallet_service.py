@@ -120,10 +120,17 @@ async def distribute_delivery_revenue(parcel: dict):
     # Le livreur reverse la plateforme et les relais via son wallet (Phase 2)
     # Phase 1 : log seulement, on ne crédite pas le wallet automatiquement
     if parcel.get("who_pays") == "recipient":
-        logger.info(
-            "COD livraison %s — montant %s XOF — à réconcilier manuellement",
-            parcel.get("parcel_id"), parcel.get("paid_price") or parcel.get("quoted_price", 0)
-        )
+        price = parcel.get("paid_price") or parcel.get("quoted_price", 0)
+        driver_id = parcel.get("assigned_driver_id")
+        if driver_id and price > 0:
+            await db.users.update_one(
+                {"user_id": driver_id},
+                {"$inc": {"cod_balance": float(price)}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+            )
+            logger.info(
+                "COD livraison %s — montant %s XOF — crédité au cod_balance du livreur %s",
+                parcel.get("parcel_id"), price, driver_id
+            )
         return
 
     price = parcel.get("paid_price") or parcel.get("quoted_price", 0)

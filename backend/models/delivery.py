@@ -49,6 +49,9 @@ class CodeDelivery(BaseModel):
     delivery_code: str
     driver_lat:    Optional[float] = None   # pour géofence 500m
     driver_lng:    Optional[float] = None
+    # Preuve optionnelle (Phase 7)
+    proof_type:    Optional[str] = None  # "photo"
+    proof_data:    Optional[str] = None  # base64 optimized webp
 
 
 class LocationUpdate(BaseModel):

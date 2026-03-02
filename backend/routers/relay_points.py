@@ -99,6 +99,7 @@ async def create_relay_point(
         "agent_user_ids":    [],
         "name":              body.name,
         "address":           body.address.model_dump(),
+        "relay_type":        body.relay_type,
         "phone":             body.phone,
         "max_capacity":      body.max_capacity,
         "current_load":      0,

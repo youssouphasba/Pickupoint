@@ -13,3 +13,4 @@ slowapi
 httpx
 twilio
 python-dateutil
+firebase-admin

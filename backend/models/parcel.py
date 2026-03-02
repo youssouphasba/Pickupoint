@@ -40,6 +40,10 @@ class Parcel(BaseModel):
     assigned_driver_id:    Optional[str] = None
     # Redirection
     redirect_relay_id:     Optional[str] = None
+    # Notation & Pourboires (Phase 6)
+    rating:                Optional[int]   = None  # 1-5
+    rating_comment:        Optional[str]   = None
+    driver_tip:            float           = 0.0   # XOF
     # Connexion projet_stock
     external_ref:          Optional[str] = None
     # Timestamps
@@ -109,3 +113,9 @@ class FailDeliveryRequest(BaseModel):
 class RedirectRelayRequest(BaseModel):
     redirect_relay_id: str
     notes:             Optional[str] = None
+
+
+class ParcelRatingRequest(BaseModel):
+    rating:         int   # 1-5
+    comment:        Optional[str] = None
+    tip:            float = 0.0   # XOF pour le livreur

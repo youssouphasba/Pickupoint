@@ -10,6 +10,12 @@ class DeliveryMode(str, Enum):
     HOME_TO_HOME   = "home_to_home"    # Phase 2
 
 
+class RelayType(str, Enum):
+    STANDARD = "standard"
+    MOBILE   = "mobile"   # Bus / Transporteur inter-urbain
+    STATION  = "station"  # Gare / Point de transit majeur
+
+
 class ParcelStatus(str, Enum):
     CREATED                  = "created"
     DROPPED_AT_ORIGIN_RELAY  = "dropped_at_origin_relay"

@@ -26,12 +26,21 @@ async def list_users(
     return {"users": users, "total": await db.users.count_documents({})}
 
 
+from core.utils import mask_phone
+
 @router.get("/{user_id}", response_model=User, summary="Détail utilisateur")
 async def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
     # Admin peut tout voir ; sinon seulement soi-même
-    if current_user["role"] not in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    if not is_admin:
         if current_user["user_id"] != user_id:
+            # On ne devrait pas pouvoir voir d'autres utilisateurs, mais si l'API le permet (ex: via mission), on masque
+            user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+            if user_doc:
+                user_doc["phone"] = mask_phone(user_doc["phone"])
+                return User(**user_doc)
             raise forbidden_exception()
+            
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
@@ -79,6 +88,23 @@ async def toggle_availability(
         {"$set": {"is_available": new_val, "updated_at": datetime.now(timezone.utc)}},
     )
     return {"is_available": new_val}
+
+
+@router.put("/me/fcm-token", summary="Mettre à jour le token FCM (push)")
+async def update_fcm_token(
+    token_body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Enregistre le token Firebase Cloud Messaging de l'appareil."""
+    token = token_body.get("fcm_token")
+    if not token:
+        raise bad_request_exception("fcm_token manquant")
+        
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {"fcm_token": token, "updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"message": "Token FCM mis à jour"}
 
 
 @router.put("/{user_id}/relay-point", summary="Lier un point relais à un agent (admin)")

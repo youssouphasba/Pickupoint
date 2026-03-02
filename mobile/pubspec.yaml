@@ -33,8 +33,10 @@ dependencies:
   # Paiement Flutterwave (webview)
   flutter_inappwebview: ^6.0.0
 
-  # Notifications locales
+  # Notifications
   flutter_local_notifications: ^17.0.0
+  firebase_core: ^2.24.2
+  firebase_messaging: ^14.7.10
 
   # UI utilitaires
   cached_network_image: ^3.3.0
@@ -43,9 +45,13 @@ dependencies:
 
   # Icônes
   flutter_svg: ^2.0.0
-  flutter_map: ^8.2.2
-  latlong2: ^0.9.1
+  google_maps_flutter: ^2.5.3
+  flutter_polyline_points: ^2.0.0
   url_launcher: ^6.3.0
+
+  # Images & Compression (Phase 7)
+  image_picker: ^1.0.7
+  flutter_image_compress: ^2.1.0
 
 dev_dependencies:
   flutter_test:

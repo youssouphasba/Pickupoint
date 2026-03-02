@@ -12,6 +12,24 @@ from models.common import ParcelStatus
 
 logger = logging.getLogger(__name__)
 
+# Initialisation Firebase Admin (au chargement du module)
+import firebase_admin
+from firebase_admin import credentials, messaging
+
+try:
+    # On essaie d'initialiser avec le fichier de compte de service
+    # Si le fichier n'est pas là, on utilise les credentials par défaut (pour Railway/Cloud)
+    import os
+    cred_path = "firebase-service-account.json"
+    if os.path.exists(cred_path):
+        cred = credentials.Certificate(cred_path)
+        firebase_admin.initialize_app(cred)
+    else:
+        # Fallback pour environnement de prod
+        firebase_admin.initialize_app()
+except Exception as e:
+    logger.error(f"Erreur initialisation Firebase Admin: {e}")
+
 
 def _notif_id() -> str:
     return f"ntf_{uuid.uuid4().hex[:12]}"
@@ -79,6 +97,28 @@ async def _store_and_send(
         "read_at":    None,
     }
     await db.notifications.insert_one(notif)
+    
+    # --- Envoi Push réel via FCM ---
+    user = await db.users.find_one({"user_id": user_id}, {"fcm_token": 1})
+    fcm_token = user.get("fcm_token") if user else None
+    
+    if fcm_token:
+        try:
+            message = messaging.Message(
+                notification=messaging.Notification(
+                    title=title,
+                    body=body,
+                ),
+                data={
+                    "ref_type": ref_type or "",
+                    "ref_id": ref_id or "",
+                },
+                token=fcm_token,
+            )
+            messaging.send(message)
+            logger.info(f"Push FCM envoyé à {user_id}")
+        except Exception as e:
+            logger.warning(f"Échec envoi Push FCM à {user_id}: {e}")
 
 
 async def _send_sms(phone: str, body: str):
@@ -98,15 +138,61 @@ async def notify_delivery_code(
     recipient_name: str,
     tracking_code: str,
     delivery_code: str,
+    payment_url: Optional[str] = None,
 ) -> None:
     """Envoie le code de livraison au destinataire par WhatsApp/SMS."""
     msg = (
         f"Bonjour {recipient_name},\n"
         f"Un colis vous est destiné (réf. {tracking_code}).\n"
         f"Votre code de réception : *{delivery_code}*\n"
-        f"Donnez ce code au livreur pour valider la remise. Ne le partagez pas."
     )
+    if payment_url:
+        msg += f"Paiement requis ({payment_url})\n"
+    msg += "Donnez ce code au livreur pour valider la remise. Ne le partagez pas."
     try:
         await _send_sms(phone, msg)
     except Exception as e:
         logger.warning("Impossible d'envoyer le code livraison: %s", e)
+
+
+async def notify_approaching_driver(parcel: dict):
+    """Envoie une notification push au client quand le livreur est proche."""
+    tracking_code = parcel.get("tracking_code", "")
+    parcel_id = parcel.get("parcel_id")
+    
+    # 1. Notifier l'expéditeur
+    sender_id = parcel.get("sender_user_id")
+    if sender_id:
+        await _store_and_send(
+            user_id=sender_id,
+            title="Livreur à proximité",
+            body=f"Votre livreur approche avec votre colis {tracking_code} ! Préparez votre code de réception.",
+            ref_type="parcel",
+            ref_id=parcel_id,
+        )
+
+    # 2. Notifier le destinataire s'il est un utilisateur enregistré
+    recipient_phone = parcel.get("recipient_phone")
+    if recipient_phone:
+        # Chercher l'utilisateur par téléphone (format normalisé)
+        user = await db.users.find_one({"phone": recipient_phone})
+        if user:
+            await _store_and_send(
+                user_id=str(user["_id"]),
+                title="Livreur à proximité",
+                body=f"Votre colis {tracking_code} arrive ! Votre livreur est à moins de 500m.",
+                ref_type="parcel",
+                ref_id=parcel_id,
+            )
+
+
+async def notify_new_mission_ping(user_id: str, mission: dict):
+    """Notifie un livreur qu'une mission lui est exclusivement proposée (ping cascade)."""
+    tracking_code = mission.get("tracking_code", "N/A")
+    await _store_and_send(
+        user_id=user_id,
+        title="Nouvelle Mission Disponible (Exclusivité 30s)",
+        body=f"Une mission pour le colis {tracking_code} vous est proposée. Répondez vite !",
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+    )
