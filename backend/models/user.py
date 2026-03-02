@@ -1,7 +1,12 @@
-from datetime import datetime
+from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, field_validator
 from models.common import UserRole
+
+class UserType(str, Enum):
+    INDIVIDUAL = "individual"
+    MERCHANT = "merchant"
+    ENTERPRISE = "enterprise"
 
 
 class User(BaseModel):
@@ -10,6 +15,7 @@ class User(BaseModel):
     name:              str
     email:             Optional[str] = None
     role:              UserRole   = UserRole.CLIENT
+    user_type:         Optional[UserType] = None
     is_active:         bool       = True
     is_phone_verified: bool       = False
     is_available:      bool       = False   # driver disponible
@@ -88,6 +94,7 @@ class RefreshRequest(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    name:     Optional[str] = None
-    email:    Optional[str] = None
-    language: Optional[str] = None
+    name:       Optional[str] = None
+    email:      Optional[str] = None
+    language:   Optional[str] = None
+    user_type:  Optional[UserType] = None

@@ -119,3 +119,10 @@ class ParcelRatingRequest(BaseModel):
     rating:         int   # 1-5
     comment:        Optional[str] = None
     tip:            float = 0.0   # XOF pour le livreur
+
+
+class LocationConfirmPayload(BaseModel):
+    lat:       float
+    lng:       float
+    accuracy:  Optional[float] = None
+    voice_note: Optional[str]  = None

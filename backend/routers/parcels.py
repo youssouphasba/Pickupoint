@@ -11,9 +11,9 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
-from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest
+from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest, LocationConfirmPayload
 from models.delivery import ProofOfDelivery, CodeDelivery
-from services.parcel_service import create_parcel, transition_status, get_parcel_timeline
+from services.parcel_service import create_parcel, transition_status, get_parcel_timeline, _create_delivery_mission
 from services.pricing_service import calculate_price, _haversine_km
 from services.wallet_service import credit_wallet, debit_wallet
 
@@ -60,6 +60,7 @@ async def list_parcels(
         query = {
             "$or": [
                 {"sender_user_id": current_user["user_id"]},
+                {"recipient_user_id": current_user["user_id"]},
                 {"recipient_phone": current_user.get("phone")},
             ]
         }
@@ -81,14 +82,88 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     if not parcel:
         raise not_found_exception("Colis")
     
-    # Masquage anti-bypass
+    # Masquage anti-bypass & Sécurité des codes
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     if not is_admin:
+        # Masquer le téléphone
         if "recipient_phone" in parcel:
             parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
+        
+        # Sécurité des codes : 
+        # L'expéditeur ne doit pas voir le delivery_code (PIN du destinataire)
+        # Le destinataire ne doit pas voir le pickup_code (PIN de collecte)
+        is_sender = parcel.get("sender_user_id") == current_user["user_id"]
+        is_recipient = parcel.get("recipient_phone") and current_user.get("phone") and \
+                       parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+        
+        if is_sender and not is_recipient:
+            parcel.pop("delivery_code", None)
+        if is_recipient and not is_sender:
+            parcel.pop("pickup_code", None)
             
     timeline = await get_parcel_timeline(parcel_id)
     return {"parcel": parcel, "timeline": timeline}
+
+
+@router.post("/{parcel_id}/confirm-location", summary="Confirmer sa position (App Destinataire)")
+async def confirm_location_authenticated(
+    parcel_id: str,
+    payload: LocationConfirmPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    # Vérification : l'utilisateur est bien le destinataire
+    # On compare par ID si lié, sinon par téléphone
+    is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
+    if not is_recipient and parcel.get("recipient_phone"):
+        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+
+    if not is_recipient:
+        raise forbidden_exception("Seul le destinataire peut confirmer la position de livraison")
+
+    location = {
+        "label":    None,
+        "district": None,
+        "city":     "Dakar",
+        "notes":    None,
+        "geopin": {
+            "lat":      payload.lat,
+            "lng":      payload.lng,
+            "accuracy": payload.accuracy,
+        },
+        "source":    "app_recipient",
+        "confirmed": True,
+    }
+
+    updates = {
+        "delivery_location":  location,
+        "delivery_confirmed": True,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if payload.voice_note:
+        updates["delivery_voice_note"] = payload.voice_note
+
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
+    
+    # Recharger pour avoir les champs à jour pour la mission
+    updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    
+    # ── Déclenchement automatique de la mission si prêt ──
+    mode = updated_parcel.get("delivery_mode", "")
+    status = updated_parcel.get("status", "")
+    
+    if mode.endswith("_to_home"):
+        if status == ParcelStatus.CREATED.value and mode == "home_to_home":
+            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
+            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
+
+    return {"ok": True, "message": "Position de livraison confirmée"}
 
 
 @router.put("/{parcel_id}/cancel", summary="Annuler un colis (si CREATED)")

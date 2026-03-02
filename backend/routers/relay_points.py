@@ -21,12 +21,15 @@ def _relay_id() -> str:
 
 @router.get("", summary="Liste des relais (public)")
 async def list_relay_points(
-    city: str = "Dakar",
+    city: Optional[str] = None,
     is_active: bool = True,
     skip: int = 0,
     limit: int = 50,
 ):
-    query = {"is_active": is_active, "address.city": city}
+    query = {"is_active": is_active}
+    if city:
+        query["address.city"] = city
+        
     cursor = db.relay_points.find(query, {"_id": 0}).skip(skip).limit(limit)
     relays = await cursor.to_list(length=limit)
     return {"relay_points": relays, "total": await db.relay_points.count_documents(query)}

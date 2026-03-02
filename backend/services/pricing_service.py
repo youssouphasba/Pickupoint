@@ -114,8 +114,8 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
 
     sous_total = base + dist_cost + weight_cost + insur_cost + inter_city_cost
 
-    # Coefficient dynamique (heure + offre/demande)
-    coeff, coeff_factors = await get_dynamic_coefficient(is_express=quote.is_express)
+    # Pas de coefficient dynamique
+    coeff, coeff_factors = 1.0, []
     price_with_coeff = sous_total * coeff
 
     # Express

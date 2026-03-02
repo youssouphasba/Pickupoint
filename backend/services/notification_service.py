@@ -67,9 +67,24 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_id=parcel.get("parcel_id"),
         )
 
-    # Notifier destinataire via SMS (pas forcément inscrit)
-    recipient_phone = parcel.get("recipient_phone")
-    if recipient_phone:
+    # Notifier destinataire
+    recipient_user_id = parcel.get("recipient_user_id")
+    if not recipient_user_id and recipient_phone:
+        # Recherche tardive (si inscrit entre temps)
+        user = await db.users.find_one({"phone": recipient_phone}, {"user_id": 1})
+        if user:
+            recipient_user_id = user["user_id"]
+
+    if recipient_user_id:
+        await _store_and_send(
+            user_id=recipient_user_id,
+            title="Mise à jour colis",
+            body=body,
+            ref_type="parcel",
+            ref_id=parcel.get("parcel_id"),
+        )
+    elif recipient_phone:
+        # Si pas d'ID, on reste sur le SMS classique
         await _send_sms(recipient_phone, body)
 
 
