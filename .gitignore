@@ -43,3 +43,7 @@ Thumbs.db
 backend/__pycache__/
 backend/.env
 backend/.venv
+ios_replacements.txt
+*.jpg
+*.png
+*.jpeg
