@@ -11,7 +11,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
-from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest
+from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest
 from models.delivery import ProofOfDelivery, CodeDelivery
 from services.parcel_service import create_parcel, transition_status, get_parcel_timeline
 from services.pricing_service import calculate_price, _haversine_km
