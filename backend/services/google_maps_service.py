@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 from config import settings
 
 GOOGLE_DIRECTIONS_API_URL = "https://maps.googleapis.com/maps/api/directions/json"
-API_KEY = settings.GOOGLE_MAPS_API_KEY
+API_KEY = settings.GOOGLE_DIRECTIONS_API_KEY
 
 async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> Optional[Dict]:
     """

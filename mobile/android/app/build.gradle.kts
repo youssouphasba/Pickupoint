@@ -36,7 +36,7 @@ android {
         if (localPropertiesFile.exists()) {
             localPropertiesFile.inputStream().use { localProperties.load(it) }
         }
-        val mapsApiKey = localProperties.getProperty("google.maps.api.key") ?: System.getenv("GOOGLE_MAPS_API_KEY") ?: ""
+        val mapsApiKey = localProperties.getProperty("google.maps.android.key") ?: System.getenv("GOOGLE_MAPS_ANDROID_KEY") ?: ""
         manifestPlaceholders["googleMapsApiKey"] = mapsApiKey
     }
 
