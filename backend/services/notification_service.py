@@ -12,23 +12,30 @@ from models.common import ParcelStatus
 
 logger = logging.getLogger(__name__)
 
-# Initialisation Firebase Admin (au chargement du module)
-import firebase_admin
-from firebase_admin import credentials, messaging
+# Firebase Admin — initialisé à la demande (pas à l'import) pour éviter
+# tout blocage réseau au démarrage (Railway tourne sur GCP, le metadata server
+# est accessible et peut ralentir firebase_admin.initialize_app() sans creds).
+_firebase_initialized = False
 
-try:
-    # On essaie d'initialiser avec le fichier de compte de service
-    # Si le fichier n'est pas là, on utilise les credentials par défaut (pour Railway/Cloud)
-    import os
-    cred_path = "firebase-service-account.json"
-    if os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-    else:
-        # Fallback pour environnement de prod
-        firebase_admin.initialize_app()
-except Exception as e:
-    logger.error(f"Erreur initialisation Firebase Admin: {e}")
+
+def _ensure_firebase():
+    """Initialise Firebase Admin au premier appel, silencieusement si indispo."""
+    global _firebase_initialized
+    if _firebase_initialized:
+        return
+    try:
+        import os
+        import firebase_admin
+        from firebase_admin import credentials
+        cred_path = "firebase-service-account.json"
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
+        _firebase_initialized = True
+    except Exception as e:
+        logger.warning(f"Firebase Admin non initialisé (push désactivé) : {e}")
 
 
 def _notif_id() -> str:
@@ -68,6 +75,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         )
 
     # Notifier destinataire
+    recipient_phone = parcel.get("recipient_phone")
     recipient_user_id = parcel.get("recipient_user_id")
     if not recipient_user_id and recipient_phone:
         # Recherche tardive (si inscrit entre temps)
@@ -116,24 +124,21 @@ async def _store_and_send(
     # --- Envoi Push réel via FCM ---
     user = await db.users.find_one({"user_id": user_id}, {"fcm_token": 1})
     fcm_token = user.get("fcm_token") if user else None
-    
+
     if fcm_token:
-        try:
-            message = messaging.Message(
-                notification=messaging.Notification(
-                    title=title,
-                    body=body,
-                ),
-                data={
-                    "ref_type": ref_type or "",
-                    "ref_id": ref_id or "",
-                },
-                token=fcm_token,
-            )
-            messaging.send(message)
-            logger.info(f"Push FCM envoyé à {user_id}")
-        except Exception as e:
-            logger.warning(f"Échec envoi Push FCM à {user_id}: {e}")
+        _ensure_firebase()
+        if _firebase_initialized:
+            try:
+                import firebase_admin.messaging as _messaging
+                message = _messaging.Message(
+                    notification=_messaging.Notification(title=title, body=body),
+                    data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
+                    token=fcm_token,
+                )
+                _messaging.send(message)
+                logger.info(f"Push FCM envoyé à {user_id}")
+            except Exception as e:
+                logger.warning(f"Échec envoi Push FCM à {user_id}: {e}")
 
 
 async def _send_sms(phone: str, body: str):

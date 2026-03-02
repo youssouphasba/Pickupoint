@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+# Flush stdout/stderr immédiatement — indispensable pour voir les logs Railway
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONFAULTHANDLER=1
+
 WORKDIR /app
 
 # Dépendances système

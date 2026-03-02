@@ -9,7 +9,7 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="true"
-        tools:replace="android:label,android:icon,android:allowBackup">
+>
         <activity
             android:name=".MainActivity"
             android:exported="true"
