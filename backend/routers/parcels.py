@@ -15,6 +15,7 @@ from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, Fail
 from models.delivery import ProofOfDelivery, CodeDelivery
 from services.parcel_service import create_parcel, transition_status, get_parcel_timeline
 from services.pricing_service import calculate_price, _haversine_km
+from services.wallet_service import credit_wallet, debit_wallet
 
 router = APIRouter()
 
@@ -29,7 +30,11 @@ async def create_parcel_endpoint(
     body: ParcelCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    parcel = await create_parcel(body, sender_user_id=current_user["user_id"])
+    parcel = await create_parcel(
+        body, 
+        sender_user_id=current_user["user_id"],
+        sender_phone=current_user.get("phone", "")
+    )
     return parcel
 
 
@@ -68,11 +73,20 @@ async def list_parcels(
     return {"parcels": parcels, "total": total}
 
 
+from core.utils import mask_phone
+
 @router.get("/{parcel_id}", summary="Détail + timeline")
 async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_user)):
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
+    
+    # Masquage anti-bypass
+    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    if not is_admin:
+        if "recipient_phone" in parcel:
+            parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
+            
     timeline = await get_parcel_timeline(parcel_id)
     return {"parcel": parcel, "timeline": timeline}
 
@@ -152,6 +166,49 @@ async def arrive_relay(
         )
 
 
+@router.post("/bulk-action", summary="Actions en masse pour les relais (Batch Scanning)")
+async def bulk_relay_action(
+    codes: list[str],
+    current_user: dict = Depends(require_role(
+        UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """
+    Traite une liste de codes de suivi pour un relais (entrée ou réception).
+    """
+    results = []
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    
+    for code in codes:
+        try:
+            parcel = await db.parcels.find_one({"tracking_code": code.strip().upper()})
+            if not parcel:
+                results.append({"code": code, "success": False, "error": "Introuvable"})
+                continue
+            
+            parcel_id = parcel["parcel_id"]
+            status = parcel["status"]
+            
+            # Logique simplifiée identique à arrive_relay / drop_at_relay
+            arrive_statuses = {
+                ParcelStatus.REDIRECTED_TO_RELAY.value,
+                ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+                ParcelStatus.IN_TRANSIT.value,
+                ParcelStatus.AT_DESTINATION_RELAY.value,
+            }
+            
+            if status in arrive_statuses:
+                await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Arrivée", **actor)
+            else:
+                await transition_status(parcel_id, ParcelStatus.DROPPED_AT_ORIGIN_RELAY, notes="Batch scan: Dépôt", **actor)
+                
+            results.append({"code": code, "success": True})
+        except Exception as e:
+            results.append({"code": code, "success": False, "error": str(e)})
+            
+    return {"results": results}
+
+
 @router.post("/{parcel_id}/handout", summary="Remise destinataire (scan + PIN)")
 async def handout_parcel(
     parcel_id: str,
@@ -202,6 +259,14 @@ async def deliver_parcel(
     if not parcel:
         raise not_found_exception("Colis")
 
+    # ── Validation du paiement (si obligatoire) ────────────────────────
+    # Si le statut est 'paid', c'est bon. 
+    # Si c'est 'pending' et que le paiement est requis (ex: who_pays='sender' ou 'recipient'), bloquer.
+    if parcel.get("payment_status") != "paid":
+        # Exception : si c'est un paiement Cash on Delivery (COD), on pourrait autoriser, 
+        # mais ici on suit la logique Flutterwave/In-App.
+        raise bad_request_exception("Le paiement n'a pas encore été confirmé. Demandez au client de régler via le lien reçu.")
+
     # ── Validation du code ─────────────────────────────────────────────
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
         raise bad_request_exception("Code de livraison invalide")
@@ -223,7 +288,11 @@ async def deliver_parcel(
         parcel_id, ParcelStatus.DELIVERED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes=f"Livré — code validé",
-        metadata={"delivery_code_used": True},
+        metadata={
+            "delivery_code_used": True,
+            "proof_type": body.proof_type,
+            "proof_data": body.proof_data, # stocké en DB (optimisé webp via mobile)
+        },
     )
     return updated
 
@@ -294,3 +363,62 @@ async def get_parcel_codes(
         "pickup_code":   parcel.get("pickup_code")   if can_see_pickup else None,
         "delivery_code": parcel.get("delivery_code") if is_admin else parcel.get("delivery_code"),
     }
+
+@router.post("/{parcel_id}/rate", summary="Noter le livreur + Pourboire")
+async def rate_parcel(
+    parcel_id: str,
+    body: ParcelRatingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id})
+    if not parcel:
+        raise not_found_exception("Colis")
+    
+    if parcel["status"] != ParcelStatus.DELIVERED.value:
+        raise bad_request_exception("Seul un colis livré peut être noté")
+
+    # Mise à jour des infos de notation
+    await db.parcels.update_one(
+        {"parcel_id": parcel_id},
+        {"$set": {
+            "rating": body.rating,
+            "rating_comment": body.comment,
+            "driver_tip": body.tip,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+
+    # Gestion du pourboire (si > 0)
+    if body.tip > 0 and parcel.get("assigned_driver_id"):
+        try:
+            from services.wallet_service import debit_wallet, credit_wallet
+            # On débite le donateur (celui qui note)
+            await debit_wallet(
+                owner_id=current_user["user_id"],
+                amount=body.tip,
+                description=f"Pourboire versé pour le colis {parcel_id}",
+                parcel_id=parcel_id
+            )
+            # On crédite le livreur
+            await credit_wallet(
+                owner_id=parcel["assigned_driver_id"],
+                owner_type="driver",
+                amount=body.tip,
+                description=f"Pourboire reçu pour le colis {parcel_id}",
+                parcel_id=parcel_id
+            )
+        except ValueError as e:
+            # Si solde insuffisant, on n'arrête pas la notation mais on prévient
+            return {"message": "Notation enregistrée, mais solde insuffisant pour le pourboire", "rating": body.rating}
+
+    # ── Gamification (Phase 8) ──
+    if parcel.get("assigned_driver_id"):
+        from services.gamification_service import update_driver_gamification
+        await update_driver_gamification(
+            parcel["assigned_driver_id"], 
+            "rating_received", 
+            rating=body.rating
+        )
+
+    return {"message": "Merci pour votre avis !", "rating": body.rating}
+

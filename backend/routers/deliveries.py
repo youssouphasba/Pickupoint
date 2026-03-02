@@ -15,6 +15,8 @@ from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel
 from services.parcel_service import transition_status
+from services.google_maps_service import get_directions_eta
+from services.notification_service import notify_approaching_driver
 
 router = APIRouter()
 
@@ -42,11 +44,59 @@ async def available_missions(
 ):
     """
     Retourne les missions en attente, triées par distance au pickup.
-    - Si lat/lng fournis : filtre par rayon_km, ajoute distance_km, tri croissant.
-    - Sinon : retourne toutes les missions (fallback GPS refusé).
+    Gère le Dispatch en Cascade (Phase 7).
     """
-    query: dict = {"status": MissionStatus.PENDING.value}
-    missions = await db.delivery_missions.find(query, {"_id": 0}).to_list(length=200)
+    now = datetime.now(timezone.utc)
+    user_id = current_user["user_id"]
+    
+    # On récupère toutes les missions PENDING
+    cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value})
+    raw_missions = await cursor.to_list(length=200)
+
+    filtered_missions = []
+    
+    for m in raw_missions:
+        needs_update = False
+        # Si mission avec cascade et temps expiré
+        if not m.get("is_broadcast") and m.get("ping_expires_at"):
+            if now > m["ping_expires_at"].replace(tzinfo=timezone.utc):
+                # On passe au suivant
+                candidates = m.get("candidate_drivers") or []
+                next_idx = m.get("ping_index", 0) + 1
+                
+                if next_idx < len(candidates):
+                    m["ping_index"] = next_idx
+                    m["ping_expires_at"] = now + timedelta(seconds=30)
+                    needs_update = True
+                    # Notifier le suivant
+                    from services.notification_service import notify_new_mission_ping
+                    await notify_new_mission_ping(candidates[next_idx], m)
+                else:
+                    m["is_broadcast"] = True
+                    needs_update = True
+                    
+        if needs_update:
+            await db.delivery_missions.update_one(
+                {"mission_id": m["mission_id"]},
+                {"$set": {
+                    "ping_index": m.get("ping_index"),
+                    "ping_expires_at": m.get("ping_expires_at"),
+                    "is_broadcast": m.get("is_broadcast")
+                }}
+            )
+
+        # Filtrage pour le livreur actuel
+        if m.get("is_broadcast"):
+            filtered_missions.append(m)
+        else:
+            candidates = m.get("candidate_drivers") or []
+            ping_idx = m.get("ping_index", 0)
+            if ping_idx < len(candidates) and candidates[ping_idx] == user_id:
+                filtered_missions.append(m)
+            elif not candidates: # Sécurité : si pas de candidats calculés mais pas is_broadcast
+                filtered_missions.append(m)
+
+    missions = filtered_missions
 
     if lat is not None and lng is not None:
         result = []
@@ -69,6 +119,15 @@ async def available_missions(
 
     # Fallback : pas de GPS (permission refusée) → toutes les missions
     missions.sort(key=lambda m: m["created_at"])
+    
+    # Masquage anti-bypass
+    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    if not is_admin:
+        from core.utils import mask_phone
+        for m in missions:
+            if "recipient_phone" in m:
+                m["recipient_phone"] = mask_phone(m["recipient_phone"])
+                
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
@@ -82,7 +141,17 @@ async def my_missions(
         {"driver_id": current_user["user_id"]},
         {"_id": 0},
     ).sort("created_at", -1).limit(50)
-    return {"missions": await cursor.to_list(length=50)}
+    missions = await cursor.to_list(length=50)
+    
+    # Masquage anti-bypass
+    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    if not is_admin:
+        from core.utils import mask_phone
+        for m in missions:
+            if "recipient_phone" in m:
+                m["recipient_phone"] = mask_phone(m["recipient_phone"])
+                
+    return {"missions": missions}
 
 class ConfirmPickupRequest(BaseModel):
     code: str
@@ -124,6 +193,8 @@ async def confirm_pickup(
     return {"message": "Collecte confirmée", "mission_id": mission_id}
 
 
+from core.utils import mask_phone
+
 @router.get("/{mission_id}", summary="Détail mission")
 async def get_mission(
     mission_id: str,
@@ -132,6 +203,20 @@ async def get_mission(
     mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
     if not mission:
         raise not_found_exception("Mission")
+    
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"payment_status": 1})
+    if parcel:
+        mission["payment_status"] = parcel.get("payment_status", "pending")
+
+    # Masquage anti-bypass
+    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    if not is_admin:
+        # Masquer les infos de l'expéditeur/destinataire si présentes dans la mission
+        if "sender_phone" in mission:
+            mission["sender_phone"] = mask_phone(mission["sender_phone"])
+        if "recipient_phone" in mission:
+            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
+            
     return mission
 
 
@@ -147,6 +232,19 @@ async def accept_mission(
         raise not_found_exception("Mission")
     if mission["status"] != MissionStatus.PENDING.value:
         raise bad_request_exception("Mission déjà prise en charge")
+
+    # ── Rigueur Opérationnelle : un seul colis à la fois ──
+    # Un livreur ne peut pas accepter une mission s'il en a déjà une en cours (ASSIGNED, PICKED_UP, IN_PROGRESS)
+    active_mission = await db.delivery_missions.find_one({
+        "driver_id": current_user["user_id"],
+        "status": {"$in": [
+            MissionStatus.ASSIGNED.value,
+            MissionStatus.PICKED_UP.value,
+            MissionStatus.IN_PROGRESS.value
+        ]}
+    })
+    if active_mission:
+        raise forbidden_exception("Vous avez déjà une mission en cours. Terminez-la avant d'en accepter une autre.")
 
     now = datetime.now(timezone.utc)
     # Marquer la mission comme assignée
@@ -181,22 +279,75 @@ async def update_location(
     now = datetime.now(timezone.utc)
     driver_loc = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy, "ts": now}
     
+    # ── Récupérer la mission pour voir si on doit refresh l'ETA ──
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    update_query = {
+        "$set": {
+            "driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
+            "location_updated_at": now,
+            "updated_at": now,
+        },
+        "$push": {
+            "gps_trail": {
+                "$each": [driver_loc],
+                "$slice": -300
+            }
+        }
+    }
+
+    # ── Calculer l'ETA si nécessaire (max 1 fois toutes les 5 minutes pour budget API) ──
+    last_eta_update = mission.get("eta_updated_at")
+    should_update_eta = (
+        mission["status"] == MissionStatus.IN_PROGRESS.value
+        and (last_eta_update is None or (now - last_eta_update).total_seconds() > 300)
+    )
+    
+    if should_update_eta:
+        dest_lat = mission.get("delivery_lat")
+        dest_lng = mission.get("delivery_lng")
+        if dest_lat and dest_lng:
+            eta_data = await get_directions_eta(body.lat, body.lng, dest_lat, dest_lng)
+            if eta_data:
+                update_query["$set"].update({
+                    "eta_seconds":  eta_data["duration_seconds"],
+                    "eta_text":     eta_data["duration_text"],
+                    "distance_text": eta_data["distance_text"],
+                    "eta_updated_at": now
+                })
+
+    # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
+    if (mission["status"] == MissionStatus.IN_PROGRESS.value and 
+        not mission.get("approaching_notified")):
+        
+        dest_lat = mission.get("delivery_lat")
+        dest_lng = mission.get("delivery_lng")
+        if dest_lat and dest_lng:
+            dist_m = _haversine_km(body.lat, body.lng, dest_lat, dest_lng) * 1000
+            if dist_m < 500:
+                # Récupérer le colis pour avoir le tracking_code
+                parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]})
+                if parcel:
+                    await notify_approaching_driver(parcel)
+                    update_query["$set"]["approaching_notified"] = True
+
     await db.delivery_missions.update_one(
         {"mission_id": mission_id, "driver_id": current_user["user_id"]},
-        {
-            "$set": {
-                "driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
-                "location_updated_at": now,
-                "updated_at": now,
-            },
-            "$push": {
-                "gps_trail": {
-                    "$each": [driver_loc],
-                    "$slice": -300  # Garde les 300 dernières positions (env. 2h30 à 30s d'intervalle)
-                }
-            }
-        },
+        update_query
     )
+    
+    # ── Mettre à jour la position globale du livreur (pour le dispatch/heatmap) ──
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {
+            "last_driver_location": {"lat": body.lat, "lng": body.lng},
+            "last_driver_location_at": now,
+            "updated_at": now
+        }}
+    )
+
     return {"message": "Position mise à jour"}
 
 

@@ -28,6 +28,18 @@ class User(BaseModel):
     referral_code:     str          = ""
     referred_by:       Optional[str] = None      # user_id du parrain
     referral_credited: bool          = False
+    # Driver specific (Phase 7 & 8)
+    last_driver_location:    Optional[dict] = None  # {"lat": float, "lng": float}
+    last_driver_location_at: Optional[datetime] = None
+    xp:                      int            = 0
+    level:                   int            = 1
+    badges:                  list[str]      = []
+    deliveries_completed:    int            = 0
+    on_time_deliveries:      int            = 0
+    total_rating_sum:        float          = 0.0
+    total_ratings_count:     int            = 0
+    average_rating:          float          = 0.0
+    cod_balance:             float          = 0.0  # Cash on Delivery balance (to be settled)
     # Timestamps
     created_at:        datetime
     updated_at:        datetime
@@ -37,6 +49,7 @@ class UserCreate(BaseModel):
     phone: str
     name:  str
     email: Optional[str] = None
+    fcm_token: Optional[str] = None
     role:  UserRole = UserRole.CLIENT
 
     @field_validator("phone")
