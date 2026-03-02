@@ -198,7 +198,10 @@ async def confirm_pickup(
     elif p_status in [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]:
         await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up depuis relais destination", **actor)
     elif p_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-        await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up depuis relais origine (transit)", **actor)
+        if parcel.get("delivery_mode") == "relay_to_home":
+            await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up au relais origine (vers domicile)", **actor)
+        else:
+            await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up au relais origine (transit)", **actor)
 
     return {"message": "Collecte confirmée", "mission_id": mission_id}
 
