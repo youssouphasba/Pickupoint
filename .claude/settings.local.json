@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python3:*)",
-      "Bash(flutter:*)"
+      "Bash(flutter:*)",
+      "Bash(git push:*)"
     ]
   }
 }
