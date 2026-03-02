@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     BASE_URL: str = "https://pickupoint-production.up.railway.app"
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
 
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"
