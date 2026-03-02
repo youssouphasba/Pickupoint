@@ -50,7 +50,7 @@ async def available_missions(
     user_id = current_user["user_id"]
     
     # On récupère toutes les missions PENDING
-    cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value})
+    cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value}, {"_id": 0})
     raw_missions = await cursor.to_list(length=200)
 
     filtered_missions = []
