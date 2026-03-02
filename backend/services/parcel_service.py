@@ -159,6 +159,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "sender_user_id":        sender_user_id,
         "recipient_phone":       data.recipient_phone,
         "recipient_name":        data.recipient_name,
+        "recipient_user_id":     None,  # Lié ci-dessous
         "delivery_mode":         data.delivery_mode.value,
         "origin_relay_id":       data.origin_relay_id,
         "destination_relay_id":  data.destination_relay_id,
@@ -187,7 +188,33 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "updated_at":            now,
         "expires_at":            expires_at,
     }
+
+    # ── Gestion de la confirmation de position destinataire ──
+    requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")
+    recipient_token = None
+    if requires_recipient_gps:
+        from routers.confirm import generate_confirm_tokens
+        recipient_token, sender_token = generate_confirm_tokens()
+        parcel_doc["recipient_confirm_token"] = recipient_token
+        parcel_doc["sender_confirm_token"]    = sender_token
+        parcel_doc["delivery_confirmed"]      = False
+        parcel_doc["pickup_confirmed"]        = True # Saisi dans l'app direct
+
+    # ── Liaison automatique du destinataire si compte existant ──
+    recipient_user = await db.users.find_one({"phone": data.recipient_phone}, {"user_id": 1})
+    if recipient_user:
+        parcel_doc["recipient_user_id"] = recipient_user["user_id"]
+
     await db.parcels.insert_one(parcel_doc)
+    
+    # Trigger mission immediately for Home-top-Relay or Home-to-Home
+    # Payment status does not block mission creation
+    if requires_recipient_gps or data.delivery_mode.value == "home_to_relay":
+        # Note: requires_recipient_gps is true for *_to_home, which covers home_to_home
+        # home_to_relay also needs an immediate pickup mission
+        if data.delivery_mode.value.startswith("home_to_"):
+            await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
+
     await _record_event(
         parcel_id=parcel_id,
         event_type="PARCEL_CREATED",
@@ -223,11 +250,37 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         payment_url=payment_url if data.who_pays == "recipient" else None, # On envoie le lien au destinataire s'il paye
     )
 
+    # ── Envoyer le lien de confirmation GPS (SMS / WhatsApp) ──
+    from config import settings
+    recipient_confirm_url = None
+    if requires_recipient_gps and recipient_token:
+        # On utilise BASE_URL car le site web vitrine n'est pas encore en place
+        recipient_confirm_url = f"{settings.BASE_URL}/confirm/{recipient_token}"
+        
+        # Récupérer le nom de l'expéditeur
+        sender_name = "L'expéditeur"
+        sender_user = await db.users.find_one({"user_id": sender_user_id}, {"_id": 0, "full_name": 1})
+        if sender_user and sender_user.get("full_name"):
+            sender_name = sender_user["full_name"]
+
+        msg = (
+            f"{sender_name} veut vous envoyer un colis ({tracking_code}).\n"
+            f"Veuillez confirmer votre position via ce lien pour recevoir le colis : {recipient_confirm_url}"
+        )
+        try:
+            from services.notification_service import _send_sms
+            await _send_sms(data.recipient_phone, msg)
+        except Exception as e:
+            logger.warning(f"SMS de confirmation GPS non envoyé : {e}")
+
     result = {k: v for k, v in parcel_doc.items() if k != "_id"}
     result["payment_url"] = payment_url
+    if recipient_confirm_url:
+        result["recipient_confirm_url"] = recipient_confirm_url
 
-    # Générer la mission immédiatement pour les pick-ups à domicile
-    if data.delivery_mode.value.startswith("home_to_"):
+    # Générer la mission immédiatement UNIQUEMENT pour home_to_relay 
+    # (car home_to_home doit attendre la validation GPS du destinataire)
+    if data.delivery_mode.value == "home_to_relay":
         await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
 
     return result
@@ -284,12 +337,16 @@ async def transition_status(
 
     # Générer la mission du livreur quand le colis est déposé au relais d'origine
     if new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
-        if parcel.get("delivery_mode") == "relay_to_home":
-            # Le livreur prend au relais origine et livre à domicile
+            # Le livreur prend au relais origine et dépose au relais destination (transit ou direct)
             await _create_delivery_mission(parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
-        else:
-            # Le livreur prend au relais origine et dépose au relais destination (transit)
-            await _create_relay_transit_mission(parcel)
+
+    # Arrivée au relais de destination -> Déclencher la livraison finale si c'est un flux Home
+    if new_status == ParcelStatus.AT_DESTINATION_RELAY:
+        if parcel.get("delivery_mode", "").endswith("_to_home"):
+            if parcel.get("delivery_confirmed"):
+                await _create_delivery_mission(parcel, ParcelStatus.AT_DESTINATION_RELAY)
+            else:
+                logger.info(f"Colis {parcel['parcel_id']} au relais destination, en attente GPS destinataire.")
 
     # Échec livraison → trouver le relais de repli le plus proche automatiquement
     if new_status == ParcelStatus.DELIVERY_FAILED:
@@ -312,6 +369,32 @@ async def transition_status(
                         "Relais de repli auto-assigné: %s pour colis %s",
                         nearest["relay_id"], parcel_id,
                     )
+
+    # ── Mettre à jour la mission de livraison si elle se termine au relais ──
+    relay_arrival_statuses = {
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
+        ParcelStatus.AT_DESTINATION_RELAY,
+        ParcelStatus.AVAILABLE_AT_RELAY
+    }
+    if new_status in relay_arrival_statuses:
+        from models.delivery import MissionStatus
+        mission = await db.delivery_missions.find_one({
+            "parcel_id": parcel_id,
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]}
+        })
+        if mission:
+            # Si le point de chute final de cette mission est un relais
+            if mission.get("delivery_type") == "relay":
+                now = datetime.now(timezone.utc)
+                await db.delivery_missions.update_one(
+                    {"mission_id": mission["mission_id"]},
+                    {"$set": {
+                        "status": MissionStatus.COMPLETED.value,
+                        "completed_at": now,
+                        "updated_at":   now
+                    }}
+                )
+                logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
 
 
     # Notifier le changement
@@ -368,6 +451,29 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     delivery_label = (delivery_addr.get("label") or delivery_addr.get("notes") or "Adresse destinataire")
     delivery_city  = delivery_addr.get("city", "Dakar")
     delivery_geopin = delivery_addr.get("geopin")
+    delivery_type   = "gps"
+    delivery_relay_id = None
+
+    # Si la destination est un relais (H2R ou R2R local)
+    dest_relay_id = parcel.get("destination_relay_id")
+    mode = parcel.get("delivery_mode", "")
+    
+    # Pour H2R et R2R, si ce n'est pas une livraison finale à domicile
+    if dest_relay_id and not mode.endswith("_to_home"):
+        # On ne crée la mission que si c'est R2R ou H2R (pas de confirmation GPS destinataire requise)
+        dest_relay = await db.relay_points.find_one({"relay_id": dest_relay_id}, {"_id": 0})
+        if dest_relay:
+            delivery_type   = "relay"
+            delivery_relay_id = dest_relay_id
+            delivery_label  = dest_relay.get("name") or "Relais destination"
+            delivery_city   = (dest_relay.get("address") or {}).get("city", "Dakar")
+            delivery_geopin = (dest_relay.get("address") or {}).get("geopin")
+    
+    # ── Sécurité : Pour les livraisons à DOMICILE, il faut la confirmation GPS ──
+    if delivery_type == "gps" and mode.endswith("_to_home"):
+        if not parcel.get("delivery_confirmed"):
+            logger.info(f"Création mission suspendue pour {parcel['parcel_id']} : GPS destinataire manquant.")
+            return
 
     # ── Rémunération livreur selon le taux configuré ──────────────────────────
     from config import settings
@@ -392,7 +498,8 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "pickup_city":      pickup_city,
         "pickup_geopin":    pickup_geopin,
         # Livraison
-        "delivery_type":    "gps",             # 'gps' = domicile, 'relay' = relais
+        "delivery_type":    delivery_type,             # 'gps' = domicile, 'relay' = relais
+        "delivery_relay_id": delivery_relay_id,
         "delivery_label":   delivery_label,
         "delivery_city":    delivery_city,
         "delivery_geopin":  delivery_geopin,
@@ -439,88 +546,6 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
                 mission_doc["mission_id"], parcel["parcel_id"], not mission_doc["is_broadcast"])
 
 
-async def _create_relay_transit_mission(parcel: dict) -> None:
-    """
-    Crée une mission de transit relay_to_relay quand le colis passe en DROPPED_AT_ORIGIN_RELAY.
-    Le livreur transporte du relais origine au relais destination.
-    """
-    from models.delivery import MissionStatus
-
-    # Éviter les doublons
-    existing = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"]})
-    if existing:
-        return
-
-    # Pickup = relais origine
-    origin_id = parcel.get("origin_relay_id")
-    origin = await db.relay_points.find_one({"relay_id": origin_id}, {"_id": 0}) if origin_id else None
-    pickup_label  = origin["name"] if origin else "Relais origine"
-    pickup_city   = (origin or {}).get("address", {}).get("city", "Dakar")
-    pickup_geopin = ((origin or {}).get("address") or {}).get("geopin")
-
-    # Livraison = relais destination
-    dest_id = parcel.get("destination_relay_id")
-    dest    = await db.relay_points.find_one({"relay_id": dest_id}, {"_id": 0}) if dest_id else None
-    delivery_label  = dest["name"] if dest else "Relais destination"
-    delivery_city   = (dest or {}).get("address", {}).get("city", "Dakar")
-    delivery_geopin = ((dest or {}).get("address") or {}).get("geopin")
-
-    from config import settings
-    quoted      = parcel.get("quoted_price") or 0
-    earn_amount = round(quoted * settings.DRIVER_RATE)
-
-    now = datetime.now(timezone.utc)
-    mission_doc = {
-        "mission_id":       f"msn_{uuid.uuid4().hex[:12]}",
-        "parcel_id":        parcel["parcel_id"],
-        "tracking_code":    parcel.get("tracking_code"),
-        "driver_id":        None,
-        "status":           MissionStatus.PENDING.value,
-        "pickup_type":      "relay",
-        "pickup_relay_id":  origin_id,
-        "pickup_label":     pickup_label,
-        "pickup_city":      pickup_city,
-        "pickup_geopin":    pickup_geopin,
-        "delivery_type":    "relay",            # 'relay' = relais destinataire
-        "delivery_relay_id": parcel.get("destination_relay_id"),
-        "delivery_label":   delivery_label,
-        "delivery_city":    delivery_city,
-        "delivery_geopin":  delivery_geopin,
-        "recipient_name":   parcel.get("recipient_name"),
-        "recipient_phone":  parcel.get("recipient_phone"),
-        "earn_amount":      earn_amount,
-        # Dispatch en Cascade (Phase 7)
-        "candidate_drivers": [],
-        "ping_index":        0,
-        "ping_expires_at":   None,
-        "is_broadcast":      False,
-        "driver_location":     None,
-        "location_updated_at": None,
-        "proof_type":    None,
-        "proof_data":    None,
-        "failure_reason": None,
-        "assigned_at":   None,
-        "completed_at":  None,
-        "created_at":    now,
-        "updated_at":    now,
-    }
-
-    # ── Calcul du Cascade ──
-    if pickup_geopin:
-        candidates = await _find_nearest_candidate_drivers(pickup_geopin["lat"], pickup_geopin["lng"])
-        if candidates:
-            mission_doc["candidate_drivers"] = candidates
-            mission_doc["ping_expires_at"]   = now + timedelta(seconds=30)
-            from services.notification_service import notify_new_mission_ping
-            await notify_new_mission_ping(candidates[0], mission_doc)
-        else:
-            mission_doc["is_broadcast"] = True
-    else:
-        mission_doc["is_broadcast"] = True
-
-    await db.delivery_missions.insert_one(mission_doc)
-    logger.info("Mission transit relay_to_relay: %s pour colis %s (Cascade: %s)",
-                mission_doc["mission_id"], parcel["parcel_id"], not mission_doc["is_broadcast"])
 
 
 async def _record_event(
