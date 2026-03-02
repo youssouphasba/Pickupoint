@@ -282,11 +282,14 @@ async def transition_status(
             from services.gamification_service import update_driver_gamification
             await update_driver_gamification(driver_id, "delivery_completed")
 
-    # Générer la mission du dernier kilomètre si relay_to_home arrive au relais destination
-    if new_status == ParcelStatus.AT_DESTINATION_RELAY and parcel.get("delivery_mode") == "relay_to_home":
-        await _create_delivery_mission(parcel, ParcelStatus.AT_DESTINATION_RELAY)
-    elif new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
-        await _create_relay_transit_mission(parcel)
+    # Générer la mission du livreur quand le colis est déposé au relais d'origine
+    if new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
+        if parcel.get("delivery_mode") == "relay_to_home":
+            # Le livreur prend au relais origine et livre à domicile
+            await _create_delivery_mission(parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+        else:
+            # Le livreur prend au relais origine et dépose au relais destination (transit)
+            await _create_relay_transit_mission(parcel)
 
     # Échec livraison → trouver le relais de repli le plus proche automatiquement
     if new_status == ParcelStatus.DELIVERY_FAILED:
@@ -340,6 +343,15 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_type  = "relay"
         pickup_relay_id   = relay_id
         pickup_label = relay["name"] if relay else "Relais de destination"
+        pickup_city  = (relay or {}).get("address", {}).get("city", "Dakar") if relay else "Dakar"
+        pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
+    elif from_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
+        # Livreur vient chercher au relais d'origine (relay_to_home)
+        relay_id = parcel.get("origin_relay_id")
+        relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0}) if relay_id else None
+        pickup_type  = "relay"
+        pickup_relay_id   = relay_id
+        pickup_label = relay["name"] if relay else "Relais d'origine"
         pickup_city  = (relay or {}).get("address", {}).get("city", "Dakar") if relay else "Dakar"
         pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
     else:
