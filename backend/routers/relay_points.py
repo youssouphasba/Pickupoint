@@ -3,6 +3,7 @@ Router relay_points : gestion des points relais.
 """
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
