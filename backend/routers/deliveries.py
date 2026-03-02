@@ -186,10 +186,20 @@ async def confirm_pickup(
             "updated_at":  now,
         }},
     )
-    # 2. Transition colis IN_TRANSIT (ou "pickup depuis expéditeur" selon le contexte)
-    # (La machine d'états permet OUT_FOR_DELIVERY -> IN_TRANSIT pour les pick-ups ?)
-    # En réalité, on passe souvent OUT_FOR_DELIVERY => DELIVERED, ou AT_DESTINATION_RELAY => OUT_FOR_DELIVERY
-    # L'important est que la collecte est validée.
+    # 2. Transition colis IN_TRANSIT ou OUT_FOR_DELIVERY
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    p_status = parcel["status"]
+    
+    if p_status == ParcelStatus.CREATED.value:
+        if parcel.get("delivery_mode") == "home_to_relay":
+            await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up expéditeur (vers relais)", **actor)
+        else:
+            await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up expéditeur (vers domicile)", **actor)
+    elif p_status in [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]:
+        await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up depuis relais destination", **actor)
+    elif p_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+        await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up depuis relais origine (transit)", **actor)
+
     return {"message": "Collecte confirmée", "mission_id": mission_id}
 
 

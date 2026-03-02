@@ -29,6 +29,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.CREATED: [
         ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
         ParcelStatus.OUT_FOR_DELIVERY,   # HOME_TO_* : driver vient chercher chez l'expéditeur
+        ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver part de l'expéditeur vers le relais
         ParcelStatus.CANCELLED,
     ],
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: [
@@ -224,6 +225,11 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
 
     result = {k: v for k, v in parcel_doc.items() if k != "_id"}
     result["payment_url"] = payment_url
+
+    # Générer la mission immédiatement pour les pick-ups à domicile
+    if data.delivery_mode.value.startswith("home_to_"):
+        await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
+
     return result
 
 
@@ -276,10 +282,9 @@ async def transition_status(
             from services.gamification_service import update_driver_gamification
             await update_driver_gamification(driver_id, "delivery_completed")
 
-    # Créer mission livreur quand le colis passe en OUT_FOR_DELIVERY (livraison domicile)
-    # OU quand le colis est déposé au relais origine (pour le transit relay_to_relay)
-    if new_status == ParcelStatus.OUT_FOR_DELIVERY:
-        await _create_delivery_mission(parcel, current_status)
+    # Générer la mission du dernier kilomètre si relay_to_home arrive au relais destination
+    if new_status == ParcelStatus.AT_DESTINATION_RELAY and parcel.get("delivery_mode") == "relay_to_home":
+        await _create_delivery_mission(parcel, ParcelStatus.AT_DESTINATION_RELAY)
     elif new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
         await _create_relay_transit_mission(parcel)
 
@@ -339,7 +344,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
     else:
         # Livreur va chercher chez l'expéditeur (HOME_TO_*)
-        pickup_loc = parcel.get("pickup_location") or {}
+        pickup_loc = parcel.get("origin_location") or {}
         pickup_type  = "gps"
         pickup_relay_id   = None
         pickup_label = (pickup_loc.get("label") or pickup_loc.get("notes") or "Position expéditeur")
