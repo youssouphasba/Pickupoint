@@ -21,8 +21,13 @@ import random
 logger = logging.getLogger(__name__)
 
 def _generate_code() -> str:
-    """Génère un code numérique à 6 chiffres."""
+    """Génère un code numérique à 6 chiffres (pickup_code livreur)."""
     return f"{random.randint(100000, 999999)}"
+
+
+def _generate_delivery_code() -> str:
+    """Génère un code numérique à 4 chiffres (delivery_code destinataire domicile)."""
+    return f"{random.randint(1000, 9999)}"
 
 # ── Machine d'états ───────────────────────────────────────────────────────────
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
@@ -52,6 +57,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.OUT_FOR_DELIVERY: [
         ParcelStatus.DELIVERED,
         ParcelStatus.DELIVERY_FAILED,
+        ParcelStatus.AT_DESTINATION_RELAY,  # H2R : driver livre au relais destinataire
     ],
     ParcelStatus.DELIVERY_FAILED: [
         ParcelStatus.REDIRECTED_TO_RELAY,
@@ -180,7 +186,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
         "pickup_code":           _generate_code(),          # 6 chiffres — livreur collecte
-        "delivery_code":         _generate_code(),          # 6 chiffres — livreur domicile
+        "delivery_code":         _generate_delivery_code(), # 4 chiffres — destinataire domicile
         "relay_pin":             f"{random.randint(1000, 9999)}",  # 4 chiffres — retrait relais
         "paid_price":            None,
         "payment_status":        "pending",
