@@ -4,7 +4,7 @@ Router auth : OTP flow complet + gestion session JWT.
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from config import settings
 from core.exceptions import bad_request_exception, not_found_exception
@@ -20,15 +20,20 @@ from services.otp_service import send_otp, verify_otp
 
 router = APIRouter()
 
+# Utilisation du limiter global défini dans main
+from main import limiter
+
 
 @router.post("/request-otp", summary="Envoyer OTP")
-async def request_otp(body: OTPRequest):
+@limiter.limit("5/minute")
+async def request_otp(body: OTPRequest, request: Request):
     ok = await send_otp(body.phone)
     return {"sent": ok, "phone": body.phone}
 
 
 @router.post("/verify-otp", response_model=TokenResponse, summary="Vérifier OTP → JWT")
-async def verify_otp_endpoint(body: OTPVerify):
+@limiter.limit("10/minute")
+async def verify_otp_endpoint(body: OTPVerify, request: Request):
     valid = await verify_otp(body.phone, body.otp)
     if not valid:
         raise bad_request_exception("OTP invalide ou expiré")
