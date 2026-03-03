@@ -34,6 +34,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ],
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: [
         ParcelStatus.IN_TRANSIT,
+        ParcelStatus.OUT_FOR_DELIVERY,  # relay_to_home : driver va directement au domicile
         ParcelStatus.CANCELLED,
     ],
     ParcelStatus.IN_TRANSIT: [
