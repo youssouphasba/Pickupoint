@@ -77,8 +77,9 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
     now = datetime.now(timezone.utc)
     p_id = _parcel_id()
     t_code = f"PKP-{random.randint(100,999)}-{random.randint(1000,9999)}"
-    pickup_code = str(random.randint(100000, 999999))
-    relay_pin = str(random.randint(1000, 9999))
+    pickup_code    = str(random.randint(100000, 999999))  # 6 chiffres — livreur collecte
+    delivery_code  = str(random.randint(1000, 9999))       # 4 chiffres — destinataire domicile
+    relay_pin      = str(random.randint(1000, 9999))       # 4 chiffres — retrait relais
 
     doc = {
         "parcel_id": p_id, "tracking_code": t_code, "status": ParcelStatus.CREATED.value,
@@ -89,7 +90,7 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
         "origin_location": origin_loc, "delivery_address": dest_addr,
         "quoted_price": 2000, "payment_status": "paid", "payment_method": None, "payment_ref": None,
         "is_insured": False, "is_express": False, "who_pays": "sender",
-        "pickup_code": pickup_code, "relay_pin": relay_pin,
+        "pickup_code": pickup_code, "delivery_code": delivery_code, "relay_pin": relay_pin,
         "assigned_driver_id": None, "redirect_relay_id": None,
         "created_at": now, "updated_at": now, "expires_at": now + timedelta(days=7)
     }
@@ -99,7 +100,10 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
     if mode.value.startswith("home_to_"):
         await _create_delivery_mission(doc, ParcelStatus.CREATED)
 
+    home_delivery = mode.value in ("relay_to_home", "home_to_home")
     print(f"[OK] Scenario '{name}' cree : {t_code}")
+    print(f"     pickup_code={pickup_code}  relay_pin={relay_pin}"
+          + (f"  delivery_code={delivery_code}" if home_delivery else ""))
     return doc
 
 async def main():

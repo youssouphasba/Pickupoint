@@ -256,6 +256,11 @@ async def arrive_relay(
         # Déjà au relais, juste marquer disponible
         return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
 
+    elif current_status == ParcelStatus.OUT_FOR_DELIVERY.value:
+        # H2R : le livreur livre le colis directement au relais destinataire
+        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, notes="Livreur dépose au relais destinataire (H2R)", **actor)
+        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+
     else:
         raise bad_request_exception(
             f"Impossible de réceptionner un colis en statut '{current_status}'"
@@ -291,6 +296,7 @@ async def bulk_relay_action(
                 ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
                 ParcelStatus.IN_TRANSIT.value,
                 ParcelStatus.AT_DESTINATION_RELAY.value,
+                ParcelStatus.OUT_FOR_DELIVERY.value,  # H2R : driver livre au relais
             }
             
             if status in arrive_statuses:
