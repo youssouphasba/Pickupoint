@@ -114,13 +114,20 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
 
         # Sécurité des codes :
-        # L'expéditeur ne doit pas voir le delivery_code (PIN du destinataire)
+        # L'expéditeur ne doit pas voir le delivery_code/relay_pin (PIN du destinataire)
         # Le destinataire ne doit pas voir le pickup_code (PIN de collecte)
         if is_sender and not is_recipient:
             parcel.pop("delivery_code", None)
             parcel.pop("relay_pin", None)
         if is_recipient and not is_sender:
             parcel.pop("pickup_code", None)
+
+        # Filtrage par mode : ne montrer que le code pertinent pour le destinataire/admin
+        mode = parcel.get("delivery_mode", "")
+        if mode.endswith("_to_home"):
+            parcel.pop("relay_pin", None)
+        elif mode.endswith("_to_relay"):
+            parcel.pop("delivery_code", None)
 
     timeline = await get_parcel_timeline(parcel_id)
     return {"parcel": parcel, "timeline": timeline}
@@ -468,9 +475,14 @@ async def get_parcel_codes(
             and current_user.get("relay_point_id") == parcel.get("origin_relay_id"))
     )
 
+    mode = parcel.get("delivery_mode", "")
+    show_delivery = mode.endswith("_to_home")
+    show_relay    = mode.endswith("_to_relay")
+
     return {
         "pickup_code":   parcel.get("pickup_code")   if can_see_pickup else None,
-        "delivery_code": parcel.get("delivery_code") if is_admin else parcel.get("delivery_code"),
+        "delivery_code": parcel.get("delivery_code") if (is_admin or show_delivery) else None,
+        "relay_pin":     parcel.get("relay_pin")     if (is_admin or show_relay)    else None,
     }
 
 @router.post("/{parcel_id}/rate", summary="Noter le livreur + Pourboire")

@@ -78,8 +78,13 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
     p_id = _parcel_id()
     t_code = f"PKP-{random.randint(100,999)}-{random.randint(1000,9999)}"
     pickup_code    = str(random.randint(100000, 999999))  # 6 chiffres — livreur collecte
-    delivery_code  = str(random.randint(1000, 9999))       # 4 chiffres — destinataire domicile
-    relay_pin      = str(random.randint(1000, 9999))       # 4 chiffres — retrait relais
+    
+    # Génération sélective des codes selon le mode
+    home_delivery = mode.value.endswith("_to_home")
+    relay_delivery = mode.value.endswith("_to_relay")
+    
+    delivery_code = str(random.randint(1000, 9999)) if home_delivery else ""
+    relay_pin     = str(random.randint(1000, 9999)) if relay_delivery else ""
 
     doc = {
         "parcel_id": p_id, "tracking_code": t_code, "status": ParcelStatus.CREATED.value,
@@ -100,10 +105,11 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
     if mode.value.startswith("home_to_"):
         await _create_delivery_mission(doc, ParcelStatus.CREATED)
 
-    home_delivery = mode.value in ("relay_to_home", "home_to_home")
     print(f"[OK] Scenario '{name}' cree : {t_code}")
-    print(f"     pickup_code={pickup_code}  relay_pin={relay_pin}"
-          + (f"  delivery_code={delivery_code}" if home_delivery else ""))
+    msg = f"     pickup_code={pickup_code}"
+    if relay_delivery: msg += f"  relay_pin={relay_pin}"
+    if home_delivery:  msg += f"  delivery_code={delivery_code}"
+    print(msg)
     return doc
 
 async def main():
