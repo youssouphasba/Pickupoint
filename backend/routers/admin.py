@@ -188,6 +188,65 @@ async def approve_payout(payout_id: str, _admin=Depends(require_admin_dep)):
     return {"message": "Retrait approuvé", "payout_id": payout_id}
 
 
+# ── Gestion des Utilisateurs & Bannissement ───────────────────────────────────
+
+@router.get("/users", summary="Liste tous les utilisateurs (Admin)")
+async def admin_list_users(
+    skip: int = 0,
+    limit: int = 100,
+    role: str = None,
+    _admin=Depends(require_admin_dep),
+):
+    query = {}
+    if role:
+        query["role"] = role
+    
+    cursor = db.users.find(query, {"_id": 0}).skip(skip).limit(limit).sort("created_at", -1)
+    users = await cursor.to_list(length=limit)
+    total = await db.users.count_documents(query)
+    
+    return {"users": users, "total": total}
+
+
+@router.post("/users/{user_id}/ban", summary="Bannir un utilisateur")
+async def admin_ban_user(
+    user_id: str,
+    _admin=Depends(require_admin_dep),
+):
+    """
+    Marque un utilisateur comme banni. 
+    Empêche toute nouvelle connexion et invalide les sessions actives.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_banned": True, "updated_at": now}}
+    )
+    if result.matched_count == 0:
+        raise not_found_exception("Utilisateur")
+    
+    # Invalider toutes les sessions en cours
+    await db.user_sessions.delete_many({"user_id": user_id})
+    
+    return {"message": "Utilisateur banni et sessions révoquées"}
+
+
+@router.post("/users/{user_id}/unban", summary="Lever le bannissement")
+async def admin_unban_user(
+    user_id: str,
+    _admin=Depends(require_admin_dep),
+):
+    now = datetime.now(timezone.utc)
+    result = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_banned": False, "updated_at": now}}
+    )
+    if result.matched_count == 0:
+        raise not_found_exception("Utilisateur")
+    
+    return {"message": "Bannissement levé"}
+
+
 # ── Nouveaux Endpoints "Contrôle Max" (Phase 9) ────────────────────────────────
 
 @router.get("/fleet/live", summary="Position GPS temps réel de la flotte")
