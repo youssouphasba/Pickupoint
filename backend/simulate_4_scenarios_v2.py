@@ -48,7 +48,12 @@ RELAYS = {
 
 async def _ensure_user(phone: str, name: str, role: str) -> dict:
     user = await db.users.find_one({"phone": phone})
-    if user: return user
+    if user:
+        # Toujours synchroniser le nom au cas où il a changé dans ACCOUNTS
+        await db.users.update_one({"phone": phone}, {"$set": {"name": name, "role": role}})
+        user["name"] = name
+        user["role"] = role
+        return user
     doc = {
         "user_id": f"usr_{uuid.uuid4().hex[:12]}",
         "phone": phone, "name": name, "role": role,
@@ -68,7 +73,7 @@ async def _ensure_relay(owner_id: str, info: dict) -> dict:
     await db.relay_points.insert_one(doc)
     return doc
 
-async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
+async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, recipient_name: str, recipient_phone: str, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
     now = datetime.now(timezone.utc)
     p_id = _parcel_id()
     t_code = f"PKP-{random.randint(100,999)}-{random.randint(1000,9999)}"
@@ -77,8 +82,8 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, origin_
 
     doc = {
         "parcel_id": p_id, "tracking_code": t_code, "status": ParcelStatus.CREATED.value,
-        "delivery_mode": mode.value, "sender_user_id": sender_id, "recipient_name": "Ibrahima Sow",
-        "recipient_phone": "+221770000004", "origin_relay_id": origin_relay, "destination_relay_id": dest_relay,
+        "delivery_mode": mode.value, "sender_user_id": sender_id, "recipient_name": recipient_name,
+        "recipient_phone": recipient_phone, "origin_relay_id": origin_relay, "destination_relay_id": dest_relay,
         "origin_location": origin_loc, "delivery_address": dest_addr, "quoted_price": 2000, "payment_status": "paid",
         "pickup_code": pickup_code, "pin_code": pin_code, "created_at": now, "updated_at": now
     }
@@ -107,20 +112,24 @@ async def main():
     
     # 1. R2R Inter-Villes (Dakar Medina -> Thies Escale)
     await create_scenario("1. R2R Inter-Villes", DeliveryMode.RELAY_TO_RELAY, u["fatou"]["user_id"],
+                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
                         origin_relay=r["medina"]["relay_id"], dest_relay=r["escale"]["relay_id"])
 
     # 2. H2R (Collecte Medina -> Relais Plateau)
     await create_scenario("2. H2R Auto-Collecte", DeliveryMode.HOME_TO_RELAY, u["fatou"]["user_id"],
+                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
                         origin_loc={"label": "Chez Fatou", "city": "Dakar", "geopin": {"lat": 14.68, "lng": -17.44}},
                         dest_relay=r["plateau"]["relay_id"])
 
     # 3. R2H (Relais Medina -> Domicile Ibrahima)
     await create_scenario("3. R2H GPS-Confirm", DeliveryMode.RELAY_TO_HOME, u["fatou"]["user_id"],
+                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
                         origin_relay=r["medina"]["relay_id"],
                         dest_addr={"label": "Appart. Ibrahima", "city": "Dakar", "geopin": {"lat": 14.7, "lng": -17.42}})
 
     # 4. H2H (Domicile -> Domicile)
     await create_scenario("4. H2H Full Flow", DeliveryMode.HOME_TO_HOME, u["fatou"]["user_id"],
+                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
                         origin_loc={"label": "Boutique Fatou", "city": "Dakar", "geopin": {"lat": 14.675, "lng": -17.435}},
                         dest_addr={"label": "Bureau Ibrahima", "city": "Dakar", "geopin": {"lat": 14.71, "lng": -17.43}})
 
