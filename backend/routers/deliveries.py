@@ -37,7 +37,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 async def available_missions(
     lat:       Optional[float] = Query(None, description="Latitude du livreur"),
     lng:       Optional[float] = Query(None, description="Longitude du livreur"),
-    radius_km: float           = Query(5.0,  description="Rayon de recherche en km"),
+    radius_km: float           = Query(50.0, description="Rayon de recherche en km"),
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -252,7 +252,6 @@ async def accept_mission(
         "driver_id": current_user["user_id"],
         "status": {"$in": [
             MissionStatus.ASSIGNED.value,
-            MissionStatus.PICKED_UP.value,
             MissionStatus.IN_PROGRESS.value
         ]}
     })
