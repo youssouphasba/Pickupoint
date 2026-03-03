@@ -31,6 +31,8 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Compte désactivé",
         )
+    if user.get("is_banned"):
+        raise forbidden_exception("Compte suspendu par l'administration")
     return user
 
 
