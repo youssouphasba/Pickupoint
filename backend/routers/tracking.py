@@ -1,7 +1,7 @@
 """
 Router tracking : endpoints publics (sans authentification).
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from core.exceptions import not_found_exception
@@ -10,9 +10,12 @@ from services.parcel_service import get_parcel_timeline
 
 router = APIRouter()
 
+from main import limiter
+
 
 @router.get("/{tracking_code}", summary="Statut public d'un colis")
-async def track_parcel(tracking_code: str):
+@limiter.limit("20/minute")
+async def track_parcel(tracking_code: str, request: Request):
     parcel = await db.parcels.find_one(
         {"tracking_code": tracking_code},
         {
@@ -40,7 +43,8 @@ async def track_parcel(tracking_code: str):
 
 
 @router.get("/{tracking_code}/events", summary="Historique complet du colis")
-async def track_parcel_events(tracking_code: str):
+@limiter.limit("20/minute")
+async def track_parcel_events(tracking_code: str, request: Request):
     parcel = await db.parcels.find_one(
         {"tracking_code": tracking_code},
         {"_id": 0, "parcel_id": 1},
@@ -58,7 +62,8 @@ async def track_parcel_events(tracking_code: str):
 
 
 @router.get("/view/{tracking_code}", response_class=HTMLResponse, summary="Page de suivi Web (sans app)")
-async def view_parcel_web(tracking_code: str):
+@limiter.limit("20/minute")
+async def view_parcel_web(tracking_code: str, request: Request):
     """Affiche une page HTML élégante pour le suivi public."""
     parcel = await track_parcel(tracking_code) # Utilise la logique existante
     

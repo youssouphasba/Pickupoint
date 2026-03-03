@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, forbidden_exception
@@ -15,13 +15,17 @@ from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
 
 router = APIRouter()
 
+from main import limiter
+
 
 def _relay_id() -> str:
     return f"rly_{uuid.uuid4().hex[:12]}"
 
 
 @router.get("", summary="Liste des relais (public)")
+@limiter.limit("10/minute")
 async def list_relay_points(
+    request: Request,
     city: Optional[str] = None,
     is_active: bool = True,
     skip: int = 0,
@@ -37,7 +41,9 @@ async def list_relay_points(
 
 
 @router.get("/nearby", summary="Relais proches d'un geopin")
+@limiter.limit("10/minute")
 async def nearby_relay_points(
+    request: Request,
     lat: float = Query(...),
     lng: float = Query(...),
     radius_km: float = Query(5.0),

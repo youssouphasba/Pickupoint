@@ -4,7 +4,7 @@ Router pricing : zones tarifaires et règles de prix.
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from core.dependencies import require_role
 from core.exceptions import not_found_exception
@@ -18,6 +18,8 @@ from models.parcel import ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
 
 router = APIRouter()
+
+from main import limiter
 
 
 def _zone_id() -> str:
@@ -36,7 +38,8 @@ async def list_zones():
 
 
 @router.post("/quote", response_model=QuoteResponse, summary="Calculer un devis (public)")
-async def get_quote(body: ParcelQuote):
+@limiter.limit("15/minute")
+async def get_quote(body: ParcelQuote, request: Request):
     return await calculate_price(body)
 
 
