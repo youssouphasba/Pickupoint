@@ -400,6 +400,52 @@ async def release_mission(
     return {"message": "Mission libérée, disponible pour d'autres livreurs"}
 
 
+class IncidentReportRequest(BaseModel):
+    reason: str
+    notes: Optional[str] = None
+
+@router.post("/{mission_id}/report-incident", summary="Signaler un incident (driver)")
+async def report_incident(
+    mission_id: str,
+    body: IncidentReportRequest,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """
+    Le livreur signale un incident (panne, accident, etc.) sur sa mission.
+    Le colis passe en INCIDENT_REPORTED et l'admin est notifié.
+    """
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    
+    if mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception()
+
+    now = datetime.now(timezone.utc)
+    # 1. Marquer la mission en incident
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": {
+            "status": MissionStatus.INCIDENT_REPORTED.value,
+            "failure_reason": body.reason,
+            "updated_at": now
+        }}
+    )
+
+    # 2. Transition colis
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    await transition_status(
+        mission["parcel_id"], 
+        ParcelStatus.INCIDENT_REPORTED, 
+        notes=f"Incident signalé: {body.reason}. {body.notes or ''}",
+        **actor
+    )
+
+    return {"message": "Incident signalé avec succès. L'administrateur a été notifié."}
+
+
 @router.get("/{mission_id}/trail", summary="Trail GPS complet (admin)")
 async def get_gps_trail(
     mission_id: str,

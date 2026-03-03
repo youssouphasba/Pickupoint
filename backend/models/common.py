@@ -29,6 +29,7 @@ class ParcelStatus(str, Enum):
     CANCELLED                = "cancelled"
     EXPIRED                  = "expired"
     DISPUTED                 = "disputed"
+    INCIDENT_REPORTED        = "incident_reported"
     RETURNED                 = "returned"
 
 

@@ -12,6 +12,7 @@ class MissionStatus(str, Enum):
     COMPLETED   = "completed"
     FAILED      = "failed"
     CANCELLED   = "cancelled"
+    INCIDENT_REPORTED = "incident_reported"
 
 
 class DeliveryMission(BaseModel):
