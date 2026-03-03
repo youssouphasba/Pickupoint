@@ -132,6 +132,11 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel.pop("delivery_code", None)
 
     timeline = await get_parcel_timeline(parcel_id)
+    # S'assurer que le lien de paiement est présent pour le client
+    if not parcel.get("payment_url") and parcel.get("payment_status") == "pending":
+        # On pourrait le regénérer ici si besoin, mais normalement il est créé à la création du colis
+        pass
+
     return {"parcel": parcel, "timeline": timeline}
 
 
@@ -354,6 +359,13 @@ async def pickup_parcel(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id})
+    if not parcel:
+        raise not_found_exception("Colis")
+    
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration. Action impossible.")
+
     now = datetime.now(timezone.utc)
     await db.parcels.update_one(
         {"parcel_id": parcel_id},
@@ -377,15 +389,15 @@ async def deliver_parcel(
     if not parcel:
         raise not_found_exception("Colis")
 
-    # ── Validation du paiement (si obligatoire) ────────────────────────
-    # Si le statut est 'paid', c'est bon. 
-    # Si c'est 'pending' et que le paiement est requis (ex: who_pays='sender' ou 'recipient'), bloquer.
+    # ── Validation du paiement (Informationnelle) ──────────────────────
     if parcel.get("payment_status") != "paid":
-        # Exception : si c'est un paiement Cash on Delivery (COD), on pourrait autoriser, 
-        # mais ici on suit la logique Flutterwave/In-App.
-        raise bad_request_exception("Le paiement n'a pas encore été confirmé. Demandez au client de régler via le lien reçu.")
+        logger.warning(f"Livraison effectuée pour {parcel_id} sans confirmation de paiement (status: {parcel.get('payment_status')})")
+        # On ne bloque plus : raise bad_request_exception(...) enlevé
 
     # ── Validation du code ─────────────────────────────────────────────
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration. Livraison impossible.")
+
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
         raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 4 chiffres.")
 

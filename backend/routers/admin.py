@@ -91,6 +91,45 @@ async def admin_confirm_payment(
     return {"message": "Paiement validé avec succès"}
 
 
+@router.post("/parcels/{parcel_id}/suspend", summary="Suspendre un colis (Admin)")
+async def admin_suspend_parcel(
+    parcel_id: str,
+    _admin=Depends(require_admin_dep),
+):
+    """
+    Bloque temporairement toutes les actions sur le colis (collecte, livraison).
+    """
+    from services.parcel_service import transition_status
+    actor = {"actor_id": _admin["user_id"] if isinstance(_admin, dict) else "admin_system", "actor_role": "admin"}
+    
+    await transition_status(
+        parcel_id, ParcelStatus.SUSPENDED,
+        notes="Colis suspendu par l'administration",
+        **actor
+    )
+    return {"message": "Colis suspendu"}
+
+
+@router.post("/parcels/{parcel_id}/unsuspend", summary="Lever la suspension (Admin)")
+async def admin_unsuspend_parcel(
+    parcel_id: str,
+    to_status: ParcelStatus,
+    _admin=Depends(require_admin_dep),
+):
+    """
+    Relance le colis vers un statut actif (ex: CREATED, OUT_FOR_DELIVERY).
+    """
+    from services.parcel_service import transition_status
+    actor = {"actor_id": _admin["user_id"] if isinstance(_admin, dict) else "admin_system", "actor_role": "admin"}
+    
+    await transition_status(
+        parcel_id, to_status,
+        notes=f"Suspension levée vers {to_status.value}",
+        **actor
+    )
+    return {"message": f"Suspension levée vers {to_status.value}"}
+
+
 @router.get("/relay-points", summary="Réseau relais complet")
 async def admin_relay_points(
     skip: int = 0, limit: int = 100,
@@ -336,6 +375,12 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
     
     return {
         "parcel": parcel,
+        "financial_summary": {
+            "who_pays":       parcel.get("who_pays"),
+            "payment_status": parcel.get("payment_status"),
+            "quoted_price":   parcel.get("quoted_price"),
+            "payment_url":    parcel.get("payment_url"),
+        },
         "timeline": timeline,
         "missions": missions
     }
@@ -464,33 +509,6 @@ async def admin_resolve_incident(
     )
     
     return {"message": "Incident résolu avec succès"}
-
-
-@router.post("/finance/settle", summary="Confirmer l'encaissement du cash (COD)")
-async def admin_settle_cod(
-    driver_id: str,
-    amount: float = None,
-    _admin=Depends(require_admin_dep),
-):
-    """
-    Solde tout ou partie du cash on delivery collecté par un livreur.
-    """
-    from services.admin_service import settle_driver_cod
-    return await settle_driver_cod(driver_id, amount)
-
-
-@router.post("/parcels/{parcel_id}/override", summary="Forcer un changement de statut (SuperAdmin)")
-async def admin_override_status(
-    parcel_id: str,
-    new_status: ParcelStatus,
-    notes: str,
-    _admin=Depends(require_admin_dep),
-):
-    """
-    Intervention manuelle sur le cycle de vie d'un colis.
-    """
-    from services.admin_service import override_parcel_status
-    return await override_parcel_status(parcel_id, new_status, notes)
 
 
 @router.post("/finance/settle", summary="Confirmer l'encaissement du cash (COD)")

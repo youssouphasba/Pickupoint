@@ -56,7 +56,8 @@ async def override_parcel_status(parcel_id: str, new_status: ParcelStatus, notes
         new_status, 
         actor_id="ADMIN_OVERRIDE", 
         actor_role="admin", 
-        notes=f"FORCE OVERRIDE: {notes}"
+        notes=f"FORCE OVERRIDE: {notes}",
+        force=True
     )
     
     if not success:
