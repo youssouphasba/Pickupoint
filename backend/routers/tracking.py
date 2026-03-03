@@ -14,7 +14,7 @@ from main import limiter
 
 
 @router.get("/{tracking_code}", summary="Statut public d'un colis")
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")
 async def track_parcel(tracking_code: str, request: Request):
     parcel = await db.parcels.find_one(
         {"tracking_code": tracking_code},
@@ -43,7 +43,7 @@ async def track_parcel(tracking_code: str, request: Request):
 
 
 @router.get("/{tracking_code}/events", summary="Historique complet du colis")
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")
 async def track_parcel_events(tracking_code: str, request: Request):
     parcel = await db.parcels.find_one(
         {"tracking_code": tracking_code},
@@ -62,7 +62,7 @@ async def track_parcel_events(tracking_code: str, request: Request):
 
 
 @router.get("/view/{tracking_code}", response_class=HTMLResponse, summary="Page de suivi Web (sans app)")
-@limiter.limit("20/minute")
+@limiter.limit("5/minute")
 async def view_parcel_web(tracking_code: str, request: Request):
     """Affiche une page HTML élégante pour le suivi public."""
     parcel = await track_parcel(tracking_code) # Utilise la logique existante
