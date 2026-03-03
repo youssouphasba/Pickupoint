@@ -1,8 +1,10 @@
 """
 Router parcels : CRUD colis + toutes les actions de transition de la machine d'états.
 """
+import logging
 import uuid
 from datetime import datetime, timezone
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
