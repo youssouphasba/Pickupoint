@@ -22,7 +22,7 @@ async def wipe_all_scenarios():
     print(f"DEL: {event_res.deleted_count} evenements supprimés.")
 
     # 3. Supprimer toutes les missions (deliveries)
-    delivery_res = await db.deliveries.delete_many({})
+    delivery_res = await db.delivery_missions.delete_many({})
     print(f"DEL: {delivery_res.deleted_count} missions de livraison supprimées.")
 
     # 4. Réinitialiser la charge des relais (current_load)
