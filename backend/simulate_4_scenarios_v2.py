@@ -14,7 +14,7 @@ import os
 import sys
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import db, connect_db
@@ -73,19 +73,25 @@ async def _ensure_relay(owner_id: str, info: dict) -> dict:
     await db.relay_points.insert_one(doc)
     return doc
 
-async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, recipient_name: str, recipient_phone: str, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
+async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_name: str, recipient_name: str, recipient_phone: str, recipient_user_id: str = None, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
     now = datetime.now(timezone.utc)
     p_id = _parcel_id()
     t_code = f"PKP-{random.randint(100,999)}-{random.randint(1000,9999)}"
     pickup_code = str(random.randint(100000, 999999))
-    pin_code = str(random.randint(1000, 9999))
+    relay_pin = str(random.randint(1000, 9999))
 
     doc = {
         "parcel_id": p_id, "tracking_code": t_code, "status": ParcelStatus.CREATED.value,
-        "delivery_mode": mode.value, "sender_user_id": sender_id, "recipient_name": recipient_name,
-        "recipient_phone": recipient_phone, "origin_relay_id": origin_relay, "destination_relay_id": dest_relay,
-        "origin_location": origin_loc, "delivery_address": dest_addr, "quoted_price": 2000, "payment_status": "paid",
-        "pickup_code": pickup_code, "pin_code": pin_code, "created_at": now, "updated_at": now
+        "delivery_mode": mode.value, "sender_user_id": sender_id, "sender_name": sender_name,
+        "recipient_name": recipient_name, "recipient_phone": recipient_phone,
+        "recipient_user_id": recipient_user_id,
+        "origin_relay_id": origin_relay, "destination_relay_id": dest_relay,
+        "origin_location": origin_loc, "delivery_address": dest_addr,
+        "quoted_price": 2000, "payment_status": "paid", "payment_method": None, "payment_ref": None,
+        "is_insured": False, "is_express": False, "who_pays": "sender",
+        "pickup_code": pickup_code, "relay_pin": relay_pin,
+        "assigned_driver_id": None, "redirect_relay_id": None,
+        "created_at": now, "updated_at": now, "expires_at": now + timedelta(days=7)
     }
     await db.parcels.insert_one(doc)
     print(f"[OK] Scenario '{name}' cree : {t_code}")
@@ -112,24 +118,28 @@ async def main():
     
     # 1. R2R Inter-Villes (Dakar Medina -> Thies Escale)
     await create_scenario("1. R2R Inter-Villes", DeliveryMode.RELAY_TO_RELAY, u["fatou"]["user_id"],
-                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        u["fatou"]["name"], u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        recipient_user_id=u["ibrahima"]["user_id"],
                         origin_relay=r["medina"]["relay_id"], dest_relay=r["escale"]["relay_id"])
 
-    # 2. H2R (Collecte Medina -> Relais Plateau)
+    # 2. H2R (Collecte Domicile -> Relais Plateau)
     await create_scenario("2. H2R Auto-Collecte", DeliveryMode.HOME_TO_RELAY, u["fatou"]["user_id"],
-                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        u["fatou"]["name"], u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        recipient_user_id=u["ibrahima"]["user_id"],
                         origin_loc={"label": "Chez Fatou", "city": "Dakar", "geopin": {"lat": 14.68, "lng": -17.44}},
                         dest_relay=r["plateau"]["relay_id"])
 
     # 3. R2H (Relais Medina -> Domicile Ibrahima)
     await create_scenario("3. R2H GPS-Confirm", DeliveryMode.RELAY_TO_HOME, u["fatou"]["user_id"],
-                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        u["fatou"]["name"], u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        recipient_user_id=u["ibrahima"]["user_id"],
                         origin_relay=r["medina"]["relay_id"],
                         dest_addr={"label": "Appart. Ibrahima", "city": "Dakar", "geopin": {"lat": 14.7, "lng": -17.42}})
 
     # 4. H2H (Domicile -> Domicile)
     await create_scenario("4. H2H Full Flow", DeliveryMode.HOME_TO_HOME, u["fatou"]["user_id"],
-                        u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        u["fatou"]["name"], u["ibrahima"]["name"], u["ibrahima"]["phone"],
+                        recipient_user_id=u["ibrahima"]["user_id"],
                         origin_loc={"label": "Boutique Fatou", "city": "Dakar", "geopin": {"lat": 14.675, "lng": -17.435}},
                         dest_addr={"label": "Bureau Ibrahima", "city": "Dakar", "geopin": {"lat": 14.71, "lng": -17.43}})
 
