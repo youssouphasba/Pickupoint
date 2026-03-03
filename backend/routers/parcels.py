@@ -292,8 +292,15 @@ async def handout_parcel(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    if proof.proof_type == "pin" and not proof.pin_code:
-        raise bad_request_exception("PIN obligatoire pour remise au relais")
+    if proof.proof_type == "pin":
+        if not proof.pin_code:
+            raise bad_request_exception("PIN obligatoire pour remise au relais")
+        parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"relay_pin": 1, "delivery_code": 1})
+        if not parcel:
+            raise not_found_exception("Colis")
+        stored_pin = parcel.get("relay_pin") or parcel.get("delivery_code", "")
+        if stored_pin and proof.pin_code.strip() != stored_pin.strip():
+            raise bad_request_exception("PIN incorrect")
     updated = await transition_status(
         parcel_id, ParcelStatus.DELIVERED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],

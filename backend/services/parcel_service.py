@@ -148,6 +148,9 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     )
     quote: QuoteResponse = await calculate_price(quote_req)
 
+    sender_user   = await db.users.find_one({"user_id": sender_user_id}, {"name": 1})
+    sender_name_str = (sender_user or {}).get("name", "Expéditeur")
+
     now = datetime.now(timezone.utc)
     parcel_id     = _parcel_id()
     tracking_code = generate_tracking_code()
@@ -157,6 +160,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "parcel_id":             parcel_id,
         "tracking_code":         tracking_code,
         "sender_user_id":        sender_user_id,
+        "sender_name":           sender_name_str,
         "recipient_phone":       data.recipient_phone,
         "recipient_name":        data.recipient_name,
         "recipient_user_id":     None,  # Lié ci-dessous
@@ -174,8 +178,9 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "who_pays":              data.who_pays,
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
-        "pickup_code":           _generate_code(),
-        "delivery_code":         _generate_code(),
+        "pickup_code":           _generate_code(),          # 6 chiffres — livreur collecte
+        "delivery_code":         _generate_code(),          # 6 chiffres — livreur domicile
+        "relay_pin":             f"{random.randint(1000, 9999)}",  # 4 chiffres — retrait relais
         "paid_price":            None,
         "payment_status":        "pending",
         "payment_method":        None,
