@@ -289,23 +289,93 @@ async def get_heatmap_data(_admin=Depends(require_admin_dep)):
 async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
     """
     Retourne l'historique complet des événements avec métadonnées techniques 
-    (Scans, traces GPS, etc.)
+    (Scans, traces GPS, etc.) et noms des intervenants.
     """
     from services.parcel_service import get_parcel_timeline
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
         
+    # Enrichir les infos de base du colis
+    if parcel.get("sender_user_id") and not parcel.get("sender_name"):
+        sender = await db.users.find_one({"user_id": parcel["sender_user_id"]}, {"_id": 0, "name": 1})
+        if sender:
+            parcel["sender_name"] = sender["name"]
+
+    if parcel.get("origin_relay_id"):
+        relay = await db.relay_points.find_one({"relay_id": parcel["origin_relay_id"]}, {"_id": 0, "name": 1})
+        if relay:
+            parcel["origin_relay_name"] = relay["name"]
+
+    if parcel.get("destination_relay_id"):
+        relay = await db.relay_points.find_one({"relay_id": parcel["destination_relay_id"]}, {"_id": 0, "name": 1})
+        if relay:
+            parcel["destination_relay_name"] = relay["name"]
+
     timeline = await get_parcel_timeline(parcel_id)
-    
+    # Enrichir la timeline avec les noms des acteurs si possible
+    for event in timeline:
+        if event.get("actor_id"):
+            actor = await db.users.find_one({"user_id": event["actor_id"]}, {"_id": 0, "name": 1})
+            if actor:
+                event["actor_name"] = actor["name"]
+
     # On cherche aussi les traces GPS associées aux missions de ce colis
     missions_cursor = db.delivery_missions.find({"parcel_id": parcel_id}, {"_id": 0})
     missions = await missions_cursor.to_list(length=10)
+    
+    # Enrichir les missions avec le nom du livreur
+    for m in missions:
+        if m.get("driver_id"):
+            driver = await db.users.find_one({"user_id": m["driver_id"]}, {"_id": 0, "name": 1})
+            if driver:
+                m["driver_name"] = driver["name"]
     
     return {
         "parcel": parcel,
         "timeline": timeline,
         "missions": missions
+    }
+
+
+@router.get("/users/{user_id}/history", summary="Historique complet d'un utilisateur")
+async def get_user_history(user_id: str, _admin=Depends(require_admin_dep)):
+    """
+    Retourne la liste des activités liées à cet utilisateur :
+    - Colis envoyés
+    - Colis dont il est destinataire
+    - Missions de livraison (si livreur)
+    - Événements d'audit liés
+    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise not_found_exception("Utilisateur")
+
+    # 1. Colis envoyés
+    parcels_sent = await db.parcels.find({"sender_user_id": user_id}, {"_id": 0}).to_list(length=100)
+    
+    # 2. Colis reçus (basé sur le numéro de téléphone ou user_id si lié)
+    parcels_received = await db.parcels.find({
+        "$or": [
+            {"recipient_phone": user["phone"]},
+            {"recipient_user_id": user_id}
+        ]
+    }, {"_id": 0}).to_list(length=100)
+
+    # 3. Missions (si livreur)
+    missions = []
+    if user.get("role") == UserRole.DRIVER.value:
+        missions = await db.delivery_missions.find({"driver_id": user_id}, {"_id": 0}).to_list(length=100)
+
+    # 4. Événements récents où il est l'acteur
+    events = await db.parcel_events.find({"actor_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(length=50)
+
+    return {
+        "user": user,
+        "parcels_sent": parcels_sent,
+        "parcels_received": parcels_received,
+        "missions": missions,
+        "events": events
     }
 
 
