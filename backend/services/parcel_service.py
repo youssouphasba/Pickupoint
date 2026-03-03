@@ -37,30 +37,36 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
         ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver part de l'expéditeur vers le relais
         ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.CANCELLED,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: [
         ParcelStatus.IN_TRANSIT,
         ParcelStatus.OUT_FOR_DELIVERY,  # relay_to_home : driver va directement au domicile
         ParcelStatus.CANCELLED,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.IN_TRANSIT: [
         ParcelStatus.AT_DESTINATION_RELAY,
         ParcelStatus.OUT_FOR_DELIVERY,
         ParcelStatus.INCIDENT_REPORTED,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.AT_DESTINATION_RELAY: [
         ParcelStatus.AVAILABLE_AT_RELAY,
         ParcelStatus.OUT_FOR_DELIVERY,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.AVAILABLE_AT_RELAY: [
         ParcelStatus.DELIVERED,
         ParcelStatus.EXPIRED,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.OUT_FOR_DELIVERY: [
         ParcelStatus.DELIVERED,
         ParcelStatus.DELIVERY_FAILED,
         ParcelStatus.AT_DESTINATION_RELAY,  # H2R : driver livre au relais destinataire
         ParcelStatus.INCIDENT_REPORTED,
+        ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.DELIVERY_FAILED: [
         ParcelStatus.REDIRECTED_TO_RELAY,
@@ -84,6 +90,15 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.CANCELLED: [],
     ParcelStatus.EXPIRED:   [],
     ParcelStatus.RETURNED:  [],
+    ParcelStatus.SUSPENDED: [
+        ParcelStatus.CREATED,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
+        ParcelStatus.IN_TRANSIT,
+        ParcelStatus.AT_DESTINATION_RELAY,
+        ParcelStatus.AVAILABLE_AT_RELAY,
+        ParcelStatus.OUT_FOR_DELIVERY,
+        ParcelStatus.CANCELLED,
+    ],
 }
 
 
@@ -245,23 +260,27 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         actor_role="client",
     )
 
-    # ── Générer le lien de paiement Flutterwave (si l'expéditeur paye) ──
+    # ── Générer le lien de paiement Flutterwave (pour le payeur désigné) ──
     payment_url = None
-    if data.who_pays == "sender":
-        payment_res = await create_payment_link(
-            parcel_id=parcel_id,
-            tracking_code=tracking_code,
-            amount=quote.price,
-            customer_phone=sender_phone,
-            customer_name=data.recipient_name if data.initiated_by == "recipient" else "L'expéditeur",
+    payer_phone = sender_phone if data.who_pays == "sender" else data.recipient_phone
+    payer_name  = sender_name_str if data.who_pays == "sender" else data.recipient_name
+
+    payment_res = await create_payment_link(
+        parcel_id=parcel_id,
+        tracking_code=tracking_code,
+        amount=quote.price,
+        customer_phone=payer_phone,
+        customer_name=payer_name,
+    )
+    if payment_res.get("success"):
+        payment_url = payment_res["payment_link"]
+        await db.parcels.update_one(
+            {"parcel_id": parcel_id},
+            {"$set": {
+                "payment_url": payment_url,
+                "payment_ref": payment_res.get("tx_ref")
+            }}
         )
-        if payment_res.get("success"):
-            payment_url = payment_res["payment_link"]
-            # Optionnel : stocker le tx_ref dans le doc
-            await db.parcels.update_one(
-                {"parcel_id": parcel_id},
-                {"$set": {"payment_ref": payment_res.get("tx_ref")}}
-            )
 
     # ── Envoyer le code de livraison au destinataire par SMS/WhatsApp ──
     await notify_delivery_code(
@@ -307,24 +326,26 @@ async def transition_status(
     parcel_id: str,
     new_status: ParcelStatus,
     actor_id: str,
-    actor_role: str,
     notes: Optional[str] = None,
     metadata: Optional[dict] = None,
+    force: bool = False,
 ) -> dict:
     """
     Transition officielle de la machine d'états.
     Valide la transition, met à jour MongoDB, enregistre l'événement.
+    Si force=True, on court-circuite la validation des étapes autorisées.
     """
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise bad_request_exception("Colis introuvable")
 
     current_status = ParcelStatus(parcel["status"])
-    allowed = ALLOWED_TRANSITIONS.get(current_status, [])
-    if new_status not in allowed:
-        raise bad_request_exception(
-            f"Transition interdite : {current_status.value} → {new_status.value}"
-        )
+    if not force:
+        allowed = ALLOWED_TRANSITIONS.get(current_status, [])
+        if new_status not in allowed:
+            raise bad_request_exception(
+                f"Transition interdite : {current_status.value} → {new_status.value} (Utilisez l'override admin pour forcer)"
+            )
 
     now = datetime.now(timezone.utc)
     await db.parcels.update_one(

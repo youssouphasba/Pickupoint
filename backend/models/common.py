@@ -27,6 +27,7 @@ class ParcelStatus(str, Enum):
     DELIVERY_FAILED          = "delivery_failed"
     REDIRECTED_TO_RELAY      = "redirected_to_relay"
     CANCELLED                = "cancelled"
+    SUSPENDED                = "suspended"
     EXPIRED                  = "expired"
     DISPUTED                 = "disputed"
     INCIDENT_REPORTED        = "incident_reported"

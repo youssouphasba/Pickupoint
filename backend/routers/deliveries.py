@@ -173,6 +173,9 @@ async def confirm_pickup(
         raise not_found_exception("Colis")
 
     # Si expéditeur/relais a renseigné un code, vérifier :
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration. Collecte impossible.")
+
     if parcel.get("pickup_code", "") != body.code.strip():
         raise bad_request_exception("Code de collecte invalide")
 
@@ -245,6 +248,10 @@ async def accept_mission(
         raise not_found_exception("Mission")
     if mission["status"] != MissionStatus.PENDING.value:
         raise bad_request_exception("Mission déjà prise en charge")
+
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"status": 1})
+    if parcel and parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration. Mission indisponible.")
 
     # ── Rigueur Opérationnelle : un seul colis à la fois ──
     # Un livreur ne peut pas accepter une mission s'il en a déjà une en cours (ASSIGNED, PICKED_UP, IN_PROGRESS)
