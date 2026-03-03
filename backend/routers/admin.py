@@ -64,28 +64,31 @@ async def admin_list_parcels(
     return {"parcels": await cursor.to_list(length=limit), "total": total}
 
 
-@router.put("/parcels/{parcel_id}/status", summary="Forcer changement statut")
-async def admin_force_status(
+    return {"message": f"Statut forcé → {new_status.value}"}
+
+
+@router.post("/parcels/{parcel_id}/confirm-payment", summary="Valider manuellement le paiement (Admin)")
+async def admin_confirm_payment(
     parcel_id: str,
-    new_status: ParcelStatus,
     _admin=Depends(require_admin_dep),
 ):
-    from services.parcel_service import transition_status
-    # L'admin bypass les règles métier → on update directement
+    """
+    Force le statut de paiement à 'paid'. Utile pour les paiements hors-ligne
+    ou pour débloquer un flux si le webhook de paiement a échoué.
+    """
     now = datetime.now(timezone.utc)
     from services.parcel_service import _record_event
     await db.parcels.update_one(
         {"parcel_id": parcel_id},
-        {"$set": {"status": new_status.value, "updated_at": now}},
+        {"$set": {"payment_status": "paid", "updated_at": now}},
     )
     await _record_event(
         parcel_id=parcel_id,
-        event_type="ADMIN_STATUS_OVERRIDE",
-        to_status=new_status,
+        event_type="ADMIN_PAYMENT_CONFIRMED",
         actor_role="admin",
-        notes="Forçage admin",
+        notes="Paiement validé manuellement par l'admin",
     )
-    return {"message": f"Statut forcé → {new_status.value}"}
+    return {"message": "Paiement validé avec succès"}
 
 
 @router.get("/relay-points", summary="Réseau relais complet")
@@ -395,38 +398,72 @@ async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     return {"entities": drivers_cash}
 
 
-@router.post("/missions/{mission_id}/reassign", summary="Réassigner manuellement une mission")
-async def admin_reassign_mission(
-    mission_id: str,
-    new_driver_id: str,
+    return {"message": "Mission réassignée avec succès"}
+
+
+from pydantic import BaseModel
+from typing import Optional
+
+class IncidentResolutionRequest(BaseModel):
+    action: str  # "reassign", "return", "cancel"
+    notes: Optional[str] = None
+
+@router.post("/incidents/{parcel_id}/resolve", summary="Résoudre un incident (Admin)")
+async def admin_resolve_incident(
+    parcel_id: str,
+    body: IncidentResolutionRequest,
     _admin=Depends(require_admin_dep),
 ):
     """
-    Force le changement de livreur pour une mission donnée.
+    Prend une décision suite à un incident signalé par un livreur.
     """
-    mission = await db.delivery_missions.find_one({"mission_id": mission_id})
-    if not mission:
-        raise not_found_exception("Mission")
-        
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id})
+    if not parcel:
+        raise not_found_exception("Colis")
+
     now = datetime.now(timezone.utc)
-    # 1. Libérer l'ancien livreur (logiciel)
-    # 2. Assigner le nouveau
+    from services.parcel_service import transition_status, _create_delivery_mission, _record_event
+    from models.delivery import MissionStatus
+
+    # 1. Clôturer l'ancienne mission si elle est encore active
     await db.delivery_missions.update_one(
-        {"mission_id": mission_id},
-        {"$set": {
-            "driver_id": new_driver_id,
-            "status": "assigned",
-            "assigned_at": now,
-            "updated_at": now
-        }}
+        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress", "incident_reported"]}},
+        {"$set": {"status": MissionStatus.FAILED.value, "completed_at": now, "updated_at": now}}
     )
-    # 3. Update le colis
-    await db.parcels.update_one(
-        {"parcel_id": mission["parcel_id"]},
-        {"$set": {"assigned_driver_id": new_driver_id, "updated_at": now}}
+
+    actor = {"actor_id": _admin["user_id"] if isinstance(_admin, dict) else "admin_system", "actor_role": "admin"}
+
+    if body.action == "reassign":
+        # Repasser en OUT_FOR_DELIVERY (ou CREATED/IN_TRANSIT selon l'endroit)
+        # Pour simplifier, on force OUT_FOR_DELIVERY pour qu'une nouvelle mission soit créée
+        await db.parcels.update_one(
+            {"parcel_id": parcel_id},
+            {"$set": {"assigned_driver_id": None, "updated_at": now}}
+        )
+        # On recrée une mission
+        await _create_delivery_mission(parcel, ParcelStatus(parcel["status"]))
+        notes = f"Incident résolu par réassignation. {body.notes or ''}"
+    
+    elif body.action == "return":
+        await transition_status(parcel_id, ParcelStatus.RETURNED, notes=f"Incident résolu par retour à l'envoyeur. {body.notes or ''}", **actor)
+        return {"message": "Incident résolu : Colis en cours de retour"}
+
+    elif body.action == "cancel":
+        await transition_status(parcel_id, ParcelStatus.CANCELLED, notes=f"Incident résolu par annulation. {body.notes or ''}", **actor)
+        return {"message": "Incident résolu : Colis annulé"}
+
+    else:
+        raise bad_request_exception("Action de résolution invalide")
+
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="INCIDENT_RESOLVED",
+        actor_role="admin",
+        notes=notes,
+        metadata={"action": body.action}
     )
     
-    return {"message": "Mission réassignée avec succès"}
+    return {"message": "Incident résolu avec succès"}
 
 
 @router.post("/finance/settle", summary="Confirmer l'encaissement du cash (COD)")

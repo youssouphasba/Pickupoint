@@ -35,6 +35,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
         ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
         ParcelStatus.OUT_FOR_DELIVERY,   # HOME_TO_* : driver vient chercher chez l'expéditeur
         ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver part de l'expéditeur vers le relais
+        ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.CANCELLED,
     ],
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: [
@@ -45,6 +46,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.IN_TRANSIT: [
         ParcelStatus.AT_DESTINATION_RELAY,
         ParcelStatus.OUT_FOR_DELIVERY,
+        ParcelStatus.INCIDENT_REPORTED,
     ],
     ParcelStatus.AT_DESTINATION_RELAY: [
         ParcelStatus.AVAILABLE_AT_RELAY,
@@ -58,6 +60,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
         ParcelStatus.DELIVERED,
         ParcelStatus.DELIVERY_FAILED,
         ParcelStatus.AT_DESTINATION_RELAY,  # H2R : driver livre au relais destinataire
+        ParcelStatus.INCIDENT_REPORTED,
     ],
     ParcelStatus.DELIVERY_FAILED: [
         ParcelStatus.REDIRECTED_TO_RELAY,
@@ -65,6 +68,11 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ],
     ParcelStatus.REDIRECTED_TO_RELAY: [
         ParcelStatus.AVAILABLE_AT_RELAY,
+    ],
+    ParcelStatus.INCIDENT_REPORTED: [
+        ParcelStatus.OUT_FOR_DELIVERY,   # Réassignation
+        ParcelStatus.RETURNED,           # Retour obligé
+        ParcelStatus.CANCELLED,
     ],
     ParcelStatus.DISPUTED: [
         ParcelStatus.DELIVERED,
@@ -222,13 +230,12 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
 
     await db.parcels.insert_one(parcel_doc)
     
-    # Trigger mission immediately for Home-top-Relay or Home-to-Home
-    # Payment status does not block mission creation
-    if requires_recipient_gps or data.delivery_mode.value == "home_to_relay":
-        # Note: requires_recipient_gps is true for *_to_home, which covers home_to_home
-        # home_to_relay also needs an immediate pickup mission
-        if data.delivery_mode.value.startswith("home_to_"):
-            await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
+    # ── Déclenchement automatique de la mission de collecte ──
+    # Uniquement pour les modes commençant par 'home_to_' (pickup chez l'expéditeur)
+    if data.delivery_mode.value.startswith("home_to_"):
+        # Note: _create_delivery_mission vérifiera elle-même si la confirmation GPS 
+        # est requise (home_to_home) avant de réellement créer la mission.
+        await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
 
     await _record_event(
         parcel_id=parcel_id,
@@ -292,11 +299,6 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     result["payment_url"] = payment_url
     if recipient_confirm_url:
         result["recipient_confirm_url"] = recipient_confirm_url
-
-    # Générer la mission immédiatement UNIQUEMENT pour home_to_relay 
-    # (car home_to_home doit attendre la validation GPS du destinataire)
-    if data.delivery_mode.value == "home_to_relay":
-        await _create_delivery_mission(parcel_doc, ParcelStatus.CREATED)
 
     return result
 
@@ -411,6 +413,13 @@ async def transition_status(
                     }}
                 )
                 logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
+
+                # --- Déclenchement Phase 2 Transit ---
+                p = await db.parcels.find_one({"parcel_id": parcel_id})
+                if p and p.get("transit_relay_id") and p.get("status") == ParcelStatus.AT_DESTINATION_RELAY:
+                    # On est au transit, on lance la mission vers la destination finale
+                    logger.info(f"Handoff Transit : Déclenchement mission finale pour {parcel_id}")
+                    await _create_delivery_mission(p, ParcelStatus.AT_DESTINATION_RELAY)
 
     # 2. États terminaux : TOUJOURS compléter/échouer la mission active
     if new_status == ParcelStatus.DELIVERED:
@@ -531,9 +540,23 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     # Si la destination est un relais (H2R ou R2R local)
     dest_relay_id = parcel.get("destination_relay_id")
     mode = parcel.get("delivery_mode", "")
-    
-    # Pour H2R et R2R, si ce n'est pas une livraison finale à domicile
-    if dest_relay_id and not mode.endswith("_to_home"):
+    transit_relay_id = parcel.get("transit_relay_id")
+    active_status = parcel.get("status")
+
+    # 1. Cas Transit (Longue distance) : Si on doit passer par un relais scale
+    # Uniquement pour le premier trajet (CREATED -> Transit)
+    if transit_relay_id and active_status in [ParcelStatus.CREATED, ParcelStatus.OUT_FOR_DELIVERY]:
+        transit_relay = await db.relay_points.find_one({"relay_id": transit_relay_id}, {"_id": 0})
+        if transit_relay:
+            delivery_type   = "relay"
+            delivery_relay_id = transit_relay_id
+            delivery_label  = f"Transit : {transit_relay['name']}"
+            delivery_city   = (transit_relay.get("address") or {}).get("city", "Dakar")
+            delivery_geopin = (transit_relay.get("address") or {}).get("geopin")
+            logger.info(f"Cible mission : Transit Relay {transit_relay_id}")
+
+    # 2. Cas Normal : Destination Relais (H2R, R2R) ou suite du transit (AT_DESTINATION_RELAY -> Final)
+    elif dest_relay_id and not mode.endswith("_to_home"):
         # On ne crée la mission que si c'est R2R ou H2R (pas de confirmation GPS destinataire requise)
         dest_relay = await db.relay_points.find_one({"relay_id": dest_relay_id}, {"_id": 0})
         if dest_relay:

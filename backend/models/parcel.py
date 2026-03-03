@@ -38,8 +38,9 @@ class Parcel(BaseModel):
     status:                ParcelStatus = ParcelStatus.CREATED
     # Driver assigné
     assigned_driver_id:    Optional[str] = None
-    # Redirection
+    # Redirection et Transit
     redirect_relay_id:     Optional[str] = None
+    transit_relay_id:      Optional[str] = None
     # Notation & Pourboires (Phase 6)
     rating:                Optional[int]   = None  # 1-5
     rating_comment:        Optional[str]   = None
@@ -59,6 +60,7 @@ class ParcelCreate(BaseModel):
     origin_relay_id:       Optional[str] = None
     destination_relay_id:  Optional[str] = None
     delivery_address:      Optional[Address] = None
+    transit_relay_id:      Optional[str] = None
     origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur capturé dans l'app
     weight_kg:             float = 0.5
     dimensions:            Optional[Dict[str, float]] = None
