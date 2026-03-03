@@ -71,6 +71,17 @@ async def list_parcels(
     cursor = db.parcels.find(query, {"_id": 0}).skip(skip).limit(limit)
     parcels = await cursor.to_list(length=limit)
     total = await db.parcels.count_documents(query)
+
+    # Enrichir chaque colis avec is_recipient pour Flutter
+    if role not in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+        uid = current_user["user_id"]
+        uphone = current_user.get("phone", "")
+        for p in parcels:
+            p["is_recipient"] = (
+                p.get("recipient_user_id") == uid
+                or (p.get("recipient_phone") and uphone and p["recipient_phone"].endswith(uphone[-9:]))
+            )
+
     return {"parcels": parcels, "total": total}
 
 
@@ -82,25 +93,35 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     if not parcel:
         raise not_found_exception("Colis")
     
-    # Masquage anti-bypass & Sécurité des codes
+    # Déterminer le rôle du viewer AVANT le masquage
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    is_sender = parcel.get("sender_user_id") == current_user["user_id"]
+    is_recipient = (
+        parcel.get("recipient_user_id") == current_user["user_id"]
+        or (
+            parcel.get("recipient_phone")
+            and current_user.get("phone")
+            and parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+        )
+    )
+
+    # Injecter le flag dans la réponse (Flutter l'utilise pour l'UX)
+    parcel["is_recipient"] = bool(is_recipient)
+
     if not is_admin:
         # Masquer le téléphone
         if "recipient_phone" in parcel:
             parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
-        
-        # Sécurité des codes : 
+
+        # Sécurité des codes :
         # L'expéditeur ne doit pas voir le delivery_code (PIN du destinataire)
         # Le destinataire ne doit pas voir le pickup_code (PIN de collecte)
-        is_sender = parcel.get("sender_user_id") == current_user["user_id"]
-        is_recipient = parcel.get("recipient_phone") and current_user.get("phone") and \
-                       parcel["recipient_phone"].endswith(current_user["phone"][-9:])
-        
         if is_sender and not is_recipient:
             parcel.pop("delivery_code", None)
+            parcel.pop("relay_pin", None)
         if is_recipient and not is_sender:
             parcel.pop("pickup_code", None)
-            
+
     timeline = await get_parcel_timeline(parcel_id)
     return {"parcel": parcel, "timeline": timeline}
 
