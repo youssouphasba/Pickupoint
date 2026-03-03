@@ -382,20 +382,21 @@ async def transition_status(
                         nearest["relay_id"], parcel_id,
                     )
 
-    # ── Mettre à jour la mission de livraison si elle se termine au relais ──
+    # ── Mettre à jour la mission de livraison ──────────────────────────────────
+    from models.delivery import MissionStatus
+
+    # 1. Arrivée relais : compléter la mission si le point de chute est un relais
     relay_arrival_statuses = {
         ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
         ParcelStatus.AT_DESTINATION_RELAY,
         ParcelStatus.AVAILABLE_AT_RELAY
     }
     if new_status in relay_arrival_statuses:
-        from models.delivery import MissionStatus
         mission = await db.delivery_missions.find_one({
             "parcel_id": parcel_id,
             "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]}
         })
         if mission:
-            # Si le point de chute final de cette mission est un relais
             if mission.get("delivery_type") == "relay":
                 now = datetime.now(timezone.utc)
                 await db.delivery_missions.update_one(
@@ -407,6 +408,41 @@ async def transition_status(
                     }}
                 )
                 logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
+
+    # 2. États terminaux : TOUJOURS compléter/échouer la mission active
+    if new_status == ParcelStatus.DELIVERED:
+        mission = await db.delivery_missions.find_one({
+            "parcel_id": parcel_id,
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]}
+        })
+        if mission:
+            now = datetime.now(timezone.utc)
+            await db.delivery_missions.update_one(
+                {"mission_id": mission["mission_id"]},
+                {"$set": {
+                    "status": MissionStatus.COMPLETED.value,
+                    "completed_at": now,
+                    "updated_at":   now
+                }}
+            )
+            logger.info(f"Mission {mission['mission_id']} complétée (colis livré) pour {parcel_id}")
+
+    elif new_status == ParcelStatus.DELIVERY_FAILED:
+        mission = await db.delivery_missions.find_one({
+            "parcel_id": parcel_id,
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]}
+        })
+        if mission:
+            now = datetime.now(timezone.utc)
+            await db.delivery_missions.update_one(
+                {"mission_id": mission["mission_id"]},
+                {"$set": {
+                    "status": MissionStatus.FAILED.value,
+                    "completed_at": now,
+                    "updated_at":   now
+                }}
+            )
+            logger.info(f"Mission {mission['mission_id']} échouée pour {parcel_id}")
 
 
     # Notifier le changement
