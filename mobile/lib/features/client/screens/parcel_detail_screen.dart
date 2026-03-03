@@ -167,7 +167,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   // ── Confirmation de position In-App ─────────────────────────────────────
   bool _shouldShowConfirmLocation(Parcel parcel, bool isRecipient) {
     if (!isRecipient) return false;
-    final isHomeDel = parcel.deliveryMode.contains('home');
+    // Uniquement pour livraison à domicile (R2H ou H2H)
+    final isHomeDel = parcel.deliveryMode.endsWith('_to_home');
     return isHomeDel && !parcel.deliveryConfirmed && 
            ['created', 'dropped_at_origin_relay', 'in_transit'].contains(parcel.status);
   }
