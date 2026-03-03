@@ -82,7 +82,7 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
                 # Relais DE REPLI : colis redirigé après échec de livraison
                 {
                     "redirect_relay_id": relay_id,
-                    "status": "redirected_to_relay",
+                    "status": {"$in": ["redirected_to_relay", "at_destination_relay", "available_at_relay"]},
                 },
             ]
         },
