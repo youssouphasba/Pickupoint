@@ -437,6 +437,29 @@ async def transition_status(
         })
         if mission:
             now = datetime.now(timezone.utc)
+            # Au lieu d'échouer la mission, on la redirige vers le relais de repli
+            # On récupère le relais assigné juste au-dessus
+            updated_p = await db.parcels.find_one({"parcel_id": parcel_id}, {"redirect_relay_id": 1})
+            rid = (updated_p or {}).get("redirect_relay_id")
+
+            if rid:
+                relay = await db.relay_points.find_one({"relay_id": rid}, {"_id": 0})
+                if relay:
+                    await db.delivery_missions.update_one(
+                        {"mission_id": mission["mission_id"]},
+                        {"$set": {
+                            "delivery_type":    "relay",
+                            "delivery_relay_id": rid,
+                            "delivery_label":   relay.get("name", "Relais de repli"),
+                            "delivery_city":    (relay.get("address") or {}).get("city", "Dakar"),
+                            "delivery_geopin":  (relay.get("address") or {}).get("geopin"),
+                            "updated_at":       now
+                        }}
+                    )
+                    logger.info(f"Mission {mission['mission_id']} redirigée vers relais {rid} après échec livraison")
+                    # On sort sans mettre FAILED
+                    return await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+
             await db.delivery_missions.update_one(
                 {"mission_id": mission["mission_id"]},
                 {"$set": {
@@ -445,7 +468,7 @@ async def transition_status(
                     "updated_at":   now
                 }}
             )
-            logger.info(f"Mission {mission['mission_id']} échouée pour {parcel_id}")
+            logger.info(f"Mission {mission['mission_id']} échouée (pas de repli possible) pour {parcel_id}")
 
 
     # Notifier le changement
