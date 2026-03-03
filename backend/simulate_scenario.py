@@ -14,7 +14,7 @@ import sys
 import random
 import uuid
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import db, connect_db
@@ -185,22 +185,32 @@ async def create_test_parcel():
         "parcel_id":            parcel_id,
         "tracking_code":        tracking_code,
         "sender_user_id":       sender["user_id"],
+        "sender_name":          sender["name"],
         "recipient_name":       ctx["recipient"]["name"],
         "recipient_phone":      ctx["recipient"]["phone"],
+        "recipient_user_id":    ctx["recipient"]["user_id"],
         "delivery_mode":        DeliveryMode.RELAY_TO_RELAY.value,
-        "origin_relay_id":      relay_a["relay_id"],       # ← RELAIS A (Médina)
-        "destination_relay_id": relay_b["relay_id"],       # ← RELAIS B (Plateau) ≠ A
+        "origin_relay_id":      relay_a["relay_id"],
+        "destination_relay_id": relay_b["relay_id"],
+        "delivery_address":     None,
         "weight_kg":            1.5,
         "declared_value":       5000,
         "quoted_price":         1500,
         "payment_status":       "paid",
+        "payment_method":       None,
+        "payment_ref":          None,
         "is_insured":           False,
-        "pickup_code":          pickup_code,
-        "delivery_code":        delivery_code,
-        "pin_code":             pin_code,
+        "is_express":           False,
+        "who_pays":             "sender",
+        "pickup_code":          pickup_code,   # 6 chiffres — livreur donne au relais A
+        "delivery_code":        delivery_code, # 6 chiffres — livreur domicile (non utilisé ici)
+        "relay_pin":            pin_code,      # 4 chiffres — destinataire donne au relais B
+        "assigned_driver_id":   None,
+        "redirect_relay_id":    None,
         "status":               ParcelStatus.CREATED.value,
         "created_at":           now,
         "updated_at":           now,
+        "expires_at":           now + timedelta(days=7),
     }
     await db.parcels.insert_one(parcel_doc)
     await db.parcel_events.insert_one({
