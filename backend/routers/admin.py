@@ -595,3 +595,46 @@ async def admin_override_status(
     """
     from services.admin_service import override_parcel_status
     return await override_parcel_status(parcel_id, new_status, notes)
+
+
+# ── Fidélité & Récompenses (Phase 8) ─────────────────────────────────────────
+
+@router.post("/recompenses/trigger-monthly", summary="Lancer manuellement le calcul mensuel (Admin)")
+async def admin_trigger_monthly(
+    period: str, # YYYY-MM
+    _admin=Depends(require_admin_dep),
+):
+    """
+    Déclenche le calcul des stats et le versement des bonus pour une période donnée.
+    """
+    from services.ranking_service import (
+        compute_driver_stats_for_period, 
+        pay_monthly_driver_bonuses,
+        compute_relay_stats_and_pay_bonuses
+    )
+    
+    # 1. Stats Drivers
+    stats = await compute_driver_stats_for_period(period)
+    for stat in stats:
+        await db.driver_stats.update_one(
+            {"driver_id": stat["driver_id"], "period": period},
+            {"$set": stat},
+            upsert=True,
+        )
+    
+    # 2. Bonus Drivers
+    await pay_monthly_driver_bonuses(period)
+    
+    # 3. Bonus Relais
+    await compute_relay_stats_and_pay_bonuses(period)
+    
+    return {"message": f"Calculs terminés pour la période {period}"}
+
+
+@router.get("/recompenses/driver-stats", summary="Voir les stats de performance drivers")
+async def admin_get_driver_stats(
+    period: str,
+    _admin=Depends(require_admin_dep),
+):
+    stats = await db.driver_stats.find({"period": period}).sort("rank", 1).to_list(length=200)
+    return {"period": period, "stats": stats}

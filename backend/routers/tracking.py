@@ -10,7 +10,7 @@ from services.parcel_service import get_parcel_timeline
 
 router = APIRouter()
 
-from main import limiter
+from core.limiter import limiter
 
 
 @router.get("/{tracking_code}", summary="Statut public d'un colis")

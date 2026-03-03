@@ -17,6 +17,9 @@ class User {
     this.onTimeDeliveries = 0,
     this.averageRating = 0.0,
     this.totalRatingsCount = 0,
+    this.loyaltyPoints = 0,
+    this.loyaltyTier = 'bronze',
+    this.referralCode = '',
   });
 
   final String id;
@@ -38,6 +41,9 @@ class User {
   final int onTimeDeliveries;
   final double averageRating;
   final int totalRatingsCount;
+  final int loyaltyPoints;
+  final String loyaltyTier;
+  final String referralCode;
 
   /// Nom d'affichage : fullName ou téléphone comme fallback
   String get name => fullName ?? phone;
@@ -69,6 +75,9 @@ class User {
       onTimeDeliveries: (json['on_time_deliveries'] as num?)?.toInt() ?? 0,
       averageRating: (json['average_rating'] as num?)?.toDouble() ?? 0.0,
       totalRatingsCount: (json['total_ratings_count'] as num?)?.toInt() ?? 0,
+      loyaltyPoints: (json['loyalty_points'] as num?)?.toInt() ?? 0,
+      loyaltyTier: json['loyalty_tier'] as String? ?? 'bronze',
+      referralCode: json['referral_code'] as String? ?? '',
     );
   }
 
@@ -100,6 +109,9 @@ class User {
     bool? isActive,
     bool? isAvailable,
     String? userType,
+    int? loyaltyPoints,
+    String? loyaltyTier,
+    String? referralCode,
   }) =>
       User(
         id: id ?? this.id,
@@ -119,5 +131,8 @@ class User {
         onTimeDeliveries: onTimeDeliveries ?? this.onTimeDeliveries,
         averageRating: averageRating ?? this.averageRating,
         totalRatingsCount: totalRatingsCount ?? this.totalRatingsCount,
+        loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
+        loyaltyTier: loyaltyTier ?? this.loyaltyTier,
+        referralCode: referralCode ?? this.referralCode,
       );
 }

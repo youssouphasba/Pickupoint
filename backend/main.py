@@ -4,12 +4,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+
+from core.limiter import limiter
 
 from config import settings
-from database import connect_db, close_db
+from database import connect_db, close_db, get_db
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
 from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications
@@ -20,8 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter est maintenant dans core/limiter.py
 
 
 async def _auto_release_stuck_missions() -> None:
@@ -62,15 +65,59 @@ async def _auto_release_stuck_missions() -> None:
             logger.error(f"Erreur auto-release missions : {exc}")
 
 
+async def _monthly_ranking_job():
+    """Tourne le 1er de chaque mois à 01:00 UTC."""
+    try:
+        now = datetime.now(timezone.utc)
+        # Calculer pour le mois précédent
+        if now.month == 1:
+            period = f"{now.year - 1}-12"
+        else:
+            period = f"{now.year}-{now.month - 1:02d}"
+
+        logger.info(f"Démarrage du calcul des classements mensuels pour {period}...")
+        
+        from services.ranking_service import (
+            compute_driver_stats_for_period, 
+            pay_monthly_driver_bonuses,
+            compute_relay_stats_and_pay_bonuses
+        )
+        
+        # 1. Stats Drivers
+        stats = await compute_driver_stats_for_period(period)
+        for stat in stats:
+            await db.driver_stats.update_one(
+                {"driver_id": stat["driver_id"], "period": period},
+                {"$set": stat},
+                upsert=True,
+            )
+        
+        # 2. Bonus Drivers
+        await pay_monthly_driver_bonuses(period)
+        
+        # 3. Stats & Bonus Relais
+        await compute_relay_stats_and_pay_bonuses(period)
+        
+        logger.info(f"Classements et bonus pour {period} terminés avec succès.")
+    except Exception as exc:
+        logger.error(f"Erreur lors du calcul mensuel des classements : {exc}")
+
+
+scheduler = AsyncIOScheduler()
+scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await connect_db()
+    scheduler.start()
     task = asyncio.create_task(_auto_release_stuck_missions())
-    logger.info("PickuPoint API started")
+    logger.info("PickuPoint API started (with scheduler)")
     yield
     # Shutdown
     task.cancel()
+    scheduler.shutdown()
     await close_db()
     logger.info("PickuPoint API stopped")
 

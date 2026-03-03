@@ -13,16 +13,16 @@ def generate_referral_code(name: str) -> str:
 
 
 def compute_tier(points: int) -> str:
-    if points >= 1500:
-        return "gold"
     if points >= 500:
+        return "gold"
+    if points >= 200:
         return "silver"
     return "bronze"
 
 
 def tier_discount_coeff(tier: str) -> float:
     """Coefficient de réduction fidélité (1.0 = aucune réduction)."""
-    return {"bronze": 1.0, "silver": 0.95, "gold": 0.90}.get(tier, 1.0)
+    return {"bronze": 1.0, "silver": 0.90, "gold": 0.80}.get(tier, 1.0)
 
 
 POINTS_PER_DELIVERY = 10

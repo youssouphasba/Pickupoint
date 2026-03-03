@@ -465,3 +465,83 @@ async def get_gps_trail(
         raise not_found_exception("Mission")
     trail = mission.get("gps_trail", [])
     return {"trail": trail, "count": len(trail)}
+
+
+# ── Classements (Phase 8) ───────────────────────────────────────────────────
+
+@router.get("/rankings", summary="Classement mensuel des livreurs")
+async def get_rankings(
+    period: str = Query(default="", description="Format YYYY-MM. Vide = mois en cours"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Retourne le top des livreurs pour une période donnée.
+    Admin : voit tout.
+    Driver : voit les noms masqués sauf le sien.
+    """
+    from datetime import datetime, timezone
+    if not period:
+        now = datetime.now(timezone.utc)
+        period = f"{now.year}-{now.month:02d}"
+
+    is_admin = current_user.get("role") in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    is_driver = current_user.get("role") == UserRole.DRIVER.value
+
+    if not (is_admin or is_driver):
+        raise forbidden_exception("Accès réservé aux livreurs et administrateurs")
+
+    stats = await db.driver_stats.find(
+        {"period": period},
+        sort=[("rank", 1)],
+        limit=50,
+    ).to_list(length=50)
+
+    result = []
+    for s in stats:
+        is_me = s["driver_id"] == current_user["user_id"]
+
+        if is_admin or is_me:
+            driver = await db.users.find_one({"user_id": s["driver_id"]})
+            display_name = driver.get("name", "Livreur") if driver else "Livreur"
+            total_earned = s.get("total_earned_xof", 0)
+            bonus        = s.get("bonus_paid_xof", 0)
+        else:
+            display_name = f"Livreur #{s['rank']}"
+            total_earned = None
+            bonus        = None
+
+        result.append({
+            "rank":              s["rank"],
+            "display_name":      display_name,
+            "badge":             s["badge"],
+            "deliveries_total":  s["deliveries_total"],
+            "deliveries_success":s["deliveries_success"],
+            "success_rate":      s["success_rate"],
+            "avg_rating":        s["avg_rating"],
+            "total_earned_xof":  total_earned,
+            "bonus_paid_xof":    bonus,
+            "is_me":             is_me,
+        })
+
+    return {"period": period, "rankings": result}
+
+
+@router.get("/rankings/me", summary="Ma position au classement")
+async def get_my_ranking(
+    period: str = Query(default=""),
+    current_user: dict = Depends(require_role(UserRole.DRIVER)),
+):
+    from datetime import datetime, timezone
+    if not period:
+        now = datetime.now(timezone.utc)
+        period = f"{now.year}-{now.month:02d}"
+
+    stat = await db.driver_stats.find_one({
+        "driver_id": current_user["user_id"],
+        "period": period,
+    }, {"_id": 0})
+    
+    if not stat:
+        return {"period": period, "rank": None, "message": "Aucune donnée pour cette période"}
+
+    return stat

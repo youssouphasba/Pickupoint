@@ -128,3 +128,71 @@ async def assign_relay_point(
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
     return {"message": f"Agent {user_id} lié au relais {relay_id}"}
+
+
+# ── Fidélité & Parrainage ───────────────────────────────────────────────────
+
+@router.get("/me/loyalty", summary="Statistiques de fidélité")
+async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
+    """Retourne les points, le tier et l'historique de fidélité."""
+    from services.user_service import compute_tier
+    
+    events = await db.loyalty_events.find(
+        {"user_id": current_user["user_id"]},
+        sort=[("created_at", -1)],
+        limit=20
+    ).to_list(length=20)
+    
+    points = current_user.get("loyalty_points", 0)
+    tier = compute_tier(points)
+    
+    # Prochain palier
+    next_tier_at = 200 if tier == "bronze" else 500 if tier == "silver" else None
+    
+    return {
+        "points":        points,
+        "tier":          tier,
+        "next_tier_at":  next_tier_at,
+        "referral_code": current_user.get("referral_code", ""),
+        "history":       events,
+    }
+
+
+@router.post("/refer", summary="Code parrainage")
+async def get_referral_info(current_user: dict = Depends(get_current_user)):
+    """Retourne le code parrainage et le lien."""
+    code = current_user.get("referral_code", "")
+    return {
+        "referral_code": code,
+        "referral_url":  f"https://pickupoint.sn/join?ref={code}"
+    }
+
+
+@router.post("/apply-referral", summary="Appliquer un parrain")
+async def apply_referral_code(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Lie l'utilisateur courant à un parrain via son code."""
+    code = body.get("referral_code", "").upper().strip()
+    if not code:
+        from core.exceptions import bad_request_exception
+        raise bad_request_exception("Code parrainage manquant")
+        
+    if current_user.get("referred_by"):
+        from core.exceptions import bad_request_exception
+        raise bad_request_exception("Vous avez déjà un parrain")
+        
+    parrain = await db.users.find_one({"referral_code": code})
+    if not parrain:
+        raise not_found_exception("Code parrainage invalide")
+        
+    if parrain["user_id"] == current_user["user_id"]:
+        from core.exceptions import bad_request_exception
+        raise bad_request_exception("Action impossible")
+
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {"referred_by": parrain["user_id"], "updated_at": datetime.now(timezone.utc)}}
+    )
+    return {"message": "Parrainage appliqué ! Bonus crédité après votre 1ère livraison livrée."}
