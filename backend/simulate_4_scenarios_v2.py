@@ -96,7 +96,7 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
         "quoted_price": 2000, "payment_status": "paid", "payment_method": None, "payment_ref": None,
         "is_insured": False, "is_express": False, "who_pays": "sender",
         "pickup_code": pickup_code, "delivery_code": delivery_code, "relay_pin": relay_pin,
-        "assigned_driver_id": None, "redirect_relay_id": None,
+        "assigned_driver_id": None, "redirect_relay_id": None, "is_simulation": True,
         "created_at": now, "updated_at": now, "expires_at": now + timedelta(days=7)
     }
     await db.parcels.insert_one(doc)

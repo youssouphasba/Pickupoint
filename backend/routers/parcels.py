@@ -385,19 +385,21 @@ async def deliver_parcel(
 
     # ── Validation du code ─────────────────────────────────────────────
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
-        raise bad_request_exception("Code de livraison invalide")
+        raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 4 chiffres.")
 
-    # ── Géofence : livreur doit être à moins de 500 m du destinataire ──
-    if body.driver_lat is not None and body.driver_lng is not None:
+    # ── Géofence : livreur doit être à moins de 10km (MVP) ─────────────
+    if parcel.get("is_simulation"):
+        logger.info(f"Bypass geofence pour colis de simulation {parcel_id}")
+    elif body.driver_lat is not None and body.driver_lng is not None:
         delivery_addr = parcel.get("delivery_address") or {}
         geopin = delivery_addr.get("geopin") or {}
         dest_lat = geopin.get("lat")
         dest_lng = geopin.get("lng")
         if dest_lat is not None and dest_lng is not None:
             dist_m = _haversine_km(body.driver_lat, body.driver_lng, dest_lat, dest_lng) * 1000
-            if dist_m > 500:
+            if dist_m > 10000: # 10 km
                 raise bad_request_exception(
-                    f"Vous êtes trop loin de l'adresse de livraison ({int(dist_m)} m). Rapprochez-vous (< 500 m)."
+                    f"Vous êtes trop loin de l'adresse de livraison ({int(dist_m/1000)} km). Rapprochez-vous (< 10 km)."
                 )
 
     updated = await transition_status(
