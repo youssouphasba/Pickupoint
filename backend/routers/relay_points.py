@@ -15,7 +15,7 @@ from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
 
 router = APIRouter()
 
-from main import limiter
+from core.limiter import limiter
 
 
 def _relay_id() -> str:

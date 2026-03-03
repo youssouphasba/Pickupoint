@@ -36,6 +36,27 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+) -> Optional[dict]:
+    """Version optionnelle de get_current_user (ne lève pas d'erreur si anonyme)."""
+    if not credentials:
+        return None
+    try:
+        payload = verify_access_token(credentials.credentials)
+        if not payload:
+            return None
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if not user or not user.get("is_active", True) or user.get("is_banned"):
+            return None
+        return user
+    except Exception:
+        return None
+
+
 def require_role(*roles: UserRole):
     """
     Dépendance qui vérifie que l'utilisateur connecté possède l'un des rôles donnés.

@@ -368,10 +368,15 @@ async def transition_status(
     if new_status == ParcelStatus.DELIVERED:
         await distribute_delivery_revenue(parcel)
         # ── Gamification (Phase 8) ──
-        driver_id = parcel.get("assigned_driver_id")
         if driver_id:
             from services.gamification_service import update_driver_gamification
             await update_driver_gamification(driver_id, "delivery_completed")
+            
+        # ── Fidélité (Phase 8) ──
+        sender_user_id = parcel.get("sender_user_id")
+        if sender_user_id:
+            from services.loyalty_service import credit_loyalty_points
+            await credit_loyalty_points(sender_user_id)
 
     # Générer la mission du livreur quand le colis est déposé au relais d'origine
     if new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:

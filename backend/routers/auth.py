@@ -20,8 +20,8 @@ from services.otp_service import send_otp, verify_otp
 
 router = APIRouter()
 
-# Utilisation du limiter global défini dans main
-from main import limiter
+# Utilisation du limiter global défini dans core/limiter
+from core.limiter import limiter
 
 
 @router.post("/request-otp", summary="Envoyer OTP")
@@ -42,6 +42,7 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
     user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
     if not user_doc:
         now = datetime.now(timezone.utc)
+        from services.user_service import generate_referral_code
         user_doc = {
             "user_id":           f"usr_{uuid.uuid4().hex[:12]}",
             "phone":             body.phone,
@@ -56,6 +57,9 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
             "language":          "fr",
             "currency":          "XOF",
             "country_code":      "SN",
+            "loyalty_points":    0,
+            "loyalty_tier":      "bronze",
+            "referral_code":     generate_referral_code(body.phone),
             "created_at":        now,
             "updated_at":        now,
         }

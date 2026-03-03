@@ -93,7 +93,11 @@ def _round_to_50(value: float) -> float:
 
 # ── Point d'entrée principal ──────────────────────────────────────────────────
 
-async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
+async def calculate_price(
+    quote: ParcelQuote, 
+    sender_tier: str = "bronze",
+    is_frequent: bool = False
+) -> QuoteResponse:
     base       = _base_price(quote.delivery_mode)
     distance   = await estimate_distance_km(quote)
     dist_cost  = distance * settings.PRICE_PER_KM
@@ -114,9 +118,18 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
 
     sous_total = base + dist_cost + weight_cost + insur_cost + inter_city_cost
 
+    # ── Réductions Fidélité & Expéditeur Fréquent (Phase 8) ──
+    from services.user_service import tier_discount_coeff
+    
+    tier_discount = tier_discount_coeff(sender_tier)
+    frequent_discount = 0.90 if is_frequent else 1.0 # -10% from text
+    
+    # Coefficient combiné
+    loyalty_coeff = tier_discount * frequent_discount
+    
     # Pas de coefficient dynamique
     coeff, coeff_factors = 1.0, []
-    price_with_coeff = sous_total * coeff
+    price_with_coeff = sous_total * coeff * loyalty_coeff
 
     # Express
     express_cost = 0.0
@@ -146,6 +159,9 @@ async def calculate_price(quote: ParcelQuote) -> QuoteResponse:
         "coeff_factors":  coeff_factors,
         "is_express":     quote.is_express,
         "express_cost":   round(express_cost),
+        "loyalty_tier":   sender_tier,
+        "is_frequent":    is_frequent,
+        "loyalty_coeff":  round(loyalty_coeff, 2),
         "who_pays":       quote.who_pays,
         "estimated_hours": estimated_hours,
     }

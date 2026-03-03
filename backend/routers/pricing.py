@@ -4,9 +4,10 @@ Router pricing : zones tarifaires et règles de prix.
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
+from typing import Optional
 
-from core.dependencies import require_role
+from core.dependencies import require_role, get_current_user_optional
 from core.exceptions import not_found_exception
 from database import db
 from models.common import UserRole
@@ -19,7 +20,7 @@ from services.pricing_service import calculate_price
 
 router = APIRouter()
 
-from main import limiter
+from core.limiter import limiter
 
 
 def _zone_id() -> str:
@@ -39,8 +40,30 @@ async def list_zones():
 
 @router.post("/quote", response_model=QuoteResponse, summary="Calculer un devis (public)")
 @limiter.limit("15/minute")
-async def get_quote(body: ParcelQuote, request: Request):
-    return await calculate_price(body)
+async def get_quote(
+    body: ParcelQuote, 
+    request: Request,
+    current_user: Optional[dict] = Depends(get_current_user_optional)
+):
+    sender_tier = "bronze"
+    is_frequent = False
+    
+    if current_user:
+        user = await db.users.find_one({"user_id": current_user["user_id"]})
+        if user:
+            sender_tier = user.get("loyalty_tier", "bronze")
+            
+            # Check for frequent sender (>= 10 delivered in last 30 days)
+            from datetime import datetime, timezone, timedelta
+            month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            delivered_count = await db.parcels.count_documents({
+                "sender_user_id": current_user["user_id"],
+                "status": "delivered",
+                "created_at": {"$gte": month_ago}
+            })
+            is_frequent = delivered_count >= 10
+
+    return await calculate_price(body, sender_tier=sender_tier, is_frequent=is_frequent)
 
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
