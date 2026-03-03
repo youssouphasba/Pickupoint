@@ -19,7 +19,7 @@ from datetime import datetime, timezone, timedelta
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from database import db, connect_db
 from models.common import ParcelStatus, DeliveryMode
-from services.parcel_service import _parcel_id, _event_id
+from services.parcel_service import _parcel_id, _event_id, _create_delivery_mission
 
 # -- Configuration des Acteurs --
 ACCOUNTS = {
@@ -94,6 +94,11 @@ async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, sender_
         "created_at": now, "updated_at": now, "expires_at": now + timedelta(days=7)
     }
     await db.parcels.insert_one(doc)
+
+    # Créer la mission livreur immédiatement pour home_to_* (pickup chez l'expéditeur)
+    if mode.value.startswith("home_to_"):
+        await _create_delivery_mission(doc, ParcelStatus.CREATED)
+
     print(f"[OK] Scenario '{name}' cree : {t_code}")
     return doc
 
