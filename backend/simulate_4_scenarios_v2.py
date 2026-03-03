@@ -68,7 +68,7 @@ async def _ensure_relay(owner_id: str, info: dict) -> dict:
     await db.relay_points.insert_one(doc)
     return doc
 
-async def create_scenario(name: str, mode: DeliveryMode, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
+async def create_scenario(name: str, mode: DeliveryMode, sender_id: str, origin_relay=None, dest_relay=None, origin_loc=None, dest_addr=None):
     now = datetime.now(timezone.utc)
     p_id = _parcel_id()
     t_code = f"PKP-{random.randint(100,999)}-{random.randint(1000,9999)}"
@@ -77,7 +77,7 @@ async def create_scenario(name: str, mode: DeliveryMode, origin_relay=None, dest
 
     doc = {
         "parcel_id": p_id, "tracking_code": t_code, "status": ParcelStatus.CREATED.value,
-        "delivery_mode": mode.value, "sender_user_id": "usr_fatou", "recipient_name": "Ibrahima Sow",
+        "delivery_mode": mode.value, "sender_user_id": sender_id, "recipient_name": "Ibrahima Sow",
         "recipient_phone": "+221770000004", "origin_relay_id": origin_relay, "destination_relay_id": dest_relay,
         "origin_location": origin_loc, "delivery_address": dest_addr, "quoted_price": 2000, "payment_status": "paid",
         "pickup_code": pickup_code, "pin_code": pin_code, "created_at": now, "updated_at": now
@@ -97,24 +97,30 @@ async def main():
     r["plateau"] = await _ensure_relay(u["agent_plat"]["user_id"], RELAYS["plateau"])
     r["escale"] = await _ensure_relay(u["agent_thes"]["user_id"], RELAYS["escale"])
 
+    # LIEN AGENT -> RELAIS (CRITIQUE POUR L'APP)
+    await db.users.update_one({"user_id": u["agent_med"]["user_id"]}, {"$set": {"relay_point_id": r["medina"]["relay_id"]}})
+    await db.users.update_one({"user_id": u["agent_plat"]["user_id"]}, {"$set": {"relay_point_id": r["plateau"]["relay_id"]}})
+    await db.users.update_one({"user_id": u["agent_thes"]["user_id"]}, {"$set": {"relay_point_id": r["escale"]["relay_id"]}})
+    print("[OK] Agents lies a leurs points relais.")
+
     print("\n--- CREATION DES SCENARIOS ---")
     
     # 1. R2R Inter-Villes (Dakar Medina -> Thies Escale)
-    await create_scenario("1. R2R Inter-Villes", DeliveryMode.RELAY_TO_RELAY, 
+    await create_scenario("1. R2R Inter-Villes", DeliveryMode.RELAY_TO_RELAY, u["fatou"]["user_id"],
                         origin_relay=r["medina"]["relay_id"], dest_relay=r["escale"]["relay_id"])
 
     # 2. H2R (Collecte Medina -> Relais Plateau)
-    await create_scenario("2. H2R Auto-Collecte", DeliveryMode.HOME_TO_RELAY,
+    await create_scenario("2. H2R Auto-Collecte", DeliveryMode.HOME_TO_RELAY, u["fatou"]["user_id"],
                         origin_loc={"label": "Chez Fatou", "city": "Dakar", "geopin": {"lat": 14.68, "lng": -17.44}},
                         dest_relay=r["plateau"]["relay_id"])
 
     # 3. R2H (Relais Medina -> Domicile Ibrahima)
-    await create_scenario("3. R2H GPS-Confirm", DeliveryMode.RELAY_TO_HOME,
+    await create_scenario("3. R2H GPS-Confirm", DeliveryMode.RELAY_TO_HOME, u["fatou"]["user_id"],
                         origin_relay=r["medina"]["relay_id"],
                         dest_addr={"label": "Appart. Ibrahima", "city": "Dakar", "geopin": {"lat": 14.7, "lng": -17.42}})
 
     # 4. H2H (Domicile -> Domicile)
-    await create_scenario("4. H2H Full Flow", DeliveryMode.HOME_TO_HOME,
+    await create_scenario("4. H2H Full Flow", DeliveryMode.HOME_TO_HOME, u["fatou"]["user_id"],
                         origin_loc={"label": "Boutique Fatou", "city": "Dakar", "geopin": {"lat": 14.675, "lng": -17.435}},
                         dest_addr={"label": "Bureau Ibrahima", "city": "Dakar", "geopin": {"lat": 14.71, "lng": -17.43}})
 
