@@ -56,6 +56,11 @@ async def verify_otp_endpoint(body: OTPVerify):
         }
         await db.users.insert_one(user_doc)
     else:
+        # Vérifier si l'utilisateur est banni
+        if user_doc.get("is_banned"):
+            from core.exceptions import forbidden_exception
+            raise forbidden_exception("Votre compte a été suspendu par l'administration.")
+
         await db.users.update_one(
             {"phone": body.phone},
             {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
@@ -95,6 +100,10 @@ async def refresh_token(body: RefreshRequest):
     user_doc = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
+    
+    if user_doc.get("is_banned"):
+        from core.exceptions import forbidden_exception
+        raise forbidden_exception("Session révoquée : compte suspendu.")
 
     token_data    = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token  = create_access_token(token_data)

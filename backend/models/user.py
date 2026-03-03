@@ -18,6 +18,7 @@ class User(BaseModel):
     role:              UserRole   = UserRole.CLIENT
     user_type:         Optional[UserType] = None
     is_active:         bool       = True
+    is_banned:         bool       = False
     is_phone_verified: bool       = False
     is_available:      bool       = False   # driver disponible
     # Pour relay agents
