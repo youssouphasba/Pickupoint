@@ -83,6 +83,8 @@ class ApiEndpoints {
   static String adminUserRole(String id)  => '$_base/api/users/$id/role';
   static String adminUserRelay(String id) => '$_base/api/users/$id/relay-point';
   static String adminUserHistory(String id) => '$_base/api/admin/users/$id/history';
+  static String adminBanUser(String id) => '$_base/api/admin/users/$id/ban';
+  static String adminUnbanUser(String id) => '$_base/api/admin/users/$id/unban';
 
   // ─── Candidatures ─────────────────────────────────────────────────────────
   static const applyDriver      = '$_base/api/applications/driver';

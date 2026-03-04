@@ -161,6 +161,12 @@ class ClientProfileScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            const Divider(height: 16),
+            TextButton.icon(
+              onPressed: () => context.push('/client/loyalty-history'),
+              icon: const Icon(Icons.history, size: 20),
+              label: const Text('Voir l\'historique des gains et bonus'),
+            ),
           ],
         ),
       ),

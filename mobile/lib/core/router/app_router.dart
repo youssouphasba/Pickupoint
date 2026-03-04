@@ -35,6 +35,8 @@ import '../../features/admin/screens/admin_anomalies_screen.dart';
 import '../../features/admin/screens/admin_heatmap_screen.dart';
 import '../../features/admin/screens/admin_promotions_screen.dart';
 import '../../features/client/screens/partnership_screen.dart';
+import '../../features/client/screens/client_loyalty_history_screen.dart';
+import '../../features/admin/screens/admin_user_history_screen.dart';
 
 // Import temporaire des écrans vides pour que ça compile
 // Nous les créerons plus tard dans les dossiers features/
@@ -117,6 +119,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/client/parcel/:id', builder: (_, s) => ParcelDetailScreen(id: s.pathParameters['id']!)),
           GoRoute(path: '/track/:code', builder: (_, s) => TrackingScreen(code: s.pathParameters['code']!)),
           GoRoute(path: '/client/partnership', builder: (_, __) => const PartnershipScreen()),
+          GoRoute(path: '/client/loyalty-history', builder: (_, __) => const ClientLoyaltyHistoryScreen()),
         ],
       ),
 

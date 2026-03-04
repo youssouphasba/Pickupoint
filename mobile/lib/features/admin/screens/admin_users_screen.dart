@@ -269,9 +269,79 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
               );
             },
           ),
+          const Divider(),
+          ListTile(
+            leading: Icon(
+              widget.user.isBanned ? Icons.check_circle_outline : Icons.block,
+              color: widget.user.isBanned ? Colors.green : Colors.red,
+            ),
+            title: Text(
+              widget.user.isBanned ? 'Débannir l\'utilisateur' : 'Bannir l\'utilisateur',
+              style: TextStyle(
+                color: widget.user.isBanned ? Colors.green : Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            onTap: _loading ? null : () => _toggleBan(context),
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _toggleBan(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(widget.user.isBanned ? 'Confirmer le débannissement' : 'Confirmer le bannissement'),
+        content: Text(widget.user.isBanned 
+          ? 'Souhaitez-vous lever la suspension de ${widget.user.name} ?' 
+          : 'Souhaitez-vous suspendre le compte de ${widget.user.name} ? Ses sessions seront révoquées.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.user.isBanned ? Colors.green : Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: Text(widget.user.isBanned ? 'Débannir' : 'Bannir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _loading = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      if (widget.user.isBanned) {
+        await api.unbanUser(widget.user.id);
+      } else {
+        await api.banUser(widget.user.id);
+      }
+      
+      ref.invalidate(adminUsersProvider);
+      
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(widget.user.isBanned ? 'Utilisateur débanni ✅' : 'Utilisateur banni 🚫'),
+            backgroundColor: widget.user.isBanned ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Widget _roleButton(BuildContext context, String label, String role,
