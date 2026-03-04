@@ -181,6 +181,9 @@ class ApiClient {
 
   Future<Response> getParcelAudit(String id) => _dio.get(ApiEndpoints.adminParcelAudit(id));
 
+  Future<Response> getAdminAuditLog({int limit = 100}) => 
+      _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});
+
   Future<Response> reassignMission(String id, String driverId) =>
       _dio.post(ApiEndpoints.adminReassignMission(id), data: {'new_driver_id': driverId});
 

@@ -74,6 +74,7 @@ class ApiEndpoints {
   static const adminCodMonitoring  = '$_base/api/admin/finance/cod-monitoring';
   static String adminParcelAudit(String id)      => '$_base/api/admin/parcels/$id/audit';
   static String adminReassignMission(String id)  => '$_base/api/admin/missions/$id/reassign';
+  static const adminAuditLog       = '$_base/api/admin/audit-log';
 
   // ─── Utilisateurs ─────────────────────────────────────────────────────────
   static const myAvailability = '$_base/api/users/me/availability';

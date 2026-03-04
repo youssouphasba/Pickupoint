@@ -85,6 +85,7 @@ class AdminDashboard extends ConsumerWidget {
     return Column(
       children: [
         _buildActionButton(context, 'Gérer les Colis', Icons.inventory_2, '/admin/parcels'),
+        _buildActionButton(context, 'Gestion Utilisateurs', Icons.people, '/admin/users'),
         _buildActionButton(context, 'Validation Relais', Icons.store, '/admin/relays'),
         _buildActionButton(context, 'Approuver Retraits', Icons.payments, '/admin/payouts'),
         _buildActionButton(context, 'Gestion Promotions', Icons.campaign, '/admin/promotions'),
@@ -92,6 +93,7 @@ class AdminDashboard extends ConsumerWidget {
         const Text('Contrôle Max', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
         _buildActionButton(context, 'Suivi Flotte Live', Icons.map, '/admin/fleet'),
+        _buildActionButton(context, 'Journal d\'Audit Global', Icons.history, '/admin/audit-log'),
         _buildActionButton(context, 'Carte des Demandes', Icons.layers, '/admin/heatmap'),
         _buildActionButton(context, 'Alertes d\'Anomalies', Icons.gpp_maybe, '/admin/anomalies'),
         _buildActionButton(context, 'Colis Stagnants', Icons.timer_off, '/admin/stale'),
