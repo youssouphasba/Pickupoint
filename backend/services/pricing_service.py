@@ -96,7 +96,9 @@ def _round_to_50(value: float) -> float:
 async def calculate_price(
     quote: ParcelQuote, 
     sender_tier: str = "bronze",
-    is_frequent: bool = False
+    is_frequent: bool = False,
+    user_id: Optional[str] = None,
+    is_first_delivery: bool = False,
 ) -> QuoteResponse:
     base       = _base_price(quote.delivery_mode)
     distance   = await estimate_distance_km(quote)
@@ -140,6 +142,38 @@ async def calculate_price(
     # Min + arrondi 50 XOF
     final = _round_to_50(max(price_with_coeff, settings.MIN_PRICE))
 
+    # ── Promotions (Bloc E) ──
+    from services.promotion_service import find_best_promo
+    
+    # On vérifie si c'est la 1ère livraison (pour promo_target="first_delivery")
+    # Note: On a déjà current_user_id si on utilise Depends(get_current_user_optional) dans le router
+    # Pour l'instant, on suppose que get_quote dans le router a déjà les infos de l'user.
+    # On ajoute current_user_id en paramètre de calculate_price.
+    
+    promo_result = await find_best_promo(
+        db,
+        delivery_mode=quote.delivery_mode.value,
+        original_price=final,
+        user_id=user_id or "anonymous",
+        user_tier=sender_tier,
+        is_first_delivery=is_first_delivery,
+        promo_code=quote.promo_code,
+    )
+
+    promo_applied_data = None
+    discount_xof = 0.0
+    original_price = final
+
+    if promo_result:
+        discount_xof = promo_result["discount_xof"]
+        final = promo_result["final_price"]
+        promo_applied_data = {
+            "promo_id":     promo_result["promo"]["promo_id"],
+            "title":        promo_result["promo"]["title"],
+            "promo_type":   promo_result["promo"]["promo_type"],
+            "express_free": promo_result.get("express_free", False),
+        }
+
     # Estimation du temps de livraison affiché
     estimated_hours = _estimate_delivery_hours(
         distance, quote.delivery_mode, quote.is_express
@@ -164,9 +198,17 @@ async def calculate_price(
         "loyalty_coeff":  round(loyalty_coeff, 2),
         "who_pays":       quote.who_pays,
         "estimated_hours": estimated_hours,
+        "promo_code":     quote.promo_code,
     }
 
-    return QuoteResponse(price=final, currency="XOF", breakdown=breakdown)
+    return QuoteResponse(
+        price=final, 
+        currency="XOF", 
+        breakdown=breakdown,
+        original_price=original_price if promo_result else None,
+        discount_xof=discount_xof,
+        promo_applied=promo_applied_data
+    )
 
 
 def _estimate_delivery_hours(distance_km: float, mode: DeliveryMode, is_express: bool) -> str:

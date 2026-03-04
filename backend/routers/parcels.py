@@ -27,6 +27,44 @@ async def quote_parcel(body: ParcelQuote):
     return await calculate_price(body)
 
 
+@router.post("/check-promo", summary="Vérifier un code promo (Client)")
+async def check_promo(
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    code = body.get("promo_code", "").upper().strip()
+    price = body.get("price", 0)
+    mode  = body.get("delivery_mode", "relay_to_relay")
+
+    if not code:
+        raise bad_request_exception("Code promo manquant")
+
+    from services.promotion_service import find_best_promo
+    # Pour check-promo, on peut être moins strict sur is_first_delivery s'il ne s'agit que d'une vérification
+    # Mais if faut quand même le bon tier
+    user = await db.users.find_one({"user_id": current_user["user_id"]})
+    sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
+    
+    result = await find_best_promo(
+        db, 
+        delivery_mode=mode, 
+        original_price=price,
+        user_id=current_user["user_id"],
+        user_tier=sender_tier,
+        is_first_delivery=False, # Simplification pour le check
+        promo_code=code,
+    )
+    if not result:
+        raise not_found_exception("Code promo invalide ou non applicable")
+
+    return {
+        "valid":         True,
+        "promo_title":   result["promo"]["title"],
+        "discount_xof":  result["discount_xof"],
+        "final_price":   result["final_price"],
+    }
+
+
 @router.post("", summary="Créer un colis")
 async def create_parcel_endpoint(
     body: ParcelCreate,

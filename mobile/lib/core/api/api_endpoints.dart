@@ -47,6 +47,10 @@ class ApiEndpoints {
   static const rankings         = '$_base/api/deliveries/rankings';
   static const myRanking        = '$_base/api/deliveries/rankings/me';
 
+  static const adminPromotions = '$_base/api/admin/promotions';
+  static String adminPromotion(String id) => '$_base/api/admin/promotions/$id';
+  static const checkPromo = '$_base/api/parcels/check-promo';
+
   // ─── Wallets ──────────────────────────────────────────────────────────────
   static const myWallet     = '$_base/api/wallets/me';
   static const transactions = '$_base/api/wallets/me/transactions';

@@ -31,6 +31,7 @@ class Parcel(BaseModel):
     payment_status:        str   = "pending"                   # "pending", "paid", "refunded"
     payment_method:        Optional[str] = None                # "wave", "orange_money", ...
     payment_ref:           Optional[str] = None
+    promo_id:              Optional[str] = None  # Promotion appliquée
     # Codes de validation Sécurité (Phase 3)
     pickup_code:           str   = ""                          # 6 chiffres — expéditeur/relais -> livreur
     delivery_code:         str   = ""                          # 6 chiffres — destinataire -> livreur
@@ -69,6 +70,7 @@ class ParcelCreate(BaseModel):
     description:           Optional[str] = None
     is_express:            bool = False
     who_pays:              str  = "sender"    # "sender" | "recipient"
+    promo_id:              Optional[str] = None
     # GPS expéditeur (HOME_TO_* : capturé dans l'app)
     initiated_by:          str = "sender"    # "sender" | "recipient"
     sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
@@ -99,12 +101,16 @@ class ParcelQuote(BaseModel):
     declared_value:        Optional[float] = None
     is_express:            bool  = False
     who_pays:              str   = "sender"    # "sender" | "recipient"
+    promo_code:            Optional[str] = None
 
 
 class QuoteResponse(BaseModel):
-    price:     float
-    currency:  str = "XOF"
-    breakdown: Dict[str, Any] = {}
+    price:          float
+    currency:       str = "XOF"
+    breakdown:      Dict[str, Any] = {}
+    original_price: Optional[float] = None  # Si une promo est appliquée
+    discount_xof:   float = 0.0
+    promo_applied:  Optional[Dict[str, Any]] = None
 
 
 class FailDeliveryRequest(BaseModel):

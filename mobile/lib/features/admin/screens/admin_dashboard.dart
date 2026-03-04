@@ -87,6 +87,7 @@ class AdminDashboard extends ConsumerWidget {
         _buildActionButton(context, 'Gérer les Colis', Icons.inventory_2, '/admin/parcels'),
         _buildActionButton(context, 'Validation Relais', Icons.store, '/admin/relays'),
         _buildActionButton(context, 'Approuver Retraits', Icons.payments, '/admin/payouts'),
+        _buildActionButton(context, 'Gestion Promotions', Icons.campaign, '/admin/promotions'),
         const Divider(height: 32),
         const Text('Contrôle Max', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),

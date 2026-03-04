@@ -68,6 +68,7 @@ class Parcel {
     this.driverTip = 0.0,
     this.recipientConfirmUrl,
     this.isRecipientView,
+    this.promoId,
   });
 
   final String id;
@@ -109,6 +110,7 @@ class Parcel {
   final String? recipientConfirmUrl;
   /// Calculé côté backend : true si le viewer est le destinataire
   final bool? isRecipientView;
+  final String? promoId;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -168,6 +170,7 @@ class Parcel {
       driverTip: (json['driver_tip'] as num?)?.toDouble() ?? 0.0,
       recipientConfirmUrl: json['recipient_confirm_url'] as String?,
       isRecipientView: json['is_recipient'] as bool?,
+      promoId: json['promo_id'] as String?,
     );
   }
 
@@ -186,12 +189,18 @@ class QuoteResponse {
   final double price;
   final String currency;
   final Map<String, dynamic> breakdown;
+  final double? originalPrice;
+  final double discountXof;
+  final Map<String, dynamic>? promoApplied;
 
   factory QuoteResponse.fromJson(Map<String, dynamic> json) => QuoteResponse(
         // Backend retourne { price, currency, breakdown }
         price: (json['price'] as num).toDouble(),
         currency: json['currency'] as String? ?? 'XOF',
         breakdown: json['breakdown'] as Map<String, dynamic>? ?? {},
+        originalPrice: (json['original_price'] as num?)?.toDouble(),
+        discountXof: (json['discount_xof'] as num?)?.toDouble() ?? 0.0,
+        promoApplied: json['promo_applied'] as Map<String, dynamic>?,
       );
 
   double get base      => (breakdown['base'] as num?)?.toDouble() ?? price;

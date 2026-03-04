@@ -4,6 +4,17 @@ import '../../../core/models/parcel.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../../../core/models/wallet.dart';
+import '../../../core/models/promotion.dart';
+
+/// Provider pour les promotions (admin).
+final adminPromotionsProvider = FutureProvider<List<Promotion>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminPromotions();
+  final data = res.data as Map<String, dynamic>;
+  return (data['promotions'] as List? ?? [])
+      .map((e) => Promotion.fromJson(e as Map<String, dynamic>))
+      .toList();
+});
 
 /// Provider pour les statistiques du dashboard admin.
 final adminDashboardProvider = FutureProvider<Map<String, dynamic>>((ref) async {

@@ -48,8 +48,11 @@ async def get_quote(
     sender_tier = "bronze"
     is_frequent = False
     
+    is_first = False
+    
     if current_user:
-        user = await db.users.find_one({"user_id": current_user["user_id"]})
+        user_id = current_user["user_id"]
+        user = await db.users.find_one({"user_id": user_id})
         if user:
             sender_tier = user.get("loyalty_tier", "bronze")
             
@@ -57,13 +60,26 @@ async def get_quote(
             from datetime import datetime, timezone, timedelta
             month_ago = datetime.now(timezone.utc) - timedelta(days=30)
             delivered_count = await db.parcels.count_documents({
-                "sender_user_id": current_user["user_id"],
+                "sender_user_id": user_id,
                 "status": "delivered",
                 "created_at": {"$gte": month_ago}
             })
             is_frequent = delivered_count >= 10
 
-    return await calculate_price(body, sender_tier=sender_tier, is_frequent=is_frequent)
+            # Check for first delivery
+            total_delivered = await db.parcels.count_documents({
+                "sender_user_id": user_id,
+                "status": "delivered"
+            })
+            is_first = (total_delivered == 0)
+
+    return await calculate_price(
+        body, 
+        sender_tier=sender_tier, 
+        is_frequent=is_frequent,
+        user_id=current_user["user_id"] if current_user else None,
+        is_first_delivery=is_first
+    )
 
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
