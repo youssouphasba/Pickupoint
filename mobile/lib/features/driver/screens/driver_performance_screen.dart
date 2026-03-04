@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../providers/ranking_provider.dart';
 
 class DriverPerformanceScreen extends ConsumerWidget {
   const DriverPerformanceScreen({super.key});
@@ -220,6 +221,81 @@ class DriverPerformanceScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMonthlyRankingCard(BuildContext context, WidgetRef ref) {
+    final rankingAsync = ref.watch(rankingProvider);
+
+    return rankingAsync.when(
+      data: (ranking) {
+        if (ranking == null) return const SizedBox.shrink();
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.amber.shade200),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.emoji_events, color: Colors.amber, size: 30),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'CLASSEMENT DU MOIS',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade700,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '#${ranking.rank}',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _rankingStat('Succès', '${(ranking.successRate * 100).toStringAsFixed(0)}%'),
+                  _rankingStat('Volume', '${ranking.deliveriesTotal}'),
+                  if (ranking.bonusPaid != null && ranking.bonusPaid! > 0)
+                    _rankingStat('Bonus', formatXof(ranking.bonusPaid!), isHighlight: true),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const Center(child: LinearProgressIndicator()),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _rankingStat(String label, String value, {bool isHighlight = false}) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: isHighlight ? Colors.green.shade700 : Colors.black87,
+          ),
+        ),
+      ],
     );
   }
 }

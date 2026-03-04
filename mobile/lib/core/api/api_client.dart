@@ -52,6 +52,8 @@ class ApiClient {
   Future<Response> updateFcmToken(String token) =>
       _dio.put(ApiEndpoints.updateFcm, data: {'fcm_token': token});
 
+  Future<Response> getLoyalty() => _dio.get(ApiEndpoints.loyaltyStats);
+
   // ─── Parcels ─────────────────────────────────────────────────────────────
   Future<Response> getParcels({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.parcels, queryParameters: params);
@@ -147,6 +149,12 @@ class ApiClient {
 
   Future<Response> updateLocation(String id, Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.deliveryLocation(id), data: body);
+
+  Future<Response> getRankings({String? period}) =>
+      _dio.get(ApiEndpoints.rankings, queryParameters: {if (period != null) 'period': period});
+
+  Future<Response> getMyRanking({String? period}) =>
+      _dio.get(ApiEndpoints.myRanking, queryParameters: {if (period != null) 'period': period});
 
   // ─── Wallets ──────────────────────────────────────────────────────────────
   Future<Response> getWallet() => _dio.get(ApiEndpoints.myWallet);
