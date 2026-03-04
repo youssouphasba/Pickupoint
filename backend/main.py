@@ -16,7 +16,7 @@ from database import connect_db, close_db, get_db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications, promotions
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -156,6 +156,7 @@ app.include_router(deliveries.router, prefix="/api/deliveries", tags=["Deliverie
 app.include_router(pricing.router, prefix="/api/pricing", tags=["Pricing"])
 app.include_router(wallets.router, prefix="/api/wallets", tags=["Wallets"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(promotions.router, prefix="/api/admin", tags=["Promotions Admin"])
 app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
 
 

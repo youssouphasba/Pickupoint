@@ -164,6 +164,28 @@ async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5
 async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: str = "") -> dict:
     """Crée un nouveau colis avec devis et tracking code."""
     from models.parcel import ParcelQuote
+    from services.user_service import _compute_tier
+    
+    # ── Récupérer infos fidélité pour le recalcul du prix ──
+    user = await db.users.find_one({"user_id": sender_user_id})
+    sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
+    
+    # Check for frequent sender
+    month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    delivered_count = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered",
+        "created_at": {"$gte": month_ago}
+    })
+    is_frequent = delivered_count >= 10
+    
+    # Check for first delivery
+    total_delivered = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered"
+    })
+    is_first = (total_delivered == 0)
+
     quote_req = ParcelQuote(
         delivery_mode=data.delivery_mode,
         origin_relay_id=data.origin_relay_id,
@@ -175,11 +197,19 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         declared_value=data.declared_value,
         is_express=data.is_express,
         who_pays=data.who_pays,
+        promo_code=data.promo_id, # Dans ParcelCreate c'est souvent promo_id ou promo_code qui est envoyé. 
+                                   # Dans le plan on a ajouté promo_id à ParcelCreate.
     )
-    quote: QuoteResponse = await calculate_price(quote_req)
+    # Recalculer le prix pour être sûr
+    quote: QuoteResponse = await calculate_price(
+        quote_req, 
+        sender_tier=sender_tier, 
+        is_frequent=is_frequent,
+        user_id=sender_user_id,
+        is_first_delivery=is_first
+    )
 
-    sender_user   = await db.users.find_one({"user_id": sender_user_id}, {"name": 1})
-    sender_name_str = (sender_user or {}).get("name", "Expéditeur")
+    sender_name_str = (user or {}).get("name", "Expéditeur")
 
     now = datetime.now(timezone.utc)
     parcel_id     = _parcel_id()
@@ -219,6 +249,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "delivery_confirmed":    data.delivery_mode.value.endswith("_to_relay"), 
         "pickup_confirmed":      False,
         "status":                ParcelStatus.CREATED.value,
+        "promo_id":              quote.promo_applied.get("promo_id") if quote.promo_applied else None,
         "assigned_driver_id":    None,
         "redirect_relay_id":     None,
         "external_ref":          None,
@@ -226,6 +257,16 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "updated_at":            now,
         "expires_at":            expires_at,
     }
+
+    # ── Enregistrer l'usage de la promotion ──
+    if quote.promo_applied:
+        from services.promotion_service import record_promo_use
+        await record_promo_use(
+            db, 
+            promo_id=quote.promo_applied["promo_id"], 
+            user_id=sender_user_id, 
+            parcel_id=parcel_id
+        )
 
     # ── Gestion de la confirmation de position destinataire ──
     requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")

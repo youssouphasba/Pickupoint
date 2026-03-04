@@ -250,6 +250,26 @@ class ApiClient {
       _dio.put(ApiEndpoints.rejectApplication(id),
           queryParameters: {if (notes != null) 'admin_notes': notes});
 
+  // ─── Promotions ──────────────────────────────────────────────────────────
+  Future<Response> getAdminPromotions({bool activeOnly = false}) =>
+      _dio.get(ApiEndpoints.adminPromotions, queryParameters: {'active_only': activeOnly});
+
+  Future<Response> createPromotion(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.adminPromotions, data: body);
+
+  Future<Response> updatePromotion(String id, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.adminPromotion(id), data: body);
+
+  Future<Response> deletePromotion(String id) =>
+      _dio.delete(ApiEndpoints.adminPromotion(id));
+
+  Future<Response> checkPromoCode(String code, double price, String mode) =>
+      _dio.post(ApiEndpoints.checkPromo, data: {
+        'promo_code': code,
+        'price': price,
+        'delivery_mode': mode,
+      });
+
   // ─── Anomales ─────────────────────────────────────────────────────────────
   Future<Response> getAnomalies() => _dio.get('/admin/anomalies');
 }
