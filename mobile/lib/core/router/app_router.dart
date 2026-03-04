@@ -36,8 +36,10 @@ import '../../features/admin/screens/admin_heatmap_screen.dart';
 import '../../features/admin/screens/admin_promotions_screen.dart';
 import '../../features/client/screens/partnership_screen.dart';
 import '../../features/client/screens/client_loyalty_history_screen.dart';
-import '../../features/admin/screens/admin_user_history_screen.dart';
 import '../../features/admin/screens/admin_global_audit_screen.dart';
+import '../../features/admin/screens/admin_legal_list_screen.dart';
+import '../../features/admin/screens/admin_legal_edit_screen.dart';
+import '../../shared/screens/legal_document_screen.dart';
 
 // Import temporaire des écrans vides pour que ça compile
 // Nous les créerons plus tard dans les dossiers features/
@@ -100,6 +102,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // ── Public / Communs ────────────────────────────────────────
+      GoRoute(path: '/legal/:docType', builder: (_, s) => LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+
       // ── Auth ──────────────────────────────────────────────
       GoRoute(path: '/auth/phone', builder: (_, __) => const PhoneScreen()),
       GoRoute(path: '/auth/otp',   builder: (_, state) {
@@ -173,6 +178,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/admin/promotions',    builder: (_, __) => const AdminPromotionsScreen()),
           GoRoute(path: '/admin/audit-log',     builder: (_, __) => const AdminGlobalAuditScreen()),
           GoRoute(path: '/admin/parcels/:id/audit', builder: (_, s) => AdminParcelAuditScreen(id: s.pathParameters['id']!)),
+          GoRoute(path: '/admin/legal',         builder: (_, __) => const AdminLegalListScreen()),
+          GoRoute(path: '/admin/legal/:docType/edit', builder: (_, s) => AdminLegalEditScreen(docType: s.pathParameters['docType']!)),
         ],
       ),
     ],

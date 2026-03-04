@@ -94,4 +94,7 @@ class ApiEndpoints {
   static const adminApplications = '$_base/api/applications';
   static String approveApplication(String id) => '$_base/api/applications/$id/approve';
   static String rejectApplication(String id)  => '$_base/api/applications/$id/reject';
+
+  // ─── Legal ────────────────────────────────────────────────────────────────
+  static String legal(String docType) => '$_base/api/legal/$docType';
 }

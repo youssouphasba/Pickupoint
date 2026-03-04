@@ -184,6 +184,9 @@ class QuoteResponse {
     required this.price,
     required this.currency,
     this.breakdown = const {},
+    this.originalPrice,
+    this.discountXof = 0.0,
+    this.promoApplied,
   });
 
   final double price;

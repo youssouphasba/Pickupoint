@@ -281,4 +281,10 @@ class ApiClient {
 
   // ─── Anomales ─────────────────────────────────────────────────────────────
   Future<Response> getAnomalies() => _dio.get('/admin/anomalies');
+
+  // ─── Legal ────────────────────────────────────────────────────────────────
+  Future<Response> getLegal(String docType) => _dio.get(ApiEndpoints.legal(docType));
+
+  Future<Response> updateLegal(String docType, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.legal(docType), data: body);
 }

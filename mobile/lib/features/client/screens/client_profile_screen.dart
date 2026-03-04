@@ -74,6 +74,28 @@ class ClientProfileScreen extends ConsumerWidget {
                 );
               },
             ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Politique de confidentialité'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/legal/privacy_policy'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.gavel_outlined),
+                  title: const Text("Conditions Générales d'Utilisation"),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/legal/cgu'),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 30),
           

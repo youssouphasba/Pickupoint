@@ -124,6 +124,9 @@ async def create_indexes():
             IndexModel([("user_id", 1)]),
             IndexModel([("created_at", 1)]),
         ],
+        "legal_contents": [
+            IndexModel([("document_type", 1)], unique=True),
+        ],
     }
 
     for collection_name, index_models in collections_to_index.items():
