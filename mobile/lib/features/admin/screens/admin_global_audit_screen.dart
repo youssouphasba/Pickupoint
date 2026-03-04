@@ -40,7 +40,7 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const Divider(),
             itemBuilder: (context, i) {
               final ev = events[i] as Map<String, dynamic>;
-              final date = ev['created_at'] != null ? formatDate(ev['created_at']) : "---";
+              final date = ev['created_at'] != null ? formatDate(DateTime.parse(ev['created_at'])) : "---";
               final type = ev['event_type'] ?? "UNKNOWN";
               final actor = ev['actor_name'] ?? ev['actor_role'] ?? "Système";
               final tracking = ev['tracking_code'] ?? "---";

@@ -70,7 +70,7 @@ class _PromoCard extends ConsumerWidget {
     final color = promo.isActive && !isExpired ? Colors.green : Colors.grey;
 
     return Card(
-      margin: const EdgeInsets.bottom(12),
+      margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _showPromoActions(context, ref),

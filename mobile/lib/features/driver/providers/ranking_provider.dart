@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/api/api_client.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/loyalty.dart';
 
 final rankingProvider = FutureProvider.autoDispose<DriverRanking?>((ref) async {

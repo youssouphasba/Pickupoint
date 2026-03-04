@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../core/api/api_client.dart';
-import '../../../../shared/utils/date_format.dart';
+import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/date_format.dart';
 
 final clientLoyaltyHistoryProvider = FutureProvider<List<dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -31,7 +31,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const Divider(),
             itemBuilder: (context, i) {
               final ev = events[i] as Map<String, dynamic>;
-              final date = ev['created_at'] != null ? formatDate(ev['created_at']) : "---";
+              final date = ev['created_at'] != null ? formatDate(DateTime.parse(ev['created_at'])) : "---";
               final type = ev['event_type'] ?? "UNKNOWN";
               final points = ev['points_delta'] ?? 0;
               final isPositive = points >= 0;

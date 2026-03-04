@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/models/user.dart';
 import '../../../core/models/relay_point.dart';
 import 'admin_user_history_screen.dart';

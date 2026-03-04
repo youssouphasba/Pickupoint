@@ -4,7 +4,9 @@
       "Bash(python3:*)",
       "Bash(flutter:*)",
       "Bash(git push:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(/usr/bin/flutter analyze:*)",
+      "Bash(/mnt/c/src/flutter/bin/flutter analyze:*)"
     ]
   }
 }

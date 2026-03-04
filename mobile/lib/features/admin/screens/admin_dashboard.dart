@@ -96,6 +96,7 @@ class AdminDashboard extends ConsumerWidget {
         _buildActionButton(context, 'Journal d\'Audit Global', Icons.history, '/admin/audit-log'),
         _buildActionButton(context, 'Carte des Demandes', Icons.layers, '/admin/heatmap'),
         _buildActionButton(context, 'Alertes d\'Anomalies', Icons.gpp_maybe, '/admin/anomalies'),
+        _buildActionButton(context, 'Documents Légaux', Icons.gavel, '/admin/legal'),
         _buildActionButton(context, 'Colis Stagnants', Icons.timer_off, '/admin/stale'),
         _buildActionButton(context, 'Suivi Finance COD', Icons.account_balance_wallet, '/admin/finance'),
       ],

@@ -20,6 +20,7 @@ class User {
     this.loyaltyPoints = 0,
     this.loyaltyTier = 'bronze',
     this.referralCode = '',
+    this.isBanned = false,
   });
 
   final String id;
@@ -44,6 +45,7 @@ class User {
   final int loyaltyPoints;
   final String loyaltyTier;
   final String referralCode;
+  final bool isBanned;
 
   /// Nom d'affichage : fullName ou téléphone comme fallback
   String get name => fullName ?? phone;
@@ -78,6 +80,7 @@ class User {
       loyaltyPoints: (json['loyalty_points'] as num?)?.toInt() ?? 0,
       loyaltyTier: json['loyalty_tier'] as String? ?? 'bronze',
       referralCode: json['referral_code'] as String? ?? '',
+      isBanned: json['is_banned'] as bool? ?? false,
     );
   }
 
@@ -91,6 +94,7 @@ class User {
         'relay_point_id': relayPointId,
         'user_type': userType,
         'is_active': isActive,
+        'is_banned': isBanned,
       };
 
   bool get isClient     => role == 'client';
@@ -112,6 +116,7 @@ class User {
     int? loyaltyPoints,
     String? loyaltyTier,
     String? referralCode,
+    bool? isBanned,
   }) =>
       User(
         id: id ?? this.id,
@@ -134,5 +139,6 @@ class User {
         loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
         loyaltyTier: loyaltyTier ?? this.loyaltyTier,
         referralCode: referralCode ?? this.referralCode,
+        isBanned: isBanned ?? this.isBanned,
       );
 }

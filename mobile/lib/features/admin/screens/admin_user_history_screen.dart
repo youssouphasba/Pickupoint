@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/date_format.dart';
 
 class AdminUserHistoryScreen extends ConsumerWidget {
   final String userId;
@@ -69,7 +70,7 @@ class AdminUserHistoryScreen extends ConsumerWidget {
         return ListTile(
           leading: const Icon(Icons.inventory_2),
           title: Text('Code: ${item['tracking_code']}'),
-          subtitle: Text('Status: ${item['status']}\nDate: ${item['created_at']}'),
+          subtitle: Text('Status: ${item['status']}\nDate: ${item['created_at'] != null ? formatDate(DateTime.parse(item['created_at'])) : "---"}'),
           isThreeLine: true,
         );
       },
@@ -100,7 +101,7 @@ class AdminUserHistoryScreen extends ConsumerWidget {
         return ListTile(
           leading: const Icon(Icons.history),
           title: Text(item['event_type']),
-          subtitle: Text('Colis: ${item['parcel_id']}\nDate: ${item['created_at']}'),
+          subtitle: Text('Colis: ${item['parcel_id']}\nDate: ${item['created_at'] != null ? formatDate(DateTime.parse(item['created_at'])) : "---"}'),
         );
       },
     );

@@ -367,6 +367,7 @@ async def transition_status(
     parcel_id: str,
     new_status: ParcelStatus,
     actor_id: str,
+    actor_role: str = "system",
     notes: Optional[str] = None,
     metadata: Optional[dict] = None,
     force: bool = False,
@@ -409,6 +410,7 @@ async def transition_status(
     if new_status == ParcelStatus.DELIVERED:
         await distribute_delivery_revenue(parcel)
         # ── Gamification (Phase 8) ──
+        driver_id = parcel.get("assigned_driver_id")
         if driver_id:
             from services.gamification_service import update_driver_gamification
             await update_driver_gamification(driver_id, "delivery_completed")
