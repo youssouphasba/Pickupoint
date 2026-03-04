@@ -222,6 +222,12 @@ class ApiClient {
   Future<Response> getUserHistory(String userId) =>
       _dio.get(ApiEndpoints.adminUserHistory(userId));
 
+  Future<Response> banUser(String userId) =>
+      _dio.post(ApiEndpoints.adminBanUser(userId));
+
+  Future<Response> unbanUser(String userId) =>
+      _dio.post(ApiEndpoints.adminUnbanUser(userId));
+
   Future<Response> getRelayPoint(String id) =>
       _dio.get(ApiEndpoints.relayPoint(id));
 
