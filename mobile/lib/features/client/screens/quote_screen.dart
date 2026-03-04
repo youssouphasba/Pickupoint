@@ -248,6 +248,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         .where((e) => !e.key.startsWith('_'))
         .map((e) {
           final k = e.key;
+          final v = e.value;
           return switch (k) {
             'rush_hour'    => 'Heure de pointe',
             'lunch_rush'   => 'Heure du déjeuner',
@@ -256,9 +257,12 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             'surge_high'   => 'Forte demande',
             'surge_medium' => 'Demande élevée',
             'low_demand'   => 'Faible activité',
+            'loyalty_tier' => 'Avantage membre ${v.toString().toUpperCase()}',
+            'is_frequent'  => v == true ? 'Bonus Fidèle (+10 livraisons)' : null,
             _              => k,
           };
         })
+        .whereType<String>()
         .join(', ');
 
     return Container(

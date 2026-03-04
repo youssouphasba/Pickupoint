@@ -15,6 +15,7 @@ class ApiEndpoints {
   static const me         = '$_base/api/auth/me';
   static const profile    = '$_base/api/auth/profile';
   static const updateFcm  = '$_base/api/users/me/fcm-token';
+  static const loyaltyStats = '$_base/api/users/me/loyalty';
 
   // ─── Parcels ─────────────────────────────────────────────────────────────
   static const parcels    = '$_base/api/parcels';
@@ -43,6 +44,8 @@ class ApiEndpoints {
   static String acceptMission(String id)  => '$_base/api/deliveries/$id/accept';
   static String confirmPickup(String id)  => '$_base/api/deliveries/$id/confirm-pickup';
   static String releaseMission(String id) => '$_base/api/deliveries/$id/release';
+  static const rankings         = '$_base/api/deliveries/rankings';
+  static const myRanking        = '$_base/api/deliveries/rankings/me';
 
   // ─── Wallets ──────────────────────────────────────────────────────────────
   static const myWallet     = '$_base/api/wallets/me';

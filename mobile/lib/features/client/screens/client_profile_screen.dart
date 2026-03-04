@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter/services.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
 
@@ -36,6 +37,7 @@ class ClientProfileScreen extends ConsumerWidget {
           const SizedBox(height: 40),
           
           Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Column(
               children: [
                 ListTile(
@@ -50,18 +52,27 @@ class ClientProfileScreen extends ConsumerWidget {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/client/partnership'),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.help_outline),
-                  title: const Text('Aide et Contact'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Contact support : +221 77 000 00 00')),
-                    );
-                  },
-                ),
               ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          
+          // ── Section Fidélité & Parrainage ──────────────────────────
+          if (authState?.user != null)
+            _buildLoyaltyCard(context, authState!.user!),
+
+          const SizedBox(height: 20),
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('Aide et Contact'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Contact support : +221 77 000 00 00')),
+                );
+              },
             ),
           ),
           const SizedBox(height: 30),
@@ -77,6 +88,81 @@ class ClientProfileScreen extends ConsumerWidget {
             onPressed: () => ref.read(authProvider.notifier).logout(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoyaltyCard(BuildContext context, dynamic user) {
+    final tierColor = user.loyaltyTier == 'gold' 
+        ? Colors.amber.shade700 
+        : user.loyaltyTier == 'silver' 
+            ? Colors.blueGrey 
+            : Colors.brown.shade400;
+
+    return Card(
+      elevation: 0,
+      color: tierColor.withOpacity(0.05),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: tierColor.withOpacity(0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(Icons.stars, color: tierColor, size: 30),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Membre ${user.loyaltyTier.toUpperCase()}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: tierColor,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${user.loyaltyPoints} points cumulés',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Votre code parrainage', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    Text(
+                      user.referralCode.isNotEmpty ? user.referralCode : '---',
+                      style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                    ),
+                  ],
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: user.referralCode));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Code copié !')),
+                    );
+                  },
+                  icon: const Icon(Icons.copy, size: 18),
+                  label: const Text('Copier'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
