@@ -638,3 +638,30 @@ async def admin_get_driver_stats(
 ):
     stats = await db.driver_stats.find({"period": period}).sort("rank", 1).to_list(length=200)
     return {"period": period, "stats": stats}
+
+
+@router.get("/audit-log", summary="Journal d'audit global")
+async def admin_get_audit_log(
+    limit: int = 100,
+    offset: int = 0,
+    _admin=Depends(require_admin_dep),
+):
+    """
+    Récupère les derniers événements système pour une traçabilité complète.
+    """
+    cursor = db.parcel_events.find({}, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+    events = await cursor.to_list(length=limit)
+    
+    # Enrichissement avec les noms des acteurs et codes de colis
+    for ev in events:
+        if ev.get("actor_id"):
+            actor = await db.users.find_one({"user_id": ev["actor_id"]}, {"_id": 0, "name": 1})
+            if actor:
+                ev["actor_name"] = actor["name"]
+        
+        if ev.get("parcel_id"):
+            parcel = await db.parcels.find_one({"parcel_id": ev["parcel_id"]}, {"_id": 0, "tracking_code": 1})
+            if parcel:
+                ev["tracking_code"] = parcel["tracking_code"]
+                
+    return {"events": events}

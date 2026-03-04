@@ -37,6 +37,7 @@ import '../../features/admin/screens/admin_promotions_screen.dart';
 import '../../features/client/screens/partnership_screen.dart';
 import '../../features/client/screens/client_loyalty_history_screen.dart';
 import '../../features/admin/screens/admin_user_history_screen.dart';
+import '../../features/admin/screens/admin_global_audit_screen.dart';
 
 // Import temporaire des écrans vides pour que ça compile
 // Nous les créerons plus tard dans les dossiers features/
@@ -170,6 +171,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/admin/anomalies',     builder: (_, __) => const AdminAnomaliesScreen()),
           GoRoute(path: '/admin/heatmap',       builder: (_, __) => const AdminHeatmapScreen()),
           GoRoute(path: '/admin/promotions',    builder: (_, __) => const AdminPromotionsScreen()),
+          GoRoute(path: '/admin/audit-log',     builder: (_, __) => const AdminGlobalAuditScreen()),
           GoRoute(path: '/admin/parcels/:id/audit', builder: (_, s) => AdminParcelAuditScreen(id: s.pathParameters['id']!)),
         ],
       ),
