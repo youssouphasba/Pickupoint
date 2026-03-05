@@ -29,6 +29,8 @@ class DeliveryMission {
     this.etaText,
     this.distanceText,
     this.paymentStatus,
+    this.senderPhotoUrl,
+    this.recipientPhotoUrl,
   });
 
   final String  id;
@@ -72,6 +74,8 @@ class DeliveryMission {
   final String? etaText;
   final String? distanceText;
   final String? paymentStatus;
+  final String? senderPhotoUrl;
+  final String? recipientPhotoUrl;
 
   factory DeliveryMission.fromJson(Map<String, dynamic> json) {
     // Pickup geopin
@@ -113,6 +117,8 @@ class DeliveryMission {
       etaText:       json['eta_text'] as String?,
       distanceText:  json['distance_text'] as String?,
       paymentStatus: json['payment_status'] as String?,
+      senderPhotoUrl: json['sender_photo_url'] as String?,
+      recipientPhotoUrl: json['recipient_photo_url'] as String?,
     );
   }
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from database import db
 from models.legal import LegalContent, LegalDocumentType, LegalContentUpdate
 from core.dependencies import get_current_user, require_admin
+from services.parcel_service import _record_event
 
 router = APIRouter()
 
@@ -65,5 +66,13 @@ async def update_legal_content(
              {"$set": {"title": default_title}}
          )
          doc["title"] = default_title
+    
+    await _record_event(
+        event_type="LEGAL_DOC_UPDATED",
+        actor_id=current_admin.get("user_id"),
+        actor_role="admin",
+        notes=f"Mise à jour du document : {doc_type.value}",
+        metadata={"doc_type": doc_type.value}
+    )
          
     return LegalContent(**doc)

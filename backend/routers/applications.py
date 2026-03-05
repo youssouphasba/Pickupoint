@@ -24,6 +24,8 @@ class DriverApplicationCreate(BaseModel):
     id_card_number:  str                          # numéro CNI
     license_number:  str                          # numéro permis
     vehicle_type:    Literal["moto", "car", "van", "tricycle"] = "moto"
+    id_card_url:     Optional[str] = None
+    license_url:     Optional[str] = None
     message:         Optional[str] = None         # message libre au recruteur
 
 
@@ -153,9 +155,16 @@ async def approve_application(
     user_id = app["user_id"]
 
     if app["type"] == "driver":
+        data = app["data"]
         await db.users.update_one(
             {"user_id": user_id},
-            {"$set": {"role": UserRole.DRIVER.value, "updated_at": now}},
+            {"$set": {
+                "role": UserRole.DRIVER.value,
+                "kyc_id_card_url": data.get("id_card_url"),
+                "kyc_license_url": data.get("license_url"),
+                "kyc_status": "verified",
+                "updated_at": now
+            }},
         )
 
     elif app["type"] == "relay":

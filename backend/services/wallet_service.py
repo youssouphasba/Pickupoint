@@ -58,6 +58,12 @@ async def credit_wallet(
         {"$inc": {"balance": amount}, "$set": {"updated_at": now}},
     )
 
+    # Increment total_earned for the user (career stats)
+    await db.users.update_one(
+        {"user_id": owner_id},
+        {"$inc": {"total_earned": amount}}
+    )
+
     tx = {
         "tx_id":       _tx_id(),
         "wallet_id":   wallet["wallet_id"],

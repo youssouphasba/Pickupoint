@@ -78,6 +78,18 @@ class DriverPerformanceScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 28),
 
+            // ── Gains Chart ──────────────────────────────────────────
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Mes Gains (7 derniers jours)',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildGainsChart(),
+            const SizedBox(height: 28),
+
             // ── Badges ──────────────────────────────────────────────
             const Align(
               alignment: Alignment.centerLeft,
@@ -136,6 +148,13 @@ class DriverPerformanceScreen extends ConsumerWidget {
               user.averageRating.toStringAsFixed(1),
               Colors.amber,
               subtitle: 'Basé sur ${user.totalRatingsCount} avis',
+            ),
+            _buildStatCard(
+              Icons.payments,
+              'Gains totaux accumulés',
+              formatXof(user.totalEarned),
+              Colors.orange,
+              subtitle: 'Missions, bonus et pourboires',
             ),
           ],
         ),
@@ -296,6 +315,58 @@ class DriverPerformanceScreen extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGainsChart() {
+    // Dummy data for now
+    final data = [2100.0, 4500.0, 3200.0, 0.0, 5600.0, 7800.0, 4200.0];
+    final labels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    final maxGain = data.reduce((a, b) => a > b ? a : b);
+
+    return Container(
+      height: 180,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: List.generate(data.length, (index) {
+          final h = maxGain == 0 ? 0.0 : (data[index] / maxGain) * 100;
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (data[index] > 0)
+                Text(
+                  '${(data[index] / 1000).toStringAsFixed(1)}k',
+                  style: const TextStyle(fontSize: 8, color: Colors.grey),
+                ),
+              const SizedBox(height: 4),
+              Container(
+                width: 25,
+                height: h,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade400, Colors.green.shade600],
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                  ),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                labels[index],
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ],
+          );
+        }),
+      ),
     );
   }
 }

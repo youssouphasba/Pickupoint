@@ -534,20 +534,37 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
   // RESTE DE L'UI: Header, QrTracking, Infos
   Widget _buildHeader(BuildContext context, dynamic parcel, {bool isRecipient = false}) {
+    final otherPartyPhoto = isRecipient ? parcel.senderPhotoUrl : parcel.recipientPhotoUrl;
+    final otherPartyName  = isRecipient ? (parcel.senderName ?? 'Expéditeur') : (parcel.recipientName ?? 'Destinataire');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.blue.shade50,
+              backgroundImage: otherPartyPhoto != null ? NetworkImage(otherPartyPhoto) : null,
+              child: otherPartyPhoto == null ? const Icon(Icons.person, size: 20, color: Colors.blue) : null,
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text('Colis ${parcel.trackingCode}',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isRecipient ? 'Expéditeur : $otherPartyName' : 'Destinataire : $otherPartyName',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  Text('Colis ${parcel.trackingCode}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
             ),
             ParcelStatusBadge(status: parcel.status),
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 16),
         Row(children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -578,9 +595,49 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           const SizedBox(width: 8),
           Text(formatDate(parcel.createdAt), style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
+
+        if (parcel.driverPhotoUrl != null && (parcel.status == 'assigned' || parcel.status == 'picked_up' || parcel.status == 'out_for_delivery')) ...[
+          const SizedBox(height: 16),
+          _buildDriverInfo(parcel),
+        ],
       ],
     );
-  } // Fin _buildHeader
+  }
+
+  Widget _buildDriverInfo(dynamic parcel) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundImage: NetworkImage(parcel.driverPhotoUrl!),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Livreur en charge', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                Text('Votre livreur est en route', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.phone_in_talk, color: Colors.green),
+            onPressed: () {
+              // Appeler le livreur si nécessaire
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildQrSection(BuildContext context, Parcel parcel, {bool isRecipient = false}) {
     // Choix du code affiché dans le QR selon le rôle et le mode de livraison

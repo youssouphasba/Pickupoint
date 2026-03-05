@@ -478,6 +478,9 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildFavoriteSelector(),
+          const SizedBox(height: 24),
+
           // ── Relais de départ (uniquement si mode relais) ──────────────────
           if (_originMode == _OriginMode.relay) ...[
             _sectionTitle(Icons.location_on, 'Relais de départ'),
@@ -797,6 +800,83 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       'home_to_home'   => 'Domicile → Domicile',
       _                => _deliveryMode,
     };
+  }
+
+  Widget _buildFavoriteSelector() {
+    final user = ref.watch(authProvider).valueOrNull?.user;
+    final favorites = user?.favoriteAddresses ?? [];
+    if (favorites.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(Icons.bookmark_outline, 'Utiliser un favori'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 100,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: favorites.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final fav = favorites[index];
+              return InkWell(
+                onTap: () {
+                  setState(() {
+                    if (_currentStep == 1) {
+                      // We can use favorite for Origin OR Destination
+                      // Let's bias towards Destination if mode is fixed, 
+                      // or ask? For now, we fill the "current" relevant section.
+                      if (_destMode == _DestMode.home) {
+                        _addressLabelController.text = fav.address;
+                        _addressDistrictController.text = fav.name;
+                      } else if (_originMode == _OriginMode.gps) {
+                        _originLat = fav.lat;
+                        _originLng = fav.lng;
+                        _originAccuracy = 0; // Precise from map
+                      }
+                    }
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Favori "${fav.name}" appliqué')),
+                  );
+                },
+                child: Container(
+                  width: 140,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.place, color: Colors.blue, size: 20),
+                      const SizedBox(height: 4),
+                      Text(
+                        fav.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        fav.address,
+                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Divider(),
+      ],
+    );
   }
 
   Widget _sectionTitle(IconData icon, String title) {

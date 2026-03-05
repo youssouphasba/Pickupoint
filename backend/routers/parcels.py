@@ -170,10 +170,37 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel.pop("delivery_code", None)
 
     timeline = await get_parcel_timeline(parcel_id)
-    # S'assurer que le lien de paiement est présent pour le client
-    if not parcel.get("payment_url") and parcel.get("payment_status") == "pending":
-        # On pourrait le regénérer ici si besoin, mais normalement il est créé à la création du colis
-        pass
+    
+    # ── Enrichissement avec Photos ──
+    # Sender
+    sender = await db.users.find_one({"user_id": parcel.get("sender_user_id")}, {"profile_picture_url": 1})
+    if sender:
+        parcel["sender_photo_url"] = sender.get("profile_picture_url")
+    
+    # Recipient (le chercher par phone s'il n'est pas lié par ID)
+    recipient_uid = parcel.get("recipient_user_id")
+    if not recipient_uid and parcel.get("recipient_phone"):
+        # Match exact ou par les 9 derniers chiffres
+        phone = parcel["recipient_phone"]
+        recipient_user = await db.users.find_one({
+            "$or": [
+                {"phone": phone},
+                {"phone": {"$regex": f"{phone[-9:]}$"}}
+            ]
+        }, {"profile_picture_url": 1})
+        if recipient_user:
+            parcel["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+    elif recipient_uid:
+        recipient_user = await db.users.find_one({"user_id": recipient_uid}, {"profile_picture_url": 1})
+        if recipient_user:
+            parcel["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+
+    # Driver
+    driver_id = parcel.get("assigned_driver_id")
+    if driver_id:
+        driver = await db.users.find_one({"user_id": driver_id}, {"profile_picture_url": 1})
+        if driver:
+            parcel["driver_photo_url"] = driver.get("profile_picture_url")
 
     return {"parcel": parcel, "timeline": timeline}
 

@@ -6,7 +6,8 @@ import 'dart:async';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
-  const OtpScreen({super.key, required this.phone});
+  final bool acceptedLegal;
+  const OtpScreen({super.key, required this.phone, this.acceptedLegal = false});
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -43,7 +44,11 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _verify(String otp) async {
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).verifyOtp(widget.phone, otp);
+      await ref.read(authProvider.notifier).verifyOtp(
+            widget.phone,
+            otp,
+            acceptedLegal: widget.acceptedLegal,
+          );
       // Le redirect du GoRouter s'occupera du changement de page automatiquement
     } catch (e) {
       if (mounted) {
