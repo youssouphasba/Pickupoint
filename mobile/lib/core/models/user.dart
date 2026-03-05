@@ -16,17 +16,27 @@ class User {
     this.deliveriesCompleted = 0,
     this.onTimeDeliveries = 0,
     this.averageRating = 0.0,
+    this.totalEarned = 0.0,
     this.totalRatingsCount = 0,
     this.loyaltyPoints = 0,
     this.loyaltyTier = 'bronze',
     this.referralCode = '',
     this.isBanned = false,
+    this.acceptedLegal = false,
+    this.acceptedLegalAt,
+    this.bio,
+    this.kycStatus = 'none',
+    this.kycIdCardUrl,
+    this.kycLicenseUrl,
+    this.favoriteAddresses = const [],
+    this.notificationPrefs = const NotificationPrefs(),
   });
 
   final String id;
   final String phone;
 
   /// Rôles : 'client' | 'relay_agent' | 'driver' | 'admin'
+  final String? profilePictureUrl;
   final String role;
   final String? fullName;
   final String? email;
@@ -41,11 +51,20 @@ class User {
   final int deliveriesCompleted;
   final int onTimeDeliveries;
   final double averageRating;
+  final double totalEarned;
   final int totalRatingsCount;
   final int loyaltyPoints;
   final String loyaltyTier;
   final String referralCode;
   final bool isBanned;
+  final bool acceptedLegal;
+  final DateTime? acceptedLegalAt;
+  final String? bio;
+  final String kycStatus;
+  final String? kycIdCardUrl;
+  final String? kycLicenseUrl;
+  final List<FavoriteAddress> favoriteAddresses;
+  final NotificationPrefs notificationPrefs;
 
   /// Nom d'affichage : fullName ou téléphone comme fallback
   String get name => fullName ?? phone;
@@ -63,6 +82,7 @@ class User {
       // Le backend renvoie 1 = admin, 2 = client... mais on s'attend à un string ici
       // On le convertit en string si jamais c'est un enum Backend (UserRole.XXX)
       role: json['role']?.toString() ?? 'client',
+      profilePictureUrl: json['profile_picture_url'] as String?, // Added this line
       fullName: json['name'] as String? ?? json['full_name'] as String?,
       email: json['email'] as String?,
       avatarUrl: json['avatar_url'] as String?,
@@ -76,18 +96,33 @@ class User {
       deliveriesCompleted: (json['deliveries_completed'] as num?)?.toInt() ?? 0,
       onTimeDeliveries: (json['on_time_deliveries'] as num?)?.toInt() ?? 0,
       averageRating: (json['average_rating'] as num?)?.toDouble() ?? 0.0,
+      totalEarned: (json['total_earned'] as num?)?.toDouble() ?? 0.0,
       totalRatingsCount: (json['total_ratings_count'] as num?)?.toInt() ?? 0,
       loyaltyPoints: (json['loyalty_points'] as num?)?.toInt() ?? 0,
       loyaltyTier: json['loyalty_tier'] as String? ?? 'bronze',
       referralCode: json['referral_code'] as String? ?? '',
       isBanned: json['is_banned'] as bool? ?? false,
+      acceptedLegal: json['accepted_legal'] as bool? ?? false,
+      acceptedLegalAt: json['accepted_legal_at'] != null ? DateTime.parse(json['accepted_legal_at'] as String) : null,
+      bio: json['bio'] as String?,
+      kycStatus: json['kyc_status'] as String? ?? 'none',
+      kycIdCardUrl: json['kyc_id_card_url'] as String?,
+      kycLicenseUrl: json['kyc_license_url'] as String?,
+      favoriteAddresses: (json['favorite_addresses'] as List<dynamic>?)
+              ?.map((e) => FavoriteAddress.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      notificationPrefs: json['notification_prefs'] != null
+          ? NotificationPrefs.fromJson(json['notification_prefs'] as Map<String, dynamic>)
+          : const NotificationPrefs(),
     );
   }
 
   Map<String, dynamic> toJson() => {
         'user_id': id,
         'phone': phone,
-        'role': role,
+        'profile_picture_url': profilePictureUrl,
+      'role': role,
         'name': fullName,
         'email': email,
         'avatar_url': avatarUrl,
@@ -95,6 +130,8 @@ class User {
         'user_type': userType,
         'is_active': isActive,
         'is_banned': isBanned,
+        'bio': bio,
+        'notification_prefs': notificationPrefs.toJson(),
       };
 
   bool get isClient     => role == 'client';
@@ -105,6 +142,7 @@ class User {
   User copyWith({
     String? id,
     String? phone,
+    String? profilePictureUrl, // Added this line
     String? role,
     String? fullName,
     String? email,
@@ -113,15 +151,32 @@ class User {
     bool? isActive,
     bool? isAvailable,
     String? userType,
+    int? xp,
+    int? level,
+    List<String>? badges,
+    int? deliveriesCompleted,
+    int? onTimeDeliveries,
+    double? averageRating,
+    double? totalEarned,
+    int? totalRatingsCount,
     int? loyaltyPoints,
     String? loyaltyTier,
     String? referralCode,
     bool? isBanned,
+    bool? acceptedLegal,
+    DateTime? acceptedLegalAt,
+    String? bio,
+    String? kycStatus,
+    String? kycIdCardUrl,
+    String? kycLicenseUrl,
+    List<FavoriteAddress>? favoriteAddresses,
+    NotificationPrefs? notificationPrefs,
   }) =>
       User(
         id: id ?? this.id,
         phone: phone ?? this.phone,
-        role: role ?? this.role,
+        profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
+      role: role ?? this.role,
         fullName: fullName ?? this.fullName,
         email: email ?? this.email,
         avatarUrl: avatarUrl ?? this.avatarUrl,
@@ -135,10 +190,71 @@ class User {
         deliveriesCompleted: deliveriesCompleted ?? this.deliveriesCompleted,
         onTimeDeliveries: onTimeDeliveries ?? this.onTimeDeliveries,
         averageRating: averageRating ?? this.averageRating,
+        totalEarned: totalEarned ?? this.totalEarned,
         totalRatingsCount: totalRatingsCount ?? this.totalRatingsCount,
         loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
         loyaltyTier: loyaltyTier ?? this.loyaltyTier,
         referralCode: referralCode ?? this.referralCode,
         isBanned: isBanned ?? this.isBanned,
+        acceptedLegal: acceptedLegal ?? this.acceptedLegal,
+        acceptedLegalAt: acceptedLegalAt ?? this.acceptedLegalAt,
+        bio: bio ?? this.bio,
+        kycStatus: kycStatus ?? this.kycStatus,
+        kycIdCardUrl: kycIdCardUrl ?? this.kycIdCardUrl,
+        kycLicenseUrl: kycLicenseUrl ?? this.kycLicenseUrl,
+        favoriteAddresses: favoriteAddresses ?? this.favoriteAddresses,
+        notificationPrefs: notificationPrefs ?? this.notificationPrefs,
       );
+}
+
+class FavoriteAddress {
+  final String name;
+  final String address;
+  final double lat;
+  final double lng;
+
+  const FavoriteAddress({
+    required this.name,
+    required this.address,
+    required this.lat,
+    required this.lng,
+  });
+
+  factory FavoriteAddress.fromJson(Map<String, dynamic> json) => FavoriteAddress(
+        name: json['name'] as String? ?? '',
+        address: json['address'] as String? ?? '',
+        lat: (json['lat'] as num?)?.toDouble() ?? 0.0,
+        lng: (json['lng'] as num?)?.toDouble() ?? 0.0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'address': address,
+        'lat': lat,
+        'lng': lng,
+      };
+}
+
+class NotificationPrefs {
+  final bool push;
+  final bool email;
+  final bool whatsapp;
+
+  const NotificationPrefs({
+    this.push = true,
+    this.email = true,
+    this.whatsapp = true,
+  });
+
+  factory NotificationPrefs.fromJson(Map<String, dynamic> json) => NotificationPrefs(
+        push: json['push'] as bool? ?? true,
+        email: json['email'] as bool? ?? true,
+        whatsapp: json['whatsapp'] as bool? ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'push': push,
+        'email': email,
+        'whatsapp': whatsapp,
+      };
 }

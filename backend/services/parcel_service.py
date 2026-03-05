@@ -715,8 +715,8 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
 
 
 async def _record_event(
-    parcel_id: str,
     event_type: str,
+    parcel_id: Optional[str] = None,
     from_status: Optional[ParcelStatus] = None,
     to_status: Optional[ParcelStatus] = None,
     actor_id: Optional[str] = None,

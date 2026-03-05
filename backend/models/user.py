@@ -10,11 +10,25 @@ class UserType(str, Enum):
     ENTERPRISE = "enterprise"
 
 
+class FavoriteAddress(BaseModel):
+    name: str
+    address: str
+    lat: float
+    lng: float
+
+
+class NotificationPrefs(BaseModel):
+    push: bool = True
+    email: bool = True
+    whatsapp: bool = True
+
+
 class User(BaseModel):
     user_id:           str
     phone:             str        # E.164 : "+221XXXXXXXXX"
     name:              str
     email:             Optional[str] = None
+    profile_picture_url: Optional[str] = None
     role:              UserRole   = UserRole.CLIENT
     user_type:         Optional[UserType] = None
     is_active:         bool       = True
@@ -30,6 +44,13 @@ class User(BaseModel):
     language:          str = "fr"
     currency:          str = "XOF"
     country_code:      str = "SN"
+    notification_prefs: NotificationPrefs = NotificationPrefs()
+    favorite_addresses: list[FavoriteAddress] = []
+    bio:               Optional[str] = None
+    # KYC
+    kyc_status:        str          = "none"  # "none" | "pending" | "verified" | "rejected"
+    kyc_id_card_url:   Optional[str] = None
+    kyc_license_url:   Optional[str] = None
     # Programme fidélité
     loyalty_points:    int          = 0
     loyalty_tier:      str          = "bronze"   # "bronze" | "silver" | "gold"
@@ -41,6 +62,7 @@ class User(BaseModel):
     last_driver_location_at: Optional[datetime] = None
     xp:                      int            = 0
     level:                   int            = 1
+    total_earned:            float          = 0.0
     badges:                  list[str]      = []
     deliveries_completed:    int            = 0
     on_time_deliveries:      int            = 0
@@ -48,6 +70,9 @@ class User(BaseModel):
     total_ratings_count:     int            = 0
     average_rating:          float          = 0.0
     cod_balance:             float          = 0.0  # Cash on Delivery balance (to be settled)
+    # Legal acceptance
+    accepted_legal:          bool           = False
+    accepted_legal_at:       Optional[datetime] = None
     # Timestamps
     created_at:        datetime
     updated_at:        datetime
@@ -82,6 +107,7 @@ class OTPRequest(BaseModel):
 class OTPVerify(BaseModel):
     phone: str
     otp:   str
+    accepted_legal: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -96,7 +122,8 @@ class RefreshRequest(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    name:       Optional[str] = None
-    email:      Optional[str] = None
-    language:   Optional[str] = None
-    user_type:  Optional[UserType] = None
+    email:              Optional[str] = None
+    language:           Optional[str] = None
+    user_type:          Optional[UserType] = None
+    bio:                Optional[str] = None
+    notification_prefs: Optional[NotificationPrefs] = None

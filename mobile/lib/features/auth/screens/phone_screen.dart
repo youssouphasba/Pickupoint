@@ -14,6 +14,7 @@ class PhoneScreen extends ConsumerStatefulWidget {
 class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   final _phoneController = TextEditingController(text: '+221');
   bool _isLoading = false;
+  bool _acceptedLegal = false;
 
   Future<void> _submit() async {
     // Retirer tous les espaces potentiels insérés par le clavier
@@ -28,11 +29,25 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
     }
 
     setState(() => _isLoading = true);
+    
+    // Si déjà accepté, on passe l'info. Sinon, on bloque (ou on force le check avant).
+    if (!_acceptedLegal) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Veuillez accepter les CGU et la Politique')),
+        );
+      }
+      return;
+    }
 
     try {
       await ref.read(authProvider.notifier).requestOtp(phone);
       if (mounted) {
-        context.push('/auth/otp', extra: phone);
+        context.push('/auth/otp', extra: {
+          'phone': phone,
+          'accepted_legal': _acceptedLegal,
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -72,6 +87,41 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 hintText: '+221XXXXXXXXX',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.phone),
+              ),
+            ),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              value: _acceptedLegal,
+              onChanged: (val) => setState(() => _acceptedLegal = val ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              title: Wrap(
+                children: [
+                  const Text("J'accepte les "),
+                  GestureDetector(
+                    onTap: () => context.push('/legal/cgu'),
+                    child: Text(
+                      "CGU",
+                      style: TextStyle(
+                        color: Theme.of(context).primaryColor,
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                  const Text(" et la "),
+                  GestureDetector(
+                    onTap: () => context.push('/legal/privacy_policy'),
+                    child: Text(
+                      "Politique de confidentialité",
+                      style: TextStyle(
+                        color: Theme.of(context).primaryColor,
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             const Spacer(),

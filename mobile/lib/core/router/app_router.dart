@@ -12,6 +12,8 @@ import '../../features/client/screens/parcel_detail_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
+import '../../features/client/screens/favorite_addresses_screen.dart';
+import '../../features/client/screens/notification_settings_screen.dart';
 import '../../features/relay/screens/relay_home.dart';
 import '../../features/relay/screens/relay_profile_screen.dart';
 import '../../features/relay/screens/scan_in_screen.dart';
@@ -108,8 +110,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // ── Auth ──────────────────────────────────────────────
       GoRoute(path: '/auth/phone', builder: (_, __) => const PhoneScreen()),
       GoRoute(path: '/auth/otp',   builder: (_, state) {
-        final phone = state.extra as String? ?? '';
-        return OtpScreen(phone: phone);
+        final data = state.extra as Map<String, dynamic>;
+        return OtpScreen(
+          phone: data['phone'] as String,
+          acceptedLegal: data['accepted_legal'] as bool? ?? false,
+        );
       }),
       GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
 
@@ -126,6 +131,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/track/:code', builder: (_, s) => TrackingScreen(code: s.pathParameters['code']!)),
           GoRoute(path: '/client/partnership', builder: (_, __) => const PartnershipScreen()),
           GoRoute(path: '/client/loyalty-history', builder: (_, __) => const ClientLoyaltyHistoryScreen()),
+          GoRoute(path: '/client/favorites', builder: (_, __) => const FavoriteAddressesScreen()),
+          GoRoute(path: '/client/notifications', builder: (_, __) => const NotificationSettingsScreen()),
         ],
       ),
 

@@ -34,7 +34,29 @@ class ApiClient {
 
   late final Dio _dio;
 
-  // ─── Auth ────────────────────────────────────────────────────────────────
+  Future<Response> getUserStats() async {
+    return _dio.get(ApiEndpoints.userStats);
+  }
+
+  Future<Response> uploadAvatar(File file) async {
+    final fileName = file.path.split('/').last;
+    final formData = FormData.fromMap({
+      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+    return _dio.post(ApiEndpoints.userAvatar, data: formData);
+  }
+
+  Future<Response> uploadKyc(File file, String docType) async {
+    final fileName = file.path.split('/').last;
+    final formData = FormData.fromMap({
+      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+    // doc_type est passé en query param ou multipart ? 
+    // Mon backend le prend en query param par défaut si non spécifié comme Form (...)
+    return _dio.post(ApiEndpoints.userKyc, queryParameters: {"doc_type": docType}, data: formData);
+  }
+
+  // --- Auth & Profile ---
   Future<Response> requestOtp(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.requestOtp, data: body);
 
@@ -53,6 +75,14 @@ class ApiClient {
       _dio.put(ApiEndpoints.updateFcm, data: {'fcm_token': token});
 
   Future<Response> getLoyalty() => _dio.get(ApiEndpoints.loyaltyStats);
+
+  Future<Response> getFavoriteAddresses() => _dio.get(ApiEndpoints.favoriteAddresses);
+
+  Future<Response> addFavoriteAddress(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.favoriteAddresses, data: body);
+
+  Future<Response> deleteFavoriteAddress(String name) =>
+      _dio.delete('${ApiEndpoints.favoriteAddresses}/$name');
 
   // ─── Parcels ─────────────────────────────────────────────────────────────
   Future<Response> getParcels({Map<String, dynamic>? params}) =>

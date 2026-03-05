@@ -9,6 +9,7 @@ from core.dependencies import require_role
 from core.exceptions import not_found_exception
 from database import db
 from models.common import UserRole, ParcelStatus
+from services.parcel_service import _record_event
 
 router = APIRouter()
 
@@ -185,6 +186,15 @@ async def approve_payout(payout_id: str, _admin=Depends(require_admin_dep)):
         {"wallet_id": payout["wallet_id"]},
         {"$inc": {"pending": -payout["amount"]}, "$set": {"updated_at": now}},
     )
+    
+    await _record_event(
+        event_type="PAYOUT_APPROVED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Retrait approuvé pour le montant {payout['amount']} XOF",
+        metadata={"payout_id": payout_id, "amount": payout["amount"]}
+    )
+    
     return {"message": "Retrait approuvé", "payout_id": payout_id}
 
 
@@ -228,6 +238,14 @@ async def admin_ban_user(
     # Invalider toutes les sessions en cours
     await db.user_sessions.delete_many({"user_id": user_id})
     
+    await _record_event(
+        event_type="USER_BANNED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Utilisateur {user_id} banni par l'administration",
+        metadata={"target_user_id": user_id}
+    )
+    
     return {"message": "Utilisateur banni et sessions révoquées"}
 
 
@@ -243,6 +261,14 @@ async def admin_unban_user(
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
+    
+    await _record_event(
+        event_type="USER_UNBANNED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Bannissement levé pour l'utilisateur {user_id}",
+        metadata={"target_user_id": user_id}
+    )
     
     return {"message": "Bannissement levé"}
 
@@ -580,7 +606,17 @@ async def admin_settle_cod(
     Solde tout ou partie du cash on delivery collecté par un livreur.
     """
     from services.admin_service import settle_driver_cod
-    return await settle_driver_cod(driver_id, amount)
+    res = await settle_driver_cod(driver_id, amount)
+    
+    await _record_event(
+        event_type="COD_SETTLED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Encaissement COD validé pour le livreur {driver_id}: {res['amount_settled']} XOF",
+        metadata={"driver_id": driver_id, "amount_settled": res["amount_settled"]}
+    )
+    
+    return res
 
 
 @router.post("/parcels/{parcel_id}/override", summary="Forcer un changement de statut (SuperAdmin)")

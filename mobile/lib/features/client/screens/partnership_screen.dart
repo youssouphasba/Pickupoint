@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/api/api_client.dart';
+import '../../../shared/widgets/loading_button.dart';
 
 /// Écran de candidature partenariat (devenir livreur ou point relais).
 class PartnershipScreen extends ConsumerStatefulWidget {
@@ -68,6 +68,12 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
   final _msgCtrl    = TextEditingController();
   String _vehicle   = 'moto';
   bool   _loading   = false;
+  File?  _idCardFile;
+  File?  _licenseFile;
+  String? _idCardUrl;
+  String? _licenseUrl;
+
+  final _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -138,22 +144,79 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               alignLabelWithHint: true,
             ),
           ),
+          ),
+          const SizedBox(height: 24),
+          const Text('Documents (KYC) *', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _docPicker(
+            label: 'Photo CNI (Recto/Verso)',
+            file: _idCardFile,
+            onTap: () => _pickDoc('id_card'),
+          ),
+          const SizedBox(height: 12),
+          _docPicker(
+            label: 'Photo Permis de conduire',
+            file: _licenseFile,
+            onTap: () => _pickDoc('license'),
+          ),
           const SizedBox(height: 28),
-          ElevatedButton.icon(
-            onPressed: _loading ? null : _submit,
-            icon: _loading
-                ? const SizedBox(width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.send),
-            label: Text(_loading ? 'Envoi…' : 'Envoyer ma candidature'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: Colors.blue,
-            ),
+          LoadingButton(
+            label: 'Envoyer ma candidature',
+            isLoading: _loading,
+            onPressed: _submit,
+            color: Colors.blue,
           ),
         ]),
       ),
     );
+  }
+
+  Widget _docPicker({required String label, File? file, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: file == null ? Colors.grey.shade50 : Colors.green.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: file == null ? Colors.grey.shade300 : Colors.green.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              file == null ? Icons.upload_file : Icons.check_circle,
+              color: file == null ? Colors.grey : Colors.green,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  Text(
+                    file == null ? 'Cliquer pour choisir' : 'Fichier sélectionné : ${file.path.split('/').last}',
+                    style: TextStyle(fontSize: 11, color: file == null ? Colors.grey : Colors.green.shade700),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDoc(String type) async {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        if (type == 'id_card') {
+          _idCardFile = File(pickedFile.path);
+        } else {
+          _licenseFile = File(pickedFile.path);
+        }
+      });
+    }
   }
 
   Widget _field(TextEditingController ctrl, String label, IconData icon,
@@ -174,14 +237,32 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_idCardFile == null || _licenseFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez uploader la CNI et le Permis'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
+      
+      // 1. Upload des docs d'abord
+      final idRes = await api.uploadKyc(_idCardFile!, 'id_card');
+      _idCardUrl = idRes.data['doc_url'];
+      
+      final licRes = await api.uploadKyc(_licenseFile!, 'license');
+      _licenseUrl = licRes.data['doc_url'];
+
+      // 2. Soumission candidature
       await api.applyDriver({
         'full_name':      _nameCtrl.text.trim(),
         'id_card_number': _cniCtrl.text.trim(),
         'license_number': _licCtrl.text.trim(),
         'vehicle_type':   _vehicle,
+        'id_card_url':    _idCardUrl,
+        'license_url':    _licenseUrl,
         'message':        _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
       });
       if (mounted) {

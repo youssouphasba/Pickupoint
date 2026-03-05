@@ -69,6 +69,9 @@ class Parcel {
     this.recipientConfirmUrl,
     this.isRecipientView,
     this.promoId,
+    this.senderPhotoUrl,
+    this.recipientPhotoUrl,
+    this.driverPhotoUrl,
   });
 
   final String id;
@@ -111,6 +114,9 @@ class Parcel {
   /// Calculé côté backend : true si le viewer est le destinataire
   final bool? isRecipientView;
   final String? promoId;
+  final String? senderPhotoUrl;
+  final String? recipientPhotoUrl;
+  final String? driverPhotoUrl;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -171,6 +177,9 @@ class Parcel {
       recipientConfirmUrl: json['recipient_confirm_url'] as String?,
       isRecipientView: json['is_recipient'] as bool?,
       promoId: json['promo_id'] as String?,
+      senderPhotoUrl: json['sender_photo_url'] as String?,
+      recipientPhotoUrl: json['recipient_photo_url'] as String?,
+      driverPhotoUrl: json['driver_photo_url'] as String?,
     );
   }
 

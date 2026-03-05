@@ -16,6 +16,10 @@ class ApiEndpoints {
   static const profile    = '$_base/api/auth/profile';
   static const updateFcm  = '$_base/api/users/me/fcm-token';
   static const loyaltyStats = '$_base/api/users/me/loyalty';
+  static const userStats    = '$_base/api/users/me/stats';
+  static const userAvatar   = '$_base/api/users/me/avatar';
+  static const userKyc      = '$_base/api/users/me/kyc';
+  static const favoriteAddresses = '$_base/api/users/me/favorite-addresses';
 
   // ─── Parcels ─────────────────────────────────────────────────────────────
   static const parcels    = '$_base/api/parcels';

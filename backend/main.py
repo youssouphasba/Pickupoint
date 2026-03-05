@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -141,6 +142,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Static files (uploads)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Routers — publics (sans auth)
 app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])

@@ -3,14 +3,18 @@ Router users : gestion utilisateurs, enregistrement driver/agent relais.
 """
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends
-
+from fastapi import APIRouter, Depends, File, UploadFile
 from core.dependencies import get_current_user, require_role
-from core.exceptions import not_found_exception, forbidden_exception
+from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
+import shutil
+import os
+from config import settings
 from database import db
 from models.common import UserRole
-from models.user import User, UserCreate
+from models.user import User, UserCreate, ProfileUpdate, FavoriteAddress
+from services.parcel_service import _record_event
 
 router = APIRouter()
 
@@ -59,6 +63,15 @@ async def change_role(
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
+    
+    await _record_event(
+        event_type="USER_ROLE_CHANGED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Changement de rôle pour {user_id} → {role.value}",
+        metadata={"target_user_id": user_id, "new_role": role.value}
+    )
+    
     return {"message": f"Rôle mis à jour → {role.value}"}
 
 @router.get("/{user_id}/driver-stats", summary="Statistiques livreur (admin)")
@@ -107,6 +120,158 @@ async def update_fcm_token(
     return {"message": "Token FCM mis à jour"}
 
 
+@router.put("/me/profile", summary="Mise à jour profil (Bio, Email, Prefs)")
+async def update_my_profile(
+    body: ProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        return current_user
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+    
+    # Si email présent, vérifier unicité (optionnel mais recommandé)
+    if body.email:
+        existing = await db.users.find_one({"email": body.email, "user_id": {"$ne": current_user["user_id"]}})
+        if existing:
+            raise bad_request_exception("Cet email est déjà utilisé")
+
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": updates}
+    )
+    
+    updated_user = await db.users.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
+    return updated_user
+
+
+@router.get("/me/favorite-addresses", summary="Mes adresses favorites")
+async def get_favorites(current_user: dict = Depends(get_current_user)):
+    return current_user.get("favorite_addresses", [])
+
+
+@router.post("/me/favorite-addresses", summary="Ajouter une adresse favorite")
+async def add_favorite(
+    addr: FavoriteAddress,
+    current_user: dict = Depends(get_current_user),
+):
+    # Vérifier doublons par nom
+    favs = current_user.get("favorite_addresses", [])
+    if any(f["name"] == addr.name for f in favs):
+        raise bad_request_exception(f"Une adresse nommée '{addr.name}' existe déjà")
+    
+    if len(favs) >= 10:
+        raise bad_request_exception("Maximum 10 adresses favorites autorisées")
+
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$push": {"favorite_addresses": addr.model_dump()}}
+    )
+    return {"message": f"Adresse '{addr.name}' ajoutée"}
+
+
+@router.delete("/me/favorite-addresses/{name}", summary="Supprimer une adresse favorite")
+async def delete_favorite(
+    name: str,
+    current_user: dict = Depends(get_current_user),
+):
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$pull": {"favorite_addresses": {"name": name}}}
+    )
+    return {"message": "Adresse supprimée"}
+ 
+ 
+@router.post("/me/avatar", summary="Uploader photo de profil")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Enregistre une nouvelle photo de profil."""
+    if not file.content_type.startswith("image/"):
+        raise bad_request_exception("Le fichier doit être une image")
+        
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
+        raise bad_request_exception("Format d'image non supporté (.jpg, .png, .webp uniquement)")
+        
+    filename = f"profile_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+    relative_path = os.path.join("profiles", filename)
+    absolute_path = os.path.join("uploads", relative_path)
+    
+    # Surtout sur Windows, s'assurer que le dossier existe (bien que créé par le script)
+    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    
+    with open(absolute_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # URL finale à enregistrer
+    profile_url = f"{settings.BASE_URL}/uploads/profiles/{filename}"
+    
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {"profile_picture_url": profile_url, "updated_at": datetime.now(timezone.utc)}},
+    )
+    
+    return {"profile_picture_url": profile_url}
+
+
+@router.post("/me/kyc", summary="Uploader pièce d'identité (KYC)")
+async def upload_kyc(
+    doc_type: Literal["id_card", "license"] = "id_card",
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Enregistre un document d'identité pour vérification."""
+    if not file.content_type.startswith("image/") and file.content_type != "application/pdf":
+        raise bad_request_exception("Le fichier doit être une image ou un PDF")
+        
+    ext = os.path.splitext(file.filename)[1].lower()
+    filename = f"kyc_{doc_type}_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+    relative_path = os.path.join("kyc", filename)
+    absolute_path = os.path.join("uploads", relative_path)
+    
+    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    
+    with open(absolute_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    doc_url = f"{settings.BASE_URL}/uploads/kyc/{filename}"
+    
+    field_to_update = "kyc_id_card_url" if doc_type == "id_card" else "kyc_license_url"
+    
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {"$set": {
+            field_to_update: doc_url,
+            "kyc_status": "pending",
+            "updated_at": datetime.now(timezone.utc)
+        }},
+    )
+    
+    return {"kyc_status": "pending", "doc_url": doc_url, "doc_type": doc_type}
+
+
+@router.get("/me/stats", summary="Statistiques d'activité utilisateur")
+async def get_my_stats(current_user: dict = Depends(get_current_user)):
+    """Retourne des stats sur les colis envoyés/reçus."""
+    user_id = current_user["user_id"]
+    
+    sent_count = await db.parcels.count_documents({"sender_user_id": user_id})
+    received_count = await db.parcels.count_documents({"recipient_phone": current_user["phone"]})
+    
+    # Points et Tier (déjà en base mais on regroupe ici pour le widget mobile)
+    return {
+        "parcels_sent": sent_count,
+        "parcels_received": received_count,
+        "total_parcels": sent_count + received_count,
+        "loyalty_points": current_user.get("loyalty_points", 0),
+        "loyalty_tier": current_user.get("loyalty_tier", "bronze"),
+        "referrals_count": await db.users.count_documents({"referred_by": user_id})
+    }
+
+
 @router.put("/{user_id}/relay-point", summary="Lier un point relais à un agent (admin)")
 async def assign_relay_point(
     user_id: str,
@@ -127,6 +292,15 @@ async def assign_relay_point(
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
+    
+    await _record_event(
+        event_type="USER_RELAY_ASSIGNED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Agent {user_id} lié au relais {relay_id}",
+        metadata={"target_user_id": user_id, "relay_id": relay_id}
+    )
+    
     return {"message": f"Agent {user_id} lié au relais {relay_id}"}
 
 

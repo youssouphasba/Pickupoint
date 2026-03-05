@@ -99,6 +99,24 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
+  /// Recharge le profil utilisateur depuis le serveur
+  Future<void> fetchMe() async {
+    final current = state.valueOrNull;
+    if (current == null || !current.isAuthenticated) return;
+
+    try {
+      final client = ApiClient(token: current.accessToken);
+      final res = await client.getMe();
+      final user = User.fromJson(res.data as Map<String, dynamic>);
+      state = AsyncData(current.copyWith(user: user));
+    } catch (e) {
+      // Si erreur auth, on déconnecte
+      if (e.toString().contains('401')) {
+        await logout();
+      }
+    }
+  }
+
   /// Étape 1 — demande OTP
   Future<void> requestOtp(String phone) async {
     state = const AsyncLoading();
@@ -117,11 +135,15 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   /// Étape 2 — vérification OTP → login
-  Future<void> verifyOtp(String phone, String otp) async {
+  Future<void> verifyOtp(String phone, String otp, {bool acceptedLegal = false}) async {
     state = const AsyncLoading();
     try {
       final client = ApiClient();
-      final res = await client.verifyOtp({'phone': phone, 'otp': otp});
+      final res = await client.verifyOtp({
+        'phone': phone,
+        'otp': otp,
+        'accepted_legal': acceptedLegal,
+      });
       final data = res.data as Map<String, dynamic>;
 
       final accessTokenRaw = data['access_token'];
@@ -162,18 +184,20 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Mise à jour du profil (Nom et Type) pour l'onboarding
-  Future<void> updateProfile(String fullName, String userType) async {
+  /// Mise à jour du profil (E-mail et Type)
+  Future<void> updateProfile({String? email, String? userType, String? language}) async {
     final current = state.valueOrNull;
     if (current == null || !current.isAuthenticated) return;
 
     state = const AsyncLoading();
     try {
       final client = ApiClient(token: current.accessToken);
-      final res = await client.updateProfile({
-        'name': fullName,
-        'user_type': userType,
-      });
+      final body = <String, dynamic>{};
+      if (email != null) body['email'] = email;
+      if (userType != null) body['user_type'] = userType;
+      if (language != null) body['language'] = language;
+      
+      final res = await client.updateProfile(body);
       final updatedUser = User.fromJson(res.data as Map<String, dynamic>);
       
       state = AsyncData(current.copyWith(user: updatedUser));

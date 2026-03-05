@@ -574,19 +574,32 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             _buildPaymentStatus(mission),
             const SizedBox(height: 20),
 
-          // ── Destinataire (masqué) — uniquement pour livraison domicile ──
-          if (!mission.deliveryIsRelay && mission.recipientName != null) ...[
-            const Text('Destinataire',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: Text(mission.recipientName!),
-              subtitle: Text(maskPhone(mission.recipientPhone ?? '')),
+          // ── Contacts (Expéditeur & Destinataire) ───────────────────────
+          const Text('Contacts', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          
+          // Expéditeur (Point de Retrait)
+          _buildContactCard(
+            title: 'Expéditeur (Retrait)',
+            name: mission.pickupLabel, // Souvent le nom du relais ou de l'expéditeur
+            photo: mission.senderPhotoUrl,
+            phone: null, // On garde masqué selon politique
+            showCall: mission.status == 'assigned',
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Destinataire (Point de Livraison)
+          if (mission.recipientName != null)
+            _buildContactCard(
+              title: 'Destinataire (Livraison)',
+              name: mission.recipientName!,
+              photo: mission.recipientPhotoUrl,
+              phone: maskPhone(mission.recipientPhone ?? ''),
+              showCall: mission.status == 'in_progress',
             ),
-            const SizedBox(height: 20),
-          ],
+
+          const SizedBox(height: 20),
 
             // ── Code de suivi (visible livreur pour montrer au relais) ─
             if (mission.trackingCode != null) ...[
@@ -975,5 +988,50 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
 
     return const SizedBox.shrink();
+  }
+
+  Widget _buildContactCard({
+    required String title,
+    required String name,
+    required String? photo,
+    required String? phone,
+    bool showCall = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.blue.shade50,
+            backgroundImage: photo != null ? NetworkImage(photo) : null,
+            child: photo == null ? const Icon(Icons.person, color: Colors.blue) : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+                Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                if (phone != null) Text(phone, style: const TextStyle(fontSize: 13, color: Colors.blueGrey)),
+              ],
+            ),
+          ),
+          if (showCall)
+            IconButton(
+              icon: const Icon(Icons.phone_in_talk, color: Colors.green),
+              onPressed: () {
+                // Future call implementation
+              },
+            ),
+        ],
+      ),
+    );
   }
 }

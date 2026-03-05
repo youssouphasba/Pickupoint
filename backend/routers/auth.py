@@ -41,6 +41,10 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
     # Trouver ou créer l'utilisateur
     user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
     if not user_doc:
+        # Nouvel utilisateur : acceptation obligatoire
+        if not body.accepted_legal:
+            raise bad_request_exception("Vous devez accepter les CGU et la Politique de confidentialité.")
+
         now = datetime.now(timezone.utc)
         from services.user_service import generate_referral_code
         user_doc = {
@@ -51,6 +55,8 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
             "role":              "client",
             "is_active":         True,
             "is_phone_verified": True,
+            "accepted_legal":    True,
+            "accepted_legal_at": now,
             "relay_point_id":    None,
             "store_id":          None,
             "external_ref":      None,

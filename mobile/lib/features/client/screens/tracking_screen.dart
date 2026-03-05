@@ -159,6 +159,37 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
             ),
           ),
           const SizedBox(height: 24),
+
+          if (parcel.driverPhotoUrl != null && ['assigned', 'picked_up', 'out_for_delivery'].contains(parcel.status)) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade100),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundImage: NetworkImage(parcel.driverPhotoUrl!),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Livreur assigné', style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
+                        Text('Votre colis est entre de bonnes mains.', style: TextStyle(fontSize: 13, color: Colors.black87)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
           const Text(
             'Historique du colis',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),

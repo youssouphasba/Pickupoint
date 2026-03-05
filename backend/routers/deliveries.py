@@ -121,12 +121,11 @@ async def available_missions(
     missions.sort(key=lambda m: m["created_at"])
     
     # Masquage anti-bypass
-    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    if not is_admin:
-        from core.utils import mask_phone
-        for m in missions:
-            if "recipient_phone" in m:
-                m["recipient_phone"] = mask_phone(m["recipient_phone"])
+    for m in missions:
+        # Enrichir avec la photo du client (sender) pour l'aperçu livreur
+        sender = await db.users.find_one({"user_id": m.get("sender_user_id")}, {"profile_picture_url": 1})
+        if sender:
+            m["sender_photo_url"] = sender.get("profile_picture_url")
                 
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
@@ -224,15 +223,35 @@ async def get_mission(
     if parcel:
         mission["payment_status"] = parcel.get("payment_status", "pending")
 
-    # Masquage anti-bypass
-    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    if not is_admin:
-        # Masquer les infos de l'expéditeur/destinataire si présentes dans la mission
-        if "sender_phone" in mission:
-            mission["sender_phone"] = mask_phone(mission["sender_phone"])
-        if "recipient_phone" in mission:
-            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
-            
+    # Enrichissement Photos
+    # Driver
+    if mission.get("driver_id"):
+        driver = await db.users.find_one({"user_id": mission["driver_id"]}, {"profile_picture_url": 1})
+        if driver:
+            mission["driver_photo_url"] = driver.get("profile_picture_url")
+    
+    # Sender
+    sender = await db.users.find_one({"user_id": mission.get("sender_user_id")}, {"profile_picture_url": 1})
+    if sender:
+        mission["sender_photo_url"] = sender.get("profile_picture_url")
+    
+    # Recipient
+    recipient_uid = mission.get("recipient_user_id")
+    if not recipient_uid and mission.get("recipient_phone"):
+        phone = mission["recipient_phone"]
+        recipient_user = await db.users.find_one({
+            "$or": [
+                {"phone": phone},
+                {"phone": {"$regex": f"{phone[-9:]}$"}}
+            ]
+        }, {"profile_picture_url": 1})
+        if recipient_user:
+            mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+    elif recipient_uid:
+        recipient_user = await db.users.find_one({"user_id": recipient_uid}, {"profile_picture_url": 1})
+        if recipient_user:
+            mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+
     return mission
 
 
