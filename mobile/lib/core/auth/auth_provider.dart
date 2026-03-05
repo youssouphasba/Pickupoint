@@ -185,7 +185,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   /// Mise à jour du profil (E-mail et Type)
-  Future<void> updateProfile({String? email, String? userType, String? language}) async {
+  Future<void> updateProfile({String? email, String? userType, Map<String, dynamic>? notificationPrefs, String? language, String? bio}) async {
     final current = state.valueOrNull;
     if (current == null || !current.isAuthenticated) return;
 
@@ -195,7 +195,9 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final body = <String, dynamic>{};
       if (email != null) body['email'] = email;
       if (userType != null) body['user_type'] = userType;
+      if (notificationPrefs != null) body['notification_prefs'] = notificationPrefs;
       if (language != null) body['language'] = language;
+      if (bio != null) body['bio'] = bio;
       
       final res = await client.updateProfile(body);
       final updatedUser = User.fromJson(res.data as Map<String, dynamic>);

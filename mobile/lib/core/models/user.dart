@@ -28,6 +28,7 @@ class User {
     this.kycStatus = 'none',
     this.kycIdCardUrl,
     this.kycLicenseUrl,
+    this.profilePictureUrl,
     this.favoriteAddresses = const [],
     this.notificationPrefs = const NotificationPrefs(),
   });
@@ -236,25 +237,25 @@ class FavoriteAddress {
 }
 
 class NotificationPrefs {
-  final bool push;
-  final bool email;
-  final bool whatsapp;
+  final bool pushEnabled;
+  final bool emailEnabled;
+  final bool whatsappEnabled;
 
   const NotificationPrefs({
-    this.push = true,
-    this.email = true,
-    this.whatsapp = true,
+    this.pushEnabled = true,
+    this.emailEnabled = true,
+    this.whatsappEnabled = true,
   });
 
   factory NotificationPrefs.fromJson(Map<String, dynamic> json) => NotificationPrefs(
-        push: json['push'] as bool? ?? true,
-        email: json['email'] as bool? ?? true,
-        whatsapp: json['whatsapp'] as bool? ?? true,
+        pushEnabled: json['push'] as bool? ?? true,
+        emailEnabled: json['email'] as bool? ?? true,
+        whatsappEnabled: json['whatsapp'] as bool? ?? true,
       );
 
   Map<String, dynamic> toJson() => {
-        'push': push,
-        'email': email,
-        'whatsapp': whatsapp,
+        'push': pushEnabled,
+        'email': emailEnabled,
+        'whatsapp': whatsappEnabled,
       };
 }
