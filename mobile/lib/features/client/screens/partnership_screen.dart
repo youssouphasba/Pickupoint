@@ -1,4 +1,8 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/api/api_client.dart';
@@ -140,12 +144,11 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               labelText: 'Message (optionnel)',
               hintText: 'Parlez-nous de votre expérience, votre quartier de prédilection…',
               border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.message),
-              alignLabelWithHint: true,
-            ),
+            prefixIcon: Icon(Icons.message),
+            alignLabelWithHint: true,
           ),
-          ),
-          const SizedBox(height: 24),
+        ),
+        const SizedBox(height: 24),
           const Text('Documents (KYC) *', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           _docPicker(

@@ -294,7 +294,7 @@ class ClientProfileScreen extends ConsumerWidget {
             leading: const Icon(Icons.description_outlined),
             title: const Text('Ma Bio professionnelle'),
             trailing: const Icon(Icons.edit, size: 18, color: Colors.blue),
-            onTap: () => _showEditBio(context, ref, user),
+            onTap: () => _showEditBio(context, ref, ref.read(authProvider).valueOrNull?.user),
           ),
         ]),
         const SizedBox(height: 20),

@@ -54,7 +54,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).updateProfile(name, _selectedType);
+      await ref.read(authProvider.notifier).updateProfile(email: null, userType: _selectedType);
       if (mounted) {
         // Le GoRouter devrait intercepter ce changement d'état via son refreshListenable
         // Mais par sécurité, on force la navigation.

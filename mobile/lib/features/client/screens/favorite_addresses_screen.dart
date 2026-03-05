@@ -71,12 +71,12 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        side: BorderSide(color: Colors.grey.shade200),
       ),
       child: ListTile(
-        leading: const CircleAvatar(
-          backgroundColor: Colors.blueOffset,
-          child: Icon(Icons.place, color: Colors.blue),
+        leading: CircleAvatar(
+          backgroundColor: Colors.blue.shade50,
+          child: const Icon(Icons.place, color: Colors.blue),
         ),
         title: Text(addr.name, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(addr.address, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -248,8 +248,4 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
       if (mounted) setState(() => _loading = false);
     }
   }
-}
-
-extension on Color {
-  static const Color blueOffset = Color(0xFFE3F2FD);
 }
