@@ -6,8 +6,7 @@ import 'dart:async';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
-  final bool acceptedLegal;
-  const OtpScreen({super.key, required this.phone, this.acceptedLegal = false});
+  const OtpScreen({super.key, required this.phone});
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -44,12 +43,18 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _verify(String otp) async {
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).verifyOtp(
+      final token = await ref.read(authProvider.notifier).verifyOtp(
             widget.phone,
             otp,
-            acceptedLegal: widget.acceptedLegal,
           );
-      // Le redirect du GoRouter s'occupera du changement de page automatiquement
+          
+      if (token != null && mounted) {
+        // Rediriger vers l'écran de profil avec le jeton temporaire
+        context.pushReplacement('/auth/setup', extra: {
+          'registration_token': token,
+        });
+      }
+      // Sinon, le login a réussi et le router s'en chargera
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

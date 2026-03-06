@@ -164,6 +164,8 @@ class _UserTile extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(user.phone, style: const TextStyle(fontSize: 12)),
+          if (user.email != null && user.email!.isNotEmpty)
+            Text(user.email!, style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
           if (user.relayPointId != null)
             Text('Relais: ${user.relayPointId}',
                 style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
@@ -239,6 +241,8 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
                 Text(widget.user.name,
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 Text(widget.user.phone, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                if (widget.user.email != null && widget.user.email!.isNotEmpty)
+                  Text(widget.user.email!, style: const TextStyle(color: Colors.blueGrey, fontSize: 13)),
               ]),
             ),
           ]),

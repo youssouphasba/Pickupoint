@@ -71,7 +71,7 @@ class User {
   String get name => fullName ?? phone;
 
   /// Utilisateur a besoin d'être redirigé vers l'onboarding ?
-  bool get needsOnboarding => fullName == null || fullName!.isEmpty || fullName == phone || userType == null;
+  bool get needsOnboarding => fullName == null || fullName!.isEmpty || fullName == phone;
 
   factory User.fromJson(Map<String, dynamic> json) {
     // Le backend renvoie 'user_id' au lieu de 'id'

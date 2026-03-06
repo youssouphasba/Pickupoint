@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
 import '../../features/auth/screens/phone_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
-import '../../features/auth/screens/onboarding_screen.dart';
+import '../../features/auth/screens/pin_login_screen.dart';
+import '../../features/auth/screens/setup_profile_screen.dart';
 import '../../features/client/screens/client_home.dart';
 import '../../features/client/screens/create_parcel_screen.dart';
 import '../../features/client/screens/quote_screen.dart';
@@ -80,15 +81,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authProvider).valueOrNull;
       final isLoggedIn = auth?.status == AuthStatus.authenticated;
       final isAuthRoute = state.fullPath?.startsWith('/auth') ?? false;
+      final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
 
       if (isUnknown) return null; // attendre la résolution
+      if (isLegalRoute) return null; // autoriser l'accès aux CGU/Privacy à tout moment
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
-      if (isLoggedIn && isAuthRoute && !state.fullPath!.startsWith('/onboarding')) {
-        if (auth!.user?.needsOnboarding == true) {
-          return '/onboarding';
-        }
-        return switch (auth.effectiveRole) {
+      if (isLoggedIn && isAuthRoute) {
+        return switch (auth!.effectiveRole) {
           'relay_agent' => '/relay',
           'driver'      => '/driver',
           'admin'       => '/admin',
@@ -96,10 +96,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         };
       }
 
-      // Si l'user est connecté mais navigue autre part, on vérifie s'il doit onboarding
-      if (isLoggedIn && auth!.user?.needsOnboarding == true && !state.fullPath!.startsWith('/onboarding')) {
-        return '/onboarding';
-      }
+
 
       return null;
     },
@@ -109,14 +106,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ── Auth ──────────────────────────────────────────────
       GoRoute(path: '/auth/phone', builder: (_, __) => const PhoneScreen()),
+      GoRoute(path: '/auth/pin',   builder: (_, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return PinLoginScreen(phone: data['phone'] as String);
+      }),
       GoRoute(path: '/auth/otp',   builder: (_, state) {
         final data = state.extra as Map<String, dynamic>;
         return OtpScreen(
           phone: data['phone'] as String,
-          acceptedLegal: data['accepted_legal'] as bool? ?? false,
         );
       }),
-      GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
+      GoRoute(path: '/auth/setup', builder: (_, state) {
+        final data = state.extra as Map<String, dynamic>;
+        return SetupProfileScreen(registrationToken: data['registration_token'] as String);
+      }),
 
       // ── Client ────────────────────────────────────────────
       ShellRoute(

@@ -6,7 +6,7 @@ import '../../../core/models/relay_point.dart';
 /// Provider pour la liste des colis de l'utilisateur.
 final parcelsProvider = FutureProvider<List<Parcel>>((ref) async {
   final api = ref.watch(apiClientProvider);
-  final res = await api.getParcels();
+  final res = await api.getParcels(params: {'role_view': 'client'});
   final data = res.data as Map<String, dynamic>;
   // Backend retourne {"parcels": [...], "total": N}
   return (data['parcels'] as List? ?? []).map((e) => Parcel.fromJson(e as Map<String, dynamic>)).toList();

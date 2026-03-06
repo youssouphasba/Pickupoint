@@ -89,6 +89,13 @@ class ClientProfileScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+              if (user.email != null && user.email!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  user.email!,
+                  style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                ),
+              ],
               const SizedBox(height: 8),
                 Center(
                   child: Row(
