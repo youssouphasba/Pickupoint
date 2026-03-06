@@ -48,7 +48,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
                         children: [
                           Expanded(
                             child: OutlinedButton(
-                              onPressed: () {}, // Rejeter
+                              onPressed: () => _rejectPayout(context, ref, p.id),
                               child: const Text('Rejeter', style: TextStyle(color: Colors.red)),
                             ),
                           ),
@@ -72,6 +72,29 @@ class AdminPayoutsScreen extends ConsumerWidget {
         error: (e, __) => Center(child: Text('Erreur: $e')),
       ),
     );
+  }
+
+  Future<void> _rejectPayout(BuildContext context, WidgetRef ref, String id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Rejeter le retrait ?'),
+        content: const Text('Le montant sera recrédité sur le solde disponible de l\'utilisateur.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Rejeter', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.rejectPayout(id);
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrait rejeté.')));
+      ref.invalidate(adminPayoutsProvider);
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
   }
 
   Future<void> _approvePayout(BuildContext context, WidgetRef ref, String id) async {

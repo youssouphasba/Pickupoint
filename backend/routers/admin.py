@@ -701,3 +701,31 @@ async def admin_get_audit_log(
                 ev["tracking_code"] = parcel["tracking_code"]
                 
     return {"events": events}
+
+
+@router.put("/wallets/payouts/{payout_id}/reject", summary="Rejeter retrait")
+async def reject_payout(payout_id: str, _admin=Depends(require_admin_dep)):
+    payout = await db.payout_requests.find_one({"payout_id": payout_id}, {"_id": 0})
+    if not payout:
+        raise not_found_exception("Demande de retrait")
+    if payout["status"] != "pending":
+        raise bad_request_exception("Ce retrait n'est plus en attente")
+
+    now = datetime.now(timezone.utc)
+    await db.payout_requests.update_one(
+        {"payout_id": payout_id},
+        {"$set": {"status": "rejected", "updated_at": now}},
+    )
+    # Libérer le montant bloqué → retour au solde disponible
+    await db.wallets.update_one(
+        {"wallet_id": payout["wallet_id"]},
+        {"$inc": {"pending": -payout["amount"], "balance": payout["amount"]}, "$set": {"updated_at": now}},
+    )
+    await _record_event(
+        event_type="PAYOUT_REJECTED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=f"Retrait rejeté pour {payout['amount']} XOF",
+        metadata={"payout_id": payout_id, "amount": payout["amount"]}
+    )
+    return {"message": "Retrait rejeté", "payout_id": payout_id}

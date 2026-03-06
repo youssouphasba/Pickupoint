@@ -22,6 +22,13 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _error;
 
   @override
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   void initState() {
     super.initState();
     if (widget.code != null) {

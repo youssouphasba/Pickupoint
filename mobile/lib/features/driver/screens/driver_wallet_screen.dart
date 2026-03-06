@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/driver_provider.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../relay/providers/relay_provider.dart'; // Pour réutiliser transactions
@@ -58,17 +59,82 @@ class DriverWalletScreen extends ConsumerWidget {
               formatXof(wallet.balance),
               style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
             ),
+            if (wallet.pendingBalance > 0) ...[
+              const SizedBox(height: 4),
+              Text('En attente : ${formatXof(wallet.pendingBalance)}', style: const TextStyle(color: Colors.white60, fontSize: 13)),
+            ],
             const SizedBox(height: 24),
             LoadingButton(
               label: 'Décaisser mes gains',
               color: Colors.white,
-              onPressed: () {},
+              onPressed: wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
             ),
           ],
         ),
       ),
       loading: () => const CircularProgressIndicator(),
       error: (e, __) => Text('Erreur: $e'),
+    );
+  }
+
+  void _showPayoutDialog(BuildContext context) {
+    final amountCtrl = TextEditingController();
+    String method = 'wave';
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: const Text('Demande de retrait'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Montant (XOF)', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: method,
+                decoration: const InputDecoration(labelText: 'Méthode', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'wave', child: Text('Wave')),
+                  DropdownMenuItem(value: 'orange_money', child: Text('Orange Money')),
+                  DropdownMenuItem(value: 'free_money', child: Text('Free Money')),
+                ],
+                onChanged: (v) => setState(() => method = v!),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+            Consumer(
+              builder: (context, ref, _) => ElevatedButton(
+                onPressed: () async {
+                  final amount = double.tryParse(amountCtrl.text);
+                  if (amount == null || amount <= 0) return;
+                  try {
+                    final user = ref.read(authProvider).valueOrNull?.user;
+                    await ref.read(apiClientProvider).requestPayout({
+                      'amount': amount,
+                      'method': method,
+                      'phone': user?.phone ?? '',
+                    });
+                    if (ctx.mounted) {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande envoyée, en attente de validation.')));
+                      ref.invalidate(driverWalletProvider);
+                    }
+                  } catch (e) {
+                    if (ctx.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                  }
+                },
+                child: const Text('Envoyer'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

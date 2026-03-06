@@ -65,6 +65,14 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _pinController.dispose();
+    _confirmPinController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Créer mon compte')),

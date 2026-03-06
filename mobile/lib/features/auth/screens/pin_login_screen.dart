@@ -81,6 +81,12 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
   }
 
   @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Connexion')),

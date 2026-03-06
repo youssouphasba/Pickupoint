@@ -327,7 +327,7 @@ class ClientProfileScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Confidentialité'),
-            onTap: () => context.push('/legal/privacy_policy'),
+            onTap: () => context.push('/legal/privacy'),
           ),
           const Divider(height: 1),
           ListTile(
