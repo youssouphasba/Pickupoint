@@ -5,6 +5,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/account_switcher.dart';
+import '../../../shared/widgets/state_feedback.dart';
 import '../providers/client_provider.dart';
 import '../../../core/models/parcel.dart';
 
@@ -49,7 +50,10 @@ class ClientHome extends ConsumerWidget {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => Center(child: Text('Erreur: $err')),
+          error: (err, _) => ErrorStateView(
+            message: err.toString(),
+            onRetry: () => ref.invalidate(parcelsProvider),
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -61,28 +65,12 @@ class ClientHome extends ConsumerWidget {
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey),
-          const SizedBox(height: 16),
-          const Text(
-            'Aucun colis trouvé',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text('Envoyez votre premier colis dès maintenant !'),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: 200,
-            child: LoadingButton(
-              label: 'Créer un colis',
-              onPressed: () => context.push('/client/create'),
-            ),
-          ),
-        ],
-      ),
+    return EmptyStateView(
+      icon: Icons.inventory_2_outlined,
+      title: 'Aucun colis trouvé',
+      subtitle: 'Envoyez votre premier colis dès maintenant !',
+      actionLabel: 'Créer un colis',
+      onAction: () => context.push('/client/create'),
     );
   }
 

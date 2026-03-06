@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/models/wallet.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/ranking_provider.dart';
+import '../../relay/providers/relay_provider.dart';
 
 class DriverPerformanceScreen extends ConsumerWidget {
   const DriverPerformanceScreen({super.key});
@@ -11,6 +13,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authProvider).valueOrNull?.user;
     if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    final transactionsAsync = ref.watch(relayTransactionsProvider);
 
     // XP progress
     const xpPerLevel = 100;
@@ -78,6 +81,10 @@ class DriverPerformanceScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 28),
 
+            // ── Classement mensuel ───────────────────────────────────
+            _buildMonthlyRankingCard(context, ref),
+            const SizedBox(height: 28),
+
             // ── Gains Chart ──────────────────────────────────────────
             const Align(
               alignment: Alignment.centerLeft,
@@ -87,7 +94,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 16),
-            _buildGainsChart(),
+            _buildGainsChart(transactionsAsync),
             const SizedBox(height: 28),
 
             // ── Badges ──────────────────────────────────────────────
@@ -318,55 +325,76 @@ class DriverPerformanceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildGainsChart() {
-    // Dummy data for now
-    final data = [2100.0, 4500.0, 3200.0, 0.0, 5600.0, 7800.0, 4200.0];
-    final labels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-    final maxGain = data.reduce((a, b) => a > b ? a : b);
+  Widget _buildGainsChart(AsyncValue<List<WalletTransaction>> txAsync) {
+    return txAsync.when(
+      loading: () => const SizedBox(height: 180, child: Center(child: CircularProgressIndicator())),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (txs) {
+        final now = DateTime.now();
+        final data = List<double>.filled(7, 0.0);
+        final labels = List.generate(7, (i) {
+          final d = now.subtract(Duration(days: 6 - i));
+          return ['L', 'M', 'M', 'J', 'V', 'S', 'D'][d.weekday - 1];
+        });
 
-    return Container(
-      height: 180,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(data.length, (index) {
-          final h = maxGain == 0 ? 0.0 : (data[index] / maxGain) * 100;
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (data[index] > 0)
-                Text(
-                  '${(data[index] / 1000).toStringAsFixed(1)}k',
-                  style: const TextStyle(fontSize: 8, color: Colors.grey),
-                ),
-              const SizedBox(height: 4),
-              Container(
-                width: 25,
-                height: h,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.green.shade400, Colors.green.shade600],
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
+        for (final tx in txs) {
+          if (!tx.isCredit) continue;
+          final diff = now.difference(tx.createdAt).inDays;
+          if (diff >= 7) continue;
+          data[6 - diff] += tx.amount;
+        }
+
+        final maxGain = data.reduce((a, b) => a > b ? a : b);
+
+        return Container(
+          height: 180,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.grey.shade100),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(data.length, (index) {
+              final h = maxGain == 0 ? 0.0 : (data[index] / maxGain) * 100;
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (data[index] > 0)
+                    Text(
+                      data[index] >= 1000
+                          ? '${(data[index] / 1000).toStringAsFixed(1)}k'
+                          : data[index].toStringAsFixed(0),
+                      style: const TextStyle(fontSize: 8, color: Colors.grey),
+                    ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 25,
+                    height: h == 0 ? 4 : h,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: h == 0
+                            ? [Colors.grey.shade200, Colors.grey.shade300]
+                            : [Colors.green.shade400, Colors.green.shade600],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                labels[index],
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-              ),
-            ],
-          );
-        }),
-      ),
+                  const SizedBox(height: 8),
+                  Text(
+                    labels[index],
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              );
+            }),
+          ),
+        );
+      },
     );
   }
 }

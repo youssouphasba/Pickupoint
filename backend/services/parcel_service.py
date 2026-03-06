@@ -455,6 +455,13 @@ async def transition_status(
                         "Relais de repli auto-assigné: %s pour colis %s",
                         nearest["relay_id"], parcel_id,
                     )
+                    # Auto-transition vers REDIRECTED_TO_RELAY (le driver n'a pas à rappeler)
+                    await transition_status(
+                        parcel_id, ParcelStatus.REDIRECTED_TO_RELAY,
+                        actor_id=actor_id, actor_role=actor_role,
+                        notes=f"Redirection automatique vers relais {nearest['relay_id']}",
+                        metadata={"redirect_relay_id": nearest["relay_id"]},
+                    )
 
     # ── Mettre à jour la mission de livraison ──────────────────────────────────
     from models.delivery import MissionStatus
@@ -565,8 +572,11 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     """
     from models.delivery import MissionStatus
 
-    # Éviter les doublons
-    existing = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"]})
+    # Éviter les doublons — seules les missions actives bloquent (pas les complétées/échouées)
+    existing = await db.delivery_missions.find_one({
+        "parcel_id": parcel["parcel_id"],
+        "status": {"$in": ["pending", "assigned", "in_progress"]},
+    })
     if existing:
         return
 

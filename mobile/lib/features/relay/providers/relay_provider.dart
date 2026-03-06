@@ -42,5 +42,5 @@ final relayTransactionsProvider = FutureProvider<List<WalletTransaction>>((ref) 
   final api = ref.watch(apiClientProvider);
   final res = await api.getTransactions();
   final data = res.data as Map<String, dynamic>;
-  return (data['items'] as List).map((e) => WalletTransaction.fromJson(e as Map<String, dynamic>)).toList();
+  return (data['transactions'] as List? ?? []).map((e) => WalletTransaction.fromJson(e as Map<String, dynamic>)).toList();
 });

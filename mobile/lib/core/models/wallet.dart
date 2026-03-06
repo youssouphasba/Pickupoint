@@ -14,11 +14,11 @@ class Wallet {
   final double pendingBalance;
 
   factory Wallet.fromJson(Map<String, dynamic> json) => Wallet(
-        id: json['id'] as String,
-        userId: json['user_id'] as String,
-        balance: (json['balance'] as num).toDouble(),
+        id: json['wallet_id'] as String? ?? json['id'] as String? ?? '',
+        userId: json['owner_id'] as String? ?? json['user_id'] as String? ?? '',
+        balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
         currency: json['currency'] as String? ?? 'XOF',
-        pendingBalance: (json['pending_balance'] as num?)?.toDouble() ?? 0,
+        pendingBalance: (json['pending'] as num?)?.toDouble() ?? (json['pending_balance'] as num?)?.toDouble() ?? 0,
       );
 }
 
@@ -47,17 +47,17 @@ class WalletTransaction {
 
   factory WalletTransaction.fromJson(Map<String, dynamic> json) =>
       WalletTransaction(
-        id: json['id'] as String,
-        walletId: json['wallet_id'] as String,
-        type: json['type'] as String,
-        amount: (json['amount'] as num).toDouble(),
+        id: json['tx_id'] as String? ?? json['id'] as String? ?? '',
+        walletId: json['wallet_id'] as String? ?? '',
+        type: json['tx_type'] as String? ?? json['type'] as String? ?? '',
+        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
         currency: json['currency'] as String? ?? 'XOF',
         createdAt: DateTime.parse(json['created_at'] as String),
         description: json['description'] as String?,
         reference: json['reference'] as String?,
       );
 
-  bool get isCredit => type == 'credit' || type == 'commission';
+  bool get isCredit => type == 'credit';
 }
 
 class PayoutRequest {

@@ -350,11 +350,13 @@ async def update_location(
             eta_data = await get_directions_eta(body.lat, body.lng, dest_lat, dest_lng)
             if eta_data:
                 update_query["$set"].update({
-                    "eta_seconds":  eta_data["duration_seconds"],
-                    "eta_text":     eta_data["duration_text"],
-                    "distance_text": eta_data["distance_text"],
-                    "eta_updated_at": now
+                    "eta_seconds":    eta_data["duration_seconds"],
+                    "eta_text":       eta_data["duration_text"],
+                    "distance_text":  eta_data["distance_text"],
+                    "eta_updated_at": now,
                 })
+                if eta_data.get("encoded_polyline"):
+                    update_query["$set"]["encoded_polyline"] = eta_data["encoded_polyline"]
 
     # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
     if (mission["status"] == MissionStatus.IN_PROGRESS.value and 

@@ -287,7 +287,7 @@ async def get_live_fleet(_admin=Depends(require_admin_dep)):
     
     cursor = db.delivery_missions.find(
         {"location_updated_at": {"$gte": cutoff}},
-        {"_id": 0, "mission_id": 1, "driver_id": 1, "driver_location": 1, "status": 1, "location_updated_at": 1}
+        {"_id": 0, "mission_id": 1, "parcel_id": 1, "driver_id": 1, "driver_location": 1, "status": 1, "location_updated_at": 1}
     )
     fleet = await cursor.to_list(length=500)
     

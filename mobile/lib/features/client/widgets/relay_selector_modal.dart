@@ -80,14 +80,6 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
           _filteredRelays = list;
           _isLoading = false;
         });
-        
-        // Si on a des relais, et pas de position GPS on centre sur le premier
-        if (_currentPosition == null && list.isNotEmpty) {
-          final first = list.first;
-          if (first.lat != null && first.lng != null && _mapController != null) {
-             _mapController!.animateCamera(CameraUpdate.newLatLngZoom(LatLng(first.lat!, first.lng!), 13.0));
-          }
-        }
       }
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
@@ -264,7 +256,15 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         target: center,
         zoom: 13.0,
       ),
-      onMapCreated: (controller) => _mapController = controller,
+      onMapCreated: (controller) {
+        _mapController = controller;
+        if (_currentPosition == null && _filteredRelays.isNotEmpty) {
+          final first = _filteredRelays.first;
+          if (first.lat != null && first.lng != null) {
+            controller.animateCamera(CameraUpdate.newLatLngZoom(LatLng(first.lat!, first.lng!), 13.0));
+          }
+        }
+      },
       markers: markers,
       myLocationEnabled: true,
       myLocationButtonEnabled: true,

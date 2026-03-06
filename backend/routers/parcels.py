@@ -127,6 +127,17 @@ async def list_parcels(
 
 from core.utils import mask_phone
 
+@router.get("/{parcel_id}/driver-location", summary="Position GPS du livreur actif pour ce colis")
+async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_current_user)):
+    mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {"_id": 0, "driver_location": 1, "eta_text": 1, "distance_text": 1, "eta_seconds": 1},
+    )
+    if not mission or not mission.get("driver_location"):
+        raise not_found_exception("No driver location available")
+    return mission
+
+
 @router.get("/{parcel_id}", summary="Détail + timeline")
 async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_user)):
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
@@ -320,11 +331,15 @@ async def arrive_relay(
         )
 
     elif current_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-        # Relais destination réceptionne un colis qui vient du relais origine
-        # Chemin obligatoire : DROPPED → IN_TRANSIT → AT_DESTINATION_RELAY → AVAILABLE_AT_RELAY
-        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé", **actor)
-        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
-        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+        delivery_mode = parcel.get("delivery_mode", "")
+        if delivery_mode == "relay_to_home":
+            # R2H : le driver vient chercher au relais origine → seulement IN_TRANSIT
+            return await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé (R2H)", **actor)
+        else:
+            # R2R / autres : DROPPED → IN_TRANSIT → AT_DESTINATION_RELAY → AVAILABLE_AT_RELAY
+            await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé", **actor)
+            await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
+            return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
 
     elif current_status == ParcelStatus.IN_TRANSIT.value:
         # Arrivée au relais destination depuis le transit
@@ -379,7 +394,24 @@ async def bulk_relay_action(
             }
             
             if status in arrive_statuses:
-                await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Arrivée", **actor)
+                # Réutiliser la même logique que arrive_relay (transitions chaînées selon statut)
+                if status == ParcelStatus.REDIRECTED_TO_RELAY.value:
+                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Colis redirigé", **actor)
+                elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+                    delivery_mode = parcel.get("delivery_mode", "")
+                    if delivery_mode == "relay_to_home":
+                        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Batch scan: Transit R2H", **actor)
+                    else:
+                        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Batch scan: Transit", **actor)
+                        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
+                        await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+                elif status in {ParcelStatus.IN_TRANSIT.value, ParcelStatus.AT_DESTINATION_RELAY.value}:
+                    if status == ParcelStatus.IN_TRANSIT.value:
+                        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
+                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Arrivée", **actor)
+                elif status == ParcelStatus.OUT_FOR_DELIVERY.value:
+                    await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, notes="Batch scan: H2R depot relais", **actor)
+                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
             else:
                 await transition_status(parcel_id, ParcelStatus.DROPPED_AT_ORIGIN_RELAY, notes="Batch scan: Dépôt", **actor)
                 
@@ -470,10 +502,11 @@ async def deliver_parcel(
     if parcel.get("is_simulation"):
         logger.info(f"Bypass geofence pour colis de simulation {parcel_id}")
     elif body.driver_lat is not None and body.driver_lng is not None:
-        delivery_addr = parcel.get("delivery_address") or {}
-        geopin = delivery_addr.get("geopin") or {}
-        dest_lat = geopin.get("lat")
-        dest_lng = geopin.get("lng")
+        # Priorité : delivery_location (confirmé GPS) puis delivery_address.geopin (saisi texte)
+        delivery_loc = parcel.get("delivery_location") or {}
+        geo = delivery_loc.get("geopin") or delivery_loc or (parcel.get("delivery_address") or {}).get("geopin") or {}
+        dest_lat = geo.get("lat")
+        dest_lng = geo.get("lng")
         if dest_lat is not None and dest_lng is not None:
             dist_m = _haversine_km(body.driver_lat, body.driver_lng, dest_lat, dest_lng) * 1000
             if dist_m > 10000: # 10 km

@@ -51,6 +51,7 @@ STATUS_MESSAGES = {
     ParcelStatus.OUT_FOR_DELIVERY:        "Un livreur est en route pour livrer votre colis.",
     ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Merci d'avoir utilisé PickuPoint !",
     ParcelStatus.DELIVERY_FAILED:         "La livraison a échoué. Votre colis sera redirigé vers un relais.",
+    ParcelStatus.REDIRECTED_TO_RELAY:     "Votre colis est disponible au relais. Votre code de retrait : {relay_pin}",
     ParcelStatus.CANCELLED:               "Votre colis a été annulé.",
     ParcelStatus.EXPIRED:                 "Le délai de retrait de votre colis est expiré.",
     ParcelStatus.RETURNED:                "Votre colis a été retourné à l'expéditeur.",
@@ -60,8 +61,9 @@ STATUS_MESSAGES = {
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
+    relay_pin = parcel.get("relay_pin", "—")
     body = STATUS_MESSAGES.get(new_status, f"Statut mis à jour : {new_status.value}")
-    body = body.format(tracking_code=tracking_code)
+    body = body.format(tracking_code=tracking_code, relay_pin=relay_pin)
 
     # Notifier expéditeur
     sender_id = parcel.get("sender_user_id")
@@ -198,7 +200,7 @@ async def notify_approaching_driver(parcel: dict):
         user = await db.users.find_one({"phone": recipient_phone})
         if user:
             await _store_and_send(
-                user_id=str(user["_id"]),
+                user_id=user["user_id"],
                 title="Livreur à proximité",
                 body=f"Votre colis {tracking_code} arrive ! Votre livreur est à moins de 500m.",
                 ref_type="parcel",

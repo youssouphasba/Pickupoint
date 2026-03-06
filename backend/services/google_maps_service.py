@@ -10,6 +10,9 @@ GOOGLE_DIRECTIONS_API_URL = "https://maps.googleapis.com/maps/api/directions/jso
 API_KEY = settings.GOOGLE_DIRECTIONS_API_KEY
 
 async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> Optional[Dict]:
+    if not API_KEY:
+        logger.warning("GOOGLE_DIRECTIONS_API_KEY not set — skipping Directions API call")
+        return None
     """
     Appelle l'API Google Directions pour obtenir la durée estimée et la distance.
     """
@@ -33,6 +36,7 @@ async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: flo
                     "duration_text": route["duration"]["text"],
                     "distance_meters": route["distance"]["value"],
                     "distance_text": route["distance"]["text"],
+                    "encoded_polyline": data["routes"][0]["overview_polyline"]["points"],
                 }
             else:
                 logger.error(f"Google Directions API error: {data.get('status')} - {data.get('error_message')}")

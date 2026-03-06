@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'dart:convert';
@@ -658,14 +659,21 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     final Set<Polyline> polylines = {};
     if (hasPickup && hasDelivery) {
+      List<LatLng> routePoints;
+      if (mission.encodedPolyline != null) {
+        final decoded = PolylinePoints().decodePolyline(mission.encodedPolyline!);
+        routePoints = decoded.map((p) => LatLng(p.latitude, p.longitude)).toList();
+      } else {
+        routePoints = [
+          LatLng(mission.pickupLat!, mission.pickupLng!),
+          LatLng(mission.deliveryLat!, mission.deliveryLng!),
+        ];
+      }
       polylines.add(
         Polyline(
           polylineId: const PolylineId('route'),
-          points: [
-            LatLng(mission.pickupLat!, mission.pickupLng!),
-            LatLng(mission.deliveryLat!, mission.deliveryLng!),
-          ],
-          color: Colors.blue.withOpacity(0.6),
+          points: routePoints,
+          color: Colors.blue.withOpacity(0.8),
           width: 4,
         ),
       );
