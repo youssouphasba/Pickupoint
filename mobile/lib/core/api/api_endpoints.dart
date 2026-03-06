@@ -73,7 +73,8 @@ class ApiEndpoints {
   static String adminParcelStatus(String id) => '$_base/api/admin/parcels/$id/status';
   static const adminRelays  = '$_base/api/admin/relay-points';
   static const adminPayouts = '$_base/api/admin/wallets/payouts';
-  static String adminApprove(String id)   => '$_base/api/admin/wallets/payouts/$id/approve';
+  static String adminApprove(String id)  => '$_base/api/admin/wallets/payouts/$id/approve';
+  static String adminReject(String id)   => '$_base/api/admin/wallets/payouts/$id/reject';
   static const adminSettleCod     = '$_base/api/admin/finance/settle';
   static String adminOverride(String id)  => '$_base/api/admin/parcels/$id/override';
   

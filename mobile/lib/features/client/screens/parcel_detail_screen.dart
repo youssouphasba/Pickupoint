@@ -835,7 +835,14 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
   final _tipController     = TextEditingController();
   bool _submitting         = false;
 
-  void _submit() async {
+  @override
+  void dispose() {
+    _commentController.dispose();
+    _tipController.dispose();
+    super.dispose();
+  }
+
+    void _submit() async {
     if (_rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Veuillez sélectionner au moins une étoile')),

@@ -246,6 +246,9 @@ class ApiClient {
   Future<Response> approvePayout(String id) =>
       _dio.put(ApiEndpoints.adminApprove(id));
 
+  Future<Response> rejectPayout(String id) =>
+      _dio.put(ApiEndpoints.adminReject(id));
+
   Future<Response> settleCod(String driverId, {double? amount}) =>
       _dio.post(ApiEndpoints.adminSettleCod, queryParameters: {
         'driver_id': driverId,

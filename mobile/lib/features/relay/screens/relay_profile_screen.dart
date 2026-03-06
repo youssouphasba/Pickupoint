@@ -79,6 +79,15 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
   }
 
   @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _descCtrl.dispose();
+    _hoursCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Profil du Relais')),
@@ -139,7 +148,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         leading: const Icon(Icons.privacy_tip_outlined),
                         title: const Text('Politique de confidentialité'),
                         trailing: const Icon(Icons.chevron_right),
-                        onTap: () => context.push('/legal/privacy_policy'),
+                        onTap: () => context.push('/legal/privacy'),
                       ),
                       const Divider(height: 1),
                       ListTile(

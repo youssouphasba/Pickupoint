@@ -18,6 +18,13 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
   bool _loading = false;
 
   @override
+  void dispose() {
+    nameCtrl.dispose();
+    addrCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
     final favorites = user?.favoriteAddresses ?? [];
