@@ -1,0 +1,4 @@
+5cefabc feat: update backend services and mobile UI components
+ab63d1a fix: resolve all build errors after client UX and profile feature additions
+b2ab2c0 feat: profile pictures integration, driver performance, and client UX favorites
+4e7e5b9 feat: implement editable privacy policy and cgu
