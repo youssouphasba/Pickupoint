@@ -31,6 +31,7 @@ class DeliveryMission {
     this.paymentStatus,
     this.senderPhotoUrl,
     this.recipientPhotoUrl,
+    this.encodedPolyline,
   });
 
   final String  id;
@@ -76,6 +77,7 @@ class DeliveryMission {
   final String? paymentStatus;
   final String? senderPhotoUrl;
   final String? recipientPhotoUrl;
+  final String? encodedPolyline;
 
   factory DeliveryMission.fromJson(Map<String, dynamic> json) {
     // Pickup geopin
@@ -119,6 +121,7 @@ class DeliveryMission {
       paymentStatus: json['payment_status'] as String?,
       senderPhotoUrl: json['sender_photo_url'] as String?,
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
+      encodedPolyline: json['encoded_polyline'] as String?,
     );
   }
 

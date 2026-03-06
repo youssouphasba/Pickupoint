@@ -58,8 +58,14 @@ async def nearby_relay_points(
         "address.geopin.lat": {"$gte": lat - delta, "$lte": lat + delta},
         "address.geopin.lng": {"$gte": lng - delta, "$lte": lng + delta},
     }
-    cursor = db.relay_points.find(query, {"_id": 0}).limit(20)
-    return {"relay_points": await cursor.to_list(length=20)}
+    cursor = db.relay_points.find(query, {"_id": 0}).limit(50)
+    relay_list = await cursor.to_list(length=50)
+
+    from services.pricing_service import _haversine_km
+    relay_list.sort(
+        key=lambda r: _haversine_km(lat, lng, r["address"]["geopin"]["lat"], r["address"]["geopin"]["lng"])
+    )
+    return {"relay_points": relay_list[:20]}
 
 
 @router.get("/{relay_id}", summary="Détail d'un relais")

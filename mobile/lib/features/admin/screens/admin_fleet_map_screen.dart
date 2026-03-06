@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -15,6 +16,21 @@ class AdminFleetMapScreen extends ConsumerStatefulWidget {
 
 class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
   GoogleMapController? _mapController;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      ref.invalidate(adminFleetProvider);
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,22 +42,27 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
       ),
       body: fleetAsync.when(
         data: (fleet) {
-          final markers = fleet.map((m) {
-            final loc = m['driver_location'];
-            final status = m['status'] as String;
-            
+          final markers = fleet
+              .where((m) => m['driver_location'] != null)
+              .map((m) {
+            final loc = m['driver_location'] as Map<String, dynamic>;
+            final status = m['status'] as String? ?? '';
+            final parcelId = m['parcel_id'] as String?;
+
             // Couleur selon le statut
             double hue = BitmapDescriptor.hueAzure;
             if (status == 'in_progress') hue = BitmapDescriptor.hueGreen;
             if (status == 'assigned') hue = BitmapDescriptor.hueOrange;
-            
+
             return Marker(
-              markerId: MarkerId(m['mission_id']),
-              position: LatLng(loc['lat'], loc['lng']),
+              markerId: MarkerId(m['mission_id'] as String),
+              position: LatLng((loc['lat'] as num).toDouble(), (loc['lng'] as num).toDouble()),
               infoWindow: InfoWindow(
-                title: m['driver_name'] ?? 'Livreur',
-                snippet: 'Mission: ${m['mission_id'].toString().substring(0, 8)}... — $status',
-                onTap: () => context.push('/admin/parcels/${m['mission_id']}/audit'),
+                title: m['driver_name'] as String? ?? 'Livreur',
+                snippet: 'Mission: ${(m['mission_id'] as String).substring(0, 8)}… — $status',
+                onTap: parcelId != null
+                    ? () => context.push('/admin/parcels/$parcelId/audit')
+                    : null,
               ),
               icon: BitmapDescriptor.defaultMarkerWithHue(hue),
             );

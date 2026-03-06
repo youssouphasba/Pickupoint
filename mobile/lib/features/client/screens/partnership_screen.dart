@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -485,6 +487,9 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
                     onCameraMove: (cam) => tempPos = cam.target,
                     myLocationEnabled: true,
                     myLocationButtonEnabled: true,
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+                    },
                   ),
                   const Center(
                     child: Padding(
