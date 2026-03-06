@@ -31,57 +31,46 @@ async def request_otp(body: OTPRequest, request: Request):
     return {"sent": ok, "phone": body.phone}
 
 
-@router.post("/verify-otp", response_model=TokenResponse, summary="Vérifier OTP → JWT")
+@router.post("/check-phone", summary="Vérifier si un numéro est inscrit")
 @limiter.limit("10/minute")
-async def verify_otp_endpoint(body: OTPVerify, request: Request):
-    valid = await verify_otp(body.phone, body.otp)
-    if not valid:
-        raise bad_request_exception("OTP invalide ou expiré")
+async def check_phone(body: OTPRequest, request: Request):
+    """
+    Retourne { "exists": bool, "has_pin": bool }
+    Permet à l'app mobile de savoir si elle doit afficher l'écran de Login PIN
+    ou envoyer un OTP pour une nouvelle inscription.
+    """
+    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0, "pin_hash": 1})
+    if not user_doc:
+        return {"exists": False, "has_pin": False}
+    
+    has_pin = user_doc.get("pin_hash") is not None
+    return {"exists": True, "has_pin": has_pin}
 
-    # Trouver ou créer l'utilisateur
+
+
+class PINLoginRequest(BaseModel):
+    phone: str
+    pin: str
+
+@router.post("/login-pin", response_model=TokenResponse, summary="Connexion par PIN")
+@limiter.limit("10/minute")
+async def login_pin(body: PINLoginRequest, request: Request):
     user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
     if not user_doc:
-        # Nouvel utilisateur : acceptation obligatoire
-        if not body.accepted_legal:
-            raise bad_request_exception("Vous devez accepter les CGU et la Politique de confidentialité.")
-
-        now = datetime.now(timezone.utc)
-        from services.user_service import generate_referral_code
-        user_doc = {
-            "user_id":           f"usr_{uuid.uuid4().hex[:12]}",
-            "phone":             body.phone,
-            "name":              body.phone,   # mis à jour après
-            "email":             None,
-            "role":              "client",
-            "is_active":         True,
-            "is_phone_verified": True,
-            "accepted_legal":    True,
-            "accepted_legal_at": now,
-            "relay_point_id":    None,
-            "store_id":          None,
-            "external_ref":      None,
-            "language":          "fr",
-            "currency":          "XOF",
-            "country_code":      "SN",
-            "loyalty_points":    0,
-            "loyalty_tier":      "bronze",
-            "referral_code":     generate_referral_code(body.phone),
-            "created_at":        now,
-            "updated_at":        now,
-        }
-        await db.users.insert_one(user_doc)
-    else:
-        # Vérifier si l'utilisateur est banni
-        if user_doc.get("is_banned"):
-            from core.exceptions import forbidden_exception
-            raise forbidden_exception("Votre compte a été suspendu par l'administration.")
-
-        await db.users.update_one(
-            {"phone": body.phone},
-            {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
-        )
-        user_doc["is_phone_verified"] = True
-
+        raise bad_request_exception("Utilisateur introuvable")
+    
+    if user_doc.get("is_banned"):
+        from core.exceptions import forbidden_exception
+        raise forbidden_exception("Votre compte a été suspendu par l'administration.")
+        
+    pin_hash = user_doc.get("pin_hash")
+    if not pin_hash:
+        raise bad_request_exception("Aucun code PIN configuré pour ce compte. Veuillez utiliser la réinitialisation.")
+        
+    from core.security import verify_password
+    if not verify_password(body.pin, pin_hash):
+        raise bad_request_exception("Code PIN incorrect")
+        
     token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token  = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
@@ -99,6 +88,168 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
         refresh_token=refresh_token,
         user=User(**user_doc),
     )
+
+
+class OTPVerifyResponse(BaseModel):
+    is_new_user: bool
+    # Si exists = true, retourne les tokens de session normaux
+    session: Optional[TokenResponse] = None
+    # Si exists = false, retourne un token temporaire pour /complete-registration
+    registration_token: Optional[str] = None
+
+
+@router.post("/verify-otp", response_model=OTPVerifyResponse, summary="Vérifier OTP")
+@limiter.limit("10/minute")
+async def verify_otp_endpoint(body: OTPVerify, request: Request):
+    valid = await verify_otp(body.phone, body.otp)
+    if not valid:
+        raise bad_request_exception("OTP invalide ou expiré")
+
+    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
+    
+    # 1. Nouvel utilisateur
+    if not user_doc:
+        # Créer un JWT temporaire valable 1 heure pour finaliser l'inscription
+        temp_token = create_access_token({"sub": body.phone, "type": "registration_token"}, expires_delta=timedelta(hours=1))
+        return OTPVerifyResponse(is_new_user=True, registration_token=temp_token)
+        
+    # 2. Utilisateur existant
+    if user_doc.get("is_banned"):
+        from core.exceptions import forbidden_exception
+        raise forbidden_exception("Votre compte a été suspendu par l'administration.")
+
+    await db.users.update_one(
+        {"phone": body.phone},
+        {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
+    )
+    user_doc["is_phone_verified"] = True
+
+    token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
+    access_token  = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    await db.user_sessions.insert_one({
+        "user_id":       user_doc["user_id"],
+        "refresh_token": refresh_token,
+        "created_at":    datetime.now(timezone.utc),
+        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    })
+
+    return OTPVerifyResponse(
+        is_new_user=False,
+        session=TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=User(**user_doc),
+        )
+    )
+
+
+class CompleteRegistrationRequest(BaseModel):
+    registration_token: str
+    name: str
+    pin: str
+    accepted_legal: bool
+
+@router.post("/complete-registration", response_model=TokenResponse, summary="Finaliser l'inscription avec Nom et PIN")
+@limiter.limit("5/minute")
+async def complete_registration(body: CompleteRegistrationRequest, request: Request):
+    if not body.accepted_legal:
+        raise bad_request_exception("Vous devez accepter les CGU et la Politique de confidentialité.")
+        
+    from core.security import decode_token
+    try:
+        payload = decode_token(body.registration_token)
+        if payload.get("type") != "registration_token":
+            raise bad_request_exception("Token d'inscription invalide.")
+        phone = payload.get("sub")
+    except Exception:
+        raise bad_request_exception("Token d'inscription expiré ou invalide.")
+        
+    # Vérifier que le numéro n'est pas déjà inscrit complètement
+    existing_user = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if existing_user:
+        raise bad_request_exception("Cet utilisateur existe déjà.")
+        
+    if len(body.pin) < 4:
+        raise bad_request_exception("Le code PIN doit contenir au moins 4 chiffres.")
+
+    from core.security import hash_password
+    now = datetime.now(timezone.utc)
+    from services.user_service import generate_referral_code
+    
+    user_doc = {
+        "user_id":           f"usr_{uuid.uuid4().hex[:12]}",
+        "phone":             phone,
+        "name":              body.name,
+        "email":             None,
+        "user_type":         "individual",
+        "role":              "client",
+        "is_active":         True,
+        "is_phone_verified": True,
+        "accepted_legal":    True,
+        "accepted_legal_at": now,
+        "pin_hash":          hash_password(body.pin),
+        "relay_point_id":    None,
+        "store_id":          None,
+        "external_ref":      None,
+        "language":          "fr",
+        "currency":          "XOF",
+        "country_code":      "SN",
+        "loyalty_points":    0,
+        "loyalty_tier":      "bronze",
+        "referral_code":     generate_referral_code(phone),
+        "created_at":        now,
+        "updated_at":        now,
+    }
+    await db.users.insert_one(user_doc)
+
+    token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
+    access_token  = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    await db.user_sessions.insert_one({
+        "user_id":       user_doc["user_id"],
+        "refresh_token": refresh_token,
+        "created_at":    datetime.now(timezone.utc),
+        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    })
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user=User(**user_doc),
+    )
+
+
+class ResetPinRequest(BaseModel):
+    phone: str
+    otp: str
+    new_pin: str
+
+@router.post("/reset-pin", summary="Réinitialiser le PIN via OTP")
+@limiter.limit("5/minute")
+async def reset_pin(body: ResetPinRequest, request: Request):
+    valid = await verify_otp(body.phone, body.otp)
+    if not valid:
+        raise bad_request_exception("OTP invalide ou expiré")
+        
+    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
+    if not user_doc:
+        raise bad_request_exception("Utilisateur introuvable")
+        
+    if len(body.new_pin) < 4:
+        raise bad_request_exception("Le code PIN doit contenir au moins 4 chiffres.")
+        
+    from core.security import hash_password
+    await db.users.update_one(
+        {"phone": body.phone},
+        {"$set": {
+            "pin_hash": hash_password(body.new_pin),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    return {"message": "Code PIN réinitialisé avec succès."}
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Rafraîchir access token")

@@ -52,6 +52,7 @@ dependencies:
   # Images & Compression (Phase 7)
   image_picker: ^1.0.7
   flutter_image_compress: ^2.1.0
+  local_auth: ^3.0.1
 
 dev_dependencies:
   flutter_test:

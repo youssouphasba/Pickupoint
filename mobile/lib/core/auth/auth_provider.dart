@@ -134,47 +134,23 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Étape 2 — vérification OTP → login
-  Future<void> verifyOtp(String phone, String otp, {bool acceptedLegal = false}) async {
+  /// Étape 2 — vérification OTP. Returns registration_token if new user, null if logged in.
+  Future<String?> verifyOtp(String phone, String otp) async {
     state = const AsyncLoading();
     try {
       final client = ApiClient();
-      final res = await client.verifyOtp({
-        'phone': phone,
-        'otp': otp,
-        'accepted_legal': acceptedLegal,
-      });
+      final res = await client.verifyOtp({'phone': phone, 'otp': otp});
       final data = res.data as Map<String, dynamic>;
 
-      final accessTokenRaw = data['access_token'];
-      final refreshTokenRaw = data['refresh_token'];
-
-      if (accessTokenRaw == null || refreshTokenRaw == null) {
-        final errorMsg = data['detail'] ?? data['message'] ?? 'Formats de jetons absents de la réponse API.';
-        throw Exception("Échec de connexion : \$errorMsg");
+      if (data['is_new_user'] == true) {
+        state = AsyncData(const AuthState(status: AuthStatus.unauthenticated));
+        return data['registration_token'] as String;
       }
 
-      final accessToken  = accessTokenRaw.toString();
-      final refreshToken = refreshTokenRaw.toString();
-      
-      final userData = data['user'];
-      if (userData == null) {
-        throw Exception("Profil utilisateur manquant dans la réponse API.");
-      }
-
-      final user = User.fromJson(userData as Map<String, dynamic>);
-
-      await _storage.saveTokens(
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-      );
-
-      state = AsyncData(AuthState(
-        status: AuthStatus.authenticated,
-        user: user,
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-      ));
+      final sessionData = data['session'] as Map<String, dynamic>?;
+      if (sessionData == null) throw Exception("Session manquante dans la réponse API.");
+      _handleTokenResponse(sessionData);
+      return null;
     } catch (e) {
       state = AsyncData(AuthState(
         status: AuthStatus.unauthenticated,
@@ -182,6 +158,64 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       ));
       rethrow;
     }
+  }
+
+  /// Étape Finale — Complete Registration
+  Future<void> completeRegistration({required String token, required String name, required String pin}) async {
+    state = const AsyncLoading();
+    try {
+      final client = ApiClient();
+      final res = await client.completeRegistration({
+        'registration_token': token,
+        'name': name,
+        'pin': pin,
+        'accepted_legal': true,
+      });
+      _handleTokenResponse(res.data as Map<String, dynamic>);
+    } catch (e) {
+      state = AsyncData(AuthState(status: AuthStatus.unauthenticated, error: _extractError(e)));
+      rethrow;
+    }
+  }
+
+  /// Étape 2 bis — Connexion directe avec le PIN
+  Future<void> loginPin(String phone, String pin) async {
+    state = const AsyncLoading();
+    try {
+      final client = ApiClient();
+      final res = await client.loginPin({'phone': phone, 'pin': pin});
+      _handleTokenResponse(res.data as Map<String, dynamic>);
+    } catch (e) {
+      state = AsyncData(AuthState(status: AuthStatus.unauthenticated, error: _extractError(e)));
+      rethrow;
+    }
+  }
+
+  Future<void> _handleTokenResponse(Map<String, dynamic> data) async {
+      final accessTokenRaw = data['access_token'];
+      final refreshTokenRaw = data['refresh_token'];
+
+      if (accessTokenRaw == null || refreshTokenRaw == null) {
+        final errorMsg = data['detail'] ?? data['message'] ?? 'Formats absents de la réponse API.';
+        throw Exception("Échec de connexion : $errorMsg");
+      }
+
+      final accessToken  = accessTokenRaw.toString();
+      final refreshToken = refreshTokenRaw.toString();
+      
+      final userData = data['user'];
+      if (userData == null) throw Exception("Profil utilisateur manquant.");
+
+      final user = User.fromJson(userData as Map<String, dynamic>);
+
+      await _storage.saveTokens(accessToken: accessToken, refreshToken: refreshToken);
+
+      state = AsyncData(AuthState(
+        status: AuthStatus.authenticated,
+        user: user,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+      ));
   }
 
   /// Mise à jour du profil (E-mail et Type)

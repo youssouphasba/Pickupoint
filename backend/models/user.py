@@ -73,6 +73,8 @@ class User(BaseModel):
     # Legal acceptance
     accepted_legal:          bool           = False
     accepted_legal_at:       Optional[datetime] = None
+    # Security
+    pin_hash:                Optional[str]  = None
     # Timestamps
     created_at:        datetime
     updated_at:        datetime
