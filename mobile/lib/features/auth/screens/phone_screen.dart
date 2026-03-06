@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
@@ -14,40 +16,36 @@ class PhoneScreen extends ConsumerStatefulWidget {
 class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   final _phoneController = TextEditingController(text: '+221');
   bool _isLoading = false;
-  bool _acceptedLegal = false;
 
   Future<void> _submit() async {
-    // Retirer tous les espaces potentiels insérés par le clavier
-    final phone = _phoneController.text.replaceAll(' ', '');
-    // On s'assure juste que c'est un numéro non vide.
-    // L'API s'occupera de la vraie validation si besoin.
-    if (phone.isEmpty || phone.length < 8) {
+    final phone = normalizePhone(_phoneController.text.trim());
+    if (phone.isEmpty || phone.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer un numéro valide')),
+        const SnackBar(
+          content: Text('Numéro invalide. Format attendu : +221 77 XXX XX XX'),
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
-    
-    // Si déjà accepté, on passe l'info. Sinon, on bloque (ou on force le check avant).
-    if (!_acceptedLegal) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Veuillez accepter les CGU et la Politique')),
-        );
-      }
-      return;
-    }
 
     try {
-      await ref.read(authProvider.notifier).requestOtp(phone);
-      if (mounted) {
-        context.push('/auth/otp', extra: {
-          'phone': phone,
-          'accepted_legal': _acceptedLegal,
-        });
+      final client = ApiClient();
+      final res = await client.checkPhone({'phone': phone});
+      final data = res.data as Map<String, dynamic>;
+
+      if (data['exists'] == true && data['has_pin'] == true) {
+        if (mounted) {
+          context.push('/auth/pin', extra: {'phone': phone});
+        }
+      } else {
+        // Le compte n'existe pas ou n'a pas fini son inscription PIN.
+        // On envoie un OTP.
+        await ref.read(authProvider.notifier).requestOtp(phone);
+        if (mounted) {
+          context.push('/auth/otp', extra: {'phone': phone});
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -63,7 +61,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Connexion')),
+      appBar: AppBar(title: const Text('Connexion ou Inscription')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -75,7 +73,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Entrez votre numéro de téléphone pour recevoir un code de validation.',
+              'Entrez votre numéro pour recevoir un code de vérification.',
               style: TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 32),
@@ -84,51 +82,32 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: 'Numéro de téléphone',
-                hintText: '+221XXXXXXXXX',
+                hintText: '+221 77 XXX XX XX',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.phone),
               ),
             ),
-            const SizedBox(height: 16),
-            CheckboxListTile(
-              value: _acceptedLegal,
-              onChanged: (val) => setState(() => _acceptedLegal = val ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              title: Wrap(
-                children: [
-                  const Text("J'accepte les "),
-                  GestureDetector(
-                    onTap: () => context.push('/legal/cgu'),
-                    child: Text(
-                      "CGU",
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Astuce : vous pouvez saisir votre numéro local (77 XXX XX XX) ou international (+221…).',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
-                  const Text(" et la "),
-                  GestureDetector(
-                    onTap: () => context.push('/legal/privacy_policy'),
-                    child: Text(
-                      "Politique de confidentialité",
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
             const Spacer(),
-            LoadingButton(
-              label: 'Recevoir mon code',
-              isLoading: _isLoading,
-              onPressed: _submit,
+            SizedBox(
+              width: double.infinity,
+              child: LoadingButton(
+                label: 'Recevoir mon code',
+                isLoading: _isLoading,
+                onPressed: _submit,
+              ),
             ),
             const SizedBox(height: 24),
           ],

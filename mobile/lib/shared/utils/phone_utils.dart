@@ -1,5 +1,15 @@
 /// Utils pour le formatage des numéros de téléphone
 
+/// Normalise un numéro sénégalais saisi librement vers le format E.164 (+221XXXXXXXXX).
+/// Gère : "77 123 45 67", "0077 123 45 67", "+221 77 123 45 67", "77-123-45-67".
+String normalizePhone(String raw) {
+  final cleaned = raw.replaceAll(RegExp(r'[\s\-\.]'), '');
+  if (cleaned.startsWith('+221')) return cleaned;
+  if (cleaned.startsWith('00221')) return '+${cleaned.substring(2)}';
+  if (RegExp(r'^[73]\d{8}$').hasMatch(cleaned)) return '+221$cleaned';
+  return cleaned;
+}
+
 /// Masque le milieu du numéro : +221 77 XXX XX 45
 String maskPhone(String phone) {
   if (phone.isEmpty) return phone;

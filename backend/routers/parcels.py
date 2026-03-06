@@ -81,11 +81,15 @@ async def create_parcel_endpoint(
 @router.get("", summary="Mes colis")
 async def list_parcels(
     status: Optional[str] = None,
+    role_view: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     current_user: dict = Depends(get_current_user),
 ):
     role = current_user["role"]
+    if role_view == "client":
+        role = UserRole.CLIENT.value
+
     if role in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
         query: dict = {}
     elif role == UserRole.DRIVER.value:
@@ -275,6 +279,65 @@ async def confirm_location_authenticated(
             await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
 
     return {"ok": True, "message": "Position de livraison confirmée"}
+
+
+@router.put("/{parcel_id}/delivery-address", summary="Mettre à jour l'adresse/position de livraison (destinataire)")
+async def update_delivery_address(
+    parcel_id: str,
+    payload: LocationConfirmPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Permet au destinataire de mettre à jour sa position GPS et note vocale à tout moment
+    (avant ou après la confirmation initiale, tant que le colis n'est pas livré)."""
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
+    if not is_recipient and parcel.get("recipient_phone"):
+        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+    if not is_recipient:
+        raise forbidden_exception("Seul le destinataire peut mettre à jour l'adresse de livraison")
+
+    if parcel.get("status") in ("delivered", "cancelled", "returned"):
+        raise bad_request_exception("Colis déjà terminé, modification impossible")
+
+    location = {
+        "label":    None,
+        "district": None,
+        "city":     "Dakar",
+        "notes":    None,
+        "geopin": {
+            "lat":      payload.lat,
+            "lng":      payload.lng,
+            "accuracy": payload.accuracy,
+        },
+        "source":    "app_recipient",
+        "confirmed": True,
+    }
+    updates = {
+        "delivery_location":  location,
+        "delivery_confirmed": True,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if payload.voice_note:
+        updates["delivery_voice_note"] = payload.voice_note
+
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
+
+    # Déclencher une mission si les conditions sont réunies (premier appel)
+    updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    mode   = updated_parcel.get("delivery_mode", "")
+    status = updated_parcel.get("status", "")
+    if mode.endswith("_to_home"):
+        if status == ParcelStatus.CREATED.value and mode == "home_to_home":
+            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
+            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
+
+    return {"ok": True, "message": "Adresse de livraison mise à jour"}
 
 
 @router.put("/{parcel_id}/cancel", summary="Annuler un colis (si CREATED)")

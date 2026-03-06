@@ -34,6 +34,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   bool    _driverOnline = false;
   GoogleMapController? _mapController;
   bool    _isConfirmingLocation = false;
+  final   _voiceNoteController  = TextEditingController();
 
   @override
   void initState() {
@@ -44,6 +45,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _voiceNoteController.dispose();
     super.dispose();
   }
 
@@ -167,10 +169,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   // ── Confirmation de position In-App ─────────────────────────────────────
   bool _shouldShowConfirmLocation(Parcel parcel, bool isRecipient) {
     if (!isRecipient) return false;
-    // Uniquement pour livraison à domicile (R2H ou H2H)
     final isHomeDel = parcel.deliveryMode.endsWith('_to_home');
-    return isHomeDel && !parcel.deliveryConfirmed && 
-           ['created', 'dropped_at_origin_relay', 'in_transit'].contains(parcel.status);
+    return isHomeDel &&
+        !['delivered', 'cancelled', 'returned'].contains(parcel.status);
   }
 
   Widget _buildConfirmLocationCard(Parcel parcel) {
@@ -199,14 +200,27 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Pour que le livreur puisse vous trouver, veuillez confirmer votre position GPS actuelle.',
+            'Pour que le livreur puisse vous trouver, confirmez votre position GPS actuelle.',
             style: TextStyle(fontSize: 13),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _voiceNoteController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Instruction vocale (optionnel)',
+              hintText: 'Ex: Sonner 2 fois, 2e étage à gauche…',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.mic_none),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: LoadingButton(
-              label: 'Confirmer ma position actuelle',
+              label: 'Confirmer / Mettre à jour ma position',
               isLoading: _isConfirmingLocation,
               onPressed: _confirmLocation,
             ),
@@ -234,11 +248,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
       // 2. Appel API
       final api = ref.read(apiClientProvider);
-      await api.confirmLocation(widget.id, {
+      final body = <String, dynamic>{
         'lat': pos.latitude,
         'lng': pos.longitude,
         'accuracy': pos.accuracy,
-      });
+      };
+      final note = _voiceNoteController.text.trim();
+      if (note.isNotEmpty) body['voice_note'] = note;
+      await api.updateDeliveryAddress(widget.id, body);
 
       // 3. Succès
       if (mounted) {
