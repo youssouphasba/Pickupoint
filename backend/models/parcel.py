@@ -74,6 +74,8 @@ class ParcelCreate(BaseModel):
     # GPS expéditeur (HOME_TO_* : capturé dans l'app)
     initiated_by:          str = "sender"    # "sender" | "recipient"
     sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
+    pickup_voice_note:     Optional[str] = None  # instruction vocale pour le livreur (collecte)
+    delivery_voice_note:   Optional[str] = None  # instruction vocale pour le livreur (livraison)
 
 
 class ParcelEvent(BaseModel):

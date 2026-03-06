@@ -3,13 +3,19 @@
 class ApiEndpoints {
   ApiEndpoints._();
 
-  // Local dev (émulateur Android → 10.0.2.2, appareil réel → IP locale ex: 192.168.1.X)
-  // static const String _base = 'http://10.0.2.2:8001';
-  // Production Railway (décommenter pour prod)
-  static const String _base = 'https://pickupoint-production.up.railway.app';
+  // Surcharger avec --dart-define=API_BASE_URL=http://192.168.1.X:8001 pour le dev local.
+  // Par défaut : URL Railway de production.
+  static const String _base = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://pickupoint-production.up.railway.app',
+  );
 
   // ─── Auth ────────────────────────────────────────────────────────────────
   static const requestOtp = '$_base/api/auth/request-otp';
+  static const checkPhone = '$_base/api/auth/check-phone';
+  static const loginPin   = '$_base/api/auth/login-pin';
+  static const completeReg= '$_base/api/auth/complete-registration';
+  static const resetPin   = '$_base/api/auth/reset-pin';
   static const verifyOtp  = '$_base/api/auth/verify-otp';
   static const refresh    = '$_base/api/auth/refresh';
   static const me         = '$_base/api/auth/me';
@@ -30,8 +36,9 @@ class ApiEndpoints {
   static String track(String code)        => '$_base/api/tracking/$code';
   static String trackingView(String code) => '$_base/api/tracking/view/$code';
   static String codes(String id)          => '$_base/api/parcels/$id/codes';
-  static String driverLocation(String id) => '$_base/api/parcels/$id/driver-location';
-  static String rateParcel(String id)     => '$_base/api/parcels/$id/rate';
+  static String driverLocation(String id)       => '$_base/api/parcels/$id/driver-location';
+  static String rateParcel(String id)           => '$_base/api/parcels/$id/rate';
+  static String updateDeliveryAddress(String id) => '$_base/api/parcels/$id/delivery-address';
 
   // ─── Relay points ─────────────────────────────────────────────────────────
   static const relayPoints = '$_base/api/relay-points';

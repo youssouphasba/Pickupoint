@@ -50,7 +50,9 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   String _addressCity = 'Dakar';
 
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
-  final _weightController = TextEditingController(text: '1.0');
+  final _weightController            = TextEditingController(text: '1.0');
+  final _pickupVoiceNoteController   = TextEditingController();
+  final _deliveryVoiceNoteController = TextEditingController();
   double _declaredValue  = 10000;
   bool   _hasInsurance   = false;
   bool   _isExpress      = false;
@@ -77,6 +79,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _addressLabelController.dispose();
     _addressDistrictController.dispose();
     _weightController.dispose();
+    _pickupVoiceNoteController.dispose();
+    _deliveryVoiceNoteController.dispose();
     super.dispose();
   }
 
@@ -213,6 +217,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'is_express':           _isExpress,
         'who_pays':             _whoPays,
         'initiated_by':         isReverse ? 'recipient' : 'sender',
+        if (_pickupVoiceNoteController.text.trim().isNotEmpty)
+          'pickup_voice_note':   _pickupVoiceNoteController.text.trim(),
+        if (_deliveryVoiceNoteController.text.trim().isNotEmpty)
+          'delivery_voice_note': _deliveryVoiceNoteController.text.trim(),
         if (isReverse) 'sender_phone': _senderPhoneController.text.trim(),
         'recipient_name':  isReverse
             ? (authUser?.fullName ?? authUser?.phone ?? '')
@@ -724,6 +732,30 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               secondary: Icon(Icons.bolt, color: _isExpress ? const Color(0xFFFF6B00) : Colors.grey),
               value: _isExpress,
               onChanged: (v) => setState(() => _isExpress = v),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _sectionTitle(Icons.record_voice_over, 'Instructions vocales (optionnel)'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pickupVoiceNoteController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Instruction vocale expéditeur',
+              hintText: 'Ex: Appeler avant de venir, code portail: 1234…',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.mic),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _deliveryVoiceNoteController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Instruction vocale destinataire',
+              hintText: 'Ex: Livrer au 2e étage, sonner 2 fois…',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.mic_none),
             ),
           ),
           const SizedBox(height: 20),

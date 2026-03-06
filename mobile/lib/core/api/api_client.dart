@@ -64,6 +64,18 @@ class ApiClient {
   Future<Response> verifyOtp(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.verifyOtp, data: body);
 
+  Future<Response> checkPhone(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.checkPhone, data: body);
+
+  Future<Response> loginPin(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.loginPin, data: body);
+
+  Future<Response> completeRegistration(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.completeReg, data: body);
+
+  Future<Response> resetPin(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.resetPin, data: body);
+
   Future<Response> refreshToken(String refreshToken) =>
       _dio.post(ApiEndpoints.refresh, data: {'refresh_token': refreshToken});
 
@@ -141,6 +153,9 @@ class ApiClient {
         'comment': comment,
         'tip': tip,
       });
+
+  Future<Response> updateDeliveryAddress(String id, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.updateDeliveryAddress(id), data: body);
 
   // ─── Relay points ─────────────────────────────────────────────────────────
   Future<Response> getRelayPoints({Map<String, dynamic>? params}) =>
