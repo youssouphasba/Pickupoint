@@ -4,7 +4,10 @@ Router auth : OTP flow complet + gestion session JWT.
 import uuid
 from datetime import datetime, timezone, timedelta
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 
 from config import settings
 from core.exceptions import bad_request_exception, not_found_exception
