@@ -384,18 +384,31 @@ async def main(wipe=False):
         ],
         is_express=True,
     )
-    # Mission livreur pour ce colis
+    # Mission livreur pour ce colis — champs complets pour la carte Flutter
     await db.delivery_missions.insert_one({
-        "mission_id":  f"msn_{uuid.uuid4().hex[:12]}",
-        "parcel_id":   p_r2r_transit["parcel_id"],
-        "driver_id":   driver["user_id"],
-        "status":      "in_progress",
-        "pickup_relay_id": medina["relay_id"],
-        "dropoff_relay_id": escale["relay_id"],
-        "earn_amount": int(p_r2r_transit["quoted_price"] * 0.70),
-        "assigned_at": datetime.now(timezone.utc) - timedelta(minutes=20),
-        "started_at":  datetime.now(timezone.utc) - timedelta(minutes=15),
-        "created_at":  datetime.now(timezone.utc) - timedelta(minutes=25),
+        "mission_id":        f"msn_{uuid.uuid4().hex[:12]}",
+        "parcel_id":         p_r2r_transit["parcel_id"],
+        "tracking_code":     p_r2r_transit["tracking_code"],
+        "driver_id":         driver["user_id"],
+        "sender_user_id":    fatou["user_id"],
+        "status":            "in_progress",
+        "pickup_type":       "relay",
+        "pickup_relay_id":   medina["relay_id"],
+        "pickup_label":      medina["name"],
+        "pickup_city":       "Dakar",
+        "pickup_geopin":     medina["address"]["geopin"],   # ← carte Flutter
+        "delivery_type":     "relay",
+        "dropoff_relay_id":  escale["relay_id"],
+        "delivery_label":    escale["name"],
+        "delivery_city":     "Thiès",
+        "delivery_geopin":   escale["address"]["geopin"],   # ← carte Flutter
+        "recipient_name":    ibra["name"],
+        "recipient_phone":   ibra["phone"],
+        "earn_amount":       int(p_r2r_transit["quoted_price"] * 0.70),
+        "payment_status":    "paid",
+        "assigned_at":       datetime.now(timezone.utc) - timedelta(minutes=20),
+        "started_at":        datetime.now(timezone.utc) - timedelta(minutes=15),
+        "created_at":        datetime.now(timezone.utc) - timedelta(minutes=25),
     })
 
     await _make_parcel(
@@ -473,6 +486,32 @@ async def main(wipe=False):
         ],
         quoted_price=1650,  # 1100 * 1.50 (coeff dynamique)
     )
+
+    # Mission livreur R2H-2 (relais → domicile, en cours)
+    await db.delivery_missions.insert_one({
+        "mission_id":        f"msn_{uuid.uuid4().hex[:12]}",
+        "parcel_id":         p_r2h_out["parcel_id"],
+        "tracking_code":     p_r2h_out["tracking_code"],
+        "driver_id":         driver["user_id"],
+        "sender_user_id":    fatou["user_id"],
+        "status":            "in_progress",
+        "pickup_type":       "relay",
+        "pickup_relay_id":   medina["relay_id"],
+        "pickup_label":      medina["name"],
+        "pickup_city":       "Dakar",
+        "pickup_geopin":     medina["address"]["geopin"],
+        "delivery_type":     "gps",
+        "delivery_label":    "Domicile Ibrahima (GPS confirmé)",
+        "delivery_city":     "Dakar",
+        "delivery_geopin":   {"lat": 14.7123, "lng": -17.4290},
+        "recipient_name":    ibra["name"],
+        "recipient_phone":   ibra["phone"],
+        "earn_amount":       int(p_r2h_out["quoted_price"] * 0.70),
+        "payment_status":    "paid",
+        "assigned_at":       datetime.now(timezone.utc) - timedelta(minutes=10),
+        "started_at":        datetime.now(timezone.utc) - timedelta(minutes=5),
+        "created_at":        datetime.now(timezone.utc) - timedelta(minutes=12),
+    })
 
     await _make_parcel(
         "R2H-3 | DELIVERED — livré au domicile avec code confirmé",

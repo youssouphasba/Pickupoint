@@ -688,10 +688,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     return Column(
       children: [
+        // ── Carte interactive ────────────────────────────────────────
         Stack(
           children: [
             Container(
-              height: 300, // Augmenté pour une meilleure visibilité
+              height: 260,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.grey.shade200),
@@ -706,9 +707,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 markers: markers,
                 polylines: polylines,
                 myLocationEnabled: true,
-                myLocationButtonEnabled: false, // On utilise nos propres boutons pour plus de contrôle
-                zoomControlsEnabled: true,
-                mapToolbarEnabled: true,
+                myLocationButtonEnabled: false,
+                zoomControlsEnabled: false,
+                mapToolbarEnabled: false,
                 gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
                   Factory<OneSequenceGestureRecognizer>(
                     () => EagerGestureRecognizer(),
@@ -717,54 +718,20 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ),
             ),
 
-            // ── Bouton "Moi" et "Destination" ────────────────────────
+            // ── Recentrer sur ma position ─────────────────────────
             Positioned(
               top: 10,
               right: 10,
-              child: Column(
-                children: [
-                  FloatingActionButton.small(
-                    heroTag: 'recenter_me',
-                    onPressed: () async {
-                      final pos = await Geolocator.getCurrentPosition();
-                      _mapController?.animateCamera(
-                        CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude))
-                      );
-                    },
-                    backgroundColor: Colors.white,
-                    child: const Icon(Icons.my_location, color: Colors.blue),
-                  ),
-                  const SizedBox(height: 8),
-                  FloatingActionButton.small(
-                    heroTag: 'recenter_dest',
-                    onPressed: () {
-                      _mapController?.animateCamera(
-                        CameraUpdate.newLatLng(LatLng(navLat, navLng))
-                      );
-                    },
-                    backgroundColor: Colors.white,
-                    child: const Icon(Icons.flag, color: Colors.red),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Bouton "Naviguer" en overlay ────────────────────────
-            Positioned(
-              bottom: 10,
-              right: 10,
-              child: ElevatedButton.icon(
-                onPressed: () => _openNavigation(navLat, navLng, navLabel),
-                icon: const Icon(Icons.navigation, size: 16),
-                label: const Text('Naviguer', style: TextStyle(fontSize: 13)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20)),
-                  elevation: 4,
-                ),
+              child: FloatingActionButton.small(
+                heroTag: 'recenter_me',
+                onPressed: () async {
+                  final pos = await Geolocator.getCurrentPosition();
+                  _mapController?.animateCamera(
+                    CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
+                  );
+                },
+                backgroundColor: Colors.white,
+                child: const Icon(Icons.my_location, color: Colors.blue, size: 20),
               ),
             ),
           ],
@@ -793,6 +760,23 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             ],
           ),
         ],
+
+        // ── Bouton "Naviguer" plein-largeur ──────────────────────────
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => _openNavigation(navLat, navLng, navLabel),
+            icon: const Icon(Icons.navigation),
+            label: Text('Naviguer vers $navLabel'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
       ],
     );
   }
