@@ -18,6 +18,7 @@ import '../../../shared/utils/phone_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../shared/widgets/parcel_chat_widget.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({super.key, required this.id});
@@ -150,6 +151,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               TimelineWidget(events: parcel.events),
               const SizedBox(height: 28),
 
+              // ── Messagerie temporaire ────────────────────────────────────
+              ParcelChatWidget(
+                parcelId: parcel.id,
+                isClosed: ['delivered', 'cancelled', 'returned', 'expired']
+                    .contains(parcel.status),
+              ),
+              const SizedBox(height: 28),
+
               if (parcel.canBeCancelled && !isRecipient)
                 LoadingButton(
                   label: "Annuler l'envoi",
@@ -208,10 +217,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             controller: _voiceNoteController,
             maxLines: 2,
             decoration: const InputDecoration(
-              labelText: 'Instruction vocale (optionnel)',
+              labelText: 'Instructions pour le livreur (optionnel)',
               hintText: 'Ex: Sonner 2 fois, 2e étage à gauche…',
               border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.mic_none),
+              prefixIcon: Icon(Icons.note_alt_outlined),
               filled: true,
               fillColor: Colors.white,
             ),

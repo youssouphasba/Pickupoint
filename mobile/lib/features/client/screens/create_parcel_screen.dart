@@ -51,10 +51,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
 
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
   final _weightController            = TextEditingController(text: '1.0');
-  final _pickupVoiceNoteController   = TextEditingController();
-  final _deliveryVoiceNoteController = TextEditingController();
+  final _pickupNoteController = TextEditingController();
   double _declaredValue  = 10000;
-  bool   _hasInsurance   = false;
   bool   _isExpress      = false;
   String _whoPays        = 'sender';   // 'sender' | 'recipient'
   bool   _isQuoteLoading = false;
@@ -79,8 +77,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _addressLabelController.dispose();
     _addressDistrictController.dispose();
     _weightController.dispose();
-    _pickupVoiceNoteController.dispose();
-    _deliveryVoiceNoteController.dispose();
+    _pickupNoteController.dispose();
     super.dispose();
   }
 
@@ -212,15 +209,12 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'delivery_address':     deliveryAddress,
         'origin_location':      originLocation,
         'weight_kg':            double.tryParse(_weightController.text) ?? 1.0,
-        'is_insured':           _hasInsurance,
         'declared_value':       _declaredValue,
         'is_express':           _isExpress,
         'who_pays':             _whoPays,
         'initiated_by':         isReverse ? 'recipient' : 'sender',
-        if (_pickupVoiceNoteController.text.trim().isNotEmpty)
-          'pickup_voice_note':   _pickupVoiceNoteController.text.trim(),
-        if (_deliveryVoiceNoteController.text.trim().isNotEmpty)
-          'delivery_voice_note': _deliveryVoiceNoteController.text.trim(),
+        if (_pickupNoteController.text.trim().isNotEmpty)
+          'pickup_voice_note':   _pickupNoteController.text.trim(),
         if (isReverse) 'sender_phone': _senderPhoneController.text.trim(),
         'recipient_name':  isReverse
             ? (authUser?.fullName ?? authUser?.phone ?? '')
@@ -704,58 +698,37 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             label: '${_declaredValue.toInt()} FCFA',
             onChanged: (v) => setState(() => _declaredValue = v),
           ),
-          const SizedBox(height: 8),
-          Card(
-            child: SwitchListTile(
-              title: const Text('Ajouter une assurance', style: TextStyle(fontWeight: FontWeight.w500)),
-              subtitle: Text(
-                _hasInsurance
-                    ? 'Colis protégé contre la perte et le vol'
-                    : 'Protégez votre colis contre la perte ou le vol',
-                style: TextStyle(color: _hasInsurance ? Colors.green : Colors.grey),
-              ),
-              secondary: Icon(Icons.security, color: _hasInsurance ? Colors.green : Colors.grey),
-              value: _hasInsurance,
-              onChanged: (v) => setState(() => _hasInsurance = v),
-            ),
-          ),
           const SizedBox(height: 12),
-          Card(
-            child: SwitchListTile(
-              title: const Text('Livraison Express', style: TextStyle(fontWeight: FontWeight.w500)),
-              subtitle: Text(
-                _isExpress
-                    ? 'Priorité maximale — livraison le plus vite possible (+40 %)'
-                    : 'Activez pour une livraison prioritaire',
-                style: TextStyle(color: _isExpress ? const Color(0xFFFF6B00) : Colors.grey),
-              ),
-              secondary: Icon(Icons.bolt, color: _isExpress ? const Color(0xFFFF6B00) : Colors.grey),
-              value: _isExpress,
-              onChanged: (v) => setState(() => _isExpress = v),
-            ),
+          ref.watch(expressEnabledProvider).maybeWhen(
+            data: (enabled) => enabled
+                ? Card(
+                    child: SwitchListTile(
+                      title: const Text('Livraison Express', style: TextStyle(fontWeight: FontWeight.w500)),
+                      subtitle: Text(
+                        _isExpress
+                            ? 'Priorité maximale — livraison le plus vite possible (+30 %)'
+                            : 'Activez pour une livraison prioritaire',
+                        style: TextStyle(color: _isExpress ? const Color(0xFFFF6B00) : Colors.grey),
+                      ),
+                      secondary: Icon(Icons.bolt, color: _isExpress ? const Color(0xFFFF6B00) : Colors.grey),
+                      value: _isExpress,
+                      onChanged: (v) => setState(() => _isExpress = v),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+            orElse: () => const SizedBox.shrink(),
           ),
           const SizedBox(height: 20),
-          _sectionTitle(Icons.record_voice_over, 'Instructions vocales (optionnel)'),
+          _sectionTitle(Icons.edit_note, 'Instructions pour le livreur (optionnel)'),
           const SizedBox(height: 12),
           TextField(
-            controller: _pickupVoiceNoteController,
-            maxLines: 2,
+            controller: _pickupNoteController,
+            maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'Instruction vocale expéditeur',
-              hintText: 'Ex: Appeler avant de venir, code portail: 1234…',
+              labelText: 'Instructions de collecte',
+              hintText: 'Ex: Appeler avant de venir, code portail 1234, 3e étage…',
               border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.mic),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _deliveryVoiceNoteController,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Instruction vocale destinataire',
-              hintText: 'Ex: Livrer au 2e étage, sonner 2 fois…',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.mic_none),
+              prefixIcon: Icon(Icons.note_alt_outlined),
             ),
           ),
           const SizedBox(height: 20),
@@ -812,7 +785,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                   _initiatedBy == _InitiatedBy.recipient ? 'Expéditeur' : 'Destinataire',
                   _recipientNameController.text.isEmpty ? '—' : _recipientNameController.text,
                 ),
-                _recapRow('Express', _isExpress ? 'Oui (+40 %)' : 'Non'),
+                if (_isExpress) _recapRow('Express', 'Oui (+30 %)'),
                 _recapRow('Paiement', _whoPays == 'sender' ? 'Expéditeur' : 'Destinataire'),
               ],
             ),

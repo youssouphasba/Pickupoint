@@ -10,7 +10,10 @@
       "Bash(echo \"=== parcel_service.py — zones clés ===\" && sed -n '210,220p' /mnt/c/Users/Utilisateur/pickupoint/backend/services/parcel_service.py && echo \"...\" && sed -n '237,245p' /mnt/c/Users/Utilisateur/pickupoint/backend/services/parcel_service.py && echo \"...\" && sed -n '278,302p' /mnt/c/Users/Utilisateur/pickupoint/backend/services/parcel_service.py && echo \"...\" && sed -n '375,398p' /mnt/c/Users/Utilisateur/pickupoint/backend/services/parcel_service.py)",
       "Bash(echo \"=== models/parcel.py — ParcelCreate fields ===\" && sed -n '55,80p' /mnt/c/Users/Utilisateur/pickupoint/backend/models/parcel.py && echo \"=== parcel_service.py — voice notes in parcel_doc ===\" && grep -n \"pickup_voice_note\\\\|delivery_voice_note\" /mnt/c/Users/Utilisateur/pickupoint/backend/services/parcel_service.py && echo \"=== parcels.py L14-18 \\(imports\\) ===\" && sed -n '14,18p' /mnt/c/Users/Utilisateur/pickupoint/backend/routers/parcels.py && echo \"=== parcels.py L213-220 \\(parcel creation\\) ===\" && sed -n '213,220p' /mnt/c/Users/Utilisateur/pickupoint/backend/routers/parcels.py)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(/mnt/c/Users/Utilisateur/pickupoint/backend/routers/admin.py:*)"
     ]
   }
 }

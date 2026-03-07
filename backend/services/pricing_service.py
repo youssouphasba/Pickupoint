@@ -4,8 +4,7 @@ Service de tarification PickuPoint.
 Formule :
   sous_total = base_mode + (distance_km × PRICE_PER_KM)
              + (max(0, weight_kg - FREE_WEIGHT_KG) × PRICE_PER_KG)
-             + assurance
-  prix = sous_total × coefficient_dynamique × (EXPRESS_MULTIPLIER si express)
+  prix = sous_total × coefficient_fidélité × (EXPRESS_MULTIPLIER si express)
   prix = max(prix, MIN_PRICE)  — arrondi à 50 XOF supérieurs
 """
 import math
@@ -106,19 +105,14 @@ async def calculate_price(
     extra_kg   = max(0.0, quote.weight_kg - settings.FREE_WEIGHT_KG)
     weight_cost = extra_kg * settings.PRICE_PER_KG
 
-    insur_cost = 0.0
-    if quote.is_insured and quote.declared_value:
-        insur_cost = max(200.0, quote.declared_value * settings.INSURANCE_RATE)
-
-    # ── Surcharge Inter-City (Phase 8) ──
-    # Si distance > 100km OU si cities différentes (si on a l'info)
+    # ── Surcharge Inter-City ──
     inter_city_cost = 0.0
     if distance > 100:
         inter_city_cost += 1000.0
     elif distance > 50:
         inter_city_cost += 500.0
 
-    sous_total = base + dist_cost + weight_cost + insur_cost + inter_city_cost
+    sous_total = base + dist_cost + weight_cost + inter_city_cost
 
     # ── Réductions Fidélité & Expéditeur Fréquent (Phase 8) ──
     from services.user_service import tier_discount_coeff
@@ -133,11 +127,14 @@ async def calculate_price(
     coeff, coeff_factors = 1.0, []
     price_with_coeff = sous_total * coeff * loyalty_coeff
 
-    # Express
+    # Express — uniquement si activé globalement par l'admin
     express_cost = 0.0
     if quote.is_express:
-        express_cost = price_with_coeff * (settings.EXPRESS_MULTIPLIER - 1)
-        price_with_coeff *= settings.EXPRESS_MULTIPLIER
+        express_setting = await db.app_settings.find_one({"key": "global"}, {"express_enabled": 1})
+        express_globally_enabled = (express_setting or {}).get("express_enabled", False)
+        if express_globally_enabled:
+            express_cost = price_with_coeff * (settings.EXPRESS_MULTIPLIER - 1)
+            price_with_coeff *= settings.EXPRESS_MULTIPLIER
 
     # Min + arrondi 50 XOF
     final = _round_to_50(max(price_with_coeff, settings.MIN_PRICE))
@@ -186,7 +183,6 @@ async def calculate_price(
         "weight_kg":      quote.weight_kg,
         "weight_extra_kg": extra_kg,
         "weight_cost":    round(weight_cost),
-        "insurance_cost": round(insur_cost),
         "sous_total":     round(sous_total),
         "inter_city_cost": round(inter_city_cost),
         "coefficient":    coeff,

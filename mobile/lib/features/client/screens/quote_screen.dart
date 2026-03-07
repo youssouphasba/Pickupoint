@@ -99,7 +99,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final distCost     = _num(breakdown['distance_cost']);
     final extraKg      = _num(breakdown['weight_extra_kg']);
     final weightCost   = _num(breakdown['weight_cost']);
-    final insurCost    = _num(breakdown['insurance_cost']);
     final sousTotal    = _num(breakdown['sous_total']);
     final coeff        = _num(breakdown['coefficient'], def: 1.0);
     final expressCost  = _num(breakdown['express_cost']);
@@ -148,7 +147,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             _row('Prix de base', base),
             _row('Distance (${distKm.toStringAsFixed(1)} km)', distCost),
             if (extraKg > 0) _row('Supplément poids (${extraKg.toStringAsFixed(1)} kg)', weightCost),
-            if (insurCost > 0) _row('Assurance (2 %)', insurCost),
             const Divider(height: 20),
             _row('Sous-total', sousTotal, bold: true),
 

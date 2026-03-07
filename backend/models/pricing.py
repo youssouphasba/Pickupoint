@@ -30,8 +30,6 @@ class PricingRule(BaseModel):
     price_per_km:         float = 0.0
     min_price:            float
     max_price:            Optional[float] = None
-    # Surcharges
-    insurance_rate:       float = 0.02  # 2% de la valeur déclarée
     is_active:            bool  = True
     created_at:           datetime
 
@@ -46,7 +44,6 @@ class PricingRuleCreate(BaseModel):
     price_per_km:         float = 0.0
     min_price:            float
     max_price:            Optional[float] = None
-    insurance_rate:       float = 0.02
 
 
 class PricingRuleUpdate(BaseModel):
@@ -56,5 +53,4 @@ class PricingRuleUpdate(BaseModel):
     price_per_km:         Optional[float] = None
     min_price:            Optional[float] = None
     max_price:            Optional[float] = None
-    insurance_rate:       Optional[float] = None
     is_active:            Optional[bool]  = None

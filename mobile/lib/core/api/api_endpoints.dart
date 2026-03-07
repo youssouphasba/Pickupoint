@@ -109,4 +109,12 @@ class ApiEndpoints {
 
   // ─── Legal ────────────────────────────────────────────────────────────────
   static String legal(String docType) => '$_base/api/legal/$docType';
+
+  // ─── Messagerie colis ─────────────────────────────────────────────────────
+  static String parcelMessages(String id)      => '$_base/api/parcels/$id/messages';
+  static String parcelVoiceMessage(String id)  => '$_base/api/parcels/$id/messages/voice';
+
+  // ─── App Settings (admin) ─────────────────────────────────────────────────
+  static const adminSettings        = '$_base/api/admin/settings';
+  static const adminSettingsExpress = '$_base/api/admin/settings/express';
 }

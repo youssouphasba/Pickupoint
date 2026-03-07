@@ -21,7 +21,6 @@ class Parcel(BaseModel):
     weight_kg:             float = 0.5
     dimensions:            Optional[Dict[str, float]] = None  # {"l": 30, "w": 20, "h": 10}
     declared_value:        Optional[float] = None              # XOF
-    is_insured:            bool  = False
     description:           Optional[str] = None
     is_express:            bool  = False
     who_pays:              str   = "sender"    # "sender" | "recipient"
@@ -66,7 +65,6 @@ class ParcelCreate(BaseModel):
     weight_kg:             float = 0.5
     dimensions:            Optional[Dict[str, float]] = None
     declared_value:        Optional[float] = None
-    is_insured:            bool = False
     description:           Optional[str] = None
     is_express:            bool = False
     who_pays:              str  = "sender"    # "sender" | "recipient"
@@ -99,7 +97,6 @@ class ParcelQuote(BaseModel):
     origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur
     delivery_address:      Optional[Address] = None
     weight_kg:             float = 0.5
-    is_insured:            bool  = False
     declared_value:        Optional[float] = None
     is_express:            bool  = False
     who_pays:              str   = "sender"    # "sender" | "recipient"

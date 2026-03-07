@@ -54,6 +54,11 @@ dependencies:
   flutter_image_compress: ^2.1.0
   local_auth: ^3.0.1
 
+  # Messagerie vocale colis
+  record: ^5.0.0
+  audioplayers: ^6.0.0
+  path_provider: ^2.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

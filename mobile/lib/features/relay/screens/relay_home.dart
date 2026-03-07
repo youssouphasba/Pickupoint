@@ -310,8 +310,6 @@ class _RelayParcelDetailSheetState extends ConsumerState<_RelayParcelDetailSheet
           if (p.declaredValue != null)
             _infoRow(Icons.attach_money, 'Valeur déclarée',
                 '${p.declaredValue!.toStringAsFixed(0)} XOF'),
-          _infoRow(Icons.verified_user_outlined, 'Assurance',
-              p.hasInsurance ? 'Oui' : 'Non'),
           if (p.totalPrice != null)
             _infoRow(Icons.receipt_outlined, 'Frais de port',
                 '${p.totalPrice!.toStringAsFixed(0)} XOF'),

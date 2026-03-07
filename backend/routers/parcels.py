@@ -720,3 +720,133 @@ async def rate_parcel(
 
     return {"message": "Merci pour votre avis !", "rating": body.rating}
 
+
+
+# ── Messagerie temporaire par colis ──────────────────────────────────────────
+
+TERMINAL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
+
+async def _check_parcel_access(parcel_id: str, user: dict) -> dict:
+    """Vérifie que l'utilisateur est expéditeur, destinataire ou livreur assigné."""
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    uid = user["user_id"]
+    role = user.get("role", "")
+    is_sender    = parcel.get("sender_user_id") == uid
+    is_recipient = parcel.get("recipient_user_id") == uid
+    is_driver    = role == "driver" and parcel.get("assigned_driver_id") == uid
+    is_admin     = role in ("admin", "superadmin")
+    if not (is_sender or is_recipient or is_driver or is_admin):
+        raise forbidden_exception("Accès refusé à cette messagerie")
+    return parcel
+
+
+@router.get("/{parcel_id}/messages", summary="Lire les messages du colis")
+async def get_parcel_messages(
+    parcel_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    await _check_parcel_access(parcel_id, current_user)
+    cursor = db.parcel_messages.find(
+        {"parcel_id": parcel_id}, {"_id": 0}
+    ).sort("created_at", 1)
+    messages = await cursor.to_list(length=200)
+    return {"messages": messages}
+
+
+@router.post("/{parcel_id}/messages", summary="Envoyer un message texte")
+async def send_parcel_message(
+    parcel_id: str,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await _check_parcel_access(parcel_id, current_user)
+    if parcel.get("status") in TERMINAL_STATUSES:
+        raise bad_request_exception("La messagerie est fermée pour ce colis")
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise bad_request_exception("Message vide")
+    if len(text) > 500:
+        raise bad_request_exception("Message trop long (max 500 caractères)")
+
+    # Déterminer le rôle de l'expéditeur dans ce colis
+    uid = current_user["user_id"]
+    if parcel.get("sender_user_id") == uid:
+        sender_role = "sender"
+    elif parcel.get("recipient_user_id") == uid:
+        sender_role = "recipient"
+    else:
+        sender_role = current_user.get("role", "driver")
+
+    msg = {
+        "message_id":  f"msg_{uuid.uuid4().hex[:12]}",
+        "parcel_id":   parcel_id,
+        "sender_id":   uid,
+        "sender_name": current_user.get("name", ""),
+        "sender_role": sender_role,
+        "type":        "text",
+        "content":     text,
+        "created_at":  datetime.now(timezone.utc),
+    }
+    await db.parcel_messages.insert_one(msg)
+    return {k: v for k, v in msg.items() if k != "_id"}
+
+
+from fastapi import UploadFile, File
+import os, shutil
+
+@router.post("/{parcel_id}/messages/voice", summary="Envoyer une note vocale")
+async def send_parcel_voice(
+    parcel_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await _check_parcel_access(parcel_id, current_user)
+    if parcel.get("status") in TERMINAL_STATUSES:
+        raise bad_request_exception("La messagerie est fermée pour ce colis")
+
+    # Validation type MIME
+    allowed = {"audio/mp4", "audio/m4a", "audio/mpeg", "audio/ogg", "audio/webm", "audio/wav", "application/octet-stream"}
+    if file.content_type not in allowed:
+        raise bad_request_exception(f"Format audio non supporté : {file.content_type}")
+
+    # Taille max 5 Mo
+    MAX_SIZE = 5 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise bad_request_exception("Fichier trop volumineux (max 5 Mo)")
+
+    # Sauvegarde
+    ext = file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "m4a"
+    filename = f"voice_{uuid.uuid4().hex[:10]}.{ext}"
+    os.makedirs("uploads/voice", exist_ok=True)
+    filepath = f"uploads/voice/{filename}"
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    from config import settings as app_settings
+    audio_url = f"{app_settings.BASE_URL}/uploads/voice/{filename}"
+
+    uid = current_user["user_id"]
+    if parcel.get("sender_user_id") == uid:
+        sender_role = "sender"
+    elif parcel.get("recipient_user_id") == uid:
+        sender_role = "recipient"
+    else:
+        sender_role = current_user.get("role", "driver")
+
+    msg = {
+        "message_id":  f"msg_{uuid.uuid4().hex[:12]}",
+        "parcel_id":   parcel_id,
+        "sender_id":   uid,
+        "sender_name": current_user.get("name", ""),
+        "sender_role": sender_role,
+        "type":        "voice",
+        "content":     audio_url,
+        "duration_s":  None,  # à enrichir côté client si besoin
+        "created_at":  datetime.now(timezone.utc),
+    }
+    await db.parcel_messages.insert_one(msg)
+    return {k: v for k, v in msg.items() if k != "_id"}

@@ -1,0 +1,903 @@
+﻿Running Gradle task 'assembleRelease'...                        
+flutter : lib/features
+/client/screens/client
+_search_screen.dart:12
+:51: Error: Expected 
+a class member, but 
+got '\'.
+Au caractère Ligne:1 
+: 1
++ flutter build apk 
+--release > 
+build_log.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (lib/featur   
+ es/cl...r, but go    
+t '\'.:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+      ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Error: Variables must 
+be declared using the 
+keywords 'const', 
+'final', 'var' or a 
+type name.
+Try adding the name 
+of the type of the 
+variable or the 
+keyword 'var'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:53: 
+Error: Expected a 
+class member, but got 
+'\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+        ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:54: 
+Error: Variables must 
+be declared using the 
+keywords 'const', 
+'final', 'var' or a 
+type name.
+Try adding the name 
+of the type of the 
+variable or the 
+keyword 'var'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+         ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:54: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+         ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:66: 
+Error: Expected a 
+class member, but got 
+'\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                     ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:67: 
+Error: Variables must 
+be declared using the 
+keywords 'const', 
+'final', 'var' or a 
+type name.
+Try adding the name 
+of the type of the 
+variable or the 
+keyword 'var'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:67: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:145: 
+Error: Expected a 
+class member, but got 
+'\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:146: 
+Error: Variables must 
+be declared using the 
+keywords 'const', 
+'final', 'var' or a 
+type name.
+Try adding the name 
+of the type of the 
+variable or the 
+keyword 'var'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:146: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:147: 
+Error: Expected a 
+class member, but got 
+'\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:148: 
+Error: Variables must 
+be declared using the 
+keywords 'const', 
+'final', 'var' or a 
+type name.
+Try adding the name 
+of the type of the 
+variable or the 
+keyword 'var'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:148: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:54: 
+Error: 'n' is already 
+declared in this 
+scope.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+         ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Context: Previous 
+declaration of 'n'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:67: 
+Error: 'n' is already 
+declared in this 
+scope.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Context: Previous 
+declaration of 'n'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:146: 
+Error: 'n' is already 
+declared in this 
+scope.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Context: Previous 
+declaration of 'n'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:148: 
+Error: 'n' is already 
+declared in this 
+scope.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:52: 
+Context: Previous 
+declaration of 'n'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+       ^
+lib/features/auth/scre
+ens/pin_login_screen.d
+art:47:9: Error: No 
+named parameter with 
+the name 'stickyAuth'.
+        stickyAuth: 
+true,
+        ^^^^^^^^^^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:86: 
+Error: Expected an 
+identifier, but got 
+'\'.
+Try inserting an 
+identifier before '\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                   ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:86: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                   ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:92: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^^^^^^^^^^^^^^^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:107: 
+Error: This requires 
+the experimental 
+'dot-shorthands' 
+language feature to 
+be enabled.
+Try passing the '--ena
+ble-experiment=dot-sho
+rthands' command line 
+option.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:118: 
+Error: Expected an 
+identifier, but got 
+'\'.
+Try inserting an 
+identifier before '\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:118: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:124: 
+Error: 'super' can't 
+be used as an 
+identifier because 
+it's a keyword.
+Try renaming this to 
+be an identifier that 
+isn't a keyword.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^^^^^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:124: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^^^^^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:129: 
+Error: This requires 
+the experimental 
+'dot-shorthands' 
+language feature to 
+be enabled.
+Try passing the '--ena
+ble-experiment=dot-sho
+rthands' command line 
+option.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:140: 
+Error: Expected an 
+identifier, but got 
+'\'.
+Try inserting an 
+identifier before '\'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:140: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:141: 
+Error: Expected ';' 
+after this.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:108: 
+Error: No type was 
+provided to find the 
+dot shorthand 
+'dispose'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^^^^^^^
+lib/features/client/sc
+reens/client_search_sc
+reen.dart:12:130: 
+Error: No type was 
+provided to find the 
+dot shorthand 
+'dispose'.
+  final 
+_codeController = Text
+EditingController();\n
+\n  @override\n  void 
+dispose() {\n    _code
+Controller.dispose();\
+n    
+super.dispose();\n  
+}\n\n  void _search() 
+{
+                      
+                      
+                      
+                      
+  ^^^^^^^
+lib/features/client/sc
+reens/favorite_address
+es_screen.dart:22:5: 
+Error: The getter 
+'nameCtrl' isn't 
+defined for the type '
+_FavoriteAddressesScre
+enState'.
+ - '_FavoriteAddresses
+ScreenState' is from '
+package:pickupoint/fea
+tures/client/screens/f
+avorite_addresses_scre
+en.dart' ('lib/feature
+s/client/screens/favor
+ite_addresses_screen.d
+art').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'nameCtrl'.
+    
+nameCtrl.dispose();
+    ^^^^^^^^
+lib/features/client/sc
+reens/favorite_address
+es_screen.dart:23:5: 
+Error: The getter 
+'addrCtrl' isn't 
+defined for the type '
+_FavoriteAddressesScre
+enState'.
+ - '_FavoriteAddresses
+ScreenState' is from '
+package:pickupoint/fea
+tures/client/screens/f
+avorite_addresses_scre
+en.dart' ('lib/feature
+s/client/screens/favor
+ite_addresses_screen.d
+art').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'addrCtrl'.
+    
+addrCtrl.dispose();
+    ^^^^^^^^
+Target kernel_snapshot
+_program failed: 
+Exception
+
+
+FAILURE: Build failed 
+with an exception.
+
+* What went wrong:
+Execution failed for 
+task ':app:compileFlut
+terBuildRelease'.
+> Process 'command 'C:
+\src\flutter\bin\flutt
+er.bat'' finished 
+with non-zero exit 
+value 1
+
+* Try:
+> Run with 
+--stacktrace option 
+to get the stack 
+trace.
+> Run with --info or 
+--debug option to get 
+more log output.
+> Run with --scan to 
+get full insights.
+> Get more help at htt
+ps://help.gradle.org.
+
+BUILD FAILED in 36s
+Running Gradle task 'assembleRelease'...                           37,0s
+Gradle task 
+assembleRelease 
+failed with exit code 
+1
