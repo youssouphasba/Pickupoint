@@ -336,4 +336,27 @@ class ApiClient {
 
   Future<Response> updateLegal(String docType, Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.legal(docType), data: body);
+
+  // ─── Messagerie colis ────────────────────────────────────────────────────
+  Future<Response> getParcelMessages(String parcelId) =>
+      _dio.get(ApiEndpoints.parcelMessages(parcelId));
+
+  Future<Response> sendParcelMessage(String parcelId, String text) =>
+      _dio.post(ApiEndpoints.parcelMessages(parcelId), data: {'text': text});
+
+  Future<Response> sendParcelVoice(String parcelId, String filePath) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        filePath,
+        contentType: DioMediaType('audio', 'm4a'),
+      ),
+    });
+    return _dio.post(ApiEndpoints.parcelVoiceMessage(parcelId), data: formData);
+  }
+
+  // ─── App Settings (admin) ────────────────────────────────────────────────
+  Future<Response> getAppSettings() => _dio.get(ApiEndpoints.adminSettings);
+
+  Future<Response> setExpressEnabled(bool enabled) =>
+      _dio.put(ApiEndpoints.adminSettingsExpress, data: {'enabled': enabled});
 }

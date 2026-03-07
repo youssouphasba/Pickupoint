@@ -42,8 +42,7 @@ class Settings(BaseSettings):
     PRICE_PER_KG:        float = 100.0   # XOF / kg au-delà de FREE_WEIGHT_KG
     FREE_WEIGHT_KG:      float = 2.0
     MIN_PRICE:           float = 700.0
-    INSURANCE_RATE:      float = 0.02    # 2 % de la valeur déclarée
-    EXPRESS_MULTIPLIER:  float = 1.40    # +40 %
+    EXPRESS_MULTIPLIER:  float = 1.30    # +30 %
     NIGHT_MULTIPLIER:    float = 1.20    # +20 % (20h-7h et dimanche)
     DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
 

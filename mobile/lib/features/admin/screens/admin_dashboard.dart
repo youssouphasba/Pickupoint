@@ -4,6 +4,18 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../providers/admin_provider.dart';
 
+// Provider express settings (admin)
+final _expressSettingsProvider = FutureProvider<bool>((ref) async {
+  try {
+    final api = ref.watch(apiClientProvider);
+    final res = await api.getAppSettings();
+    final data = res.data as Map<String, dynamic>;
+    return data['express_enabled'] as bool? ?? false;
+  } catch (_) {
+    return false;
+  }
+});
+
 class AdminDashboard extends ConsumerWidget {
   const AdminDashboard({super.key});
 
@@ -33,6 +45,10 @@ class AdminDashboard extends ConsumerWidget {
                 const SizedBox(height: 24),
                 _buildStatsGrid(stats),
                 const SizedBox(height: 32),
+                const Text('Paramètres', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const _ExpressToggleTile(),
+                const SizedBox(height: 24),
                 const Text('Actions Rapides', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
                 _buildActionButtons(context),
@@ -114,6 +130,67 @@ class AdminDashboard extends ConsumerWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         onTap: () => context.push(route),
       ),
+    );
+  }
+}
+
+// ── Express toggle isolé (ConsumerStatefulWidget pour état optimiste) ─────
+
+class _ExpressToggleTile extends ConsumerStatefulWidget {
+  const _ExpressToggleTile();
+
+  @override
+  ConsumerState<_ExpressToggleTile> createState() => _ExpressToggleTileState();
+}
+
+class _ExpressToggleTileState extends ConsumerState<_ExpressToggleTile> {
+  bool? _optimistic; // surcharge locale pendant la requête
+  bool  _loading = false;
+
+  Future<void> _toggle(bool current) async {
+    final next = !current;
+    setState(() { _optimistic = next; _loading = true; });
+    try {
+      await ref.read(apiClientProvider).setExpressEnabled(next);
+      ref.invalidate(_expressSettingsProvider);
+    } catch (e) {
+      setState(() => _optimistic = current); // rollback
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final asyncVal = ref.watch(_expressSettingsProvider);
+
+    return asyncVal.when(
+      data: (serverVal) {
+        final enabled = _optimistic ?? serverVal;
+        return Card(
+          child: SwitchListTile(
+            title: const Text('Livraison Express', style: TextStyle(fontWeight: FontWeight.w500)),
+            subtitle: Text(
+              enabled
+                  ? 'Activée — visible par les clients (+30 %)'
+                  : 'Désactivée — masquée pour les clients',
+              style: TextStyle(color: enabled ? const Color(0xFFFF6B00) : Colors.grey, fontSize: 13),
+            ),
+            secondary: _loading
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(Icons.bolt, color: enabled ? const Color(0xFFFF6B00) : Colors.grey),
+            value: enabled,
+            onChanged: _loading ? null : (_) => _toggle(enabled),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

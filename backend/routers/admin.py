@@ -729,3 +729,27 @@ async def reject_payout(payout_id: str, _admin=Depends(require_admin_dep)):
         metadata={"payout_id": payout_id, "amount": payout["amount"]}
     )
     return {"message": "Retrait rejeté", "payout_id": payout_id}
+
+
+# ── App Settings (Express, etc.) ─────────────────────────────────────────────
+
+@router.get("/settings", summary="Lire les paramètres globaux de l'app")
+async def get_app_settings(_admin=Depends(require_admin_dep)):
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0})
+    if not settings_doc:
+        return {"express_enabled": False}
+    return {
+        "express_enabled": settings_doc.get("express_enabled", False),
+    }
+
+
+@router.put("/settings/express", summary="Activer/désactiver la livraison Express")
+async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
+    enabled = bool(body.get("enabled", False))
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {"express_enabled": enabled, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    status = "activée" if enabled else "désactivée"
+    return {"express_enabled": enabled, "message": f"Livraison Express {status}"}

@@ -126,7 +126,6 @@ async def create_rule(
         "price_per_km":         body.price_per_km,
         "min_price":            body.min_price,
         "max_price":            body.max_price,
-        "insurance_rate":       body.insurance_rate,
         "is_active":            True,
         "created_at":           now,
     }

@@ -23,6 +23,18 @@ final parcelProvider = FutureProvider.family<Parcel, String>((ref, id) async {
   return Parcel.fromJson({...parcelData, 'events': timeline});
 });
 
+/// Provider pour savoir si la livraison express est activée (admin).
+final expressEnabledProvider = FutureProvider<bool>((ref) async {
+  try {
+    final api = ref.watch(apiClientProvider);
+    final res = await api.getAppSettings();
+    final data = res.data as Map<String, dynamic>;
+    return data['express_enabled'] as bool? ?? false;
+  } catch (_) {
+    return false;
+  }
+});
+
 /// Provider pour la liste des points relais disponibles.
 final relayPointsProvider = FutureProvider<List<RelayPoint>>((ref) async {
   final api = ref.watch(apiClientProvider);

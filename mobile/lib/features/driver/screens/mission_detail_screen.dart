@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/phone_utils.dart';
@@ -605,6 +606,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             // ── Code de suivi (visible livreur pour montrer au relais) ─
             if (mission.trackingCode != null) ...[
               _buildTrackingCodeCard(mission),
+              const SizedBox(height: 20),
+            ],
+
+            // ── Messagerie colis ──────────────────────────────────────
+            if (mission.status == 'assigned' || mission.status == 'in_progress') ...[
+              ParcelChatWidget(parcelId: mission.parcelId, isClosed: false),
               const SizedBox(height: 20),
             ],
 
