@@ -44,8 +44,6 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     try {
       final authenticated = await _auth.authenticate(
         localizedReason: 'Déverrouillez pour vous connecter',
-        stickyAuth: true,
-        biometricOnly: true,
       );
 
       if (authenticated) {
