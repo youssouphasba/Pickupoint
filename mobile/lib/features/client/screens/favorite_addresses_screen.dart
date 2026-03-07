@@ -19,8 +19,6 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
 
   @override
   void dispose() {
-    nameCtrl.dispose();
-    addrCtrl.dispose();
     super.dispose();
   }
 

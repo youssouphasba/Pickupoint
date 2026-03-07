@@ -9,7 +9,15 @@ class ClientSearchScreen extends StatefulWidget {
 }
 
 class _ClientSearchScreenState extends State<ClientSearchScreen> {
-  final _codeController = TextEditingController();\n\n  @override\n  void dispose() {\n    _codeController.dispose();\n    super.dispose();\n  }\n\n  void _search() {
+  final _codeController = TextEditingController();
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  void _search() {
     final code = _codeController.text.trim();
     if (code.isNotEmpty) {
       context.push('/track/$code');
