@@ -1,0 +1,157 @@
+﻿Running Gradle task 'assembleRelease'...                        
+flutter : ../../AppDat
+a/Local/Pub/Cache/host
+ed/pub.dev/record_linu
+x-0.7.2/lib/record_lin
+ux.dart:12:7: Error: 
+The non-abstract 
+class 'RecordLinux' 
+is missing 
+implementations for 
+these members:
+Au caractère Ligne:1 
+: 1
++ flutter build apk 
+--release > 
+build_log_4.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (../../AppD   
+ ata/L... these me    
+mbers::String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+ - RecordMethodChannel
+PlatformInterface.star
+tStream
+Try to either
+ - provide an 
+implementation,
+ - inherit an 
+implementation from a 
+superclass or mixin,
+ - mark the class as 
+abstract, or
+ - provide a 
+'noSuchMethod' 
+implementation.
+class RecordLinux 
+extends 
+RecordPlatform {
+      ^^^^^^^^^^^
+../../AppData/Local/Pu
+b/Cache/hosted/pub.dev
+/record_platform_inter
+face-1.5.0/lib/src/rec
+ord_platform_interface
+.dart:46:29: Context: 
+'RecordMethodChannelPl
+atformInterface.startS
+tream' is defined 
+here.
+  Future<Stream<Uint8L
+ist>> 
+startStream(String 
+recorderId, 
+RecordConfig config);
+                      
+      ^^^^^^^^^^^
+../../AppData/Local/Pu
+b/Cache/hosted/pub.dev
+/record_linux-0.7.2/li
+b/record_linux.dart:36
+:16: Error: The 
+method 'RecordLinux.ha
+sPermission' has 
+fewer named arguments 
+than those of 
+overridden method 'Rec
+ordMethodChannelPlatfo
+rmInterface.hasPermiss
+ion'.
+  Future<bool> 
+hasPermission(String 
+recorderId) {
+               ^
+../../AppData/Local/Pu
+b/Cache/hosted/pub.dev
+/record_platform_inter
+face-1.5.0/lib/src/rec
+ord_platform_interface
+.dart:74:16: Context: 
+This is the 
+overridden method 
+('hasPermission').
+  Future<bool> 
+hasPermission(String 
+recorderId, {bool 
+request = true});
+               ^
+lib/shared/widgets/par
+cel_chat_widget.dart:1
+84:63: Error: The 
+getter 'userId' isn't 
+defined for the type 
+'User'.
+ - 'User' is from 'pac
+kage:pickupoint/core/m
+odels/user.dart' ('lib
+/core/models/user.dart
+').
+Try correcting the 
+name to the name of 
+an existing getter, 
+or defining a getter 
+or field named 
+'userId'.
+                      
+  isMe: messages[i]['s
+ender_id'] == 
+me?.userId,
+                      
+                      
+                  
+^^^^^^
+Target kernel_snapshot
+_program failed: 
+Exception
+
+
+FAILURE: Build failed 
+with an exception.
+
+* What went wrong:
+Execution failed for 
+task ':app:compileFlut
+terBuildRelease'.
+> Process 'command 'C:
+\src\flutter\bin\flutt
+er.bat'' finished 
+with non-zero exit 
+value 1
+
+* Try:
+> Run with 
+--stacktrace option 
+to get the stack 
+trace.
+> Run with --info or 
+--debug option to get 
+more log output.
+> Run with --scan to 
+get full insights.
+> Get more help at htt
+ps://help.gradle.org.
+
+BUILD FAILED in 1m 30s
+Running Gradle task 'assembleRelease'...                           92,0s
+Gradle task 
+assembleRelease 
+failed with exit code 
+1

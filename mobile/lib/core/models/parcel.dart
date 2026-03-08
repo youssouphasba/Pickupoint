@@ -22,10 +22,10 @@ class ParcelEvent {
         parcelId: json['parcel_id'] as String? ?? '',
         eventType: json['event_type'] as String? ?? '',
         // to_status contient le nouveau statut
-        status: (json['to_status'] ?? json['status'] ?? '') as String,
-        createdAt: DateTime.parse(json['created_at'] as String),
-        note: json['notes'] as String?,
-        actorId: json['actor_id'] as String?,
+        status: (json['to_status'] ?? json['status'] ?? 'created').toString(),
+        createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+        note: json['notes']?.toString(),
+        actorId: json['actor_id']?.toString(),
       );
 }
 
@@ -129,19 +129,19 @@ class Parcel {
       status: (json['status'] is String
               ? json['status']
               : (json['status'] as Map?)?['value'] ?? 'created')
-          as String,
+          .toString(),
       deliveryMode: (json['delivery_mode'] is String
               ? json['delivery_mode']
               : (json['delivery_mode'] as Map?)?['value'] ?? 'relay_to_relay')
-          as String,
-      senderId: json['sender_user_id'] as String? ?? '',
-      senderName: json['sender_name'] as String?,
-      originRelayId: json['origin_relay_id'] as String?,
-      destinationRelayId: json['destination_relay_id'] as String?,
-      recipientName: json['recipient_name'] as String?,
-      recipientPhone: json['recipient_phone'] as String?,
-      destinationAddress: deliveryAddr?['label'] as String?
-          ?? deliveryAddr?['district'] as String?,
+          .toString(),
+      senderId: json['sender_user_id']?.toString() ?? '',
+      senderName: json['sender_name']?.toString(),
+      originRelayId: json['origin_relay_id']?.toString(),
+      destinationRelayId: json['destination_relay_id']?.toString(),
+      recipientName: json['recipient_name']?.toString(),
+      recipientPhone: json['recipient_phone']?.toString(),
+      destinationAddress: deliveryAddr?['label']?.toString()
+          ?? deliveryAddr?['district']?.toString(),
       destinationLat: (geopin?['lat'] as num?)?.toDouble(),
       destinationLng: (geopin?['lng'] as num?)?.toDouble(),
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
@@ -149,15 +149,15 @@ class Parcel {
       hasInsurance: json['is_insured'] as bool? ?? false,
       totalPrice: (json['quoted_price'] as num?)?.toDouble()
           ?? (json['paid_price'] as num?)?.toDouble(),
-      paymentStatus: json['payment_status'] as String?,
-      externalRef: json['external_ref'] as String?,
+      paymentStatus: json['payment_status']?.toString(),
+      externalRef: json['external_ref']?.toString(),
       events: (json['events'] as List<dynamic>?)
               ?.map((e) => ParcelEvent.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
-      assignedDriverId: json['assigned_driver_id'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      initiatedBy: json['initiated_by'] as String? ?? 'sender',
+      assignedDriverId: json['assigned_driver_id']?.toString(),
+      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
+      initiatedBy: json['initiated_by']?.toString() ?? 'sender',
       deliveryConfirmed: json['delivery_confirmed'] as bool? ?? false,
       pickupConfirmed: json['pickup_confirmed'] as bool? ?? false,
       deliveryLocation: json['delivery_location'] as Map<String, dynamic>?,
