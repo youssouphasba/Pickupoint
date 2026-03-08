@@ -181,7 +181,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                       itemCount: messages.length,
                       itemBuilder: (context, i) => _MessageBubble(
                         message: messages[i],
-                        isMe: messages[i]['sender_id'] == me?.userId,
+                        isMe: messages[i]['sender_id'] == me?.id,
                       ),
                     );
                   },
@@ -350,10 +350,10 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ),
             if (type == 'voice')
-              _AudioPlayer(url: message['content'] as String, color: textColor)
+              _AudioPlayer(url: message['content']?.toString() ?? '', color: textColor)
             else
               Text(
-                message['content'] as String? ?? '',
+                message['content']?.toString() ?? '',
                 style: TextStyle(color: textColor, fontSize: 14),
               ),
             const SizedBox(height: 2),

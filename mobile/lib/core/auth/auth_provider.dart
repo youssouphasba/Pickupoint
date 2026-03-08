@@ -291,6 +291,16 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   String _extractError(Object e) {
+    if (e is DioException) {
+      if (e.response?.data != null && e.response!.data is Map) {
+        final data = e.response!.data as Map;
+        final detail = data['detail'];
+        if (detail != null) return detail.toString();
+        final message = data['message'];
+        if (message != null) return message.toString();
+      }
+      return 'Erreur de connexion : ${e.response?.statusCode ?? e.message}';
+    }
     return e.toString().replaceAll('Exception: ', '');
   }
 }
