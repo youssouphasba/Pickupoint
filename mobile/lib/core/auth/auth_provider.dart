@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../api/api_client.dart';
 import '../models/user.dart';
 import 'token_storage.dart';
