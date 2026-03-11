@@ -218,28 +218,35 @@ async def confirm_location(token: str, payload: LocationPayload):
         f"{field_prefix}_confirmed": True,
         "updated_at": datetime.now(timezone.utc),
     }
+
+    if is_recipient:
+        updates["delivery_address"] = location
+    else:
+        updates["origin_location"] = location
     if payload.voice_note:
         updates[f"{field_prefix}_voice_note"] = payload.voice_note
 
     await db.parcels.update_one({"parcel_id": parcel["parcel_id"]}, {"$set": updates})
 
-    # ── Si le destinataire vient de confirmer, on vérifie si on doit créer la mission ──
-    if is_recipient:
-        updated_parcel = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
-        if updated_parcel:
-            mode = updated_parcel.get("delivery_mode", "")
-            status = updated_parcel.get("status", "")
-            
-            from services.parcel_service import _create_delivery_mission
-            from models.common import ParcelStatus
-            
-            if mode.endswith("_to_home"):
-                if status == ParcelStatus.CREATED.value and mode == "home_to_home":
-                    await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-                elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
-                    await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
-                elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
-                    await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
+    # ── Si le destinataire ou l'expéditeur confirme, on vérifie la création de mission ──
+    updated_parcel = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
+    if updated_parcel:
+        mode = updated_parcel.get("delivery_mode", "")
+        status = updated_parcel.get("status", "")
+
+        from services.parcel_service import _create_delivery_mission
+        from models.common import ParcelStatus
+
+        if is_recipient and mode.endswith("_to_home"):
+            if status == ParcelStatus.CREATED.value and mode == "home_to_home":
+                await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
+            elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
+                await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+            elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
+                await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
+
+        if (not is_recipient) and mode.startswith("home_to_") and status == ParcelStatus.CREATED.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
 
     return {"ok": True, "confirmed": field_prefix}
 

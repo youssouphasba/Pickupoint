@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
@@ -5,7 +6,7 @@ from typing import Optional
 class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     BASE_URL: str = "https://pickupoint-production.up.railway.app"
     GOOGLE_DIRECTIONS_API_KEY: Optional[str] = None
 
@@ -51,6 +52,18 @@ class Settings(BaseSettings):
     PLATFORM_RATE:    float = 0.15
     RELAY_RATE:       float = 0.15
     DRIVER_RATE:      float = 0.70
+
+
+    @model_validator(mode="after")
+    def validate_production_security(self):
+        is_prod = self.APP_ENV.lower() in {"production", "prod"}
+        if is_prod and self.DEBUG:
+            raise ValueError("DEBUG must be disabled in production")
+
+        weak_default_secret = "changeme_minimum_32_chars_here_please"
+        if is_prod and (not self.JWT_SECRET or self.JWT_SECRET == weak_default_secret or len(self.JWT_SECRET) < 32):
+            raise ValueError("JWT_SECRET must be configured with at least 32 chars in production")
+        return self
 
     model_config = SettingsConfigDict(
         env_file=[".env", "../.env"],  # cherche dans backend/ puis dans la racine

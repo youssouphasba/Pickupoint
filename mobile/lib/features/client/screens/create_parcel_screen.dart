@@ -43,6 +43,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   final _recipientNameController  = TextEditingController();
   final _recipientPhoneController = TextEditingController(text: '+221');
   final _senderPhoneController    = TextEditingController(text: '+221');
+  final _pickupVoiceNoteController = TextEditingController();
+  final _deliveryVoiceNoteController = TextEditingController();
 
   // ── Adresse domicile destination (relay_to_home / home_to_home) ──────────────
   final _addressLabelController    = TextEditingController();
@@ -74,6 +76,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _recipientNameController.dispose();
     _recipientPhoneController.dispose();
     _senderPhoneController.dispose();
+    _pickupVoiceNoteController.dispose();
+    _deliveryVoiceNoteController.dispose();
     _addressLabelController.dispose();
     _addressDistrictController.dispose();
     _weightController.dispose();
@@ -101,6 +105,11 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   bool _validateCurrentStep() {
     switch (_currentStep) {
       case 0:
+        final isHomeDelivery = _destMode == _DestMode.home;
+        if (isHomeDelivery && _originMode != _OriginMode.gps) {
+          _showError('Pour une livraison à domicile, la géolocalisation de l'expéditeur est obligatoire');
+          return false;
+        }
         if (_originMode == _OriginMode.gps && _originLat == null) {
           _showError('Veuillez capturer votre position GPS');
           return false;
@@ -185,6 +194,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               ? null
               : _addressDistrictController.text.trim(),
           'city': _addressCity,
+          'notes': _deliveryVoiceNoteController.text.trim().isEmpty ? null : _deliveryVoiceNoteController.text.trim(),
         };
       }
 
@@ -198,6 +208,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             'accuracy': _originAccuracy,
           },
           'city': 'Dakar',
+          'notes': _pickupVoiceNoteController.text.trim().isEmpty ? null : _pickupVoiceNoteController.text.trim(),
         };
       }
 
@@ -213,6 +224,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'is_express':           _isExpress,
         'who_pays':             _whoPays,
         'initiated_by':         isReverse ? 'recipient' : 'sender',
+        'pickup_voice_note':     _pickupVoiceNoteController.text.trim().isEmpty ? null : _pickupVoiceNoteController.text.trim(),
+        'delivery_voice_note':   _deliveryVoiceNoteController.text.trim().isEmpty ? null : _deliveryVoiceNoteController.text.trim(),
         if (isReverse) 'sender_phone': _senderPhoneController.text.trim(),
         'recipient_name':  isReverse
             ? (authUser?.fullName ?? authUser?.phone ?? '')
@@ -370,7 +383,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'Le livreur vous livre directement chez vous. En cas d\'absence, redirection vers le relais le plus proche.'
                 : 'Le livreur livre directement chez le destinataire. En cas d\'absence, redirection vers le relais le plus proche.',
-            onTap: () => setState(() => _destMode = _DestMode.home),
+            onTap: () => setState(() {
+              _destMode = _DestMode.home;
+              _originMode = _OriginMode.gps;
+            }),
           ),
           const SizedBox(height: 10),
           _choiceCard(
@@ -399,10 +415,16 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'L\'expéditeur amènera lui-même le colis au relais de son choix.'
                 : 'Vous amenez vous-même le colis au relais de votre choix.',
-            onTap: () => setState(() {
-              _originMode = _OriginMode.relay;
-              _originLat  = null;
-            }),
+            onTap: () {
+              if (_destMode == _DestMode.home) {
+                _showError("Pour livraison domicile, utilisez la géolocalisation GPS de l'expéditeur");
+                return;
+              }
+              setState(() {
+                _originMode = _OriginMode.relay;
+                _originLat  = null;
+              });
+            },
           ),
           const SizedBox(height: 10),
           _choiceCard(
@@ -600,6 +622,17 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                   .toList(),
               onChanged: (v) => setState(() => _addressCity = v ?? 'Dakar'),
             ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _deliveryVoiceNoteController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Instruction vocale destinataire (optionnel)',
+                hintText: 'Ex: entrée derrière la boutique, portail vert',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.mic),
+              ),
+            ),
             const SizedBox(height: 24),
           ],
 
@@ -648,6 +681,17 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                 prefixIcon: Icon(Icons.phone),
               ),
             ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _pickupVoiceNoteController,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Instruction vocale expéditeur (optionnel)',
+              hintText: 'Ex: appeler en arrivant, 2e étage',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.record_voice_over),
+            ),
+          ),
           const SizedBox(height: 80),
         ],
       ),

@@ -104,6 +104,9 @@ class ApiClient {
   Future<Response> confirmLocation(String id, Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcelEvent(id, 'confirm-location'), data: body);
 
+  Future<Response> updateDeliveryAddress(String id, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.updateDeliveryAddress(id), data: body);
+
   Future<Response> rateParcel(String id, int rating, {String? comment, double tip = 0}) =>
       _dio.post(ApiEndpoints.rateParcel(id), data: {
         'rating': rating,

@@ -5,6 +5,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/timeline_widget.dart';
+import '../../../shared/widgets/state_feedback.dart';
 
 class TrackingScreen extends ConsumerStatefulWidget {
   const TrackingScreen({super.key, this.code});
@@ -99,25 +100,17 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.search_off, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text('Saisissez un code pour voir le statut.'),
-          Text('Le code est envoyé à l\'expéditeur.', style: TextStyle(color: Colors.grey, fontSize: 12)),
-        ],
-      ),
+    return const EmptyStateView(
+      icon: Icons.search_off,
+      title: 'Aucun code saisi',
+      subtitle: 'Saisissez un code de suivi pour voir le statut du colis.',
     );
   }
 
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Text(_error!, style: const TextStyle(color: Colors.red)),
-      ),
+    return ErrorStateView(
+      message: _error!,
+      onRetry: () => _track(_searchController.text.trim()),
     );
   }
 

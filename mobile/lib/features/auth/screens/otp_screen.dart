@@ -93,7 +93,22 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.grey),
             ),
-            const SizedBox(height: 48),
+            const SizedBox(height: 24),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade100),
+              ),
+              child: const Text(
+                'Saisissez les 6 chiffres du SMS. Vérifiez aussi vos messages WhatsApp.',
+                style: TextStyle(fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 24),
             OtpInput(
               onCompleted: _verify,
             ),
@@ -101,9 +116,10 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
             if (_isLoading)
               const CircularProgressIndicator()
             else
-              TextButton(
+              TextButton.icon(
+                icon: const Icon(Icons.refresh),
                 onPressed: _secondsRemaining == 0 ? _resend : null,
-                child: Text(
+                label: Text(
                   _secondsRemaining > 0
                       ? 'Renvoyer le code dans ${_secondsRemaining}s'
                       : 'Renvoyer le code',

@@ -74,6 +74,8 @@ class ParcelCreate(BaseModel):
     # GPS expéditeur (HOME_TO_* : capturé dans l'app)
     initiated_by:          str = "sender"    # "sender" | "recipient"
     sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
+    pickup_voice_note:     Optional[str] = None  # note vocale/textuelle expéditeur -> livreur
+    delivery_voice_note:   Optional[str] = None  # note vocale/textuelle destinataire -> livreur
 
 
 class ParcelEvent(BaseModel):
@@ -128,6 +130,15 @@ class ParcelRatingRequest(BaseModel):
     comment:        Optional[str] = None
     tip:            float = 0.0   # XOF pour le livreur
 
+
+class DeliveryAddressUpdatePayload(BaseModel):
+    lat:         float
+    lng:         float
+    accuracy:    Optional[float] = None
+    label:       Optional[str] = None
+    district:    Optional[str] = None
+    city:        Optional[str] = "Dakar"
+    voice_note:  Optional[str] = None
 
 class LocationConfirmPayload(BaseModel):
     lat:       float

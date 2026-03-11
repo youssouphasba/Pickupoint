@@ -13,7 +13,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
-from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest, LocationConfirmPayload
+from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest, LocationConfirmPayload, DeliveryAddressUpdatePayload
 from models.delivery import ProofOfDelivery, CodeDelivery
 from services.parcel_service import create_parcel, transition_status, get_parcel_timeline, _create_delivery_mission
 from services.pricing_service import calculate_price, _haversine_km
@@ -213,6 +213,7 @@ async def confirm_location_authenticated(
 
     updates = {
         "delivery_location":  location,
+        "delivery_address":   location,
         "delivery_confirmed": True,
         "updated_at": datetime.now(timezone.utc),
     }
@@ -237,6 +238,65 @@ async def confirm_location_authenticated(
             await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
 
     return {"ok": True, "message": "Position de livraison confirmée"}
+
+
+@router.put("/{parcel_id}/delivery-address", summary="Mettre à jour l'adresse GPS de livraison (destinataire)")
+async def update_delivery_address(
+    parcel_id: str,
+    payload: DeliveryAddressUpdatePayload,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
+    if not is_recipient and parcel.get("recipient_phone"):
+        is_recipient = parcel["recipient_phone"].endswith(current_user.get("phone", "")[-9:])
+
+    if not is_recipient:
+        raise forbidden_exception("Seul le destinataire peut modifier l'adresse de livraison")
+
+    if not parcel.get("delivery_mode", "").endswith("_to_home"):
+        raise bad_request_exception("Mise à jour GPS disponible uniquement pour livraison à domicile")
+
+    location = {
+        "label": payload.label,
+        "district": payload.district,
+        "city": payload.city or "Dakar",
+        "notes": None,
+        "geopin": {
+            "lat": payload.lat,
+            "lng": payload.lng,
+            "accuracy": payload.accuracy,
+        },
+        "source": "app_recipient_update",
+        "confirmed": True,
+    }
+
+    updates = {
+        "delivery_location": location,
+        "delivery_address": location,
+        "delivery_confirmed": True,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if payload.voice_note:
+        updates["delivery_voice_note"] = payload.voice_note
+
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
+
+    # Mise à jour mission active si elle existe
+    await db.delivery_missions.update_many(
+        {"parcel_id": parcel_id, "status": {"$in": ["pending", "assigned", "in_progress"]}},
+        {"$set": {
+            "delivery_geopin": location["geopin"],
+            "delivery_label": location.get("label") or location.get("district") or "Adresse destinataire",
+            "delivery_city": location.get("city") or "Dakar",
+            "updated_at": datetime.now(timezone.utc),
+        }}
+    )
+
+    return {"ok": True, "message": "Adresse GPS mise à jour"}
 
 
 @router.put("/{parcel_id}/cancel", summary="Annuler un colis (si CREATED)")

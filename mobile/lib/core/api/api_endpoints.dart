@@ -3,10 +3,12 @@
 class ApiEndpoints {
   ApiEndpoints._();
 
-  // Local dev (émulateur Android → 10.0.2.2, appareil réel → IP locale ex: 192.168.1.X)
-  // static const String _base = 'http://10.0.2.2:8001';
-  // Production Railway (décommenter pour prod)
-  static const String _base = 'https://pickupoint-production.up.railway.app';
+  // Surcharge possible à la compilation:
+  // flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
+  static const String _base = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://pickupoint-production.up.railway.app',
+  );
 
   // ─── Auth ────────────────────────────────────────────────────────────────
   static const requestOtp = '$_base/api/auth/request-otp';
@@ -28,6 +30,7 @@ class ApiEndpoints {
   static String codes(String id)          => '$_base/api/parcels/$id/codes';
   static String driverLocation(String id) => '$_base/api/parcels/$id/driver-location';
   static String rateParcel(String id)     => '$_base/api/parcels/$id/rate';
+  static String updateDeliveryAddress(String id) => '$_base/api/parcels/$id/delivery-address';
 
   // ─── Relay points ─────────────────────────────────────────────────────────
   static const relayPoints = '$_base/api/relay-points';
