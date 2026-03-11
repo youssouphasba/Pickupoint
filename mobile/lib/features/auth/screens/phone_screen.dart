@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/utils/phone_utils.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
   const PhoneScreen({super.key});
@@ -17,12 +18,10 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
 
   Future<void> _submit() async {
     // Retirer tous les espaces potentiels insérés par le clavier
-    final phone = _phoneController.text.replaceAll(' ', '');
-    // On s'assure juste que c'est un numéro non vide.
-    // L'API s'occupera de la vraie validation si besoin.
-    if (phone.isEmpty || phone.length < 8) {
+    final phone = normalizePhone(_phoneController.text);
+    if (phone == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer un numéro valide')),
+        const SnackBar(content: Text('Numéro invalide. Format attendu: +221XXXXXXXXX')),
       );
       return;
     }
@@ -63,8 +62,23 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               'Entrez votre numéro de téléphone pour recevoir un code de validation.',
               style: TextStyle(color: Colors.grey),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 20),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade100),
+              ),
+              child: const Text(
+                'Astuce: utilisez votre numéro WhatsApp pour recevoir le code plus facilement.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 12),
             TextField(
+              autofillHints: const [AutofillHints.telephoneNumber],
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(

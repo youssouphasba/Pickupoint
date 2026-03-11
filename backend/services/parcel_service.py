@@ -211,6 +211,13 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
 
     sender_name_str = (user or {}).get("name", "Expéditeur")
 
+    mode = data.delivery_mode.value
+
+    # GPS prioritaire : pour toute collecte domicile, l'expéditeur doit être géolocalisé
+    if mode.startswith("home_to_"):
+        if not data.origin_location or not data.origin_location.geopin:
+            raise bad_request_exception("La position GPS de l'expéditeur est obligatoire pour ce mode de livraison")
+
     now = datetime.now(timezone.utc)
     parcel_id     = _parcel_id()
     tracking_code = generate_tracking_code()
@@ -229,6 +236,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "destination_relay_id":  data.destination_relay_id,
         "delivery_address":      data.delivery_address.model_dump() if data.delivery_address else None,
         "origin_location":       data.origin_location.model_dump() if data.origin_location else None,
+        "pickup_voice_note":    data.pickup_voice_note,
+        "delivery_voice_note":  data.delivery_voice_note,
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
@@ -268,16 +277,27 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             parcel_id=parcel_id
         )
 
-    # ── Gestion de la confirmation de position destinataire ──
+    # ── Gestion de la confirmation GPS (destinataire + expéditeur) ──
     requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")
+    requires_sender_gps_confirmation = (
+        data.delivery_mode.value.startswith("home_to_")
+        and data.initiated_by == "recipient"
+        and bool(data.sender_phone)
+    )
+
     recipient_token = None
-    if requires_recipient_gps:
+    sender_token = None
+    if requires_recipient_gps or requires_sender_gps_confirmation:
         from routers.confirm import generate_confirm_tokens
         recipient_token, sender_token = generate_confirm_tokens()
+
+    if requires_recipient_gps and recipient_token:
         parcel_doc["recipient_confirm_token"] = recipient_token
-        parcel_doc["sender_confirm_token"]    = sender_token
-        parcel_doc["delivery_confirmed"]      = False
-        parcel_doc["pickup_confirmed"]        = True # Saisi dans l'app direct
+        parcel_doc["delivery_confirmed"] = False
+
+    if requires_sender_gps_confirmation and sender_token:
+        parcel_doc["sender_confirm_token"] = sender_token
+        parcel_doc["pickup_confirmed"] = False
 
     # ── Liaison automatique du destinataire si compte existant ──
     recipient_user = await db.users.find_one({"phone": data.recipient_phone}, {"user_id": 1})
@@ -338,7 +358,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     if requires_recipient_gps and recipient_token:
         # On utilise BASE_URL car le site web vitrine n'est pas encore en place
         recipient_confirm_url = f"{settings.BASE_URL}/confirm/{recipient_token}"
-        
+
         # Récupérer le nom de l'expéditeur
         sender_name = "L'expéditeur"
         sender_user = await db.users.find_one({"user_id": sender_user_id}, {"_id": 0, "full_name": 1})
@@ -355,10 +375,24 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         except Exception as e:
             logger.warning(f"SMS de confirmation GPS non envoyé : {e}")
 
+    sender_confirm_url = None
+    if requires_sender_gps_confirmation and sender_token and data.sender_phone:
+        sender_confirm_url = f"{settings.BASE_URL}/confirm/{sender_token}"
+        try:
+            from services.notification_service import _send_sms
+            await _send_sms(
+                data.sender_phone,
+                f"Confirmez votre position GPS pour l'enlèvement du colis {tracking_code}: {sender_confirm_url}"
+            )
+        except Exception as e:
+            logger.warning(f"SMS confirmation GPS expéditeur non envoyé : {e}")
+
     result = {k: v for k, v in parcel_doc.items() if k != "_id"}
     result["payment_url"] = payment_url
     if recipient_confirm_url:
         result["recipient_confirm_url"] = recipient_confirm_url
+    if sender_confirm_url:
+        result["sender_confirm_url"] = sender_confirm_url
 
     return result
 
@@ -633,6 +667,13 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             delivery_city   = (dest_relay.get("address") or {}).get("city", "Dakar")
             delivery_geopin = (dest_relay.get("address") or {}).get("geopin")
     
+
+    # ── Sécurité : Pour les collectes à DOMICILE, il faut la confirmation GPS expéditeur ──
+    if pickup_type == "gps" and mode.startswith("home_to_"):
+        if not parcel.get("pickup_confirmed"):
+            logger.info(f"Création mission suspendue pour {parcel['parcel_id']} : GPS expéditeur manquant.")
+            return
+
     # ── Sécurité : Pour les livraisons à DOMICILE, il faut la confirmation GPS ──
     if delivery_type == "gps" and mode.endswith("_to_home"):
         if not parcel.get("delivery_confirmed"):

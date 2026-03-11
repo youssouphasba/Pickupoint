@@ -169,11 +169,12 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     if (!isRecipient) return false;
     // Uniquement pour livraison à domicile (R2H ou H2H)
     final isHomeDel = parcel.deliveryMode.endsWith('_to_home');
-    return isHomeDel && !parcel.deliveryConfirmed && 
-           ['created', 'dropped_at_origin_relay', 'in_transit'].contains(parcel.status);
+    return isHomeDel &&
+        ['created', 'dropped_at_origin_relay', 'in_transit', 'out_for_delivery'].contains(parcel.status);
   }
 
   Widget _buildConfirmLocationCard(Parcel parcel) {
+    final alreadyConfirmed = parcel.deliveryConfirmed;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -189,7 +190,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               Icon(Icons.location_on, color: Colors.orange.shade800),
               const SizedBox(width: 8),
               Text(
-                'Action requise : Confirmer votre adresse',
+                alreadyConfirmed ? 'Mettre à jour votre adresse GPS' : 'Action requise : Confirmer votre adresse',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.orange.shade900,
@@ -198,17 +199,32 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Pour que le livreur puisse vous trouver, veuillez confirmer votre position GPS actuelle.',
-            style: TextStyle(fontSize: 13),
+          Text(
+            alreadyConfirmed
+                ? 'Vous pouvez corriger votre position GPS et ajouter une note vocale avant la livraison.'
+                : 'Pour que le livreur puisse vous trouver, confirmez votre position GPS actuelle.',
+            style: const TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: LoadingButton(
-              label: 'Confirmer ma position actuelle',
+              label: alreadyConfirmed ? 'Mettre à jour ma position' : 'Confirmer ma position actuelle',
               isLoading: _isConfirmingLocation,
               onPressed: _confirmLocation,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isConfirmingLocation ? null : () async {
+                final voiceNote = await _askVoiceInstruction();
+                if (voiceNote == null || voiceNote.trim().isEmpty) return;
+                await _confirmLocation(voiceNote: voiceNote.trim());
+              },
+              icon: const Icon(Icons.mic),
+              label: const Text('Ajouter instruction vocale'),
             ),
           ),
         ],
@@ -216,7 +232,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
-  Future<void> _confirmLocation() async {
+  Future<void> _confirmLocation({String? voiceNote}) async {
     setState(() => _isConfirmingLocation = true);
     try {
       // 1. Déclenchement permission & capture GPS
@@ -234,10 +250,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
       // 2. Appel API
       final api = ref.read(apiClientProvider);
-      await api.confirmLocation(widget.id, {
+      await api.updateDeliveryAddress(widget.id, {
         'lat': pos.latitude,
         'lng': pos.longitude,
         'accuracy': pos.accuracy,
+        if (voiceNote != null && voiceNote.isNotEmpty) 'voice_note': voiceNote,
       });
 
       // 3. Succès
@@ -258,6 +275,29 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       if (mounted) setState(() => _isConfirmingLocation = false);
     }
   }
+
+  Future<String?> _askVoiceInstruction() async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Instruction vocale'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Ex: je suis derrière la pharmacie, portail bleu',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.pop(context, ctrl.text), child: const Text('Envoyer')),
+        ],
+      ),
+    );
+  }
+
 
   // ── Code collecte (pickup_code) — l'expéditeur le donne au livreur ──────────
   bool _shouldShowPickupCode(dynamic parcel, bool isRecipient) {

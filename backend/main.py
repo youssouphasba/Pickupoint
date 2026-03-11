@@ -4,14 +4,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from core.limiter import limiter
 
 from config import settings
-from database import connect_db, close_db, get_db
+from database import connect_db, close_db, db
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
