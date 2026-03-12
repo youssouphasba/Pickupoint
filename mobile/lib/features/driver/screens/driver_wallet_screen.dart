@@ -18,10 +18,10 @@ class DriverWalletScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Mes Commissions')),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.refresh(driverWalletProvider);
-          ref.refresh(relayTransactionsProvider);
-        },
+        onRefresh: () => Future.wait([
+          ref.refresh(driverWalletProvider.future),
+          ref.refresh(relayTransactionsProvider.future),
+        ]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24),
@@ -95,7 +95,7 @@ class DriverWalletScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: method,
+                initialValue: method,
                 decoration: const InputDecoration(labelText: 'Méthode', border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 'wave', child: Text('Wave')),

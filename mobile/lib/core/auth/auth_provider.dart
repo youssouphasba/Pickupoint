@@ -119,13 +119,18 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   /// Étape 1 — demande OTP
-  Future<void> requestOtp(String phone) async {
+  Future<String?> requestOtp(String phone) async {
     state = const AsyncLoading();
     try {
       final client = ApiClient();
-      await client.requestOtp({'phone': phone});
+      final res = await client.requestOtp({'phone': phone});
+      final data = res.data as Map<String, dynamic>;
+      if (data['sent'] != true) {
+        throw Exception(data['detail'] ?? data['message'] ?? "Envoi OTP indisponible.");
+      }
       // Revenir à unauthenticated pour afficher OtpScreen
-      state = AsyncData(const AuthState(status: AuthStatus.unauthenticated));
+      state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
+      return data['test_code'] as String?;
     } catch (e) {
       state = AsyncData(AuthState(
         status: AuthStatus.unauthenticated,
@@ -144,7 +149,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final data = res.data as Map<String, dynamic>;
 
       if (data['is_new_user'] == true) {
-        state = AsyncData(const AuthState(status: AuthStatus.unauthenticated));
+        state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
         return data['registration_token'] as String;
       }
 
@@ -288,7 +293,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
   Future<void> logout() async {
     await _storage.clearTokens();
-    state = AsyncData(const AuthState(status: AuthStatus.unauthenticated));
+    state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
   }
 
   String _extractError(Object e) {

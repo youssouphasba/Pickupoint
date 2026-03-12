@@ -41,8 +41,8 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
                 circleId: CircleId('point_$i'),
                 center: LatLng(p['lat'], p['lng']),
                 radius: 150, // 150 mètres de rayon pour l'effet "chaleur"
-                fillColor: Colors.red.withOpacity(0.2),
-                strokeColor: Colors.red.withOpacity(0.1),
+                fillColor: Colors.red.withValues(alpha: 0.2),
+                strokeColor: Colors.red.withValues(alpha: 0.1),
                 strokeWidth: 1,
               ),
             );

@@ -40,7 +40,7 @@ class ParcelStatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: _colorForStatus(status).withOpacity(0.1),
+        color: _colorForStatus(status).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: _colorForStatus(status)),
       ),

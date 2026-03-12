@@ -122,20 +122,23 @@ async def distribute_delivery_revenue(parcel: dict):
     """
     from config import settings
 
+    driver_bonus = float(parcel.get("driver_bonus_xof", 0.0) or 0.0)
+
     # COD : paiement à la livraison — le client paye en cash au livreur
     # Le livreur reverse la plateforme et les relais via son wallet (Phase 2)
     # Phase 1 : log seulement, on ne crédite pas le wallet automatiquement
     if parcel.get("who_pays") == "recipient":
         price = parcel.get("paid_price") or parcel.get("quoted_price", 0)
         driver_id = parcel.get("assigned_driver_id")
-        if driver_id and price > 0:
+        collected_total = float(price) + driver_bonus
+        if driver_id and collected_total > 0:
             await db.users.update_one(
                 {"user_id": driver_id},
-                {"$inc": {"cod_balance": float(price)}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                {"$inc": {"cod_balance": collected_total}, "$set": {"updated_at": datetime.now(timezone.utc)}}
             )
             logger.info(
-                "COD livraison %s — montant %s XOF — crédité au cod_balance du livreur %s",
-                parcel.get("parcel_id"), price, driver_id
+                "COD livraison %s — montant collecte %s XOF — crédité au cod_balance du livreur %s",
+                parcel.get("parcel_id"), collected_total, driver_id
             )
         return
 
@@ -178,6 +181,14 @@ async def distribute_delivery_revenue(parcel: dict):
             description=f"Commission livraison {parcel_id}",
             parcel_id=parcel_id,
         )
+        if driver_bonus > 0:
+            await credit_wallet(
+                owner_id=parcel["assigned_driver_id"],
+                owner_type="driver",
+                amount=round(driver_bonus),
+                description=f"Bonus changement d'adresse {parcel_id}",
+                parcel_id=parcel_id,
+            )
 
     # ── Créditer le relais origine ────────────────────────────────────────────
     if parcel.get("origin_relay_id") and origin_share > 0:

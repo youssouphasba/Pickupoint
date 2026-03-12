@@ -12,6 +12,7 @@ import logging
 from typing import Optional
 
 from config import settings
+from core.exceptions import bad_request_exception
 from database import db
 from models.common import DeliveryMode
 from models.parcel import ParcelQuote, QuoteResponse
@@ -30,16 +31,32 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
-async def _relay_geopin(relay_id: Optional[str]) -> Optional[tuple[float, float]]:
-    """Retourne (lat, lng) du relais ou None."""
+async def _relay_geopin(
+    relay_id: Optional[str],
+    *,
+    field_name: str,
+    strict: bool = False,
+) -> Optional[tuple[float, float]]:
+    """Retourne (lat, lng) du relais ou lève une erreur si strict."""
     if not relay_id:
         return None
-    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0, "address": 1})
+
+    query = {"relay_id": relay_id}
+    if strict:
+        query["is_active"] = True
+
+    relay = await db.relay_points.find_one(query, {"_id": 0, "address": 1})
     if not relay:
+        if strict:
+            raise bad_request_exception(f"{field_name} invalide ou inactif")
         return None
+
     geopin = (relay.get("address") or {}).get("geopin")
     if geopin and geopin.get("lat") is not None and geopin.get("lng") is not None:
         return geopin["lat"], geopin["lng"]
+
+    if strict:
+        raise bad_request_exception(f"{field_name} sans coordonnées GPS exploitables")
     return None
 
 
@@ -53,7 +70,11 @@ async def estimate_distance_km(quote: ParcelQuote) -> float:
 
     # Origine
     if quote.origin_relay_id:
-        origin_coords = await _relay_geopin(quote.origin_relay_id)
+        origin_coords = await _relay_geopin(
+            quote.origin_relay_id,
+            field_name="origin_relay_id",
+            strict=True,
+        )
     if not origin_coords and quote.origin_location:
         gp = (quote.origin_location.geopin if hasattr(quote.origin_location, "geopin") else None)
         if gp:
@@ -61,7 +82,11 @@ async def estimate_distance_km(quote: ParcelQuote) -> float:
 
     # Destination
     if quote.destination_relay_id:
-        dest_coords = await _relay_geopin(quote.destination_relay_id)
+        dest_coords = await _relay_geopin(
+            quote.destination_relay_id,
+            field_name="destination_relay_id",
+            strict=True,
+        )
     if not dest_coords and quote.delivery_address:
         gp = (quote.delivery_address.geopin if hasattr(quote.delivery_address, "geopin") else None)
         if gp:

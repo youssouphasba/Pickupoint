@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from models.common import DeliveryMode, ParcelStatus, GeoPin, Address
 
 
@@ -75,6 +75,35 @@ class ParcelCreate(BaseModel):
     pickup_voice_note:     Optional[str] = None  # instruction vocale pour le livreur (collecte)
     delivery_voice_note:   Optional[str] = None  # instruction vocale pour le livreur (livraison)
 
+    @model_validator(mode="after")
+    def validate_delivery_mode_requirements(self):
+        if self.who_pays not in {"sender", "recipient"}:
+            raise ValueError("who_pays must be either 'sender' or 'recipient'")
+
+        has_origin_gps = bool(self.origin_location and self.origin_location.geopin)
+        has_delivery_address = self.delivery_address is not None
+
+        if self.delivery_mode == DeliveryMode.RELAY_TO_RELAY:
+            if not self.origin_relay_id or not self.destination_relay_id:
+                raise ValueError("relay_to_relay requires origin_relay_id and destination_relay_id")
+        elif self.delivery_mode == DeliveryMode.RELAY_TO_HOME:
+            if not self.origin_relay_id:
+                raise ValueError("relay_to_home requires origin_relay_id")
+            if not has_delivery_address:
+                raise ValueError("relay_to_home requires delivery_address")
+        elif self.delivery_mode == DeliveryMode.HOME_TO_RELAY:
+            if not has_origin_gps:
+                raise ValueError("home_to_relay requires origin_location.geopin")
+            if not self.destination_relay_id:
+                raise ValueError("home_to_relay requires destination_relay_id")
+        elif self.delivery_mode == DeliveryMode.HOME_TO_HOME:
+            if not has_origin_gps:
+                raise ValueError("home_to_home requires origin_location.geopin")
+            if not has_delivery_address:
+                raise ValueError("home_to_home requires delivery_address")
+
+        return self
+
 
 class ParcelEvent(BaseModel):
     event_id:    str
@@ -101,6 +130,35 @@ class ParcelQuote(BaseModel):
     is_express:            bool  = False
     who_pays:              str   = "sender"    # "sender" | "recipient"
     promo_code:            Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_quote_requirements(self):
+        if self.who_pays not in {"sender", "recipient"}:
+            raise ValueError("who_pays must be either 'sender' or 'recipient'")
+
+        has_origin_gps = bool(self.origin_location and self.origin_location.geopin)
+        has_delivery_address = self.delivery_address is not None
+
+        if self.delivery_mode == DeliveryMode.RELAY_TO_RELAY:
+            if not self.origin_relay_id or not self.destination_relay_id:
+                raise ValueError("relay_to_relay requires origin_relay_id and destination_relay_id")
+        elif self.delivery_mode == DeliveryMode.RELAY_TO_HOME:
+            if not self.origin_relay_id:
+                raise ValueError("relay_to_home requires origin_relay_id")
+            if not has_delivery_address:
+                raise ValueError("relay_to_home requires delivery_address")
+        elif self.delivery_mode == DeliveryMode.HOME_TO_RELAY:
+            if not has_origin_gps:
+                raise ValueError("home_to_relay requires origin_location.geopin")
+            if not self.destination_relay_id:
+                raise ValueError("home_to_relay requires destination_relay_id")
+        elif self.delivery_mode == DeliveryMode.HOME_TO_HOME:
+            if not has_origin_gps:
+                raise ValueError("home_to_home requires origin_location.geopin")
+            if not has_delivery_address:
+                raise ValueError("home_to_home requires delivery_address")
+
+        return self
 
 
 class QuoteResponse(BaseModel):
@@ -133,3 +191,14 @@ class LocationConfirmPayload(BaseModel):
     lng:       float
     accuracy:  Optional[float] = None
     voice_note: Optional[str]  = None
+
+
+class AddressChangePreviewRequest(BaseModel):
+    lat: float
+    lng: float
+    accuracy: Optional[float] = None
+    voice_note: Optional[str] = None
+
+
+class AddressChangeApplyRequest(AddressChangePreviewRequest):
+    accept_surcharge: bool = False

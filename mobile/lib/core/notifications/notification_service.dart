@@ -1,11 +1,13 @@
-import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
+const bool _pushNotificationsEnabled = bool.fromEnvironment(
+  'ENABLE_PUSH_NOTIFICATIONS',
+  defaultValue: false,
+);
 
 class NotificationService {
   final Ref _ref;
@@ -15,6 +17,10 @@ class NotificationService {
   NotificationService(this._ref);
 
   Future<void> init() async {
+    if (!_pushNotificationsEnabled) {
+      return;
+    }
+
     // 1. Demander les permissions
     NotificationSettings settings = await _fcm.requestPermission(
       alert: true,
@@ -26,12 +32,27 @@ class NotificationService {
       // 2. Récupérer le token et l'envoyer au backend si l'utilisateur est connecté
       String? token = await _fcm.getToken();
       if (token != null) {
-        _uploadToken(token);
+        await _uploadToken(token);
       }
     }
 
     // 3. Écouter le rafraîchissement du token
-    _fcm.onTokenRefresh.listen(_uploadToken);
+    _fcm.onTokenRefresh.listen((token) {
+      _uploadToken(token);
+    });
+
+    // 3bis. Réessayer dès qu'un utilisateur se connecte.
+    _ref.listen(authProvider, (_, next) async {
+      final authState = next.valueOrNull;
+      if (authState?.accessToken == null) {
+        return;
+      }
+
+      final token = await _fcm.getToken();
+      if (token != null) {
+        await _uploadToken(token);
+      }
+    });
 
     // 4. Configurer les notifications locales pour le premier plan
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');

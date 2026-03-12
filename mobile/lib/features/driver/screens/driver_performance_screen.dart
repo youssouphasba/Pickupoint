@@ -38,7 +38,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blue.withOpacity(0.3),
+                    color: Colors.blue.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 5),
                   ),
@@ -73,7 +73,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${currentXpInLevel} / $xpPerLevel XP pour le prochain niveau',
+                    '$currentXpInLevel / $xpPerLevel XP pour le prochain niveau',
                     style: const TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ],
@@ -202,7 +202,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
       children: [
         CircleAvatar(
           radius: 30,
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           child: Icon(icon, color: color, size: 32),
         ),
         const SizedBox(height: 6),
@@ -227,7 +227,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: color.withOpacity(0.1),
+            backgroundColor: color.withValues(alpha: 0.1),
             child: Icon(icon, color: color, size: 20),
           ),
           const SizedBox(width: 16),

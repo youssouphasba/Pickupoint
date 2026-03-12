@@ -3,28 +3,155 @@ Router parcels : CRUD colis + toutes les actions de transition de la machine d'�
 """
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from core.dependencies import get_current_user, require_role
+from core.dependencies import get_current_user, get_current_user_optional, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
-from models.parcel import ParcelCreate, Parcel, ParcelQuote, QuoteResponse, FailDeliveryRequest, RedirectRelayRequest, ParcelRatingRequest, LocationConfirmPayload
+from models.parcel import (
+    ParcelCreate,
+    Parcel,
+    ParcelQuote,
+    QuoteResponse,
+    FailDeliveryRequest,
+    RedirectRelayRequest,
+    ParcelRatingRequest,
+    LocationConfirmPayload,
+    AddressChangePreviewRequest,
+    AddressChangeApplyRequest,
+)
 from models.delivery import ProofOfDelivery, CodeDelivery
-from services.parcel_service import create_parcel, transition_status, get_parcel_timeline, _create_delivery_mission
+from services.parcel_service import (
+    create_parcel,
+    transition_status,
+    get_parcel_timeline,
+    _create_delivery_mission,
+    _record_event,
+    preview_address_change,
+    sync_active_mission_with_parcel,
+)
 from services.pricing_service import calculate_price, _haversine_km
 from services.wallet_service import credit_wallet, debit_wallet
+from config import settings
 
 router = APIRouter()
 
 
+def _is_admin(user: dict) -> bool:
+    return user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+
+
+def _relay_matches_parcel(parcel: dict, current_user: dict) -> bool:
+    relay_id = current_user.get("relay_point_id")
+    if not relay_id:
+        return False
+    return relay_id in {
+        parcel.get("origin_relay_id"),
+        parcel.get("destination_relay_id"),
+        parcel.get("redirect_relay_id"),
+        parcel.get("transit_relay_id"),
+    }
+
+
+def _build_confirmed_location_payload(payload: LocationConfirmPayload | AddressChangePreviewRequest | AddressChangeApplyRequest, *, source: str) -> dict:
+    return {
+        "label": None,
+        "district": None,
+        "city": "Dakar",
+        "notes": None,
+        "geopin": {
+            "lat": payload.lat,
+            "lng": payload.lng,
+            "accuracy": payload.accuracy,
+        },
+        "source": source,
+        "confirmed": True,
+    }
+
+
+def _ensure_relay_action_allowed(parcel: dict, current_user: dict, *allowed_relay_ids: Optional[str]) -> None:
+    if _is_admin(current_user):
+        return
+
+    relay_id = current_user.get("relay_point_id")
+    if not relay_id:
+        raise forbidden_exception("Aucun relais n'est associé à cet agent")
+
+    normalized = {relay for relay in allowed_relay_ids if relay}
+    if relay_id not in normalized:
+        raise forbidden_exception("Cette action n'est autorisée que depuis le relais concerné")
+
+
+def _ensure_driver_action_allowed(parcel: dict, current_user: dict) -> None:
+    if _is_admin(current_user):
+        return
+
+    assigned_driver_id = parcel.get("assigned_driver_id")
+    if not assigned_driver_id or assigned_driver_id != current_user["user_id"]:
+        raise forbidden_exception("Cette action est réservée au livreur assigné")
+
+
+async def _active_mission_for_parcel(parcel_id: str) -> Optional[dict]:
+    return await db.delivery_missions.find_one(
+        {"parcel_id": parcel_id, "status": {"$in": ["pending", "assigned", "in_progress"]}},
+        {"_id": 0},
+    )
+
+
+def _delivery_is_blocked_by_payment(parcel: dict) -> bool:
+    return parcel.get("payment_status") != "paid" and not parcel.get("payment_override")
+
+
+def _home_mission_ready(parcel: dict) -> bool:
+    mode = parcel.get("delivery_mode", "")
+    if not mode.endswith("_to_home"):
+        return False
+    if mode.startswith("home_to_") and not parcel.get("pickup_confirmed"):
+        return False
+    return bool(parcel.get("delivery_confirmed"))
+
+
 @router.post("/quote", response_model=QuoteResponse, summary="Calculer un devis (sans créer)")
-async def quote_parcel(body: ParcelQuote):
-    return await calculate_price(body)
+async def quote_parcel(
+    body: ParcelQuote,
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+):
+    sender_tier = "bronze"
+    is_frequent = False
+    is_first = False
+
+    if current_user:
+        user_id = current_user["user_id"]
+        user = await db.users.find_one({"user_id": user_id})
+        if user:
+            sender_tier = user.get("loyalty_tier", "bronze")
+
+            month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            delivered_count = await db.parcels.count_documents({
+                "sender_user_id": user_id,
+                "status": "delivered",
+                "created_at": {"$gte": month_ago},
+            })
+            is_frequent = delivered_count >= 10
+
+            total_delivered = await db.parcels.count_documents({
+                "sender_user_id": user_id,
+                "status": "delivered",
+            })
+            is_first = total_delivered == 0
+
+    return await calculate_price(
+        body,
+        sender_tier=sender_tier,
+        is_frequent=is_frequent,
+        user_id=current_user["user_id"] if current_user else None,
+        is_first_delivery=is_first,
+    )
 
 
 @router.post("/check-promo", summary="Vérifier un code promo (Client)")
@@ -131,25 +258,9 @@ async def list_parcels(
 
 from core.utils import mask_phone
 
-@router.get("/{parcel_id}/driver-location", summary="Position GPS du livreur actif pour ce colis")
-async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_current_user)):
-    mission = await db.delivery_missions.find_one(
-        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
-        {"_id": 0, "driver_location": 1, "eta_text": 1, "distance_text": 1, "eta_seconds": 1},
-    )
-    if not mission or not mission.get("driver_location"):
-        raise not_found_exception("No driver location available")
-    return mission
 
-
-@router.get("/{parcel_id}", summary="Détail + timeline")
-async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_user)):
-    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
-    if not parcel:
-        raise not_found_exception("Colis")
-    
-    # Déterminer le rôle du viewer AVANT le masquage
-    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+def _can_access_parcel(parcel: dict, current_user: dict) -> tuple[bool, bool, bool, bool]:
+    is_admin = _is_admin(current_user)
     is_sender = parcel.get("sender_user_id") == current_user["user_id"]
     is_recipient = (
         parcel.get("recipient_user_id") == current_user["user_id"]
@@ -159,9 +270,102 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             and parcel["recipient_phone"].endswith(current_user["phone"][-9:])
         )
     )
+    is_driver = (
+        current_user["role"] == UserRole.DRIVER.value
+        and parcel.get("assigned_driver_id") == current_user["user_id"]
+    )
+    is_relay = current_user["role"] == UserRole.RELAY_AGENT.value and _relay_matches_parcel(parcel, current_user)
+    return is_admin or is_sender or is_recipient or is_driver or is_relay, is_sender, is_recipient, is_driver
+
+@router.get("/{parcel_id}/driver-location", summary="Position GPS du livreur actif pour ce colis")
+async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_current_user)):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    allowed, _, _, _ = _can_access_parcel(parcel, current_user)
+    if not allowed:
+        raise forbidden_exception("Accès refusé à ce suivi live")
+
+    mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {
+            "_id": 0,
+            "driver_location": 1,
+            "eta_text": 1,
+            "distance_text": 1,
+            "eta_seconds": 1,
+            "encoded_polyline": 1,
+            "delivery_geopin": 1,
+            "delivery_label": 1,
+            "location_updated_at": 1,
+        },
+    )
+    if not mission or not mission.get("driver_location"):
+        return {"available": False, "location": None}
+
+    return {
+        "available": True,
+        "location": mission.get("driver_location"),
+        "eta_text": mission.get("eta_text"),
+        "distance_text": mission.get("distance_text"),
+        "eta_seconds": mission.get("eta_seconds"),
+        "encoded_polyline": mission.get("encoded_polyline"),
+        "destination": {
+            "geopin": mission.get("delivery_geopin"),
+            "label": mission.get("delivery_label"),
+        },
+        "location_updated_at": mission.get("location_updated_at"),
+    }
+
+
+@router.get("/{parcel_id}", summary="Détail + timeline")
+async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_user)):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    
+    # Déterminer le rôle du viewer AVANT le masquage
+    allowed, is_sender, is_recipient, is_driver = _can_access_parcel(parcel, current_user)
+    is_admin = _is_admin(current_user)
+    if not allowed:
+        raise forbidden_exception("Accès refusé à ce colis")
 
     # Injecter le flag dans la réponse (Flutter l'utilise pour l'UX)
     parcel["is_recipient"] = bool(is_recipient)
+
+    active_mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {
+            "_id": 0,
+            "driver_location": 1,
+            "eta_text": 1,
+            "distance_text": 1,
+            "eta_seconds": 1,
+            "encoded_polyline": 1,
+            "payment_status": 1,
+            "payment_method": 1,
+            "who_pays": 1,
+            "pickup_voice_note": 1,
+            "delivery_voice_note": 1,
+        },
+    )
+    if active_mission:
+        parcel["driver_location"] = active_mission.get("driver_location")
+        parcel["eta_text"] = active_mission.get("eta_text")
+        parcel["distance_text"] = active_mission.get("distance_text")
+        parcel["eta_seconds"] = active_mission.get("eta_seconds")
+        parcel["encoded_polyline"] = active_mission.get("encoded_polyline")
+        parcel["payment_method"] = active_mission.get("payment_method") or parcel.get("payment_method")
+        parcel["who_pays"] = active_mission.get("who_pays") or parcel.get("who_pays")
+        parcel["pickup_voice_note"] = active_mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
+        parcel["delivery_voice_note"] = active_mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
+
+    parcel["delivery_blocked_by_payment"] = (
+        parcel.get("status") == ParcelStatus.OUT_FOR_DELIVERY.value
+        and parcel.get("payment_status") != "paid"
+        and not parcel.get("payment_override")
+    )
 
     if not is_admin:
         # Masquer le téléphone
@@ -239,23 +443,13 @@ async def confirm_location_authenticated(
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut confirmer la position de livraison")
 
-    location = {
-        "label":    None,
-        "district": None,
-        "city":     "Dakar",
-        "notes":    None,
-        "geopin": {
-            "lat":      payload.lat,
-            "lng":      payload.lng,
-            "accuracy": payload.accuracy,
-        },
-        "source":    "app_recipient",
-        "confirmed": True,
-    }
+    location = _build_confirmed_location_payload(payload, source="app_recipient")
 
     updates = {
         "delivery_location":  location,
+        "delivery_address":   location,
         "delivery_confirmed": True,
+        "gps_reminders.recipient.confirmed_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
     if payload.voice_note:
@@ -265,20 +459,125 @@ async def confirm_location_authenticated(
     
     # Recharger pour avoir les champs à jour pour la mission
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    await sync_active_mission_with_parcel(updated_parcel)
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="RECIPIENT_LOCATION_CONFIRMED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes="Position de livraison confirmée via application",
+    )
     
-    # ── Déclenchement automatique de la mission si prêt ──
-    mode = updated_parcel.get("delivery_mode", "")
     status = updated_parcel.get("status", "")
-    
-    if mode.endswith("_to_home"):
-        if status == ParcelStatus.CREATED.value and mode == "home_to_home":
+    if _home_mission_ready(updated_parcel):
+        if status == ParcelStatus.CREATED.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
         elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
 
     return {"ok": True, "message": "Position de livraison confirmée"}
+
+
+@router.post("/{parcel_id}/delivery-address/preview", summary="Prévisualiser un changement d'adresse de livraison")
+async def preview_delivery_address_change(
+    parcel_id: str,
+    payload: AddressChangePreviewRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    _, _, is_recipient, _ = _can_access_parcel(parcel, current_user)
+    if not is_recipient and not _is_admin(current_user):
+        raise forbidden_exception("Seul le destinataire peut demander un changement d'adresse")
+
+    if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
+        raise bad_request_exception("Colis déjà terminé, modification impossible")
+
+    preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
+    return {"ok": True, **preview}
+
+
+@router.put("/{parcel_id}/delivery-address/apply", summary="Appliquer un changement d'adresse de livraison")
+async def apply_delivery_address_change(
+    parcel_id: str,
+    payload: AddressChangeApplyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    _, _, is_recipient, _ = _can_access_parcel(parcel, current_user)
+    if not is_recipient and not _is_admin(current_user):
+        raise forbidden_exception("Seul le destinataire peut appliquer un changement d'adresse")
+
+    if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
+        raise bad_request_exception("Colis déjà terminé, modification impossible")
+
+    preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
+    if preview["requires_acceptance"] and not payload.accept_surcharge:
+        raise bad_request_exception("Ce changement nécessite l'acceptation du surcoût avant application")
+
+    location = _build_confirmed_location_payload(payload, source="app_recipient")
+    now = datetime.now(timezone.utc)
+    updates = {
+        "delivery_location": location,
+        "delivery_address": location,
+        "delivery_confirmed": True,
+        "gps_reminders.recipient.confirmed_at": now,
+        "updated_at": now,
+    }
+    if payload.voice_note:
+        updates["delivery_voice_note"] = payload.voice_note
+
+    active_mission = await _active_mission_for_parcel(parcel_id)
+    new_bonus_total = float(parcel.get("driver_bonus_xof", 0.0))
+    if preview["requires_acceptance"]:
+        new_bonus_total += float(preview.get("surcharge_xof", 0.0))
+        updates["address_change_surcharge_xof"] = float(parcel.get("address_change_surcharge_xof", 0.0)) + float(
+            preview.get("surcharge_xof", 0.0)
+        )
+        updates["driver_bonus_xof"] = new_bonus_total
+
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
+
+    updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    earn_amount = None
+    if active_mission and preview["requires_acceptance"]:
+        earn_amount = float(active_mission.get("earn_amount", 0.0)) + float(preview.get("surcharge_xof", 0.0))
+    await sync_active_mission_with_parcel(updated_parcel, earn_amount=earn_amount)
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="DELIVERY_ADDRESS_UPDATED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes="Adresse de livraison mise à jour",
+        metadata={
+            "distance_delta_km": preview.get("distance_delta_km", 0.0),
+            "surcharge_xof": preview.get("surcharge_xof", 0.0),
+            "surcharge_accepted": bool(preview["requires_acceptance"]),
+        },
+    )
+
+    status = updated_parcel.get("status", "")
+    if _home_mission_ready(updated_parcel):
+        if status == ParcelStatus.CREATED.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
+            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
+
+    return {
+        "ok": True,
+        "message": "Adresse de livraison mise à jour",
+        **preview,
+        "delivery_blocked_by_payment": _delivery_is_blocked_by_payment(updated_parcel),
+    }
 
 
 @router.put("/{parcel_id}/delivery-address", summary="Mettre à jour l'adresse/position de livraison (destinataire)")
@@ -302,22 +601,21 @@ async def update_delivery_address(
     if parcel.get("status") in ("delivered", "cancelled", "returned"):
         raise bad_request_exception("Colis déjà terminé, modification impossible")
 
-    location = {
-        "label":    None,
-        "district": None,
-        "city":     "Dakar",
-        "notes":    None,
-        "geopin": {
-            "lat":      payload.lat,
-            "lng":      payload.lng,
-            "accuracy": payload.accuracy,
-        },
-        "source":    "app_recipient",
-        "confirmed": True,
-    }
+    preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
+    if preview["requires_acceptance"]:
+        return {
+            "ok": False,
+            "requires_acceptance": True,
+            "message": "Cette modification augmente le trajet restant. Prévisualisez puis acceptez le surcoût.",
+            **preview,
+        }
+
+    location = _build_confirmed_location_payload(payload, source="app_recipient")
     updates = {
         "delivery_location":  location,
+        "delivery_address":   location,
         "delivery_confirmed": True,
+        "gps_reminders.recipient.confirmed_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
     if payload.voice_note:
@@ -327,12 +625,20 @@ async def update_delivery_address(
 
     # Déclencher une mission si les conditions sont réunies (premier appel)
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
-    mode   = updated_parcel.get("delivery_mode", "")
+    await sync_active_mission_with_parcel(updated_parcel)
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="DELIVERY_ADDRESS_UPDATED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes="Adresse de livraison mise à jour par le destinataire",
+        metadata={"distance_delta_km": preview.get("distance_delta_km", 0.0)},
+    )
     status = updated_parcel.get("status", "")
-    if mode.endswith("_to_home"):
-        if status == ParcelStatus.CREATED.value and mode == "home_to_home":
+    if _home_mission_ready(updated_parcel):
+        if status == ParcelStatus.CREATED.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value and mode == "relay_to_home":
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
         elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
@@ -355,6 +661,67 @@ async def cancel_parcel(parcel_id: str, current_user: dict = Depends(get_current
 
 
 # ── Actions agents relais ─────────────────────────────────────────────────────
+async def _scan_departure_from_origin_relay(parcel: dict, current_user: dict, *, batch: bool = False) -> dict:
+    _ensure_relay_action_allowed(parcel, current_user, parcel.get("origin_relay_id"))
+    note = "Batch scan: depart relais origine" if batch else "Depart du relais origine"
+    if parcel.get("delivery_mode") == "relay_to_home":
+        note = "Batch scan: depart relais origine vers domicile" if batch else "Depart du relais origine vers domicile"
+    return await transition_status(
+        parcel["parcel_id"],
+        ParcelStatus.IN_TRANSIT,
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes=note,
+    )
+
+
+async def _scan_arrival_at_relay(parcel: dict, current_user: dict, *, batch: bool = False) -> dict:
+    target_relay_id = (
+        parcel.get("redirect_relay_id")
+        or parcel.get("transit_relay_id")
+        or parcel.get("destination_relay_id")
+    )
+    _ensure_relay_action_allowed(parcel, current_user, target_relay_id)
+
+    current_status = parcel["status"]
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    prefix = "Batch scan: " if batch else ""
+
+    if current_status == ParcelStatus.REDIRECTED_TO_RELAY.value:
+        return await transition_status(
+            parcel["parcel_id"],
+            ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}colis redirige disponible au retrait",
+            **actor,
+        )
+
+    if current_status == ParcelStatus.IN_TRANSIT.value:
+        return await transition_status(
+            parcel["parcel_id"],
+            ParcelStatus.AT_DESTINATION_RELAY,
+            notes=f"{prefix}arrivee au relais de destination",
+            **actor,
+        )
+
+    if current_status == ParcelStatus.AT_DESTINATION_RELAY.value:
+        return await transition_status(
+            parcel["parcel_id"],
+            ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}colis pret au retrait",
+            **actor,
+        )
+
+    if current_status == ParcelStatus.OUT_FOR_DELIVERY.value and parcel.get("delivery_mode") == "home_to_relay":
+        return await transition_status(
+            parcel["parcel_id"],
+            ParcelStatus.AT_DESTINATION_RELAY,
+            notes=f"{prefix}depot du livreur au relais de destination",
+            **actor,
+        )
+
+    raise bad_request_exception(f"Impossible de receptionner un colis en statut '{current_status}'")
+
+
 @router.post("/{parcel_id}/drop-at-relay", summary="Scan entrée relais origine (agent)")
 async def drop_at_relay(
     parcel_id: str,
@@ -363,6 +730,13 @@ async def drop_at_relay(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    _ensure_relay_action_allowed(parcel, current_user, parcel.get("origin_relay_id"))
+    if parcel.get("status") != ParcelStatus.CREATED.value:
+        raise bad_request_exception("Seuls les colis créés peuvent être déposés au relais d'origine")
+
     updated = await transition_status(
         parcel_id, ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
@@ -383,45 +757,10 @@ async def arrive_relay(
     if not parcel:
         raise not_found_exception("Colis")
 
-    current_status = parcel["status"]
-    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    if parcel["status"] == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+        return await _scan_departure_from_origin_relay(parcel, current_user)
 
-    if current_status == ParcelStatus.REDIRECTED_TO_RELAY.value:
-        # Colis redirigé après échec → disponible directement
-        return await transition_status(
-            parcel_id, ParcelStatus.AVAILABLE_AT_RELAY,
-            notes="Réception colis redirigé après échec de livraison", **actor,
-        )
-
-    elif current_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-        delivery_mode = parcel.get("delivery_mode", "")
-        if delivery_mode == "relay_to_home":
-            # R2H : le driver vient chercher au relais origine → seulement IN_TRANSIT
-            return await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé (R2H)", **actor)
-        else:
-            # R2R / autres : DROPPED → IN_TRANSIT → AT_DESTINATION_RELAY → AVAILABLE_AT_RELAY
-            await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Transit confirmé", **actor)
-            await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
-            return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
-
-    elif current_status == ParcelStatus.IN_TRANSIT.value:
-        # Arrivée au relais destination depuis le transit
-        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
-        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
-
-    elif current_status == ParcelStatus.AT_DESTINATION_RELAY.value:
-        # Déjà au relais, juste marquer disponible
-        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
-
-    elif current_status == ParcelStatus.OUT_FOR_DELIVERY.value:
-        # H2R : le livreur livre le colis directement au relais destinataire
-        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, notes="Livreur dépose au relais destinataire (H2R)", **actor)
-        return await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
-
-    else:
-        raise bad_request_exception(
-            f"Impossible de réceptionner un colis en statut '{current_status}'"
-        )
+    return await _scan_arrival_at_relay(parcel, current_user)
 
 
 @router.post("/bulk-action", summary="Actions en masse pour les relais (Batch Scanning)")
@@ -435,48 +774,28 @@ async def bulk_relay_action(
     Traite une liste de codes de suivi pour un relais (entrée ou réception).
     """
     results = []
-    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
     
     for code in codes:
         try:
-            parcel = await db.parcels.find_one({"tracking_code": code.strip().upper()})
+            parcel = await db.parcels.find_one({"tracking_code": code.strip().upper()}, {"_id": 0})
             if not parcel:
                 results.append({"code": code, "success": False, "error": "Introuvable"})
                 continue
             
-            parcel_id = parcel["parcel_id"]
             status = parcel["status"]
-            
-            # Logique simplifiée identique à arrive_relay / drop_at_relay
-            arrive_statuses = {
-                ParcelStatus.REDIRECTED_TO_RELAY.value,
-                ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
-                ParcelStatus.IN_TRANSIT.value,
-                ParcelStatus.AT_DESTINATION_RELAY.value,
-                ParcelStatus.OUT_FOR_DELIVERY.value,  # H2R : driver livre au relais
-            }
-            
-            if status in arrive_statuses:
-                # Réutiliser la même logique que arrive_relay (transitions chaînées selon statut)
-                if status == ParcelStatus.REDIRECTED_TO_RELAY.value:
-                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Colis redirigé", **actor)
-                elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-                    delivery_mode = parcel.get("delivery_mode", "")
-                    if delivery_mode == "relay_to_home":
-                        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Batch scan: Transit R2H", **actor)
-                    else:
-                        await transition_status(parcel_id, ParcelStatus.IN_TRANSIT, notes="Batch scan: Transit", **actor)
-                        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
-                        await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
-                elif status in {ParcelStatus.IN_TRANSIT.value, ParcelStatus.AT_DESTINATION_RELAY.value}:
-                    if status == ParcelStatus.IN_TRANSIT.value:
-                        await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, **actor)
-                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, notes="Batch scan: Arrivée", **actor)
-                elif status == ParcelStatus.OUT_FOR_DELIVERY.value:
-                    await transition_status(parcel_id, ParcelStatus.AT_DESTINATION_RELAY, notes="Batch scan: H2R depot relais", **actor)
-                    await transition_status(parcel_id, ParcelStatus.AVAILABLE_AT_RELAY, **actor)
+            if status == ParcelStatus.CREATED.value:
+                _ensure_relay_action_allowed(parcel, current_user, parcel.get("origin_relay_id"))
+                await transition_status(
+                    parcel["parcel_id"],
+                    ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
+                    actor_id=current_user["user_id"],
+                    actor_role=current_user["role"],
+                    notes="Batch scan: depot au relais origine",
+                )
+            elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+                await _scan_departure_from_origin_relay(parcel, current_user, batch=True)
             else:
-                await transition_status(parcel_id, ParcelStatus.DROPPED_AT_ORIGIN_RELAY, notes="Batch scan: Dépôt", **actor)
+                await _scan_arrival_at_relay(parcel, current_user, batch=True)
                 
             results.append({"code": code, "success": True})
         except Exception as e:
@@ -493,12 +812,24 @@ async def handout_parcel(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    _ensure_relay_action_allowed(
+        parcel,
+        current_user,
+        parcel.get("redirect_relay_id"),
+        parcel.get("destination_relay_id"),
+        parcel.get("transit_relay_id"),
+    )
+    if parcel.get("status") not in {ParcelStatus.AVAILABLE_AT_RELAY.value, ParcelStatus.AT_DESTINATION_RELAY.value}:
+        raise bad_request_exception("Le colis doit être au relais pour une remise finale")
+    if _delivery_is_blocked_by_payment(parcel):
+        raise bad_request_exception("Paiement non confirmé. La remise finale est bloquée.")
+
     if proof.proof_type == "pin":
         if not proof.pin_code:
             raise bad_request_exception("PIN obligatoire pour remise au relais")
-        parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"relay_pin": 1, "delivery_code": 1})
-        if not parcel:
-            raise not_found_exception("Colis")
         stored_pin = parcel.get("relay_pin") or parcel.get("delivery_code", "")
         if stored_pin and proof.pin_code.strip() != stored_pin.strip():
             raise bad_request_exception("PIN incorrect")
@@ -519,16 +850,17 @@ async def pickup_parcel(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    parcel = await db.parcels.find_one({"parcel_id": parcel_id})
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
     
     if parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Action impossible.")
+    _ensure_driver_action_allowed(parcel, current_user)
 
     now = datetime.now(timezone.utc)
     await db.parcels.update_one(
-        {"parcel_id": parcel_id},
+        {"parcel_id": parcel_id, "assigned_driver_id": parcel.get("assigned_driver_id")},
         {"$set": {"assigned_driver_id": current_user["user_id"], "updated_at": now}},
     )
     return await transition_status(
@@ -549,19 +881,18 @@ async def deliver_parcel(
     if not parcel:
         raise not_found_exception("Colis")
 
-    # ── Validation du paiement (Informationnelle) ──────────────────────
-    if parcel.get("payment_status") != "paid":
-        logger.warning(f"Livraison effectuée pour {parcel_id} sans confirmation de paiement (status: {parcel.get('payment_status')})")
-        # On ne bloque plus : raise bad_request_exception(...) enlevé
-
-    # ── Validation du code ─────────────────────────────────────────────
     if parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Livraison impossible.")
+    _ensure_driver_action_allowed(parcel, current_user)
+    if parcel.get("status") != ParcelStatus.OUT_FOR_DELIVERY.value:
+        raise bad_request_exception("Le colis doit être en cours de livraison pour être remis")
+    if _delivery_is_blocked_by_payment(parcel):
+        raise bad_request_exception("Paiement non confirmé. La remise finale est bloquée.")
 
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
         raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 4 chiffres.")
 
-    # ── Géofence : livreur doit être à moins de 10km (MVP) ─────────────
+    # ── Géofence : livreur doit être à moins de 500m ───────────────────
     if parcel.get("is_simulation"):
         logger.info(f"Bypass geofence pour colis de simulation {parcel_id}")
     elif body.driver_lat is not None and body.driver_lng is not None:
@@ -572,9 +903,9 @@ async def deliver_parcel(
         dest_lng = geo.get("lng")
         if dest_lat is not None and dest_lng is not None:
             dist_m = _haversine_km(body.driver_lat, body.driver_lng, dest_lat, dest_lng) * 1000
-            if dist_m > 10000: # 10 km
+            if dist_m > 500:
                 raise bad_request_exception(
-                    f"Vous êtes trop loin de l'adresse de livraison ({int(dist_m/1000)} km). Rapprochez-vous (< 10 km)."
+                    f"Vous êtes trop loin de l'adresse de livraison ({int(dist_m)} m). Rapprochez-vous (< 500 m)."
                 )
 
     updated = await transition_status(
@@ -598,6 +929,12 @@ async def fail_delivery(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    _ensure_driver_action_allowed(parcel, current_user)
+    if parcel.get("status") != ParcelStatus.OUT_FOR_DELIVERY.value:
+        raise bad_request_exception("L'échec ne peut être déclaré que pendant une livraison active")
     return await transition_status(
         parcel_id, ParcelStatus.DELIVERY_FAILED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
@@ -614,6 +951,20 @@ async def redirect_to_relay(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    _ensure_driver_action_allowed(parcel, current_user)
+    if parcel.get("status") not in {ParcelStatus.DELIVERY_FAILED.value, ParcelStatus.OUT_FOR_DELIVERY.value}:
+        raise bad_request_exception("La redirection n'est possible qu'après un échec ou depuis une livraison active")
+
+    relay = await db.relay_points.find_one(
+        {"relay_id": body.redirect_relay_id, "is_active": True},
+        {"_id": 0, "relay_id": 1},
+    )
+    if not relay:
+        raise bad_request_exception("Relais de redirection invalide ou inactif")
+
     now = datetime.now(timezone.utc)
     await db.parcels.update_one(
         {"parcel_id": parcel_id},

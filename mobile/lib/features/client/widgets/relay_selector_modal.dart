@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 
 class RelaySelectorModal extends ConsumerStatefulWidget {
   const RelaySelectorModal({super.key});

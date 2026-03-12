@@ -150,7 +150,7 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                     : Switch(
                         value: isAvailable,
                         onChanged: (_) => _toggleAvailability(),
-                        activeColor: Colors.green,
+                        activeThumbColor: Colors.green,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
               ]),
@@ -232,10 +232,10 @@ class _MissionsList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(availableMissionsProvider);
-        ref.refresh(myMissionsProvider);
-      },
+      onRefresh: () => Future.wait([
+        ref.refresh(availableMissionsProvider(driverLoc).future),
+        ref.refresh(myMissionsProvider.future),
+      ]),
       child: asyncValue.when(
         data: (missions) {
           // Pour "Mes missions" : séparer actives et terminées
@@ -331,7 +331,7 @@ class _MissionsList extends ConsumerWidget {
       color: Colors.grey.shade50,
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           child: Icon(icon, color: color, size: 20),
         ),
         title: Text(
@@ -409,7 +409,7 @@ class _MissionCard extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: _distanceColor(mission.distanceKm!).withOpacity(0.12),
+                  color: _distanceColor(mission.distanceKm!).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -529,7 +529,7 @@ class _MissionCard extends ConsumerWidget {
       final api = ref.read(apiClientProvider);
       await api.acceptMission(mission.id);
       ref.invalidate(availableMissionsProvider);
-      ref.refresh(myMissionsProvider);
+      ref.invalidate(myMissionsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Course acceptée ! Bonne livraison 🛵'),

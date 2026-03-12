@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../providers/admin_provider.dart';
 
 class AdminAnomaliesScreen extends ConsumerWidget {
@@ -55,7 +54,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: (isHigh ? Colors.red : Colors.orange).withOpacity(0.1),
+                                color: (isHigh ? Colors.red : Colors.orange).withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(

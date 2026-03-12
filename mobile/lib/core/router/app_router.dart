@@ -215,9 +215,15 @@ class ClientShell extends StatelessWidget {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(location),
         onTap: (i) {
-          if (i == 0) context.go('/client');
-          if (i == 1) context.go('/client/search');
-          if (i == 2) context.go('/client/profile');
+          if (i == 0) {
+            context.go('/client');
+          }
+          if (i == 1) {
+            context.go('/client/search');
+          }
+          if (i == 2) {
+            context.go('/client/profile');
+          }
         },
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Accueil'),
@@ -239,8 +245,11 @@ class RelayShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
     int idx = 0;
-    if (location.startsWith('/relay/scan')) idx = 1;
-    else if (location.startsWith('/relay/wallet')) idx = 2;
+    if (location.startsWith('/relay/scan')) {
+      idx = 1;
+    } else if (location.startsWith('/relay/wallet')) {
+      idx = 2;
+    }
 
     return Scaffold(
       body: child,

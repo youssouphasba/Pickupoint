@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../providers/admin_provider.dart';
 
 class AdminStaleParcelsScreen extends ConsumerWidget {
@@ -76,7 +75,7 @@ class AdminStaleParcelsScreen extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: selectedStatus,
+                initialValue: selectedStatus,
                 decoration: const InputDecoration(labelText: 'Nouveau statut'),
                 items: const [
                   DropdownMenuItem(value: 'delivered', child: Text('Livré (Force)')),

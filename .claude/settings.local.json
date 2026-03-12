@@ -13,7 +13,11 @@
       "Bash(git commit:*)",
       "Bash(curl:*)",
       "Bash(python:*)",
-      "Bash(/mnt/c/Users/Utilisateur/pickupoint/backend/routers/admin.py:*)"
+      "Bash(/mnt/c/Users/Utilisateur/pickupoint/backend/routers/admin.py:*)",
+      "Bash(cd /mnt/c/Users/Utilisateur/pickupoint/mobile && dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1)",
+      "Bash(cd /mnt/c/Users/Utilisateur/pickupoint/mobile && /mnt/c/src/flutter/bin/dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1)",
+      "Bash(bash --version 2>&1; echo \"shell: $SHELL\")",
+      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\Utilisateur\\\\pickupoint\\\\mobile'; dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1\" 2>&1)"
     ]
   }
 }

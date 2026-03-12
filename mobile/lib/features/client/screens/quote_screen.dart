@@ -23,14 +23,22 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     try {
       final api = ref.read(apiClientProvider);
 
-      final formData = Map<String, dynamic>.from(widget.data['formData'] as Map);
+      final formData =
+          Map<String, dynamic>.from(widget.data['formData'] as Map);
+      final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
       final payload = {
         ...formData,
-        'recipient_name':  widget.data['recipient_name'],
+        'recipient_name': widget.data['recipient_name'],
         'recipient_phone': widget.data['recipient_phone'],
       };
 
       final res = await api.createParcel(payload);
+      final parcelId = res.data['parcel_id'] as String?;
+      if (pickupVoicePath != null && parcelId != null) {
+        try {
+          await api.sendParcelVoice(parcelId, pickupVoicePath);
+        } catch (_) {}
+      }
       final paymentUrl = res.data['payment_url'] as String?;
 
       if (!mounted) return;
@@ -76,7 +84,8 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                     this.context.go('/client');
                     ref.invalidate(parcelsProvider);
                     ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(content: Text('Paiement réussi ! Colis créé.')),
+                      const SnackBar(
+                          content: Text('Paiement réussi ! Colis créé.')),
                     );
                   }
                 },
@@ -90,22 +99,23 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final quote     = widget.data['quote'] as Map<String, dynamic>;
-    final total     = (quote['price'] as num).toDouble();
+    final quote = widget.data['quote'] as Map<String, dynamic>;
+    final total = (quote['price'] as num).toDouble();
     final breakdown = (quote['breakdown'] as Map<String, dynamic>?) ?? {};
 
-    final base         = _num(breakdown['base']);
-    final distKm       = _num(breakdown['distance_km']);
-    final distCost     = _num(breakdown['distance_cost']);
-    final extraKg      = _num(breakdown['weight_extra_kg']);
-    final weightCost   = _num(breakdown['weight_cost']);
-    final sousTotal    = _num(breakdown['sous_total']);
-    final coeff        = _num(breakdown['coefficient'], def: 1.0);
-    final expressCost  = _num(breakdown['express_cost']);
-    final isExpress    = breakdown['is_express'] as bool? ?? false;
-    final whoPays      = breakdown['who_pays'] as String? ?? 'sender';
-    final estHours     = breakdown['estimated_hours'] as String? ?? '—';
-    final coeffFactors = (breakdown['coeff_factors'] as Map<String, dynamic>?) ?? {};
+    final base = _num(breakdown['base']);
+    final distKm = _num(breakdown['distance_km']);
+    final distCost = _num(breakdown['distance_cost']);
+    final extraKg = _num(breakdown['weight_extra_kg']);
+    final weightCost = _num(breakdown['weight_cost']);
+    final sousTotal = _num(breakdown['sous_total']);
+    final coeff = _num(breakdown['coefficient'], def: 1.0);
+    final expressCost = _num(breakdown['express_cost']);
+    final isExpress = breakdown['is_express'] as bool? ?? false;
+    final whoPays = breakdown['who_pays'] as String? ?? 'sender';
+    final estHours = breakdown['estimated_hours'] as String? ?? '—';
+    final coeffFactors =
+        (breakdown['coeff_factors'] as Map<String, dynamic>?) ?? {};
 
     return Scaffold(
       appBar: AppBar(title: const Text('Votre devis')),
@@ -124,12 +134,15 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
               ),
               child: Column(children: [
                 const Text('TOTAL À PAYER',
-                    style: TextStyle(color: Colors.white70, fontSize: 13, letterSpacing: 1)),
+                    style: TextStyle(
+                        color: Colors.white70, fontSize: 13, letterSpacing: 1)),
                 const SizedBox(height: 6),
                 Text(
                   formatXof(total),
                   style: const TextStyle(
-                      color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
+                      color: Colors.white,
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -146,7 +159,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             const SizedBox(height: 8),
             _row('Prix de base', base),
             _row('Distance (${distKm.toStringAsFixed(1)} km)', distCost),
-            if (extraKg > 0) _row('Supplément poids (${extraKg.toStringAsFixed(1)} kg)', weightCost),
+            if (extraKg > 0)
+              _row('Supplément poids (${extraKg.toStringAsFixed(1)} kg)',
+                  weightCost),
             const Divider(height: 20),
             _row('Sous-total', sousTotal, bold: true),
 
@@ -176,7 +191,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
               _infoRow(
                 Icons.payment,
                 'Paiement',
-                whoPays == 'sender' ? 'Réglé par l\'expéditeur' : 'Réglé par le destinataire (contre-remboursement)',
+                whoPays == 'sender'
+                    ? 'Réglé par l\'expéditeur'
+                    : 'Réglé par le destinataire (contre-remboursement)',
               ),
               if (isExpress)
                 _infoRow(Icons.bolt, 'Mode', 'Express — priorité maximale',
@@ -236,11 +253,13 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
   }
 
   Widget _coeffRow(double coeff, Map<String, dynamic> factors) {
-    final isBoost   = coeff > 1.0;
-    final color     = isBoost ? Colors.orange.shade700 : Colors.green.shade700;
-    final pct       = ((coeff - 1.0).abs() * 100).toStringAsFixed(0);
-    final sign      = isBoost ? '+' : '-';
-    final label     = isBoost ? 'Coefficient demande ($sign$pct %)' : 'Remise creux ($sign$pct %)';
+    final isBoost = coeff > 1.0;
+    final color = isBoost ? Colors.orange.shade700 : Colors.green.shade700;
+    final pct = ((coeff - 1.0).abs() * 100).toStringAsFixed(0);
+    final sign = isBoost ? '+' : '-';
+    final label = isBoost
+        ? 'Coefficient demande ($sign$pct %)'
+        : 'Remise creux ($sign$pct %)';
 
     final reasons = factors.entries
         .where((e) => !e.key.startsWith('_'))
@@ -248,16 +267,16 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
           final k = e.key;
           final v = e.value;
           return switch (k) {
-            'rush_hour'    => 'Heure de pointe',
-            'lunch_rush'   => 'Heure du déjeuner',
-            'night'        => 'Tarif nuit',
-            'sunday'       => 'Tarif dimanche',
-            'surge_high'   => 'Forte demande',
+            'rush_hour' => 'Heure de pointe',
+            'lunch_rush' => 'Heure du déjeuner',
+            'night' => 'Tarif nuit',
+            'sunday' => 'Tarif dimanche',
+            'surge_high' => 'Forte demande',
             'surge_medium' => 'Demande élevée',
-            'low_demand'   => 'Faible activité',
+            'low_demand' => 'Faible activité',
             'loyalty_tier' => 'Avantage membre ${v.toString().toUpperCase()}',
-            'is_frequent'  => v == true ? 'Bonus Fidèle (+10 livraisons)' : null,
-            _              => k,
+            'is_frequent' => v == true ? 'Bonus Fidèle (+10 livraisons)' : null,
+            _ => k,
           };
         })
         .whereType<String>()
@@ -267,18 +286,24 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(children: [
-        Icon(isBoost ? Icons.trending_up : Icons.trending_down, color: color, size: 18),
+        Icon(isBoost ? Icons.trending_up : Icons.trending_down,
+            color: color, size: 18),
         const SizedBox(width: 8),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label,
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: color)),
             if (reasons.isNotEmpty)
-              Text(reasons, style: TextStyle(fontSize: 11, color: color.withOpacity(0.8))),
+              Text(reasons,
+                  style: TextStyle(
+                      fontSize: 11, color: color.withValues(alpha: 0.8))),
           ]),
         ),
       ]),
@@ -303,11 +328,13 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       child: Row(children: [
         Icon(icon, size: 16, color: color ?? Colors.grey),
         const SizedBox(width: 8),
-        Text('$label : ', style: const TextStyle(fontSize: 13, color: Colors.grey)),
+        Text('$label : ',
+            style: const TextStyle(fontSize: 13, color: Colors.grey)),
         Expanded(
           child: Text(
             value,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: color),
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w500, color: color),
             textAlign: TextAlign.right,
           ),
         ),

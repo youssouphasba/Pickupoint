@@ -101,10 +101,12 @@ class AdminPayoutsScreen extends ConsumerWidget {
     try {
       final api = ref.read(apiClientProvider);
       await api.approvePayout(id);
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Le virement a été marqué comme effectué.')));
       ref.invalidate(adminPayoutsProvider);
-      ref.refresh(adminDashboardProvider);
+      ref.invalidate(adminDashboardProvider);
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }

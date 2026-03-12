@@ -10,7 +10,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 import shutil
 import os
-from config import settings
+from config import UPLOADS_DIR, settings
 from database import db
 from models.common import UserRole
 from models.user import User, UserCreate, ProfileUpdate, FavoriteAddress
@@ -29,22 +29,12 @@ async def list_users(
     users = await cursor.to_list(length=limit)
     return {"users": users, "total": await db.users.count_documents({})}
 
-
-from core.utils import mask_phone
-
 @router.get("/{user_id}", response_model=User, summary="Détail utilisateur")
 async def get_user(user_id: str, current_user: dict = Depends(get_current_user)):
-    # Admin peut tout voir ; sinon seulement soi-même
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    if not is_admin:
-        if current_user["user_id"] != user_id:
-            # On ne devrait pas pouvoir voir d'autres utilisateurs, mais si l'API le permet (ex: via mission), on masque
-            user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-            if user_doc:
-                user_doc["phone"] = mask_phone(user_doc["phone"])
-                return User(**user_doc)
-            raise forbidden_exception()
-            
+    if not is_admin and current_user["user_id"] != user_id:
+        raise forbidden_exception("Vous ne pouvez consulter que votre propre profil.")
+             
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
@@ -198,10 +188,9 @@ async def upload_avatar(
         
     filename = f"profile_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
     relative_path = os.path.join("profiles", filename)
-    absolute_path = os.path.join("uploads", relative_path)
+    absolute_path = UPLOADS_DIR / relative_path
     
-    # Surtout sur Windows, s'assurer que le dossier existe (bien que créé par le script)
-    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(absolute_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
@@ -230,9 +219,9 @@ async def upload_kyc(
     ext = os.path.splitext(file.filename)[1].lower()
     filename = f"kyc_{doc_type}_{current_user['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
     relative_path = os.path.join("kyc", filename)
-    absolute_path = os.path.join("uploads", relative_path)
+    absolute_path = UPLOADS_DIR / relative_path
     
-    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    absolute_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(absolute_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)

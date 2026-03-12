@@ -17,7 +17,6 @@ class MapPickerModal extends StatefulWidget {
 }
 
 class _MapPickerModalState extends State<MapPickerModal> {
-  GoogleMapController? _mapController;
   LatLng? _selectedPosition;
   bool _loading = true;
 
@@ -92,7 +91,6 @@ class _MapPickerModalState extends State<MapPickerModal> {
                           target: _selectedPosition!,
                           zoom: 15,
                         ),
-                        onMapCreated: (controller) => _mapController = controller,
                         onCameraMove: (position) => _selectedPosition = position.target,
                         myLocationEnabled: true,
                         myLocationButtonEnabled: true,

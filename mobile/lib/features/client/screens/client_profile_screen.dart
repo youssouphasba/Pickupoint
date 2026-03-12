@@ -85,7 +85,7 @@ class ClientProfileScreen extends ConsumerWidget {
                    const SizedBox(width: 4),
                    Text(
                     user.phone,
-                    style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
                   ),
                 ],
               ),
@@ -93,7 +93,7 @@ class ClientProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 4),
                 Text(
                   user.email!,
-                  style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
                 ),
               ],
               const SizedBox(height: 8),
@@ -158,7 +158,7 @@ class ClientProfileScreen extends ConsumerWidget {
       children: [
         CircleAvatar(
           radius: 54,
-          backgroundColor: Colors.white.withOpacity(0.3),
+          backgroundColor: Colors.white.withValues(alpha: 0.3),
           child: CircleAvatar(
             radius: 50,
             backgroundColor: Colors.white,
@@ -233,7 +233,7 @@ class ClientProfileScreen extends ConsumerWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -266,10 +266,10 @@ class ClientProfileScreen extends ConsumerWidget {
     return Column(
       children: [
         _buildActionCard([
-          ListTile(
-            leading: const Icon(Icons.switch_account_outlined),
-            title: const Text('Changer de rôle (Debug)'),
-            trailing: const AccountSwitcherButton(),
+          const ListTile(
+            leading: Icon(Icons.switch_account_outlined),
+            title: Text('Changer de rôle (Debug)'),
+            trailing: AccountSwitcherButton(),
           ),
           const Divider(height: 1),
           ListTile(
@@ -366,7 +366,7 @@ class ClientProfileScreen extends ConsumerWidget {
     
     if (image != null) {
       try {
-        final response = await ref.read(apiClientProvider).uploadAvatar(File(image.path));
+        await ref.read(apiClientProvider).uploadAvatar(File(image.path));
         if (context.mounted) {
            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo mise à jour !')));
            // Re-fetch user profile to update avatar everywhere

@@ -30,8 +30,15 @@ from core.limiter import limiter
 @router.post("/request-otp", summary="Envoyer OTP")
 @limiter.limit("5/minute")
 async def request_otp(body: OTPRequest, request: Request):
-    ok = await send_otp(body.phone)
-    return {"sent": ok, "phone": body.phone}
+    result = await send_otp(body.phone)
+    if not result.get("sent"):
+        raise bad_request_exception("Envoi OTP indisponible pour le moment. Réessayez plus tard.")
+    return {
+        "sent": True,
+        "phone": body.phone,
+        "channel": result.get("channel"),
+        "test_code": result.get("test_code"),
+    }
 
 
 @router.post("/check-phone", summary="Vérifier si un numéro est inscrit")

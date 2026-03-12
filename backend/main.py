@@ -5,14 +5,13 @@ from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from core.limiter import limiter
 
-from config import settings
-from database import connect_db, close_db, get_db
+from config import UPLOADS_DIR, settings
+from database import connect_db, close_db, db
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -104,6 +103,132 @@ async def _monthly_ranking_job():
         logger.error(f"Erreur lors du calcul mensuel des classements : {exc}")
 
 
+async def _advance_delivery_dispatch_loop() -> None:
+    """Fait progresser le dispatch en cascade hors des endpoints GET."""
+    while True:
+        await asyncio.sleep(15)
+        try:
+            updated = await deliveries.advance_pending_delivery_dispatch()
+            if updated:
+                logger.info("Dispatch cascade : %s mission(s) avancée(s)", updated)
+        except Exception as exc:
+            logger.error("Erreur dispatch cascade : %s", exc)
+
+
+async def _maybe_send_gps_reminder(parcel: dict, actor: str, now: datetime) -> bool:
+    from services.notification_service import notify_location_confirmation_request
+    from services.parcel_service import _record_event
+
+    reminders = parcel.get("gps_reminders") or {}
+    reminder_state = reminders.get(actor) or {}
+    if reminder_state.get("confirmed_at"):
+        return False
+
+    token_field = "sender_confirm_token" if actor == "sender" else "recipient_confirm_token"
+    token = parcel.get(token_field)
+    if not token:
+        return False
+
+    count = int(reminder_state.get("count") or 0)
+    if count >= settings.GPS_REMINDER_MAX_COUNT:
+        return False
+
+    last_sent_at = reminder_state.get("last_sent_at")
+    if last_sent_at and last_sent_at.tzinfo is None:
+        last_sent_at = last_sent_at.replace(tzinfo=timezone.utc)
+
+    user_id = parcel.get("sender_user_id") if actor == "sender" else parcel.get("recipient_user_id")
+    has_app = bool(user_id)
+    initial_delay = timedelta(minutes=settings.GPS_REMINDER_INITIAL_MINUTES)
+    escalation_delay = timedelta(minutes=settings.GPS_REMINDER_ESCALATION_MINUTES)
+
+    if last_sent_at is None:
+        reference_time = parcel.get("created_at") or now
+        if reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+        if now - reference_time < initial_delay:
+            return False
+        escalate_external = not has_app
+    else:
+        min_delay = escalation_delay if has_app and count == 1 else initial_delay
+        if now - last_sent_at < min_delay:
+            return False
+        escalate_external = (not has_app) or (has_app and count >= 1)
+
+    confirm_url = f"{settings.BASE_URL}/confirm/{token}"
+    await notify_location_confirmation_request(
+        parcel,
+        actor=actor,
+        confirm_url=confirm_url,
+        escalate_external=escalate_external,
+    )
+
+    channel = "sms_whatsapp"
+    if has_app and escalate_external:
+        channel = "in_app_push+sms_whatsapp"
+    elif has_app:
+        channel = "in_app_push"
+
+    await db.parcels.update_one(
+        {"parcel_id": parcel["parcel_id"]},
+        {"$set": {
+            f"gps_reminders.{actor}.count": count + 1,
+            f"gps_reminders.{actor}.last_sent_at": now,
+            f"gps_reminders.{actor}.last_channel": channel,
+            "updated_at": now,
+        }},
+    )
+    await _record_event(
+        parcel_id=parcel["parcel_id"],
+        event_type="GPS_CONFIRMATION_REMINDER_SENT",
+        actor_id="system",
+        actor_role="system",
+        notes=f"Relance GPS {actor}",
+        metadata={"actor": actor, "channel": channel, "count": count + 1},
+    )
+    return True
+
+
+async def _gps_confirmation_reminder_loop() -> None:
+    while True:
+        await asyncio.sleep(120)
+        try:
+            query = {
+                "status": {
+                    "$nin": [
+                        "delivered",
+                        "cancelled",
+                        "returned",
+                        "expired",
+                    ]
+                },
+                "$or": [
+                    {
+                        "delivery_mode": {"$regex": "^home_to_"},
+                        "pickup_confirmed": False,
+                        "sender_confirm_token": {"$exists": True},
+                    },
+                    {
+                        "delivery_mode": {"$regex": "_to_home$"},
+                        "delivery_confirmed": False,
+                        "recipient_confirm_token": {"$exists": True},
+                    },
+                ],
+            }
+            parcels_to_remind = await db.parcels.find(query, {"_id": 0}).to_list(length=200)
+            reminded = 0
+            now = datetime.now(timezone.utc)
+            for parcel in parcels_to_remind:
+                if parcel.get("delivery_mode", "").startswith("home_to_") and not parcel.get("pickup_confirmed"):
+                    reminded += 1 if await _maybe_send_gps_reminder(parcel, "sender", now) else 0
+                if parcel.get("delivery_mode", "").endswith("_to_home") and not parcel.get("delivery_confirmed"):
+                    reminded += 1 if await _maybe_send_gps_reminder(parcel, "recipient", now) else 0
+            if reminded:
+                logger.info("Relances GPS envoyées : %s", reminded)
+        except Exception as exc:
+            logger.error("Erreur relances GPS : %s", exc)
+
+
 scheduler = AsyncIOScheduler()
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 
@@ -113,11 +238,15 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_db()
     scheduler.start()
-    task = asyncio.create_task(_auto_release_stuck_missions())
+    auto_release_task = asyncio.create_task(_auto_release_stuck_missions())
+    dispatch_task = asyncio.create_task(_advance_delivery_dispatch_loop())
+    gps_reminder_task = asyncio.create_task(_gps_confirmation_reminder_loop())
     logger.info("PickuPoint API started (with scheduler)")
     yield
     # Shutdown
-    task.cancel()
+    auto_release_task.cancel()
+    dispatch_task.cancel()
+    gps_reminder_task.cancel()
     scheduler.shutdown()
     await close_db()
     logger.info("PickuPoint API stopped")
@@ -144,9 +273,8 @@ app.add_middleware(
 )
 
 # Static files (uploads)
-import os
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Routers — publics (sans auth)
 app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
