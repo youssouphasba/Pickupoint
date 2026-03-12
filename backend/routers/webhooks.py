@@ -3,8 +3,6 @@ Router webhooks : callback paiement Flutterwave.
 Flutterwave envoie un POST avec le tx_ref et le statut de la transaction.
 Docs : https://developer.flutterwave.com/docs/integration-guides/webhooks
 """
-import hashlib
-import hmac
 import logging
 from datetime import datetime, timezone
 
@@ -14,7 +12,7 @@ from typing import Optional
 from config import settings
 from database import db
 from services.parcel_service import _record_event
-from services.payment_service import verify_by_tx_ref
+from services.payment_service import verify_payment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,10 +23,12 @@ async def flutterwave_webhook(
     request: Request,
     verif_hash: Optional[str] = Header(None, alias="verif-hash"),
 ):
-    # Vérifier la signature Flutterwave
-    if settings.FLUTTERWAVE_WEBHOOK_SECRET:
-        if verif_hash != settings.FLUTTERWAVE_WEBHOOK_SECRET:
-            raise HTTPException(status_code=401, detail="Signature invalide")
+    if not settings.FLUTTERWAVE_WEBHOOK_SECRET:
+        logger.warning("Webhook Flutterwave ignoré: secret non configuré")
+        return {"received": False, "ignored": "webhook_secret_missing"}
+
+    if verif_hash != settings.FLUTTERWAVE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=401, detail="Signature invalide")
 
     try:
         payload = await request.json()
@@ -68,12 +68,40 @@ async def flutterwave_webhook(
     now = datetime.now(timezone.utc)
 
     if status == "successful" and event == "charge.completed":
+        if parcel.get("payment_status") == "paid" and parcel.get("payment_ref") == tx_ref:
+            return {"received": True, "status": "already_processed"}
+
+        if not tx_id:
+            raise HTTPException(status_code=400, detail="Transaction ID manquant")
+
+        verified = await verify_payment(str(tx_id))
+        if verified.get("status") != "successful":
+            logger.warning("Vérification Flutterwave échouée pour tx_id=%s: %s", tx_id, verified)
+            raise HTTPException(status_code=400, detail="Transaction non vérifiée")
+
+        if verified.get("tx_ref") != tx_ref:
+            logger.warning("Mismatch tx_ref webhook=%s verified=%s", tx_ref, verified.get("tx_ref"))
+            raise HTTPException(status_code=400, detail="Référence transaction incohérente")
+
+        verified_amount = verified.get("amount")
+        if verified_amount is not None:
+            quoted_price = float(parcel.get("quoted_price") or 0)
+            if quoted_price and abs(float(verified_amount) - quoted_price) > 1:
+                logger.warning(
+                    "Montant incohérent pour %s: webhook=%s verified=%s quoted=%s",
+                    parcel["parcel_id"],
+                    amount,
+                    verified_amount,
+                    quoted_price,
+                )
+                raise HTTPException(status_code=400, detail="Montant transaction incohérent")
+
         await db.parcels.update_one(
             {"parcel_id": parcel["parcel_id"]},
             {"$set": {
                 "payment_status": "paid",
-                "paid_price":     float(amount) if amount else parcel.get("quoted_price"),
-                "payment_method": data.get("payment_type", "mobile_money"),
+                "paid_price":     float(verified_amount) if verified_amount is not None else (float(amount) if amount else parcel.get("quoted_price")),
+                "payment_method": verified.get("payment_type", data.get("payment_type", "mobile_money")),
                 "payment_ref":    tx_ref,
                 "updated_at":     now,
             }},

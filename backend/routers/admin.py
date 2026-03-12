@@ -4,16 +4,21 @@ Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from core.dependencies import require_role
-from core.exceptions import not_found_exception
+from core.exceptions import not_found_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
-from services.parcel_service import _record_event
+from services.parcel_service import _record_event, sync_active_mission_with_parcel
 
 router = APIRouter()
 
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
+
+
+class PaymentOverrideRequest(BaseModel):
+    reason: str
 
 
 @router.get("/dashboard", summary="KPIs temps réel")
@@ -65,9 +70,6 @@ async def admin_list_parcels(
     return {"parcels": await cursor.to_list(length=limit), "total": total}
 
 
-    return {"message": f"Statut forcé → {new_status.value}"}
-
-
 @router.post("/parcels/{parcel_id}/confirm-payment", summary="Valider manuellement le paiement (Admin)")
 async def admin_confirm_payment(
     parcel_id: str,
@@ -78,18 +80,58 @@ async def admin_confirm_payment(
     ou pour débloquer un flux si le webhook de paiement a échoué.
     """
     now = datetime.now(timezone.utc)
-    from services.parcel_service import _record_event
-    await db.parcels.update_one(
+    result = await db.parcels.update_one(
         {"parcel_id": parcel_id},
-        {"$set": {"payment_status": "paid", "updated_at": now}},
+        {"$set": {"payment_status": "paid", "payment_method": "admin_manual", "updated_at": now}},
     )
+    if result.matched_count == 0:
+        raise not_found_exception("Colis")
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    await sync_active_mission_with_parcel(parcel)
     await _record_event(
         parcel_id=parcel_id,
         event_type="ADMIN_PAYMENT_CONFIRMED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
         notes="Paiement validé manuellement par l'admin",
     )
     return {"message": "Paiement validé avec succès"}
+
+
+@router.post("/parcels/{parcel_id}/payment-override", summary="Lever le blocage paiement d'un colis")
+async def admin_payment_override(
+    parcel_id: str,
+    body: PaymentOverrideRequest,
+    _admin=Depends(require_admin_dep),
+):
+    reason = body.reason.strip()
+    if not reason:
+        raise bad_request_exception("Le motif d'override paiement est obligatoire")
+
+    now = datetime.now(timezone.utc)
+    result = await db.parcels.update_one(
+        {"parcel_id": parcel_id},
+        {"$set": {
+            "payment_override": True,
+            "payment_override_reason": reason,
+            "payment_override_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+            "payment_override_at": now,
+            "updated_at": now,
+        }},
+    )
+    if result.matched_count == 0:
+        raise not_found_exception("Colis")
+
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    await sync_active_mission_with_parcel(parcel)
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="ADMIN_PAYMENT_OVERRIDE",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=reason,
+    )
+    return {"message": "Blocage paiement levé", "parcel_id": parcel_id}
 
 
 @router.post("/parcels/{parcel_id}/suspend", summary="Suspendre un colis (Admin)")
@@ -303,14 +345,20 @@ async def get_live_fleet(_admin=Depends(require_admin_dep)):
 @router.get("/analytics/stale-parcels", summary="Colis stagnant en relais (> 7j)")
 async def get_stale_parcels(_admin=Depends(require_admin_dep)):
     """
-    Liste les colis qui sont en relais (status AT_ORIGIN_RELAY ou AT_DESTINATION_RELAY)
+    Liste les colis qui sont en relais
     depuis plus de 7 jours sans mouvement.
     """
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     
     query = {
-        "status": {"$in": [ParcelStatus.AT_ORIGIN_RELAY.value, ParcelStatus.AT_DESTINATION_RELAY.value]},
+        "status": {
+            "$in": [
+                ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+                ParcelStatus.AT_DESTINATION_RELAY.value,
+                ParcelStatus.AVAILABLE_AT_RELAY.value,
+            ]
+        },
         "updated_at": {"$lt": cutoff}
     }
     
@@ -442,6 +490,7 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
     timeline = await get_parcel_timeline(parcel_id)
     # Enrichir la timeline avec les noms des acteurs si possible
     for event in timeline:
+        event["timestamp"] = event.get("created_at")
         if event.get("actor_id"):
             actor = await db.users.find_one({"user_id": event["actor_id"]}, {"_id": 0, "name": 1})
             if actor:
@@ -463,8 +512,13 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
         "financial_summary": {
             "who_pays":       parcel.get("who_pays"),
             "payment_status": parcel.get("payment_status"),
+            "payment_method": parcel.get("payment_method"),
+            "payment_override": parcel.get("payment_override"),
+            "payment_override_reason": parcel.get("payment_override_reason"),
             "quoted_price":   parcel.get("quoted_price"),
             "payment_url":    parcel.get("payment_url"),
+            "address_change_surcharge_xof": parcel.get("address_change_surcharge_xof", 0.0),
+            "driver_bonus_xof": parcel.get("driver_bonus_xof", 0.0),
         },
         "timeline": timeline,
         "missions": missions

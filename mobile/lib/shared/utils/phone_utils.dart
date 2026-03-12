@@ -1,7 +1,7 @@
-/// Utils pour le formatage des numéros de téléphone
+// Utils pour le formatage des numeros de telephone.
 
-/// Normalise un numéro sénégalais saisi librement vers le format E.164 (+221XXXXXXXXX).
-/// Gère : "77 123 45 67", "0077 123 45 67", "+221 77 123 45 67", "77-123-45-67".
+/// Normalise un numero senegalais saisi librement vers le format E.164 (+221XXXXXXXXX).
+/// Gere : "77 123 45 67", "0077 123 45 67", "+221 77 123 45 67", "77-123-45-67".
 String normalizePhone(String raw) {
   final cleaned = raw.replaceAll(RegExp(r'[\s\-\.]'), '');
   if (cleaned.startsWith('+221')) return cleaned;
@@ -10,21 +10,22 @@ String normalizePhone(String raw) {
   return cleaned;
 }
 
-/// Masque le milieu du numéro : +221 77 XXX XX 45
+/// Masque le milieu du numero : +221 77 XXX XX 45
 String maskPhone(String phone) {
   if (phone.isEmpty) return phone;
-  // Nettoyage basique, utile si le numéro a des espaces
+
+  // Nettoyage basique, utile si le numero a des espaces.
   final cleaned = phone.replaceAll(' ', '');
   if (cleaned.length < 8) return phone;
-  
-  final visiblePrefix = 3;
-  final visibleSuffix = 2;
-  
+
+  const visiblePrefix = 3;
+  const visibleSuffix = 2;
+
   // Ex: +22177 XXXXX 45
   final start = cleaned.substring(0, visiblePrefix);
-  final end   = cleaned.substring(cleaned.length - visibleSuffix);
+  final end = cleaned.substring(cleaned.length - visibleSuffix);
   final hiddenLength = cleaned.length - visiblePrefix - visibleSuffix;
   final hidden = 'X' * hiddenLength;
-  
+
   return '$start $hidden $end';
 }

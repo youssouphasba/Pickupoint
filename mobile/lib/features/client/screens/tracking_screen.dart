@@ -88,7 +88,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   Widget _buildSearchBar() {
     return Container(
       padding: const EdgeInsets.all(24),
-      color: Theme.of(context).primaryColor.withOpacity(0.05),
+      color: Theme.of(context).primaryColor.withValues(alpha: 0.05),
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(

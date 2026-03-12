@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/promotion.dart';
 import 'package:intl/intl.dart';
@@ -90,9 +89,9 @@ class _PromoCard extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
+                      color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: color.withOpacity(0.5)),
+                      border: Border.all(color: color.withValues(alpha: 0.5)),
                     ),
                     child: Text(
                       promo.isActive ? (isExpired ? 'Expiré' : 'Actif') : 'Désactivé',
@@ -152,7 +151,9 @@ class _PromoCard extends ConsumerWidget {
                   await ref.read(apiClientProvider).updatePromotion(promo.promoId, {'is_active': !promo.isActive});
                   ref.invalidate(adminPromotionsProvider);
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                  }
                 }
               },
             ),
@@ -177,7 +178,9 @@ class _PromoCard extends ConsumerWidget {
                     await ref.read(apiClientProvider).deletePromotion(promo.promoId);
                     ref.invalidate(adminPromotionsProvider);
                   } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    }
                   }
                 }
               },
@@ -200,7 +203,7 @@ class _InfoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -230,7 +233,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
   double _value = 10;
   String _target = 'all';
   String? _code;
-  DateTime _start = DateTime.now();
+  final DateTime _start = DateTime.now();
   DateTime _end = DateTime.now().add(const Duration(days: 30));
   bool _loading = false;
 
@@ -255,7 +258,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
                   DropdownMenuItem(value: 'percentage', child: Text('Pourcentage (%)')),
@@ -274,7 +277,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
                 ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _target,
+                initialValue: _target,
                 decoration: const InputDecoration(labelText: 'Cible'),
                 items: const [
                   DropdownMenuItem(value: 'all', child: Text('Tous les utilisateurs')),

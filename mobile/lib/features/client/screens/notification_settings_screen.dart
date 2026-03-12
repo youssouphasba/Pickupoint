@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/models/user.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -110,7 +109,7 @@ class _NotificationSettingsScreenState extends ConsumerState<NotificationSetting
       ),
       value: value,
       onChanged: onChanged,
-      activeColor: Colors.blue,
+      activeThumbColor: Colors.blue,
     );
   }
 

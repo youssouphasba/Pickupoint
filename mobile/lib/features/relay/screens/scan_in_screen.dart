@@ -243,7 +243,7 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
                   _isBatchMode = v;
                   if (!v) _batchCodes.clear();
                 }),
-                activeColor: Colors.white,
+                activeThumbColor: Colors.white,
               ),
             ],
           ),
@@ -265,7 +265,7 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)],
               ),
               child: SafeArea(
                 child: Column(

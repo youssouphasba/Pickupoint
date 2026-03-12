@@ -17,18 +17,18 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'dart:convert';
-import 'dart:io';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({super.key, required this.id});
   final String id;
 
   @override
-  ConsumerState<MissionDetailScreen> createState() => _MissionDetailScreenState();
+  ConsumerState<MissionDetailScreen> createState() =>
+      _MissionDetailScreenState();
 }
 
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
-  bool   _isProcessing   = false;
+  bool _isProcessing = false;
   StreamSubscription<Position>? _positionStream;
   DateTime? _lastBackendUpdate;
   GoogleMapController? _mapController;
@@ -49,8 +49,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   // ── GPS streaming (Temps Réel) ──────────────────────────────────────────
   Future<void> _startLocationUpdates() async {
     var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-    if (perm != LocationPermission.whileInUse && perm != LocationPermission.always) return;
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+    if (perm != LocationPermission.whileInUse &&
+        perm != LocationPermission.always) {
+      return;
+    }
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -60,14 +65,14 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     ).listen((pos) async {
       // 1. Update backend (Throttled: every 30s)
       final now = DateTime.now();
-      if (_lastBackendUpdate == null || 
+      if (_lastBackendUpdate == null ||
           now.difference(_lastBackendUpdate!).inSeconds > 30) {
         _lastBackendUpdate = now;
         try {
           await ref.read(apiClientProvider).updateLocation(
-            widget.id, 
+            widget.id,
             {
-              'lat': pos.latitude, 
+              'lat': pos.latitude,
               'lng': pos.longitude,
               'accuracy': pos.accuracy,
             },
@@ -80,8 +85,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   // ── Scan QR ou saisie manuelle → retourne le code saisi ──────────────────
-  Future<String?> _showCodeDialog({required String title, required String hint, int maxLength = 6}) async {
-    String? scannedCode;
+  Future<String?> _showCodeDialog(
+      {required String title, required String hint, int maxLength = 6}) async {
     final codeCtrl = TextEditingController();
 
     return showModalBottomSheet<String>(
@@ -95,7 +100,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           return Padding(
             padding: const EdgeInsets.all(24),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
 
               // ── Scan QR ────────────────────────────────────────────
@@ -136,7 +143,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 keyboardType: TextInputType.number,
                 maxLength: maxLength,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 8),
+                style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 8),
                 decoration: InputDecoration(
                   hintText: hint,
                   border: const OutlineInputBorder(),
@@ -148,7 +158,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => Navigator.of(ctx).pop(codeCtrl.text.trim()),
-                  style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                  style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14)),
                   child: const Text('Valider le code'),
                 ),
               ),
@@ -172,7 +183,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       'waze://ul?ll=$lat,$lng&navigate=yes',
     );
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -187,7 +200,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             children: [
               Text(
                 'Naviguer vers $label',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Row(
@@ -201,7 +215,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.shield, color: Colors.blueGrey, size: 24),
-                      Text('Sécurisé', style: TextStyle(fontSize: 10, color: Colors.blueGrey)),
+                      Text('Sécurisé',
+                          style:
+                              TextStyle(fontSize: 10, color: Colors.blueGrey)),
                     ],
                   ),
                 ],
@@ -267,7 +283,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         child: Row(children: [
           CircleAvatar(
             radius: 18,
-            backgroundColor: iconColor.withOpacity(0.15),
+            backgroundColor: iconColor.withValues(alpha: 0.15),
             child: Text(icon,
                 style: TextStyle(
                     fontWeight: FontWeight.bold,
@@ -276,8 +292,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           ),
           const SizedBox(width: 14),
           Text(label,
-              style: const TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w500)),
+              style:
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
           const Spacer(),
           Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade400),
         ]),
@@ -291,14 +307,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       title: 'Code de collecte',
       hint: '• • • • • •',
     );
-    if (code == null || code.isEmpty) return;
+    if (code == null || code.isEmpty) {
+      return;
+    }
 
     setState(() => _isProcessing = true);
     try {
       final api = ref.read(apiClientProvider);
       await api.confirmPickup(widget.id, code);
       if (mounted) {
-        ref.refresh(missionProvider(widget.id));
+        ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Collecte confirmée ! Bonne route.'),
           backgroundColor: Colors.green,
@@ -311,21 +329,25 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
   // ── Prendre une photo (Preuve) + Compression WebP (Phase 7) ───────────────
   Future<void> _takePhoto() async {
     final picker = ImagePicker();
-    final image  = await picker.pickImage(
+    final image = await picker.pickImage(
       source: ImageSource.camera,
       maxWidth: 1024,
       maxHeight: 1024,
       imageQuality: 80,
     );
 
-    if (image == null) return;
+    if (image == null) {
+      return;
+    }
 
     setState(() => _isProcessing = true);
     try {
@@ -351,11 +373,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur compression: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Erreur compression: $e'),
+              backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
@@ -366,7 +392,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       hint: '• • • •',
       maxLength: 4,
     );
-    if (code == null || code.isEmpty) return;
+    if (code == null || code.isEmpty) {
+      return;
+    }
 
     setState(() => _isProcessing = true);
     try {
@@ -374,7 +402,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       double? driverLat, driverLng;
       try {
         final pos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high)
+                desiredAccuracy: LocationAccuracy.high)
             .timeout(const Duration(seconds: 8));
         driverLat = pos.latitude;
         driverLng = pos.longitude;
@@ -403,7 +431,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
@@ -418,7 +448,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           'Impossible après avoir confirmé la collecte.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirmer'),
@@ -426,7 +458,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ],
       ),
     );
-    if (confirm != true) return;
+    if (confirm != true) {
+      return;
+    }
 
     setState(() => _isProcessing = true);
     try {
@@ -445,7 +479,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
@@ -460,20 +496,42 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text('Le colis sera redirigé vers le relais le plus proche.'),
             const SizedBox(height: 12),
-            ...['Destinataire absent', 'Adresse introuvable', 'Colis refusé'].map((r) =>
-              RadioListTile<String>(
-                title: Text(r),
-                value: r.toLowerCase().replaceAll(' ', '_'),
-                groupValue: reason,
-                onChanged: (v) => setLocal(() => reason = v),
+            DropdownButtonFormField<String>(
+              initialValue: reason,
+              decoration: const InputDecoration(
+                labelText: 'Motif',
+                border: OutlineInputBorder(),
               ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'destinataire_absent',
+                  child: Text('Destinataire absent'),
+                ),
+                DropdownMenuItem(
+                  value: 'adresse_introuvable',
+                  child: Text('Adresse introuvable'),
+                ),
+                DropdownMenuItem(
+                  value: 'colis_refuse',
+                  child: Text('Colis refusé'),
+                ),
+              ],
+              onChanged: (value) => setLocal(() => reason = value),
             ),
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
             TextButton(
-              onPressed: reason == null ? null : () { Navigator.pop(ctx); _failDelivery(parcelId, reason!); },
-              child: const Text('Confirmer', style: TextStyle(color: Colors.red)),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler')),
+            TextButton(
+              onPressed: reason == null
+                  ? null
+                  : () {
+                      Navigator.pop(ctx);
+                      _failDelivery(parcelId, reason!);
+                    },
+              child:
+                  const Text('Confirmer', style: TextStyle(color: Colors.red)),
             ),
           ],
         );
@@ -499,7 +557,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
       }
     } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
     }
   }
 
@@ -511,18 +571,29 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         title: const Text('Relais de repli trouvé'),
         content: Text('Déposer le colis au relais $relayId ?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Plus tard')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmer')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Plus tard')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirmer')),
         ],
       ),
     );
     if (confirm == true && mounted) {
       try {
-        await ref.read(apiClientProvider).redirectToRelay(parcelId, {'redirect_relay_id': relayId});
+        await ref
+            .read(apiClientProvider)
+            .redirectToRelay(parcelId, {'redirect_relay_id': relayId});
         ref.invalidate(myMissionsProvider);
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          Navigator.pop(context);
+        }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        }
       }
     }
   }
@@ -536,7 +607,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       body: missionAsync.when(
         data: (mission) => SingleChildScrollView(
           padding: const EdgeInsets.all(20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             // ── Gain ──────────────────────────────────────────────────
             Container(
               padding: const EdgeInsets.all(20),
@@ -547,22 +619,40 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('VOTRE GAIN',
-                        style: TextStyle(fontSize: 11, color: Colors.blueGrey)),
-                    Text(formatXof(mission.earnAmount),
-                        style: const TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.bold, color: Colors.blue)),
-                  ]),
+                  Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('VOTRE GAIN',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.blueGrey)),
+                        Text(formatXof(mission.earnAmount),
+                            style: const TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue)),
+                        if (mission.driverBonusXof > 0)
+                          Text(
+                            'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.green),
+                          ),
+                      ]),
                   if (mission.etaText != null)
-                    Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      Text(mission.etaText!.toUpperCase(),
-                          style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
-                      Text(mission.distanceText ?? '',
-                          style: const TextStyle(fontSize: 14, color: Colors.blueGrey)),
-                    ]),
+                    Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(mission.etaText!.toUpperCase(),
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold)),
+                          Text(mission.distanceText ?? '',
+                              style: const TextStyle(
+                                  fontSize: 14, color: Colors.blueGrey)),
+                        ]),
                   if (mission.etaText == null)
-                    const Icon(Icons.local_shipping, size: 40, color: Colors.blue),
+                    const Icon(Icons.local_shipping,
+                        size: 40, color: Colors.blue),
                 ],
               ),
             ),
@@ -575,33 +665,40 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             // ── Statut du paiement ─────────────────────────────────────
             _buildPaymentStatus(mission),
             const SizedBox(height: 20),
+            if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
+                (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
+              _buildInstructionCards(mission),
+              const SizedBox(height: 20),
+            ],
 
-          // ── Contacts (Expéditeur & Destinataire) ───────────────────────
-          const Text('Contacts', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          
-          // Expéditeur (Point de Retrait)
-          _buildContactCard(
-            title: 'Expéditeur (Retrait)',
-            name: mission.pickupLabel, // Souvent le nom du relais ou de l'expéditeur
-            photo: mission.senderPhotoUrl,
-            phone: null, // On garde masqué selon politique
-            showCall: mission.status == 'assigned',
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Destinataire (Point de Livraison)
-          if (mission.recipientName != null)
+            // ── Contacts (Expéditeur & Destinataire) ───────────────────────
+            const Text('Contacts',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+
+            // Expéditeur (Point de Retrait)
             _buildContactCard(
-              title: 'Destinataire (Livraison)',
-              name: mission.recipientName!,
-              photo: mission.recipientPhotoUrl,
-              phone: maskPhone(mission.recipientPhone ?? ''),
-              showCall: mission.status == 'in_progress',
+              title: 'Expéditeur (Retrait)',
+              name: mission
+                  .pickupLabel, // Souvent le nom du relais ou de l'expéditeur
+              photo: mission.senderPhotoUrl,
+              phone: null, // On garde masqué selon politique
+              showCall: mission.status == 'assigned',
             ),
 
-          const SizedBox(height: 20),
+            const SizedBox(height: 12),
+
+            // Destinataire (Point de Livraison)
+            if (mission.recipientName != null)
+              _buildContactCard(
+                title: 'Destinataire (Livraison)',
+                name: mission.recipientName!,
+                photo: mission.recipientPhotoUrl,
+                phone: maskPhone(mission.recipientPhone ?? ''),
+                showCall: mission.status == 'in_progress',
+              ),
+
+            const SizedBox(height: 20),
 
             // ── Code de suivi (visible livreur pour montrer au relais) ─
             if (mission.trackingCode != null) ...[
@@ -610,7 +707,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             ],
 
             // ── Messagerie colis ──────────────────────────────────────
-            if (mission.status == 'assigned' || mission.status == 'in_progress') ...[
+            if (mission.status == 'assigned' ||
+                mission.status == 'in_progress') ...[
               ParcelChatWidget(parcelId: mission.parcelId, isClosed: false),
               const SizedBox(height: 20),
             ],
@@ -627,7 +725,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   Widget _buildRouteMap(DeliveryMission mission) {
-    final hasPickup   = mission.pickupLat != null;
+    final hasPickup = mission.pickupLat != null;
     final hasDelivery = mission.deliveryLat != null;
 
     if (!hasPickup && !hasDelivery) return const SizedBox.shrink();
@@ -638,9 +736,14 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     // Destination de navigation selon le statut de la mission
     final navToDelivery = mission.status == 'in_progress' && hasDelivery;
-    final navLat = navToDelivery ? mission.deliveryLat! : (hasPickup ? mission.pickupLat! : mission.deliveryLat!);
-    final navLng = navToDelivery ? mission.deliveryLng! : (hasPickup ? mission.pickupLng! : mission.deliveryLng!);
-    final navLabel = navToDelivery ? mission.deliveryLabel : mission.pickupLabel;
+    final navLat = navToDelivery
+        ? mission.deliveryLat!
+        : (hasPickup ? mission.pickupLat! : mission.deliveryLat!);
+    final navLng = navToDelivery
+        ? mission.deliveryLng!
+        : (hasPickup ? mission.pickupLng! : mission.deliveryLng!);
+    final navLabel =
+        navToDelivery ? mission.deliveryLabel : mission.pickupLabel;
 
     final Set<Marker> markers = {};
     if (hasPickup) {
@@ -648,7 +751,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         Marker(
           markerId: const MarkerId('pickup_pos'),
           position: LatLng(mission.pickupLat!, mission.pickupLng!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
           infoWindow: const InfoWindow(title: 'Point de retrait'),
         ),
       );
@@ -668,8 +772,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (hasPickup && hasDelivery) {
       List<LatLng> routePoints;
       if (mission.encodedPolyline != null) {
-        final decoded = PolylinePoints().decodePolyline(mission.encodedPolyline!);
-        routePoints = decoded.map((p) => LatLng(p.latitude, p.longitude)).toList();
+        final decoded =
+            PolylinePoints().decodePolyline(mission.encodedPolyline!);
+        routePoints =
+            decoded.map((p) => LatLng(p.latitude, p.longitude)).toList();
       } else {
         routePoints = [
           LatLng(mission.pickupLat!, mission.pickupLng!),
@@ -680,7 +786,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         Polyline(
           polylineId: const PolylineId('route'),
           points: routePoints,
-          color: Colors.blue.withOpacity(0.8),
+          color: Colors.blue.withValues(alpha: 0.8),
           width: 4,
         ),
       );
@@ -731,7 +837,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                   );
                 },
                 backgroundColor: Colors.white,
-                child: const Icon(Icons.my_location, color: Colors.blue, size: 20),
+                child:
+                    const Icon(Icons.my_location, color: Colors.blue, size: 20),
               ),
             ),
           ],
@@ -745,18 +852,20 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             children: [
               const Icon(Icons.store, color: Colors.orange, size: 14),
               const SizedBox(width: 4),
-              Flexible(child: Text(mission.pickupLabel,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  overflow: TextOverflow.ellipsis)),
+              Flexible(
+                  child: Text(mission.pickupLabel,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis)),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6),
                 child: Icon(Icons.arrow_forward, size: 12, color: Colors.grey),
               ),
               const Icon(Icons.location_on, color: Colors.red, size: 14),
               const SizedBox(width: 4),
-              Flexible(child: Text(mission.deliveryLabel,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  overflow: TextOverflow.ellipsis)),
+              Flexible(
+                  child: Text(mission.deliveryLabel,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      overflow: TextOverflow.ellipsis)),
             ],
           ),
         ],
@@ -773,7 +882,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
           ),
         ),
@@ -783,24 +893,31 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   Widget _buildPaymentStatus(DeliveryMission mission) {
     final isPaid = mission.isPaid;
-    final color  = isPaid ? Colors.green : Colors.orange;
+    final isBlocked = mission.paymentBlocksDelivery;
+    final color =
+        isPaid ? Colors.green : (isBlocked ? Colors.red : Colors.orange);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(children: [
-        Icon(isPaid ? Icons.check_circle : Icons.warning_amber_rounded, color: color),
+        Icon(isPaid ? Icons.check_circle : Icons.warning_amber_rounded,
+            color: color),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isPaid ? 'PAIEMENT CONFIRMÉ' : 'PAIEMENT EN ATTENTE',
+                isPaid
+                    ? 'PAIEMENT CONFIRMÉ'
+                    : (isBlocked
+                        ? 'PAIEMENT BLOQUANT EN ATTENTE'
+                        : 'PAIEMENT EN ATTENTE'),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
@@ -808,9 +925,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 ),
               ),
               Text(
-                isPaid 
+                isPaid
                     ? 'Le client a réglé la commande.'
-                    : 'Le client doit régler via le lien reçu par SMS avant la remise.',
+                    : 'Payeur: ${mission.whoPays == 'recipient' ? 'destinataire' : 'expéditeur'}'
+                        '${mission.paymentMethod != null ? ' • ${mission.paymentMethod}' : ''}'
+                        '${mission.paymentOverride ? ' • override admin actif' : ''}',
                 style: TextStyle(fontSize: 12, color: color.shade700),
               ),
             ],
@@ -906,7 +1025,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           child: TextButton.icon(
             onPressed: _isProcessing ? null : () => _releaseMission(mission.id),
             icon: const Icon(Icons.undo, color: Colors.grey),
-            label: const Text('Libérer la mission', style: TextStyle(color: Colors.grey)),
+            label: const Text('Libérer la mission',
+                style: TextStyle(color: Colors.grey)),
           ),
         ),
       ]);
@@ -939,9 +1059,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           const SizedBox(height: 12),
           Center(
             child: TextButton.icon(
-              onPressed: _isProcessing ? null : () => _showFailDialog(mission.parcelId),
+              onPressed: _isProcessing
+                  ? null
+                  : () => _showFailDialog(mission.parcelId),
               icon: const Icon(Icons.report_problem, color: Colors.red),
-              label: const Text('Impossible de livrer', style: TextStyle(color: Colors.red)),
+              label: const Text('Impossible de livrer',
+                  style: TextStyle(color: Colors.red)),
             ),
           ),
         ]);
@@ -952,41 +1075,124 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _isProcessing ? null : () => _confirmDelivery(mission.parcelId),
+            onPressed: _isProcessing || mission.paymentBlocksDelivery
+                ? null
+                : () => _confirmDelivery(mission.parcelId),
             icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Valider la livraison (QR / code)'),
+            label: Text(
+              mission.paymentBlocksDelivery
+                  ? 'Paiement requis avant remise'
+                  : 'Valider la livraison (QR / code)',
+            ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
+              backgroundColor:
+                  mission.paymentBlocksDelivery ? Colors.grey : Colors.green,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
           ),
         ),
+        if (mission.paymentBlocksDelivery) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Actualisez le paiement ou contactez les ops avant la remise finale.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.redAccent),
+          ),
+        ],
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: _isProcessing ? null : _takePhoto,
-            icon: Icon(_proofBase64 != null ? Icons.check_circle : Icons.camera_alt, 
-                       color: _proofBase64 != null ? Colors.green : Colors.blue),
-            label: Text(_proofBase64 != null ? 'Photo enregistrée' : 'Prendre une photo (Preuve)'),
+            icon: Icon(
+                _proofBase64 != null ? Icons.check_circle : Icons.camera_alt,
+                color: _proofBase64 != null ? Colors.green : Colors.blue),
+            label: Text(_proofBase64 != null
+                ? 'Photo enregistrée'
+                : 'Prendre une photo (Preuve)'),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(color: _proofBase64 != null ? Colors.green : Colors.blue),
+              side: BorderSide(
+                  color: _proofBase64 != null ? Colors.green : Colors.blue),
             ),
           ),
         ),
         const SizedBox(height: 12),
         Center(
           child: TextButton.icon(
-            onPressed: _isProcessing ? null : () => _showFailDialog(mission.parcelId),
+            onPressed:
+                _isProcessing ? null : () => _showFailDialog(mission.parcelId),
             icon: const Icon(Icons.report_problem, color: Colors.red),
-            label: const Text('Impossible de livrer', style: TextStyle(color: Colors.red)),
+            label: const Text('Impossible de livrer',
+                style: TextStyle(color: Colors.red)),
           ),
         ),
       ]);
     }
 
     return const SizedBox.shrink();
+  }
+
+  Widget _buildInstructionCards(DeliveryMission mission) {
+    final cards = <Widget>[];
+    if (mission.pickupVoiceNote?.isNotEmpty ?? false) {
+      cards.add(
+        _instructionCard(
+          title: 'Instruction collecte',
+          icon: Icons.mic_none_rounded,
+          color: Colors.orange,
+          text: mission.pickupVoiceNote!,
+        ),
+      );
+    }
+    if (mission.deliveryVoiceNote?.isNotEmpty ?? false) {
+      cards.add(
+        _instructionCard(
+          title: 'Instruction livraison',
+          icon: Icons.record_voice_over_outlined,
+          color: Colors.teal,
+          text: mission.deliveryVoiceNote!,
+        ),
+      );
+    }
+    return Column(children: cards);
+  }
+
+  Widget _instructionCard({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required String text,
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, color: color)),
+                const SizedBox(height: 4),
+                Text(text, style: const TextStyle(fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildContactCard({
@@ -1009,16 +1215,27 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             radius: 24,
             backgroundColor: Colors.blue.shade50,
             backgroundImage: photo != null ? NetworkImage(photo) : null,
-            child: photo == null ? const Icon(Icons.person, color: Colors.blue) : null,
+            child: photo == null
+                ? const Icon(Icons.person, color: Colors.blue)
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
-                Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                if (phone != null) Text(phone, style: const TextStyle(fontSize: 13, color: Colors.blueGrey)),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.bold)),
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.bold)),
+                if (phone != null)
+                  Text(phone,
+                      style: const TextStyle(
+                          fontSize: 13, color: Colors.blueGrey)),
               ],
             ),
           ),

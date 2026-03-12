@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from config import settings
 from database import db
 from core.exceptions import bad_request_exception
 from core.security import generate_tracking_code
@@ -161,10 +162,179 @@ async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5
     return [c["id"] for c in candidates[:limit]]
 
 
+def _round_to_50(value: float) -> float:
+    return math.ceil(value / 50) * 50 if value > 0 else 0.0
+
+
+def _normalize_geopin(source: Optional[dict]) -> Optional[dict]:
+    if not source:
+        return None
+
+    geopin = source.get("geopin") or source
+    lat = geopin.get("lat")
+    lng = geopin.get("lng")
+    if lat is None or lng is None:
+        return None
+
+    return {
+        "lat": float(lat),
+        "lng": float(lng),
+        "accuracy": geopin.get("accuracy"),
+    }
+
+
+def _current_delivery_location(parcel: dict) -> dict:
+    return parcel.get("delivery_location") or parcel.get("delivery_address") or {}
+
+
+async def _require_active_relay(relay_id: Optional[str], field_name: str) -> Optional[dict]:
+    if not relay_id:
+        return None
+
+    relay = await db.relay_points.find_one(
+        {"relay_id": relay_id, "is_active": True},
+        {"_id": 0},
+    )
+    if not relay:
+        raise bad_request_exception(f"{field_name} invalide ou inactif")
+
+    geopin = ((relay.get("address") or {}).get("geopin") or {})
+    if geopin.get("lat") is None or geopin.get("lng") is None:
+        raise bad_request_exception(f"{field_name} sans coordonnées GPS exploitables")
+
+    return relay
+
+
+async def sync_active_mission_with_parcel(
+    parcel: dict,
+    *,
+    earn_amount: Optional[float] = None,
+) -> None:
+    mission = await db.delivery_missions.find_one(
+        {
+            "parcel_id": parcel["parcel_id"],
+            "status": {"$in": ["pending", "assigned", "in_progress"]},
+        },
+        {"_id": 0},
+    )
+    if not mission:
+        return
+
+    delivery_source = _current_delivery_location(parcel)
+    delivery_geopin = _normalize_geopin(delivery_source)
+    delivery_label = (
+        delivery_source.get("label")
+        or delivery_source.get("notes")
+        or mission.get("delivery_label")
+        or "Adresse destinataire"
+    )
+    delivery_city = delivery_source.get("city") or mission.get("delivery_city") or "Dakar"
+
+    update_doc = {
+        "delivery_geopin": delivery_geopin,
+        "delivery_label": delivery_label,
+        "delivery_city": delivery_city,
+        "payment_status": parcel.get("payment_status"),
+        "payment_method": parcel.get("payment_method"),
+        "who_pays": parcel.get("who_pays"),
+        "pickup_voice_note": parcel.get("pickup_voice_note"),
+        "delivery_voice_note": parcel.get("delivery_voice_note"),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if earn_amount is not None:
+        update_doc["earn_amount"] = earn_amount
+
+    await db.delivery_missions.update_one(
+        {"mission_id": mission["mission_id"]},
+        {"$set": update_doc},
+    )
+
+
+async def preview_address_change(parcel: dict, lat: float, lng: float, accuracy: Optional[float] = None) -> dict:
+    mission = await db.delivery_missions.find_one(
+        {
+            "parcel_id": parcel["parcel_id"],
+            "status": {"$in": ["pending", "assigned", "in_progress"]},
+        },
+        {"_id": 0},
+    )
+
+    proposed_location = {
+        "label": None,
+        "district": None,
+        "city": "Dakar",
+        "notes": None,
+        "geopin": {"lat": lat, "lng": lng, "accuracy": accuracy},
+        "source": "app_recipient",
+        "confirmed": True,
+    }
+
+    if not mission or mission.get("status") != "in_progress":
+        return {
+            "requires_acceptance": False,
+            "distance_delta_km": 0.0,
+            "surcharge_xof": 0.0,
+            "new_location": proposed_location,
+        }
+
+    current_dest = _normalize_geopin(mission.get("delivery_geopin")) or _normalize_geopin(_current_delivery_location(parcel))
+    if not current_dest:
+        return {
+            "requires_acceptance": False,
+            "distance_delta_km": 0.0,
+            "surcharge_xof": 0.0,
+            "new_location": proposed_location,
+        }
+
+    driver_point = _normalize_geopin(mission.get("driver_location")) or _normalize_geopin(mission.get("pickup_geopin"))
+    if not driver_point:
+        assigned_driver_id = parcel.get("assigned_driver_id")
+        if assigned_driver_id:
+            driver = await db.users.find_one(
+                {"user_id": assigned_driver_id},
+                {"_id": 0, "last_driver_location": 1},
+            )
+            driver_point = _normalize_geopin((driver or {}).get("last_driver_location"))
+
+    if not driver_point:
+        driver_point = _normalize_geopin(mission.get("pickup_geopin"))
+
+    if not driver_point:
+        return {
+            "requires_acceptance": False,
+            "distance_delta_km": 0.0,
+            "surcharge_xof": 0.0,
+            "new_location": proposed_location,
+        }
+
+    current_remaining_km = _haversine_km(
+        driver_point["lat"],
+        driver_point["lng"],
+        current_dest["lat"],
+        current_dest["lng"],
+    )
+    new_remaining_km = _haversine_km(
+        driver_point["lat"],
+        driver_point["lng"],
+        lat,
+        lng,
+    )
+    delta_km = round(max(0.0, new_remaining_km - current_remaining_km), 2)
+    surcharge_xof = _round_to_50(delta_km * settings.PRICE_PER_KM) if delta_km > 1 else 0.0
+
+    return {
+        "requires_acceptance": surcharge_xof > 0,
+        "distance_delta_km": delta_km,
+        "current_remaining_km": round(current_remaining_km, 2),
+        "new_remaining_km": round(new_remaining_km, 2),
+        "surcharge_xof": surcharge_xof,
+        "new_location": proposed_location,
+    }
+
+
 async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: str = "") -> dict:
     """Crée un nouveau colis avec devis et tracking code."""
     from models.parcel import ParcelQuote
-    from services.user_service import _compute_tier
     
     # ── Récupérer infos fidélité pour le recalcul du prix ──
     user = await db.users.find_one({"user_id": sender_user_id})
@@ -209,23 +379,39 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     )
 
     sender_name_str = (user or {}).get("name", "Expéditeur")
+    sender_phone_value = sender_phone or data.sender_phone or (user or {}).get("phone", "")
+
+    # Vérifications métier complémentaires: relais existants et actifs.
+    if data.origin_relay_id:
+        await _require_active_relay(data.origin_relay_id, "origin_relay_id")
+    if data.destination_relay_id:
+        await _require_active_relay(data.destination_relay_id, "destination_relay_id")
+    if data.transit_relay_id:
+        await _require_active_relay(data.transit_relay_id, "transit_relay_id")
 
     now = datetime.now(timezone.utc)
     parcel_id     = _parcel_id()
     tracking_code = generate_tracking_code()
     expires_at    = now + timedelta(days=7)
+    has_origin_gps = bool(data.origin_location and data.origin_location.geopin)
+    requires_sender_confirmation = data.delivery_mode.value.startswith("home_to_") and not has_origin_gps
+    requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")
+    delivery_confirmed = data.delivery_mode.value.endswith("_to_relay")
+    pickup_confirmed = has_origin_gps if data.delivery_mode.value.startswith("home_to_") else False
 
     parcel_doc = {
         "parcel_id":             parcel_id,
         "tracking_code":         tracking_code,
         "sender_user_id":        sender_user_id,
         "sender_name":           sender_name_str,
+        "sender_phone":          sender_phone_value or None,
         "recipient_phone":       data.recipient_phone,
         "recipient_name":        data.recipient_name,
         "recipient_user_id":     None,  # Lié ci-dessous
         "delivery_mode":         data.delivery_mode.value,
         "origin_relay_id":       data.origin_relay_id,
         "destination_relay_id":  data.destination_relay_id,
+        "transit_relay_id":      data.transit_relay_id,
         "delivery_address":      data.delivery_address.model_dump() if data.delivery_address else None,
         "origin_location":       data.origin_location.model_dump() if data.origin_location else None,
         "weight_kg":             data.weight_kg,
@@ -243,15 +429,35 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "payment_status":        "pending",
         "payment_method":        None,
         "payment_ref":           None,
+        "payment_override":      False,
+        "payment_override_reason": None,
+        "payment_override_by":   None,
+        "payment_override_at":   None,
         "initiated_by":          data.initiated_by if hasattr(data, 'initiated_by') else "sender",
-        "delivery_confirmed":    data.delivery_mode.value.endswith("_to_relay"),
-        "pickup_confirmed":      False,
+        "delivery_confirmed":    delivery_confirmed,
+        "pickup_confirmed":      pickup_confirmed,
+        "gps_reminders": {
+            "sender": {
+                "count": 0,
+                "last_sent_at": None,
+                "last_channel": None,
+                "confirmed_at": now if pickup_confirmed else None,
+            },
+            "recipient": {
+                "count": 0,
+                "last_sent_at": None,
+                "last_channel": None,
+                "confirmed_at": now if delivery_confirmed else None,
+            },
+        },
         "pickup_voice_note":     getattr(data, "pickup_voice_note", None),
         "delivery_voice_note":   getattr(data, "delivery_voice_note", None),
         "status":                ParcelStatus.CREATED.value,
         "promo_id":              quote.promo_applied.get("promo_id") if quote.promo_applied else None,
         "assigned_driver_id":    None,
         "redirect_relay_id":     None,
+        "address_change_surcharge_xof": 0.0,
+        "driver_bonus_xof":      0.0,
         "external_ref":          None,
         "created_at":            now,
         "updated_at":            now,
@@ -268,16 +474,20 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             parcel_id=parcel_id
         )
 
-    # ── Gestion de la confirmation de position destinataire ──
-    requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")
+    # ── Gestion des confirmations GPS expéditeur / destinataire ──
     recipient_token = None
-    if requires_recipient_gps:
+    sender_token = None
+    if requires_sender_confirmation or requires_recipient_gps:
         from routers.confirm import generate_confirm_tokens
-        recipient_token, sender_token = generate_confirm_tokens()
-        parcel_doc["recipient_confirm_token"] = recipient_token
-        parcel_doc["sender_confirm_token"]    = sender_token
-        parcel_doc["delivery_confirmed"]      = False
-        parcel_doc["pickup_confirmed"]        = True # Saisi dans l'app direct
+        generated_recipient_token, generated_sender_token = generate_confirm_tokens()
+        if requires_recipient_gps:
+            recipient_token = generated_recipient_token
+            parcel_doc["recipient_confirm_token"] = recipient_token
+            parcel_doc["delivery_confirmed"] = False
+        if requires_sender_confirmation:
+            sender_token = generated_sender_token
+            parcel_doc["sender_confirm_token"] = sender_token
+            parcel_doc["pickup_confirmed"] = False
 
     # ── Liaison automatique du destinataire si compte existant ──
     recipient_user = await db.users.find_one({"phone": data.recipient_phone}, {"user_id": 1})
@@ -333,7 +543,6 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     )
 
     # ── Envoyer le lien de confirmation GPS (SMS / WhatsApp) ──
-    from config import settings
     recipient_confirm_url = None
     if requires_recipient_gps and recipient_token:
         # On utilise BASE_URL car le site web vitrine n'est pas encore en place
@@ -350,15 +559,56 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             f"Veuillez confirmer votre position via ce lien pour recevoir le colis : {recipient_confirm_url}"
         )
         try:
-            from services.notification_service import _send_sms
-            await _send_sms(data.recipient_phone, msg)
+            from services.notification_service import notify_location_confirmation_request
+
+            await notify_location_confirmation_request(
+                parcel_doc,
+                actor="recipient",
+                confirm_url=recipient_confirm_url,
+            )
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {
+                    "gps_reminders.recipient.count": 1,
+                    "gps_reminders.recipient.last_sent_at": now,
+                    "gps_reminders.recipient.last_channel": (
+                        "in_app_push" if parcel_doc.get("recipient_user_id") else "sms_whatsapp"
+                    ),
+                }},
+            )
         except Exception as e:
             logger.warning(f"SMS de confirmation GPS non envoyé : {e}")
+
+    sender_confirm_url = None
+    if requires_sender_confirmation and sender_token:
+        sender_confirm_url = f"{settings.BASE_URL}/confirm/{sender_token}"
+        try:
+            from services.notification_service import notify_location_confirmation_request
+
+            await notify_location_confirmation_request(
+                parcel_doc,
+                actor="sender",
+                confirm_url=sender_confirm_url,
+            )
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {
+                    "gps_reminders.sender.count": 1,
+                    "gps_reminders.sender.last_sent_at": now,
+                    "gps_reminders.sender.last_channel": (
+                        "in_app_push" if parcel_doc.get("sender_user_id") else "sms_whatsapp"
+                    ),
+                }},
+            )
+        except Exception as e:
+            logger.warning("Confirmation GPS expéditeur non envoyée : %s", e)
 
     result = {k: v for k, v in parcel_doc.items() if k != "_id"}
     result["payment_url"] = payment_url
     if recipient_confirm_url:
         result["recipient_confirm_url"] = recipient_confirm_url
+    if sender_confirm_url:
+        result["sender_confirm_url"] = sender_confirm_url
 
     return result
 
@@ -580,6 +830,11 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     if existing:
         return
 
+    mode = parcel.get("delivery_mode", "")
+    if mode.startswith("home_to_") and not parcel.get("pickup_confirmed"):
+        logger.info("Création mission suspendue pour %s : GPS expéditeur manquant.", parcel["parcel_id"])
+        return
+
     # ── Point de collecte (pickup) ────────────────────────────────────────────
     if from_status == ParcelStatus.AT_DESTINATION_RELAY:
         # Livreur vient chercher au relais de destination
@@ -609,7 +864,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_geopin = pickup_loc.get("geopin")
 
     # ── Point de livraison ────────────────────────────────────────────────────
-    delivery_addr = parcel.get("delivery_address") or {}
+    delivery_addr = _current_delivery_location(parcel)
     delivery_label = (delivery_addr.get("label") or delivery_addr.get("notes") or "Adresse destinataire")
     delivery_city  = delivery_addr.get("city", "Dakar")
     delivery_geopin = delivery_addr.get("geopin")
@@ -618,7 +873,6 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
 
     # Si la destination est un relais (H2R ou R2R local)
     dest_relay_id = parcel.get("destination_relay_id")
-    mode = parcel.get("delivery_mode", "")
     transit_relay_id = parcel.get("transit_relay_id")
     active_status = parcel.get("status")
 
@@ -652,13 +906,11 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             return
 
     # ── Rémunération livreur selon le taux configuré ──────────────────────────
-    from config import settings
     quoted = parcel.get("quoted_price") or parcel.get("paid_price") or 0
-    mode   = parcel.get("delivery_mode", "")
     # HOME_TO_HOME : driver reçoit 85 % (pas de relais), sinon 70 %
     driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
                    if mode == "home_to_home" else settings.DRIVER_RATE)
-    earn_amount = round(quoted * driver_rate)
+    earn_amount = round(quoted * driver_rate) + round(parcel.get("driver_bonus_xof", 0.0))
 
     now = datetime.now(timezone.utc)
     mission_doc = {
@@ -667,6 +919,9 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "tracking_code":    parcel.get("tracking_code"),
         "driver_id":        None,          # rempli quand un livreur accepte
         "status":           MissionStatus.PENDING.value,
+        "sender_user_id":   parcel.get("sender_user_id"),
+        "sender_name":      parcel.get("sender_name"),
+        "recipient_user_id": parcel.get("recipient_user_id"),
         # Pickup
         "pickup_type":      pickup_type,   # 'relay' | 'gps'
         "pickup_relay_id":  pickup_relay_id,
@@ -682,6 +937,12 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         # Infos destinataire (pour appeler)
         "recipient_name":   parcel.get("recipient_name"),
         "recipient_phone":  parcel.get("recipient_phone"),
+        "who_pays":         parcel.get("who_pays"),
+        "payment_status":   parcel.get("payment_status"),
+        "payment_method":   parcel.get("payment_method"),
+        "payment_override": bool(parcel.get("payment_override")),
+        "pickup_voice_note": parcel.get("pickup_voice_note"),
+        "delivery_voice_note": parcel.get("delivery_voice_note"),
         # Rémunération
         "earn_amount":      earn_amount,
         # Dispatch en Cascade (Phase 7)

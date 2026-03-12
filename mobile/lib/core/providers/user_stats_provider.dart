@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../api/api_client.dart';
 import '../auth/auth_provider.dart';
 
 final userStatsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {

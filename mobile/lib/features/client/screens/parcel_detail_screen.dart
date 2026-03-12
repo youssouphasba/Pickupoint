@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../../core/models/parcel.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
@@ -29,13 +28,17 @@ class ParcelDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
-  Timer?  _locationTimer;
+  Timer? _locationTimer;
   double? _driverLat;
   double? _driverLng;
-  bool    _driverOnline = false;
+  double? _liveDestinationLat;
+  double? _liveDestinationLng;
+  bool _driverOnline = false;
   GoogleMapController? _mapController;
-  bool    _isConfirmingLocation = false;
-  final   _voiceNoteController  = TextEditingController();
+  bool _isConfirmingLocation = false;
+  final _voiceNoteController = TextEditingController();
+  String? _liveEtaText;
+  String? _liveDistanceText;
 
   @override
   void initState() {
@@ -67,21 +70,32 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       final data = res.data as Map<String, dynamic>;
       if (data['available'] == true && data['location'] != null) {
         final loc = data['location'] as Map<String, dynamic>;
+        final destination = data['destination'] as Map<String, dynamic>?;
+        final geopin = destination?['geopin'] as Map<String, dynamic>?;
         if (mounted) {
           setState(() {
-            _driverLat   = (loc['lat'] as num).toDouble();
-            _driverLng   = (loc['lng'] as num).toDouble();
+            _driverLat = (loc['lat'] as num).toDouble();
+            _driverLng = (loc['lng'] as num).toDouble();
             _driverOnline = true;
+            _liveEtaText = data['eta_text']?.toString();
+            _liveDistanceText = data['distance_text']?.toString();
+            _liveDestinationLat = (geopin?['lat'] as num?)?.toDouble();
+            _liveDestinationLng = (geopin?['lng'] as num?)?.toDouble();
           });
-          
+
           if (_mapController != null) {
             _mapController!.animateCamera(
-              CameraUpdate.newLatLng(LatLng(_driverLat!, _driverLng!))
-            );
+                CameraUpdate.newLatLng(LatLng(_driverLat!, _driverLng!)));
           }
         }
       } else {
-        if (mounted) setState(() => _driverOnline = false);
+        if (mounted) {
+          setState(() {
+            _driverOnline = false;
+            _liveEtaText = null;
+            _liveDistanceText = null;
+          });
+        }
       }
     } catch (_) {}
   }
@@ -96,79 +110,83 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         data: (parcel) {
           final isRecipient = parcel.isRecipientView ?? false;
           return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context, parcel, isRecipient: isRecipient),
-              const SizedBox(height: 16),
-
-              if (parcel.status == 'out_for_delivery') ...[
-                _buildLiveMap(parcel),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(context, parcel, isRecipient: isRecipient),
                 const SizedBox(height: 16),
-              ],
 
-              // ── Bloc Confirmation Position (Destinataire Home) ──────────
-              if (_shouldShowConfirmLocation(parcel, isRecipient)) ...[
-                _buildConfirmLocationCard(parcel),
-                const SizedBox(height: 16),
-              ],
+                if (parcel.status == 'out_for_delivery') ...[
+                  _buildLiveMap(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              // ── Code collecte (expéditeur donne au livreur — H2R / H2H) ──
-              if (_shouldShowPickupCode(parcel, isRecipient)) ...[
-                _buildPickupCodeCard(parcel),
-                const SizedBox(height: 16),
-              ],
+                // ── Bloc Confirmation Position (Destinataire Home) ──────────
+                if (_shouldShowConfirmLocation(parcel, isRecipient)) ...[
+                  _buildConfirmLocationCard(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              // ── Code PIN retrait relais (destinataire) ───────────────────
-              if (_shouldShowPinCode(parcel, isRecipient)) ...[
-                _buildPinCodeCard(parcel),
-                const SizedBox(height: 16),
-              ],
+                // ── Code collecte (expéditeur donne au livreur — H2R / H2H) ──
+                if (_shouldShowPickupCode(parcel, isRecipient)) ...[
+                  _buildPickupCodeCard(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              // ── Code livraison domicile (destinataire donne au livreur)
-              if (_shouldShowDeliveryCode(parcel, isRecipient)) ...[
-                _buildDeliveryCodeCard(parcel),
-                const SizedBox(height: 16),
-              ],
+                // ── Code PIN retrait relais (destinataire) ───────────────────
+                if (_shouldShowPinCode(parcel, isRecipient)) ...[
+                  _buildPinCodeCard(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              // ── Bloc Notation & Pourboire (si livré et non noté) ─────────
-              if (parcel.status == 'delivered' && parcel.rating == null && !isRecipient) ...[
-                _buildRatingCard(parcel),
-                const SizedBox(height: 16),
-              ],
+                // ── Code livraison domicile (destinataire donne au livreur)
+                if (_shouldShowDeliveryCode(parcel, isRecipient)) ...[
+                  _buildDeliveryCodeCard(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              // ── QR tracking (pour relais) ────────────────────────────────
-              _buildQrSection(context, parcel, isRecipient: isRecipient),
+                // ── Bloc Notation & Pourboire (si livré et non noté) ─────────
+                if (parcel.status == 'delivered' &&
+                    parcel.rating == null &&
+                    !isRecipient) ...[
+                  _buildRatingCard(parcel),
+                  const SizedBox(height: 16),
+                ],
 
-              const SizedBox(height: 20),
-              _buildInfoSection(parcel, isRecipient: isRecipient),
-              const SizedBox(height: 28),
+                // ── QR tracking (pour relais) ────────────────────────────────
+                _buildQrSection(context, parcel, isRecipient: isRecipient),
 
-              const Text('Historique',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              TimelineWidget(events: parcel.events),
-              const SizedBox(height: 28),
+                const SizedBox(height: 20),
+                _buildInfoSection(parcel, isRecipient: isRecipient),
+                const SizedBox(height: 28),
 
-              // ── Messagerie temporaire ────────────────────────────────────
-              ParcelChatWidget(
-                parcelId: parcel.id,
-                isClosed: ['delivered', 'cancelled', 'returned', 'expired']
-                    .contains(parcel.status),
-              ),
-              const SizedBox(height: 28),
+                const Text('Historique',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                TimelineWidget(events: parcel.events),
+                const SizedBox(height: 28),
 
-              if (parcel.canBeCancelled && !isRecipient)
-                LoadingButton(
-                  label: "Annuler l'envoi",
-                  color: Colors.red.shade700,
-                  onPressed: () => _showCancelDialog(context, ref),
+                // ── Messagerie temporaire ────────────────────────────────────
+                ParcelChatWidget(
+                  parcelId: parcel.id,
+                  isClosed: ['delivered', 'cancelled', 'returned', 'expired']
+                      .contains(parcel.status),
                 ),
-              const SizedBox(height: 40),
-            ],
-          ),
-        );},
+                const SizedBox(height: 28),
+
+                if (parcel.canBeCancelled && !isRecipient)
+                  LoadingButton(
+                    label: "Annuler l'envoi",
+                    color: Colors.red.shade700,
+                    onPressed: () => _showCancelDialog(context, ref),
+                  ),
+                const SizedBox(height: 40),
+              ],
+            ),
+          );
+        },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, __) => Center(child: Text('Erreur: $e')),
       ),
@@ -247,13 +265,12 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-           throw 'Permission GPS refusée';
+          throw 'Permission GPS refusée';
         }
       }
-      
+
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high
-      );
+          desiredAccuracy: LocationAccuracy.high);
 
       // 2. Appel API
       final api = ref.read(apiClientProvider);
@@ -264,7 +281,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       };
       final note = _voiceNoteController.text.trim();
       if (note.isNotEmpty) body['voice_note'] = note;
-      await api.updateDeliveryAddress(widget.id, body);
+      final response = await api.updateDeliveryAddress(widget.id, body);
+      final data = response.data as Map<String, dynamic>;
+      if (data['requires_acceptance'] == true) {
+        final accepted = await _showAddressSurchargeDialog(data);
+        if (accepted != true) return;
+        await api.applyDeliveryAddressChange(widget.id, {
+          ...body,
+          'accept_surcharge': true,
+        });
+      }
 
       // 3. Succès
       if (mounted) {
@@ -283,6 +309,33 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     } finally {
       if (mounted) setState(() => _isConfirmingLocation = false);
     }
+  }
+
+  Future<bool?> _showAddressSurchargeDialog(Map<String, dynamic> data) {
+    final surcharge = (data['surcharge_xof'] as num?)?.toDouble() ?? 0.0;
+    final deltaKm = (data['distance_delta_km'] as num?)?.toDouble() ?? 0.0;
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Surcoût de changement'),
+        content: Text(
+          'La nouvelle adresse ajoute environ ${deltaKm.toStringAsFixed(1)} km au trajet restant.\n\n'
+          'Surcoût: ${formatXof(surcharge)}.\n'
+          'Ce montant sera payé par le destinataire et reversé au livreur.\n\n'
+          'Confirmer le changement ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Accepter'),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Code collecte (pickup_code) — l'expéditeur le donne au livreur ──────────
@@ -343,15 +396,18 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     // Uniquement livraison à domicile (R2H ou H2H) — pas H2R (retrait relais)
     final isHomeDel = mode == 'relay_to_home' || mode == 'home_to_home';
     return isHomeDel &&
-        ['created', 'in_transit', 'out_for_delivery'].contains(parcel.status as String) &&
+        ['created', 'in_transit', 'out_for_delivery']
+            .contains(parcel.status as String) &&
         (parcel.deliveryCode as String?) != null;
   }
 
   // ── Code retrait relais (pin_code / delivery_code) — donné à l'agent relais ──
   bool _shouldShowPinCode(dynamic parcel, bool isRecipient) {
     if (!isRecipient) return false;
-    final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' || (parcel.deliveryMode as String) == 'home_to_relay';
-    final code = (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?);
+    final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
+        (parcel.deliveryMode as String) == 'home_to_relay';
+    final code =
+        (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?);
     return isRelayDest &&
         ['at_destination_relay', 'available_at_relay']
             .contains(parcel.status as String) &&
@@ -367,7 +423,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.blue.shade700, Colors.blue.shade500],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -382,12 +439,15 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         Center(
           child: Text(code,
               style: const TextStyle(
-                color: Colors.white, fontSize: 38,
-                fontWeight: FontWeight.bold, letterSpacing: 8,
+                color: Colors.white,
+                fontSize: 38,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 8,
               )),
         ),
         const SizedBox(height: 10),
-        const SizedBox(width: double.infinity,
+        const SizedBox(
+          width: double.infinity,
           child: Text(
             'Donnez ce code au livreur à son arrivée.\nNe le partagez pas avant.',
             style: TextStyle(color: Colors.white70, fontSize: 12),
@@ -412,7 +472,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   Widget _buildPinCodeCard(dynamic parcel) {
-    final pin = (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?) ?? '';
+    final pin =
+        (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?) ?? '';
     if (pin.isEmpty) return const SizedBox.shrink();
 
     return Container(
@@ -420,7 +481,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.green.shade700, Colors.green.shade500],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
       ),
@@ -440,8 +502,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         Center(
           child: Text(pin,
               style: const TextStyle(
-                color: Colors.white, fontSize: 38,
-                fontWeight: FontWeight.bold, letterSpacing: 10,
+                color: Colors.white,
+                fontSize: 38,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 10,
               )),
         ),
         const SizedBox(height: 14),
@@ -458,7 +522,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        const SizedBox(width: double.infinity,
+        const SizedBox(
+          width: double.infinity,
           child: Text(
             'Le QR code ou le code à 4 chiffres — montrez-en un seul.',
             style: TextStyle(color: Colors.white70, fontSize: 11),
@@ -471,13 +536,15 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
   Widget _buildLiveMap(dynamic parcel) {
     // Coordonnées destination depuis le colis
-    final destLat = parcel.deliveryLat as double?;
-    final destLng = parcel.deliveryLng as double?;
+    final destLat = _liveDestinationLat ?? (parcel.deliveryLat as double?);
+    final destLng = _liveDestinationLng ?? (parcel.deliveryLng as double?);
 
     // Centrer sur le livreur si disponible, sinon sur la destination
     final center = _driverLat != null
         ? LatLng(_driverLat!, _driverLng!)
-        : (destLat != null ? LatLng(destLat, destLng!) : const LatLng(14.693, -17.447)); // Dakar fallback
+        : (destLat != null
+            ? LatLng(destLat, destLng!)
+            : const LatLng(14.693, -17.447)); // Dakar fallback
 
     final Set<Marker> markers = {};
 
@@ -487,12 +554,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         Marker(
           markerId: const MarkerId('driver_pos'),
           position: LatLng(_driverLat!, _driverLng!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
           infoWindow: const InfoWindow(title: 'Livreur en route'),
         ),
       );
     }
-    
+
     // Marker destination
     if (destLat != null) {
       markers.add(
@@ -531,7 +599,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           ),
           // Badge statut GPS
           Positioned(
-            top: 8, right: 8,
+            top: 8,
+            right: 8,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
@@ -541,27 +610,53 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Icon(
                   _driverOnline ? Icons.circle : Icons.circle_outlined,
-                  size: 8, color: Colors.white,
+                  size: 8,
+                  color: Colors.white,
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _driverOnline 
-                    ? (parcel.etaText != null ? 'En route • ${parcel.etaText}' : 'En route')
-                    : 'Signal GPS faible',
+                  _driverOnline
+                      ? (_liveEtaText != null
+                          ? 'En route • $_liveEtaText'
+                          : (parcel.etaText != null
+                              ? 'En route • ${parcel.etaText}'
+                              : 'En route'))
+                      : 'Signal GPS faible',
                   style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ]),
             ),
           ),
+          if (_liveDistanceText != null)
+            Positioned(
+              left: 8,
+              bottom: 8,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _liveDistanceText!,
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
   // RESTE DE L'UI: Header, QrTracking, Infos
-  Widget _buildHeader(BuildContext context, dynamic parcel, {bool isRecipient = false}) {
-    final otherPartyPhoto = isRecipient ? parcel.senderPhotoUrl : parcel.recipientPhotoUrl;
-    final otherPartyName  = isRecipient ? (parcel.senderName ?? 'Expéditeur') : (parcel.recipientName ?? 'Destinataire');
+  Widget _buildHeader(BuildContext context, dynamic parcel,
+      {bool isRecipient = false}) {
+    final otherPartyPhoto =
+        isRecipient ? parcel.senderPhotoUrl : parcel.recipientPhotoUrl;
+    final otherPartyName = isRecipient
+        ? (parcel.senderName ?? 'Expéditeur')
+        : (parcel.recipientName ?? 'Destinataire');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,8 +666,12 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             CircleAvatar(
               radius: 20,
               backgroundColor: Colors.blue.shade50,
-              backgroundImage: otherPartyPhoto != null ? NetworkImage(otherPartyPhoto) : null,
-              child: otherPartyPhoto == null ? const Icon(Icons.person, size: 20, color: Colors.blue) : null,
+              backgroundImage: otherPartyPhoto != null
+                  ? NetworkImage(otherPartyPhoto)
+                  : null,
+              child: otherPartyPhoto == null
+                  ? const Icon(Icons.person, size: 20, color: Colors.blue)
+                  : null,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -580,10 +679,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isRecipient ? 'Expéditeur : $otherPartyName' : 'Destinataire : $otherPartyName',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    isRecipient
+                        ? 'Expéditeur : $otherPartyName'
+                        : 'Destinataire : $otherPartyName',
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
                   ),
-                  Text('Colis ${parcel.trackingCode}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text('Colis ${parcel.trackingCode}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
               ),
             ),
@@ -598,31 +701,38 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               color: isRecipient ? Colors.green.shade50 : Colors.blue.shade50,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isRecipient ? Colors.green.shade200 : Colors.blue.shade200,
+                color:
+                    isRecipient ? Colors.green.shade200 : Colors.blue.shade200,
               ),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(
                 isRecipient ? Icons.download : Icons.upload,
                 size: 12,
-                color: isRecipient ? Colors.green.shade700 : Colors.blue.shade700,
+                color:
+                    isRecipient ? Colors.green.shade700 : Colors.blue.shade700,
               ),
               const SizedBox(width: 4),
               Text(
                 isRecipient ? 'Colis reçu' : 'Colis envoyé',
                 style: TextStyle(
                   fontSize: 11,
-                  color: isRecipient ? Colors.green.shade700 : Colors.blue.shade700,
+                  color: isRecipient
+                      ? Colors.green.shade700
+                      : Colors.blue.shade700,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ]),
           ),
           const SizedBox(width: 8),
-          Text(formatDate(parcel.createdAt), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Text(formatDate(parcel.createdAt),
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
-
-        if (parcel.driverPhotoUrl != null && (parcel.status == 'assigned' || parcel.status == 'picked_up' || parcel.status == 'out_for_delivery')) ...[
+        if (parcel.driverPhotoUrl != null &&
+            (parcel.status == 'assigned' ||
+                parcel.status == 'picked_up' ||
+                parcel.status == 'out_for_delivery')) ...[
           const SizedBox(height: 16),
           _buildDriverInfo(parcel),
         ],
@@ -649,8 +759,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Livreur en charge', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                Text('Votre livreur est en route', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text('Livreur en charge',
+                    style: TextStyle(fontSize: 11, color: Colors.grey)),
+                Text('Votre livreur est en route',
+                    style:
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -665,23 +778,25 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
-  Widget _buildQrSection(BuildContext context, Parcel parcel, {bool isRecipient = false}) {
+  Widget _buildQrSection(BuildContext context, Parcel parcel,
+      {bool isRecipient = false}) {
     // Choix du code affiché dans le QR selon le rôle et le mode de livraison
     final isRelayPickup = parcel.deliveryMode == 'relay_to_relay' ||
-                          parcel.deliveryMode == 'home_to_relay';
-    final String? qrCode;
+        parcel.deliveryMode == 'home_to_relay';
+    late final String qrCode;
     final String qrLabel;
     if (!isRecipient) {
       // Expéditeur : code collecte (H2R/H2H) ou code suivi
-      qrCode  = parcel.pickupCode ?? parcel.trackingCode;
-      qrLabel = parcel.pickupCode != null ? 'Code Collecte (Livreur)' : 'Code Suivi';
+      qrCode = parcel.pickupCode ?? parcel.trackingCode;
+      qrLabel =
+          parcel.pickupCode != null ? 'Code Collecte (Livreur)' : 'Code Suivi';
     } else if (isRelayPickup) {
       // Destinataire retrait relais : relay_pin
-      qrCode  = parcel.pinCode ?? parcel.trackingCode;
+      qrCode = parcel.pinCode ?? parcel.trackingCode;
       qrLabel = 'Code retrait relais';
     } else {
       // Destinataire livraison domicile (R2H/H2H) : delivery_code
-      qrCode  = parcel.deliveryCode ?? parcel.trackingCode;
+      qrCode = parcel.deliveryCode ?? parcel.trackingCode;
       qrLabel = 'Code de réception (Livreur)';
     }
 
@@ -697,7 +812,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           Row(
             children: [
               QrImageView(
-                data: qrCode ?? parcel.trackingCode,
+                data: qrCode,
                 size: 64,
               ),
               const SizedBox(width: 16),
@@ -705,8 +820,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(qrLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(qrCode ?? parcel.trackingCode,
+                    Text(qrLabel,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(qrCode,
                         style: const TextStyle(fontFamily: 'monospace')),
                   ],
                 ),
@@ -719,11 +835,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: OutlinedButton.icon(
               onPressed: () => _shareOnWhatsApp(parcel),
               icon: const Icon(Icons.share, size: 18, color: Colors.green),
-              label: const Text('Partager sur WhatsApp', style: TextStyle(color: Colors.green)),
+              label: const Text('Partager sur WhatsApp',
+                  style: TextStyle(color: Colors.green)),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Colors.green),
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
             ),
           ),
@@ -733,20 +851,24 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   Future<void> _shareOnWhatsApp(Parcel parcel) async {
-    final senderName = ref.read(authProvider).valueOrNull?.user?.name ?? "L'expéditeur";
+    final senderName =
+        ref.read(authProvider).valueOrNull?.user?.name ?? "L'expéditeur";
     final url = ApiEndpoints.trackingView(parcel.trackingCode);
-    
+
     // "[Sender Name] veut vous envoyer [tel colis]. Veuillez confirmer votre position via ce lien pour recevoir le colis."
-    String text = '$senderName veut vous envoyer un colis (${parcel.trackingCode}).';
-    
+    String text =
+        '$senderName veut vous envoyer un colis (${parcel.trackingCode}).';
+
     if (parcel.recipientConfirmUrl != null && !parcel.deliveryConfirmed) {
-      text += '\n\nVeuillez confirmer votre position via ce lien pour recevoir le colis : ${parcel.recipientConfirmUrl}';
+      text +=
+          '\n\nVeuillez confirmer votre position via ce lien pour recevoir le colis : ${parcel.recipientConfirmUrl}';
     } else {
       text += '\n\nVous pouvez suivre l\'avancement ici : $url';
     }
 
-    final whatsappUrl = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
-    
+    final whatsappUrl =
+        Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
+
     if (await canLaunchUrl(whatsappUrl)) {
       await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
     } else {
@@ -761,12 +883,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   Widget _buildInfoSection(dynamic parcel, {bool isRecipient = false}) {
     return Column(
       children: [
-        _buildInfoRow(Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
-        _buildInfoRow(Icons.phone, 'Téléphone', maskPhone(parcel.recipientPhone ?? '')),
+        _buildInfoRow(
+            Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
+        _buildInfoRow(
+            Icons.phone, 'Téléphone', maskPhone(parcel.recipientPhone ?? '')),
         _buildInfoRow(
           Icons.location_on,
           parcel.isRelayToHome ? 'Adresse' : 'Point Relais',
-          parcel.isRelayToHome ? (parcel.destinationAddress ?? 'N/A') : (parcel.destinationRelayId ?? 'N/A'),
+          parcel.isRelayToHome
+              ? (parcel.destinationAddress ?? 'N/A')
+              : (parcel.destinationRelayId ?? 'N/A'),
         ),
       ],
     );
@@ -784,8 +910,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                Text(label,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w500)),
               ],
             ),
           ),
@@ -805,7 +934,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         title: const Text('Annuler l\'envoi ?'),
         content: const Text('Cette action est irréversible.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Retour')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Retour')),
           TextButton(
             onPressed: () async {
               try {
@@ -818,7 +949,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
                 }
               }
             },
@@ -841,8 +973,8 @@ class _RatingCard extends ConsumerStatefulWidget {
 class _RatingCardState extends ConsumerState<_RatingCard> {
   int _rating = 0;
   final _commentController = TextEditingController();
-  final _tipController     = TextEditingController();
-  bool _submitting         = false;
+  final _tipController = TextEditingController();
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -851,10 +983,11 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     super.dispose();
   }
 
-    void _submit() async {
+  void _submit() async {
     if (_rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez sélectionner au moins une étoile')),
+        const SnackBar(
+            content: Text('Veuillez sélectionner au moins une étoile')),
       );
       return;
     }
@@ -863,11 +996,11 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     try {
       final tip = double.tryParse(_tipController.text) ?? 0.0;
       await ref.read(apiClientProvider).rateParcel(
-        widget.parcelId, 
-        _rating, 
-        comment: _commentController.text,
-        tip: tip,
-      );
+            widget.parcelId,
+            _rating,
+            comment: _commentController.text,
+            tip: tip,
+          );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Merci pour votre avis !')),
@@ -895,7 +1028,10 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.blue.shade100),
         boxShadow: [
-          BoxShadow(color: Colors.blue.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+              color: Colors.blue.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
         ],
       ),
       child: Column(

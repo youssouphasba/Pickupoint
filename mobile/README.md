@@ -1,16 +1,27 @@
-# pickupoint
+# PickuPoint Mobile
 
-A new Flutter project.
+Application Flutter du projet PickuPoint.
 
-## Getting Started
+## Démarrage rapide
 
-This project is a starting point for a Flutter application.
+Lancer l'application en pointant vers une API locale :
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Flags utiles
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Les notifications push sont désactivées par défaut tant que Firebase n'est pas configuré.
+
+```bash
+flutter run \
+  --dart-define=API_BASE_URL=http://10.0.2.2:8001 \
+  --dart-define=ENABLE_PUSH_NOTIFICATIONS=false
+```
+
+## Notes
+
+- Sans `API_BASE_URL`, l'application utilise l'API Railway de production.
+- Tant que Firebase n'est pas branché, laisser `ENABLE_PUSH_NOTIFICATIONS=false`.
+- Le flow OTP peut fonctionner en mode mock côté backend si `OTP_PROVIDER=mock`.

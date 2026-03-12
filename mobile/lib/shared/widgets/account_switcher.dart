@@ -109,7 +109,7 @@ class AccountSwitcherButton extends ConsumerWidget {
         Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
-            color: isActive ? color : color.withOpacity(0.1),
+            color: isActive ? color : color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, size: 18,
@@ -129,7 +129,7 @@ class AccountSwitcherButton extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text('Actif',

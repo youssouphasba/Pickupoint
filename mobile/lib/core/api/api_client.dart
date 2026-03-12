@@ -52,9 +52,10 @@ class ApiClient {
     final formData = FormData.fromMap({
       "file": await MultipartFile.fromFile(file.path, filename: fileName),
     });
-    // doc_type est passé en query param ou multipart ? 
+    // doc_type est passé en query param ou multipart ?
     // Mon backend le prend en query param par défaut si non spécifié comme Form (...)
-    return _dio.post(ApiEndpoints.userKyc, queryParameters: {"doc_type": docType}, data: formData);
+    return _dio.post(ApiEndpoints.userKyc,
+        queryParameters: {"doc_type": docType}, data: formData);
   }
 
   // --- Auth & Profile ---
@@ -89,7 +90,8 @@ class ApiClient {
 
   Future<Response> getLoyalty() => _dio.get(ApiEndpoints.loyaltyStats);
 
-  Future<Response> getFavoriteAddresses() => _dio.get(ApiEndpoints.favoriteAddresses);
+  Future<Response> getFavoriteAddresses() =>
+      _dio.get(ApiEndpoints.favoriteAddresses);
 
   Future<Response> addFavoriteAddress(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.favoriteAddresses, data: body);
@@ -101,8 +103,7 @@ class ApiClient {
   Future<Response> getParcels({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.parcels, queryParameters: params);
 
-  Future<Response> getParcel(String id) =>
-      _dio.get(ApiEndpoints.parcel(id));
+  Future<Response> getParcel(String id) => _dio.get(ApiEndpoints.parcel(id));
 
   Future<Response> getQuote(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.quote, data: body);
@@ -147,39 +148,48 @@ class ApiClient {
   Future<Response> confirmLocation(String id, Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcelEvent(id, 'confirm-location'), data: body);
 
-  Future<Response> rateParcel(String id, int rating, {String? comment, double tip = 0}) =>
+  Future<Response> updateDeliveryAddress(
+          String id, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.updateDeliveryAddress(id), data: body);
+
+  Future<Response> previewDeliveryAddressChange(
+          String id, Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.previewDeliveryAddress(id), data: body);
+
+  Future<Response> applyDeliveryAddressChange(
+          String id, Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.applyDeliveryAddress(id), data: body);
+
+  Future<Response> rateParcel(String id, int rating,
+          {String? comment, double tip = 0}) =>
       _dio.post(ApiEndpoints.rateParcel(id), data: {
         'rating': rating,
         'comment': comment,
         'tip': tip,
       });
 
-  Future<Response> updateDeliveryAddress(String id, Map<String, dynamic> body) =>
-      _dio.put(ApiEndpoints.updateDeliveryAddress(id), data: body);
-
   // ─── Relay points ─────────────────────────────────────────────────────────
   Future<Response> getRelayPoints({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.relayPoints, queryParameters: params);
 
-  Future<Response> getNearbyRelays(double lat, double lng) =>
-      _dio.get(ApiEndpoints.relayNearby, queryParameters: {'lat': lat, 'lng': lng});
+  Future<Response> getNearbyRelays(double lat, double lng) => _dio
+      .get(ApiEndpoints.relayNearby, queryParameters: {'lat': lat, 'lng': lng});
 
   Future<Response> getRelayStock(String id) =>
       _dio.get(ApiEndpoints.relayStock(id));
 
   // ─── Deliveries ───────────────────────────────────────────────────────────
-  Future<Response> getAvailableMissions({double? lat, double? lng, double radiusKm = 5.0}) {
+  Future<Response> getAvailableMissions(
+      {double? lat, double? lng, double radiusKm = 5.0}) {
     final params = <String, dynamic>{'radius_km': radiusKm};
     if (lat != null) params['lat'] = lat;
     if (lng != null) params['lng'] = lng;
     return _dio.get(ApiEndpoints.availableMissions, queryParameters: params);
   }
 
-  Future<Response> getMyMissions() =>
-      _dio.get(ApiEndpoints.myMissions);
+  Future<Response> getMyMissions() => _dio.get(ApiEndpoints.myMissions);
 
-  Future<Response> getMission(String id) =>
-      _dio.get(ApiEndpoints.delivery(id));
+  Future<Response> getMission(String id) => _dio.get(ApiEndpoints.delivery(id));
 
   Future<Response> acceptMission(String id) =>
       _dio.post(ApiEndpoints.acceptMission(id));
@@ -197,16 +207,17 @@ class ApiClient {
       _dio.put(ApiEndpoints.deliveryLocation(id), data: body);
 
   Future<Response> getRankings({String? period}) =>
-      _dio.get(ApiEndpoints.rankings, queryParameters: {if (period != null) 'period': period});
+      _dio.get(ApiEndpoints.rankings,
+          queryParameters: {if (period != null) 'period': period});
 
   Future<Response> getMyRanking({String? period}) =>
-      _dio.get(ApiEndpoints.myRanking, queryParameters: {if (period != null) 'period': period});
+      _dio.get(ApiEndpoints.myRanking,
+          queryParameters: {if (period != null) 'period': period});
 
   // ─── Wallets ──────────────────────────────────────────────────────────────
   Future<Response> getWallet() => _dio.get(ApiEndpoints.myWallet);
 
-  Future<Response> getTransactions() =>
-      _dio.get(ApiEndpoints.transactions);
+  Future<Response> getTransactions() => _dio.get(ApiEndpoints.transactions);
 
   Future<Response> requestPayout(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.payout, data: body);
@@ -219,19 +230,24 @@ class ApiClient {
 
   Future<Response> getLiveFleet() => _dio.get(ApiEndpoints.adminFleetLive);
 
-  Future<Response> getStaleParcels() => _dio.get(ApiEndpoints.adminStaleParcels);
+  Future<Response> getStaleParcels() =>
+      _dio.get(ApiEndpoints.adminStaleParcels);
 
-  Future<Response> getAnomalyAlerts() => _dio.get(ApiEndpoints.adminAnomalyAlerts);
+  Future<Response> getAnomalyAlerts() =>
+      _dio.get(ApiEndpoints.adminAnomalyAlerts);
   Future<Response> getHeatmapData() => _dio.get(ApiEndpoints.adminHeatmap);
-  Future<Response> getCodMonitoring() => _dio.get(ApiEndpoints.adminCodMonitoring);
+  Future<Response> getCodMonitoring() =>
+      _dio.get(ApiEndpoints.adminCodMonitoring);
 
-  Future<Response> getParcelAudit(String id) => _dio.get(ApiEndpoints.adminParcelAudit(id));
+  Future<Response> getParcelAudit(String id) =>
+      _dio.get(ApiEndpoints.adminParcelAudit(id));
 
-  Future<Response> getAdminAuditLog({int limit = 100}) => 
+  Future<Response> getAdminAuditLog({int limit = 100}) =>
       _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});
 
   Future<Response> reassignMission(String id, String driverId) =>
-      _dio.post(ApiEndpoints.adminReassignMission(id), data: {'new_driver_id': driverId});
+      _dio.post(ApiEndpoints.adminReassignMission(id),
+          data: {'new_driver_id': driverId});
 
   Future<Response> forceParcelStatus(String id, String status) =>
       _dio.put(ApiEndpoints.adminParcelStatus(id), data: {'status': status});
@@ -255,21 +271,28 @@ class ApiClient {
         if (amount != null) 'amount': amount,
       });
 
-  Future<Response> overrideParcelStatus(String parcelId, String status, String notes) =>
+  Future<Response> overrideParcelStatus(
+          String parcelId, String status, String notes) =>
       _dio.post(ApiEndpoints.adminOverride(parcelId), queryParameters: {
         'new_status': status,
         'notes': notes,
       });
 
+  Future<Response> overrideParcelPayment(String parcelId, String reason) =>
+      _dio.post(ApiEndpoints.adminPaymentOverride(parcelId),
+          data: {'reason': reason});
+
   // ─── Admin — Utilisateurs ─────────────────────────────────────────────────
   Future<Response> getAdminUsers({int skip = 0, int limit = 50}) =>
-      _dio.get(ApiEndpoints.adminUsers, queryParameters: {'skip': skip, 'limit': limit});
+      _dio.get(ApiEndpoints.adminUsers,
+          queryParameters: {'skip': skip, 'limit': limit});
 
-  Future<Response> changeUserRole(String userId, String role) =>
-      _dio.put(ApiEndpoints.adminUserRole(userId), queryParameters: {'role': role});
+  Future<Response> changeUserRole(String userId, String role) => _dio
+      .put(ApiEndpoints.adminUserRole(userId), queryParameters: {'role': role});
 
   Future<Response> assignRelayPoint(String userId, String relayId) =>
-      _dio.put(ApiEndpoints.adminUserRelay(userId), queryParameters: {'relay_id': relayId});
+      _dio.put(ApiEndpoints.adminUserRelay(userId),
+          queryParameters: {'relay_id': relayId});
 
   Future<Response> getUserHistory(String userId) =>
       _dio.get(ApiEndpoints.adminUserHistory(userId));
@@ -293,12 +316,14 @@ class ApiClient {
   Future<Response> applyRelay(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.applyRelay, data: body);
 
-  Future<Response> getMyApplications() =>
-      _dio.get(ApiEndpoints.myApplications);
+  Future<Response> getMyApplications() => _dio.get(ApiEndpoints.myApplications);
 
-  Future<Response> getAdminApplications({String status = 'pending', String? type}) =>
-      _dio.get(ApiEndpoints.adminApplications,
-          queryParameters: {'status': status, if (type != null) 'app_type': type});
+  Future<Response> getAdminApplications(
+          {String status = 'pending', String? type}) =>
+      _dio.get(ApiEndpoints.adminApplications, queryParameters: {
+        'status': status,
+        if (type != null) 'app_type': type
+      });
 
   Future<Response> approveApplication(String id, {String? notes}) =>
       _dio.put(ApiEndpoints.approveApplication(id),
@@ -310,7 +335,8 @@ class ApiClient {
 
   // ─── Promotions ──────────────────────────────────────────────────────────
   Future<Response> getAdminPromotions({bool activeOnly = false}) =>
-      _dio.get(ApiEndpoints.adminPromotions, queryParameters: {'active_only': activeOnly});
+      _dio.get(ApiEndpoints.adminPromotions,
+          queryParameters: {'active_only': activeOnly});
 
   Future<Response> createPromotion(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.adminPromotions, data: body);
@@ -332,7 +358,8 @@ class ApiClient {
   Future<Response> getAnomalies() => _dio.get('/admin/anomalies');
 
   // ─── Legal ────────────────────────────────────────────────────────────────
-  Future<Response> getLegal(String docType) => _dio.get(ApiEndpoints.legal(docType));
+  Future<Response> getLegal(String docType) =>
+      _dio.get(ApiEndpoints.legal(docType));
 
   Future<Response> updateLegal(String docType, Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.legal(docType), data: body);

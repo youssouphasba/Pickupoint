@@ -15,7 +15,6 @@ class AdminFleetMapScreen extends ConsumerStatefulWidget {
 }
 
 class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
-  GoogleMapController? _mapController;
   Timer? _refreshTimer;
 
   @override
@@ -74,7 +73,6 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
               zoom: 12,
             ),
             markers: markers,
-            onMapCreated: (controller) => _mapController = controller,
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
             zoomControlsEnabled: true,

@@ -44,9 +44,11 @@ class AdminRelaysScreen extends ConsumerWidget {
     try {
       final api = ref.read(apiClientProvider);
       await api.verifyRelay(id);
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Relais vérifié avec succès !')));
       ref.invalidate(adminRelaysProvider);
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }

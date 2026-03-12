@@ -5,24 +5,27 @@ import 'package:firebase_core/firebase_core.dart';
 import 'core/notifications/notification_service.dart';
 import 'app.dart';
 
+const bool _pushNotificationsEnabled = bool.fromEnvironment(
+  'ENABLE_PUSH_NOTIFICATIONS',
+  defaultValue: false,
+);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialiser Firebase (nécessite google-services.json)
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase initialization failed (check google-services.json): $e');
-  }
 
   await initializeDateFormatting('fr_FR', null);
   
   final container = ProviderContainer();
-  // Init notification service (best-effort, ne bloque pas le démarrage)
-  try {
-    await container.read(notificationServiceProvider).init();
-  } catch (e) {
-    debugPrint('Notification service init failed: $e');
+
+  if (_pushNotificationsEnabled) {
+    try {
+      await Firebase.initializeApp();
+      await container.read(notificationServiceProvider).init();
+    } catch (e) {
+      debugPrint('Push notifications init failed: $e');
+    }
+  } else {
+    debugPrint('Push notifications disabled via --dart-define');
   }
 
   runApp(UncontrolledProviderScope(

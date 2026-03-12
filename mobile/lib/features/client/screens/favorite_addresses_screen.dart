@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../../core/models/user.dart';
-import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/map_picker_modal.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -15,13 +13,6 @@ class FavoriteAddressesScreen extends ConsumerStatefulWidget {
 }
 
 class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScreen> {
-  bool _loading = false;
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
@@ -191,7 +182,6 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
   }
 
   Future<void> _addAddress(String name, String address, LatLng coords) async {
-    setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
       await api.addFavoriteAddress({
@@ -212,8 +202,6 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -238,7 +226,6 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
   }
 
   Future<void> _deleteAddress(FavoriteAddress addr) async {
-    setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
       await api.deleteFavoriteAddress(addr.name);
@@ -249,8 +236,6 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
           SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
         );
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 }

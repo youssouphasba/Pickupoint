@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
-import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/state_feedback.dart';
 import '../providers/client_provider.dart';

@@ -16,10 +16,10 @@ class RelayWalletScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Mes Gains')),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.refresh(relayWalletProvider);
-          ref.refresh(relayTransactionsProvider);
-        },
+        onRefresh: () => Future.wait([
+          ref.refresh(relayWalletProvider.future),
+          ref.refresh(relayTransactionsProvider.future),
+        ]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24),

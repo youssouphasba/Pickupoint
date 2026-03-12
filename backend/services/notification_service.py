@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import uuid
 from typing import Optional
 
+from config import settings
 from database import db
 from models.notification import NotificationChannel, NotificationStatus
 from models.common import ParcelStatus
@@ -95,7 +96,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         )
     elif recipient_phone:
         # Si pas d'ID, on reste sur le SMS classique
-        await _send_sms(recipient_phone, body)
+        await _send_sms_or_whatsapp(recipient_phone, body)
 
 
 async def _store_and_send(
@@ -106,47 +107,90 @@ async def _store_and_send(
     ref_id: Optional[str] = None,
 ):
     """Stocke la notification en base et tente l'envoi."""
+    await _store_notification(
+        user_id=user_id,
+        channel=NotificationChannel.IN_APP,
+        title=title,
+        body=body,
+        ref_type=ref_type,
+        ref_id=ref_id,
+    )
+
+    await _send_push(
+        user_id=user_id,
+        title=title,
+        body=body,
+        ref_type=ref_type,
+        ref_id=ref_id,
+    )
+
+
+async def _store_notification(
+    user_id: str,
+    channel: NotificationChannel,
+    title: str,
+    body: str,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    status: NotificationStatus = NotificationStatus.SENT,
+):
     now = datetime.now(timezone.utc)
     notif = {
-        "notif_id":   _notif_id(),
-        "user_id":    user_id,
-        "channel":    NotificationChannel.IN_APP.value,
-        "title":      title,
-        "body":       body,
-        "status":     NotificationStatus.SENT.value,
-        "metadata":   {},
-        "ref_type":   ref_type,
-        "ref_id":     ref_id,
+        "notif_id": _notif_id(),
+        "user_id": user_id,
+        "channel": channel.value,
+        "title": title,
+        "body": body,
+        "status": status.value,
+        "metadata": metadata or {},
+        "ref_type": ref_type,
+        "ref_id": ref_id,
         "created_at": now,
-        "sent_at":    now,
-        "read_at":    None,
+        "sent_at": now if status == NotificationStatus.SENT else None,
+        "read_at": None,
     }
     await db.notifications.insert_one(notif)
-    
-    # --- Envoi Push réel via FCM ---
-    user = await db.users.find_one({"user_id": user_id}, {"fcm_token": 1})
-    fcm_token = user.get("fcm_token") if user else None
 
-    if fcm_token:
-        _ensure_firebase()
-        if _firebase_initialized:
-            try:
-                import firebase_admin.messaging as _messaging
-                message = _messaging.Message(
-                    notification=_messaging.Notification(title=title, body=body),
-                    data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
-                    token=fcm_token,
-                )
-                _messaging.send(message)
-                logger.info(f"Push FCM envoyé à {user_id}")
-            except Exception as e:
-                logger.warning(f"Échec envoi Push FCM à {user_id}: {e}")
+
+async def _send_push(
+    user_id: str,
+    title: str,
+    body: str,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
+):
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"fcm_token": 1, "notification_prefs.push": 1},
+    )
+    fcm_token = user.get("fcm_token") if user else None
+    push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
+
+    if not fcm_token or not push_enabled:
+        return
+
+    _ensure_firebase()
+    if not _firebase_initialized:
+        return
+
+    try:
+        import firebase_admin.messaging as _messaging
+
+        message = _messaging.Message(
+            notification=_messaging.Notification(title=title, body=body),
+            data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
+            token=fcm_token,
+        )
+        _messaging.send(message)
+        logger.info("Push FCM envoyé à %s", user_id)
+    except Exception as e:
+        logger.warning("Échec envoi Push FCM à %s: %s", user_id, e)
 
 
 async def _send_sms(phone: str, body: str):
     """Envoi SMS via Twilio (best-effort, ne lève pas d'exception)."""
     try:
-        from config import settings
         if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_SMS_NUMBER:
             return
         from twilio.rest import Client
@@ -154,6 +198,28 @@ async def _send_sms(phone: str, body: str):
         client.messages.create(body=body, from_=settings.TWILIO_SMS_NUMBER, to=phone)
     except Exception as e:
         logger.warning(f"SMS non envoyé à {phone} : {e}")
+
+
+async def _send_whatsapp(phone: str, body: str):
+    """Envoi WhatsApp via Twilio (best-effort)."""
+    try:
+        if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_WHATSAPP_NUMBER:
+            return
+        from twilio.rest import Client
+
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            body=body,
+            from_=settings.TWILIO_WHATSAPP_NUMBER,
+            to=f"whatsapp:{phone}",
+        )
+    except Exception as e:
+        logger.warning("WhatsApp non envoyé à %s : %s", phone, e)
+
+
+async def _send_sms_or_whatsapp(phone: str, body: str):
+    await _send_whatsapp(phone, body)
+    await _send_sms(phone, body)
 
 async def notify_delivery_code(
     phone: str,
@@ -172,7 +238,7 @@ async def notify_delivery_code(
         msg += f"Paiement requis ({payment_url})\n"
     msg += "Donnez ce code au livreur pour valider la remise. Ne le partagez pas."
     try:
-        await _send_sms(phone, msg)
+        await _send_sms_or_whatsapp(phone, msg)
     except Exception as e:
         logger.warning("Impossible d'envoyer le code livraison: %s", e)
 
@@ -217,4 +283,64 @@ async def notify_new_mission_ping(user_id: str, mission: dict):
         body=f"Une mission pour le colis {tracking_code} vous est proposée. Répondez vite !",
         ref_type="mission",
         ref_id=mission.get("mission_id"),
+    )
+
+
+async def send_location_confirmation_prompt(
+    *,
+    title: str,
+    body: str,
+    user_id: Optional[str] = None,
+    phone: Optional[str] = None,
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
+    escalate_external: bool = False,
+):
+    """Relance de confirmation GPS avec escalade progressive."""
+    if user_id:
+        await _store_and_send(
+            user_id=user_id,
+            title=title,
+            body=body,
+            ref_type=ref_type,
+            ref_id=ref_id,
+        )
+        if escalate_external and phone:
+            await _send_sms_or_whatsapp(phone, body)
+        return
+
+    if phone:
+        await _send_sms_or_whatsapp(phone, body)
+
+
+async def notify_location_confirmation_request(parcel: dict, actor: str, confirm_url: str, escalate_external: bool = False):
+    """Demande ou relance de confirmation GPS pour expéditeur ou destinataire."""
+    tracking_code = parcel.get("tracking_code", "")
+    parcel_id = parcel.get("parcel_id")
+
+    if actor == "sender":
+        user_id = parcel.get("sender_user_id")
+        phone = parcel.get("sender_phone") or parcel.get("sender_phone_e164")
+        title = "Confirmez le point de collecte"
+        body = (
+            f"Confirmez la position de collecte pour le colis {tracking_code}. "
+            f"Ouvrez le lien: {confirm_url}"
+        )
+    else:
+        user_id = parcel.get("recipient_user_id")
+        phone = parcel.get("recipient_phone")
+        title = "Confirmez votre position de livraison"
+        body = (
+            f"Confirmez la position de livraison pour le colis {tracking_code}. "
+            f"Ouvrez le lien: {confirm_url}"
+        )
+
+    await send_location_confirmation_prompt(
+        title=title,
+        body=body,
+        user_id=user_id,
+        phone=phone,
+        ref_type="parcel",
+        ref_id=parcel_id,
+        escalate_external=escalate_external,
     )

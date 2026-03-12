@@ -42,7 +42,12 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
       } else {
         // Le compte n'existe pas ou n'a pas fini son inscription PIN.
         // On envoie un OTP.
-        await ref.read(authProvider.notifier).requestOtp(phone);
+        final testCode = await ref.read(authProvider.notifier).requestOtp(phone);
+        if (mounted && testCode != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Mode test: utilisez le code $testCode')),
+          );
+        }
         if (mounted) {
           context.push('/auth/otp', extra: {'phone': phone});
         }

@@ -7,7 +7,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../../shared/widgets/loading_button.dart';
 
 /// Écran de candidature partenariat (devenir livreur ou point relais).
@@ -124,7 +123,7 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
           const SizedBox(height: 16),
           // Type de véhicule
           DropdownButtonFormField<String>(
-            value: _vehicle,
+            initialValue: _vehicle,
             decoration: const InputDecoration(
               labelText: 'Type de véhicule *',
               border: OutlineInputBorder(),
@@ -469,6 +468,8 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
       initialPos = LatLng(pos.latitude, pos.longitude);
     } catch (_) {}
 
+    if (!mounted) return;
+
     final LatLng? picked = await showDialog<LatLng>(
       context: context,
       builder: (ctx) {
@@ -512,6 +513,7 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
       },
     );
 
+    if (!mounted) return;
     if (picked != null) {
       setState(() => _selectedLocation = picked);
     }

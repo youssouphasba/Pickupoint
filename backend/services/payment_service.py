@@ -72,6 +72,7 @@ async def create_payment_link(
                 json=payload,
                 headers=_headers(),
             )
+            resp.raise_for_status()
             data = resp.json()
             if data.get("status") == "success":
                 return {
@@ -101,6 +102,7 @@ async def verify_payment(transaction_id: str) -> dict:
                 f"{FLUTTERWAVE_BASE_URL}/transactions/{transaction_id}/verify",
                 headers=_headers(),
             )
+            resp.raise_for_status()
             data = resp.json()
             if data.get("status") == "success":
                 return data.get("data", {})
@@ -122,6 +124,7 @@ async def verify_by_tx_ref(tx_ref: str) -> dict:
                 params={"tx_ref": tx_ref},
                 headers=_headers(),
             )
+            resp.raise_for_status()
             data = resp.json()
             items = data.get("data", [])
             if items:

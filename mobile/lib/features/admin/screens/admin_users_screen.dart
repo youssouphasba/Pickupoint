@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/api/api_client.dart';
 import '../../../core/models/user.dart';
-import '../../../core/models/relay_point.dart';
 import 'admin_user_history_screen.dart';
 
 class AdminUsersScreen extends ConsumerStatefulWidget {
@@ -110,7 +108,7 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
         label: Text(label),
         selected: selected,
         onSelected: (_) => setState(() => _filter = value),
-        selectedColor: Theme.of(context).primaryColor.withOpacity(0.2),
+        selectedColor: Theme.of(context).primaryColor.withValues(alpha: 0.2),
       ),
     );
   }
@@ -153,7 +151,7 @@ class _UserTile extends ConsumerWidget {
 
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: color.withOpacity(0.15),
+        backgroundColor: color.withValues(alpha: 0.15),
         child: Icon(icon, color: color, size: 20),
       ),
       title: Text(
@@ -189,9 +187,9 @@ class _UserTile extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color.withOpacity(0.4)),
+              border: Border.all(color: color.withValues(alpha: 0.4)),
             ),
             child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
           ),
@@ -375,8 +373,8 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
       label: Text(label,
           style: TextStyle(color: isCurrent ? Colors.grey : color, fontSize: 13)),
       style: OutlinedButton.styleFrom(
-        side: BorderSide(color: isCurrent ? Colors.grey.shade300 : color.withOpacity(0.5)),
-        backgroundColor: isCurrent ? Colors.grey.shade100 : color.withOpacity(0.05),
+        side: BorderSide(color: isCurrent ? Colors.grey.shade300 : color.withValues(alpha: 0.5)),
+        backgroundColor: isCurrent ? Colors.grey.shade100 : color.withValues(alpha: 0.05),
       ),
     );
   }
@@ -431,7 +429,7 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
               style: TextStyle(color: Colors.grey, fontSize: 13));
         }
         return DropdownButtonFormField<String>(
-          value: widget.user.relayPointId,
+          initialValue: widget.user.relayPointId,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             isDense: true,

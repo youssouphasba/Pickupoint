@@ -46,6 +46,17 @@ backend/__pycache__/
 backend/.env
 backend/.venv
 ios_replacements.txt
+mobile/.dart_tool/
+mobile/build/
+mobile/analysis*.txt
+mobile/analyze*.txt
+mobile/build_*.txt
+mobile/build_*.log
+mobile/full_errors.log
+mobile/error_*.log
+mobile/missing_imports.txt
+mobile/android/hs_err_pid*.log
+mobile/android/replay_pid*.log
 *.jpg
 *.png
 *.jpeg

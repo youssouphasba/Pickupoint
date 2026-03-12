@@ -156,7 +156,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(12),
-          color: isSelected ? Theme.of(context).primaryColor.withOpacity(0.05) : Colors.white,
+          color: isSelected ? Theme.of(context).primaryColor.withValues(alpha: 0.05) : Colors.white,
         ),
         child: Row(
           children: [

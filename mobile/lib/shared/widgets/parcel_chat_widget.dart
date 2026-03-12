@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../core/api/api_client.dart';
 import '../../core/auth/auth_provider.dart';
 
 // ── Provider messages ──────────────────────────────────────────────────────
@@ -346,7 +344,7 @@ class _MessageBubble extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: textColor.withOpacity(0.7),
+                  color: textColor.withValues(alpha: 0.7),
                 ),
               ),
             if (type == 'voice')
@@ -359,7 +357,7 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               time,
-              style: TextStyle(fontSize: 10, color: textColor.withOpacity(0.6)),
+              style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6)),
             ),
           ],
         ),
