@@ -34,8 +34,8 @@ def _generate_delivery_code() -> str:
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.CREATED: [
         ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
-        ParcelStatus.OUT_FOR_DELIVERY,   # HOME_TO_HOME : driver vient chercher et livre au domicile
-        ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver collecte chez l'expéditeur → transit vers relais
+        ParcelStatus.OUT_FOR_DELIVERY,
+        ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY / HOME_TO_HOME : driver collecte chez l'expéditeur → transit
         ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.CANCELLED,
         ParcelStatus.SUSPENDED,
@@ -48,6 +48,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ],
     ParcelStatus.IN_TRANSIT: [
         ParcelStatus.AT_DESTINATION_RELAY,
+        ParcelStatus.AVAILABLE_AT_RELAY,  # scan_in relais dest → directement disponible
         ParcelStatus.OUT_FOR_DELIVERY,
         ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.SUSPENDED,
@@ -65,7 +66,8 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.OUT_FOR_DELIVERY: [
         ParcelStatus.DELIVERED,
         ParcelStatus.DELIVERY_FAILED,
-        ParcelStatus.AT_DESTINATION_RELAY,  # H2R : driver livre au relais destinataire
+        ParcelStatus.AT_DESTINATION_RELAY,   # H2R : fallback anciens colis
+        ParcelStatus.AVAILABLE_AT_RELAY,     # H2R : scan_in relais dest → directement disponible
         ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.SUSPENDED,
     ],
@@ -648,9 +650,13 @@ async def transition_status(
             )
 
     now = datetime.now(timezone.utc)
+    update_fields = {"status": new_status.value, "updated_at": now}
+    # Renouveler le délai de retrait quand le colis arrive au relais (7 jours)
+    if new_status in (ParcelStatus.AVAILABLE_AT_RELAY, ParcelStatus.REDIRECTED_TO_RELAY):
+        update_fields["expires_at"] = now + timedelta(days=7)
     await db.parcels.update_one(
         {"parcel_id": parcel_id},
-        {"$set": {"status": new_status.value, "updated_at": now}},
+        {"$set": update_fields},
     )
 
     await _record_event(

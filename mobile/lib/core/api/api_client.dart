@@ -120,6 +120,9 @@ class ApiClient {
   Future<Response> cancelParcel(String id) =>
       _dio.post(ApiEndpoints.parcelEvent(id, 'cancel'));
 
+  Future<Response> changeDeliveryMode(String id, Map<String, dynamic> body) =>
+      _dio.put('${ApiEndpoints.parcels}/$id/change-delivery-mode', data: body);
+
   Future<Response> dropAtRelay(String id, Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcelEvent(id, 'drop-at-relay'), data: body);
 
@@ -194,11 +197,15 @@ class ApiClient {
   Future<Response> acceptMission(String id) =>
       _dio.post(ApiEndpoints.acceptMission(id));
 
-  Future<Response> confirmPickup(String id, String code) =>
-      _dio.post(ApiEndpoints.confirmPickup(id), data: {'code': code});
+  Future<Response> confirmPickup(String id, String code, {double? lat, double? lng}) =>
+      _dio.post(ApiEndpoints.confirmPickup(id), data: {
+        'code': code,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+      });
 
-  Future<Response> arriveAtDestination(String parcelId) =>
-      _dio.post(ApiEndpoints.arriveAtDestination(parcelId));
+  Future<Response> arriveAtDestination(String parcelId, {required double lat, required double lng}) =>
+      _dio.post(ApiEndpoints.arriveAtDestination(parcelId), data: {'lat': lat, 'lng': lng});
 
   Future<Response> releaseMission(String id) =>
       _dio.post(ApiEndpoints.releaseMission(id));
@@ -220,7 +227,10 @@ class ApiClient {
   // ─── Wallets ──────────────────────────────────────────────────────────────
   Future<Response> getWallet() => _dio.get(ApiEndpoints.myWallet);
 
-  Future<Response> getTransactions() => _dio.get(ApiEndpoints.transactions);
+  Future<Response> getTransactions({String? period}) =>
+      _dio.get(ApiEndpoints.transactions, queryParameters: {
+        if (period != null) 'period': period,
+      });
 
   Future<Response> requestPayout(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.payout, data: body);

@@ -9,8 +9,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
+from pydantic import BaseModel
 from core.dependencies import get_current_user, get_current_user_optional, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
+from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.parcel import (
@@ -646,6 +648,125 @@ async def update_delivery_address(
     return {"ok": True, "message": "Adresse de livraison mise à jour"}
 
 
+class ChangeDeliveryModeRequest(BaseModel):
+    new_mode: str  # 'relay' ou 'home'
+    relay_id: Optional[str] = None  # requis si new_mode == 'relay'
+    lat: Optional[float] = None  # requis si new_mode == 'home'
+    lng: Optional[float] = None
+
+
+@router.put("/{parcel_id}/change-delivery-mode", summary="Changer le mode de livraison (relais↔domicile)")
+async def change_delivery_mode(
+    parcel_id: str,
+    body: ChangeDeliveryModeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Permet au destinataire de basculer entre livraison à domicile et retrait relais.
+    Autorisé uniquement avant IN_TRANSIT."""
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    # Vérifier que c'est le destinataire (ou admin)
+    is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
+    if not is_recipient and parcel.get("recipient_phone"):
+        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+    if not is_recipient and not _is_admin(current_user):
+        raise forbidden_exception("Seul le destinataire peut changer le mode de livraison")
+
+    # Autorisé uniquement aux premiers statuts
+    allowed_statuses = {
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+    }
+    if parcel["status"] not in allowed_statuses:
+        raise bad_request_exception("Le mode de livraison ne peut être changé qu'avant la prise en charge par le livreur")
+
+    current_mode = parcel.get("delivery_mode", "")
+    origin_part = current_mode.split("_to_")[0] if "_to_" in current_mode else "relay"
+    now = datetime.now(timezone.utc)
+    updates = {"updated_at": now}
+
+    if body.new_mode == "relay":
+        if current_mode.endswith("_to_relay"):
+            raise bad_request_exception("Le colis est déjà en mode relais")
+        if not body.relay_id:
+            raise bad_request_exception("relay_id requis pour le retrait en relais")
+        relay = await db.relay_points.find_one({"relay_id": body.relay_id, "is_active": True}, {"_id": 0})
+        if not relay:
+            raise not_found_exception("Relais")
+        new_mode = f"{origin_part}_to_relay"
+        updates["delivery_mode"] = new_mode
+        updates["destination_relay_id"] = body.relay_id
+        # Supprimer delivery_code (pas nécessaire en relais), garder relay_pin
+        updates["delivery_code"] = None
+
+    elif body.new_mode == "home":
+        if current_mode.endswith("_to_home"):
+            raise bad_request_exception("Le colis est déjà en mode domicile")
+        if not body.lat or not body.lng:
+            raise bad_request_exception("Coordonnées GPS requises pour la livraison à domicile")
+        new_mode = f"{origin_part}_to_home"
+        updates["delivery_mode"] = new_mode
+        updates["destination_relay_id"] = None
+        updates["delivery_address"] = {
+            "geopin": {"lat": body.lat, "lng": body.lng},
+            "source": "app_recipient_mode_change",
+            "confirmed": True,
+        }
+        updates["delivery_confirmed"] = True
+        # Générer un delivery_code pour la livraison à domicile
+        import random
+        updates["delivery_code"] = f"{random.randint(0,9999):04d}"
+    else:
+        raise bad_request_exception("new_mode doit être 'relay' ou 'home'")
+
+    # Recalculer le prix via ParcelQuote
+    from models.common import Address, GeoPin, DeliveryMode
+    origin_addr = None
+    if parcel.get("origin_relay_id"):
+        origin_addr = None  # calculate_price résout via relay_id
+    elif parcel.get("pickup_address"):
+        gp = (parcel["pickup_address"] or {}).get("geopin")
+        if gp:
+            origin_addr = Address(geopin=GeoPin(lat=gp["lat"], lng=gp["lng"]))
+
+    dest_addr = None
+    dest_relay = None
+    if body.new_mode == "relay":
+        dest_relay = body.relay_id
+    elif body.lat and body.lng:
+        dest_addr = Address(geopin=GeoPin(lat=body.lat, lng=body.lng))
+
+    try:
+        quote = ParcelQuote(
+            delivery_mode=DeliveryMode(updates["delivery_mode"]),
+            origin_relay_id=parcel.get("origin_relay_id"),
+            destination_relay_id=dest_relay,
+            origin_location=origin_addr,
+            delivery_address=dest_addr,
+            weight_kg=parcel.get("weight_kg", 0.5),
+            is_express=parcel.get("is_express", False),
+            who_pays=parcel.get("who_pays", "sender"),
+        )
+        price_result = await calculate_price(quote)
+        updates["quoted_price"] = price_result.price
+    except Exception as e:
+        logger.warning(f"Recalcul prix échoué lors du changement de mode: {e}")
+
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
+    await _record_event(
+        parcel_id=parcel_id,
+        event_type="DELIVERY_MODE_CHANGED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes=f"Mode changé: {current_mode} → {updates['delivery_mode']}",
+        metadata={"old_mode": current_mode, "new_mode": updates["delivery_mode"]},
+    )
+    updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    return {"ok": True, "message": f"Mode de livraison changé en {updates['delivery_mode']}", "parcel": updated}
+
+
 @router.put("/{parcel_id}/cancel", summary="Annuler un colis (si CREATED)")
 async def cancel_parcel(parcel_id: str, current_user: dict = Depends(get_current_user)):
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
@@ -683,43 +804,43 @@ async def _scan_arrival_at_relay(parcel: dict, current_user: dict, *, batch: boo
     )
     _ensure_relay_action_allowed(parcel, current_user, target_relay_id)
 
+    # Vérifier capacité du relais
+    if target_relay_id:
+        relay = await db.relay_points.find_one({"relay_id": target_relay_id}, {"max_capacity": 1, "current_load": 1})
+        if relay and relay.get("current_load", 0) >= relay.get("max_capacity", 50):
+            raise bad_request_exception("Ce relais est plein (capacité maximale atteinte)")
+
     current_status = parcel["status"]
     actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
     prefix = "Batch scan: " if batch else ""
 
+    result = None
     if current_status == ParcelStatus.REDIRECTED_TO_RELAY.value:
-        return await transition_status(
-            parcel["parcel_id"],
-            ParcelStatus.AVAILABLE_AT_RELAY,
-            notes=f"{prefix}colis redirige disponible au retrait",
-            **actor,
+        result = await transition_status(
+            parcel["parcel_id"], ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}colis redirige disponible au retrait", **actor,
         )
-
-    if current_status == ParcelStatus.IN_TRANSIT.value:
-        return await transition_status(
-            parcel["parcel_id"],
-            ParcelStatus.AT_DESTINATION_RELAY,
-            notes=f"{prefix}arrivee au relais de destination",
-            **actor,
+    elif current_status == ParcelStatus.IN_TRANSIT.value:
+        result = await transition_status(
+            parcel["parcel_id"], ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}arrivee au relais de destination — pret au retrait", **actor,
         )
-
-    if current_status == ParcelStatus.AT_DESTINATION_RELAY.value:
-        return await transition_status(
-            parcel["parcel_id"],
-            ParcelStatus.AVAILABLE_AT_RELAY,
-            notes=f"{prefix}colis pret au retrait",
-            **actor,
+    elif current_status == ParcelStatus.AT_DESTINATION_RELAY.value:
+        result = await transition_status(
+            parcel["parcel_id"], ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}colis pret au retrait", **actor,
         )
-
-    if current_status == ParcelStatus.OUT_FOR_DELIVERY.value and parcel.get("delivery_mode") == "home_to_relay":
-        return await transition_status(
-            parcel["parcel_id"],
-            ParcelStatus.AT_DESTINATION_RELAY,
-            notes=f"{prefix}depot du livreur au relais de destination",
-            **actor,
+    elif current_status == ParcelStatus.OUT_FOR_DELIVERY.value and parcel.get("delivery_mode") == "home_to_relay":
+        result = await transition_status(
+            parcel["parcel_id"], ParcelStatus.AVAILABLE_AT_RELAY,
+            notes=f"{prefix}depot du livreur au relais — pret au retrait", **actor,
         )
+    else:
+        raise bad_request_exception(f"Impossible de receptionner un colis en statut '{current_status}'")
 
-    raise bad_request_exception(f"Impossible de receptionner un colis en statut '{current_status}'")
+    if target_relay_id:
+        await db.relay_points.update_one({"relay_id": target_relay_id}, {"$inc": {"current_load": 1}})
+    return result
 
 
 @router.post("/{parcel_id}/drop-at-relay", summary="Scan entrée relais origine (agent)")
@@ -830,15 +951,22 @@ async def handout_parcel(
     if proof.proof_type == "pin":
         if not proof.pin_code:
             raise bad_request_exception("PIN obligatoire pour remise au relais")
+        await check_code_lockout(db, parcel_id, "relay_pin")
         stored_pin = parcel.get("relay_pin") or parcel.get("delivery_code", "")
         if stored_pin and proof.pin_code.strip() != stored_pin.strip():
+            await record_failed_attempt(db, parcel_id, "relay_pin")
             raise bad_request_exception("PIN incorrect")
+        await clear_code_attempts(db, parcel_id, "relay_pin")
     updated = await transition_status(
         parcel_id, ParcelStatus.DELIVERED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes=f"Remise relais — {proof.proof_type}",
         metadata={"pin_code": proof.pin_code},
     )
+    # Décrémenter le stock du relais
+    relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
+    if relay_id:
+        await db.relay_points.update_one({"relay_id": relay_id}, {"$inc": {"current_load": -1}})
     return updated
 
 
@@ -878,15 +1006,20 @@ async def pickup_parcel(
     )
 
 
+class ArriveAtDestinationRequest(BaseModel):
+    lat: float
+    lng: float
+
 @router.post("/{parcel_id}/arrive-at-destination", summary="Driver signale son arrivée au domicile destinataire")
 async def arrive_at_destination(
     parcel_id: str,
+    body: ArriveAtDestinationRequest,
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
     """Le driver signale qu'il est arrivé chez le destinataire (R2H / H2H).
-    Transition IN_TRANSIT → OUT_FOR_DELIVERY."""
+    Transition IN_TRANSIT → OUT_FOR_DELIVERY. Vérifie la proximité < 500m."""
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
@@ -896,10 +1029,20 @@ async def arrive_at_destination(
     if parcel.get("status") != ParcelStatus.IN_TRANSIT.value:
         raise bad_request_exception("Le colis doit être en transit pour signaler l'arrivée à destination")
 
+    # Vérification proximité : driver doit être à < 500m de la destination
+    dest_geopin = (parcel.get("delivery_address") or {}).get("geopin")
+    if dest_geopin and dest_geopin.get("lat") and dest_geopin.get("lng"):
+        from services.parcel_service import _haversine_km
+        dist_m = _haversine_km(body.lat, body.lng, dest_geopin["lat"], dest_geopin["lng"]) * 1000
+        if dist_m > 500:
+            raise bad_request_exception(
+                f"Vous êtes à {int(dist_m)}m de la destination. Rapprochez-vous à moins de 500m."
+            )
+
     return await transition_status(
         parcel_id, ParcelStatus.OUT_FOR_DELIVERY,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
-        notes="Arrivée au domicile du destinataire",
+        notes="Arrivée au domicile du destinataire (GPS vérifié)",
     )
 
 
@@ -923,8 +1066,11 @@ async def deliver_parcel(
     if _delivery_is_blocked_by_payment(parcel):
         raise bad_request_exception("Paiement non confirmé. La remise finale est bloquée.")
 
+    await check_code_lockout(db, parcel_id, "delivery_code")
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
+        await record_failed_attempt(db, parcel_id, "delivery_code")
         raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 4 chiffres.")
+    await clear_code_attempts(db, parcel_id, "delivery_code")
 
     # ── Géofence : livreur doit être à moins de 500m ───────────────────
     if parcel.get("is_simulation"):

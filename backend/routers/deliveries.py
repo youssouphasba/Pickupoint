@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from services.parcel_service import transition_status
 from services.google_maps_service import get_directions_eta
 from services.notification_service import notify_approaching_driver
+from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts
 
 router = APIRouter()
 
@@ -169,18 +170,24 @@ async def my_missions(
     ).sort("created_at", -1).limit(50)
     missions = await cursor.to_list(length=50)
     
-    # Masquage anti-bypass
+    # Masquage numéro destinataire — révélé seulement si :
+    #   - livraison à domicile (*_to_home) ET driver est à proximité (approaching_notified)
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     if not is_admin:
         from core.utils import mask_phone
         for m in missions:
             if "recipient_phone" in m:
-                m["recipient_phone"] = mask_phone(m["recipient_phone"])
+                is_home_delivery = (m.get("delivery_type") == "gps")
+                is_near = m.get("approaching_notified", False)
+                if not (is_home_delivery and is_near):
+                    m["recipient_phone"] = mask_phone(m["recipient_phone"])
                 
     return {"missions": missions}
 
 class ConfirmPickupRequest(BaseModel):
     code: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 @router.post("/{mission_id}/confirm-pickup", summary="Confirmer collecte avec code")
 async def confirm_pickup(
@@ -206,8 +213,33 @@ async def confirm_pickup(
     if parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Collecte impossible.")
 
+    await check_code_lockout(db, parcel["parcel_id"], "pickup_code")
     if parcel.get("pickup_code", "") != body.code.strip():
+        await record_failed_attempt(db, parcel["parcel_id"], "pickup_code")
         raise bad_request_exception("Code de collecte invalide")
+    await clear_code_attempts(db, parcel["parcel_id"], "pickup_code")
+
+    # Vérification proximité : driver doit être proche du point de collecte (< 500m)
+    if body.lat is not None and body.lng is not None and not parcel.get("is_simulation"):
+        from services.pricing_service import _haversine_km
+        pickup_geopin = None
+        mode = parcel.get("delivery_mode", "")
+        if mode.startswith("home_to"):
+            # Collecte chez l'expéditeur
+            pickup_geopin = (parcel.get("pickup_address") or {}).get("geopin")
+        else:
+            # Collecte au relais d'origine
+            origin_relay_id = parcel.get("origin_relay_id")
+            if origin_relay_id:
+                relay = await db.relay_points.find_one({"relay_id": origin_relay_id}, {"location": 1})
+                if relay and relay.get("location"):
+                    pickup_geopin = relay["location"]
+        if pickup_geopin and pickup_geopin.get("lat") and pickup_geopin.get("lng"):
+            dist_m = _haversine_km(body.lat, body.lng, pickup_geopin["lat"], pickup_geopin["lng"]) * 1000
+            if dist_m > 500:
+                raise bad_request_exception(
+                    f"Vous êtes à {int(dist_m)}m du point de collecte. Rapprochez-vous à moins de 500m."
+                )
 
     now = datetime.now(timezone.utc)
     # 1. Mettre à jour la mission "in_progress"
@@ -224,8 +256,8 @@ async def confirm_pickup(
     p_status = parcel["status"]
     
     if p_status == ParcelStatus.CREATED.value:
-        if parcel.get("delivery_mode") == "home_to_relay":
-            await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up expéditeur (vers relais)", **actor)
+        if parcel.get("delivery_mode") in ("home_to_relay", "home_to_home"):
+            await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up expéditeur (en transit)", **actor)
         else:
             await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up expéditeur (vers domicile)", **actor)
     elif p_status in [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]:
@@ -306,6 +338,14 @@ async def get_mission(
         recipient_user = await db.users.find_one({"user_id": recipient_uid}, {"profile_picture_url": 1})
         if recipient_user:
             mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+
+    # Masquage numéro destinataire — révélé si livraison domicile + driver à proximité
+    if not is_admin and mission.get("recipient_phone"):
+        from core.utils import mask_phone
+        is_home_delivery = (mission.get("delivery_type") == "gps")
+        is_near = mission.get("approaching_notified", False)
+        if not (is_home_delivery and is_near):
+            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
 
     return mission
 

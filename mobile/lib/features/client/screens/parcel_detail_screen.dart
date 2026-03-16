@@ -149,7 +149,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 // ── Bloc Notation & Pourboire (si livré et non noté) ─────────
                 if (parcel.status == 'delivered' &&
                     parcel.rating == null &&
-                    !isRecipient) ...[
+                    isRecipient) ...[
                   _buildRatingCard(parcel),
                   const SizedBox(height: 16),
                 ],
@@ -176,6 +176,25 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 ),
                 const SizedBox(height: 28),
 
+                if (isRecipient &&
+                    ['created', 'dropped_at_origin_relay'].contains(parcel.status))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.swap_horiz),
+                      label: Text(
+                        parcel.deliveryMode.endsWith('_to_home')
+                            ? 'Retirer en relais plutôt'
+                            : 'Livraison à domicile plutôt',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orange.shade800,
+                        side: BorderSide(color: Colors.orange.shade300),
+                        minimumSize: const Size(double.infinity, 44),
+                      ),
+                      onPressed: () => _showChangeModeDialog(context, ref, parcel),
+                    ),
+                  ),
                 if (parcel.canBeCancelled && !isRecipient)
                   LoadingButton(
                     label: "Annuler l'envoi",
@@ -345,7 +364,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final isHomePickup = mode == 'home_to_relay' || mode == 'home_to_home';
     final code = parcel.pickupCode as String?;
     return isHomePickup &&
-        ['created', 'assigned'].contains(parcel.status as String) &&
+        parcel.status == 'created' &&
         code != null;
   }
 
@@ -396,8 +415,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     // Uniquement livraison à domicile (R2H ou H2H) — pas H2R (retrait relais)
     final isHomeDel = mode == 'relay_to_home' || mode == 'home_to_home';
     return isHomeDel &&
-        ['created', 'in_transit', 'out_for_delivery']
-            .contains(parcel.status as String) &&
+        parcel.status == 'out_for_delivery' &&
         (parcel.deliveryCode as String?) != null;
   }
 
@@ -406,11 +424,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     if (!isRecipient) return false;
     final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
         (parcel.deliveryMode as String) == 'home_to_relay';
-    final code =
-        (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?);
+    final code = parcel.pinCode as String?;
     return isRelayDest &&
-        ['at_destination_relay', 'available_at_relay']
-            .contains(parcel.status as String) &&
+        parcel.status == 'available_at_relay' &&
         code != null;
   }
 
@@ -472,8 +488,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   Widget _buildPinCodeCard(dynamic parcel) {
-    final pin =
-        (parcel.pinCode as String?) ?? (parcel.deliveryCode as String?) ?? '';
+    final pin = parcel.pinCode as String? ?? '';
     if (pin.isEmpty) return const SizedBox.shrink();
 
     return Container(
@@ -693,6 +708,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             ParcelStatusBadge(status: parcel.status),
           ],
         ),
+        // Countdown si colis en attente de retrait au relais
+        if (parcel.expiresAt != null &&
+            (parcel.status == 'available_at_relay' || parcel.status == 'redirected_to_relay'))
+          _buildExpiryCountdown(parcel.expiresAt!),
         const SizedBox(height: 16),
         Row(children: [
           Container(
@@ -785,11 +804,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         parcel.deliveryMode == 'home_to_relay';
     late final String qrCode;
     final String qrLabel;
+    final isHomePickup = parcel.deliveryMode == 'home_to_relay' ||
+        parcel.deliveryMode == 'home_to_home';
     if (!isRecipient) {
-      // Expéditeur : code collecte (H2R/H2H) ou code suivi
-      qrCode = parcel.pickupCode ?? parcel.trackingCode;
-      qrLabel =
-          parcel.pickupCode != null ? 'Code Collecte (Livreur)' : 'Code Suivi';
+      // Expéditeur : code collecte seulement en H2R/H2H, sinon code suivi
+      if (isHomePickup && parcel.pickupCode != null) {
+        qrCode = parcel.pickupCode!;
+        qrLabel = 'Code Collecte (Livreur)';
+      } else {
+        qrCode = parcel.trackingCode;
+        qrLabel = 'Code Suivi';
+      }
     } else if (isRelayPickup) {
       // Destinataire retrait relais : relay_pin
       qrCode = parcel.pinCode ?? parcel.trackingCode;
@@ -923,6 +948,38 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
+  Widget _buildExpiryCountdown(DateTime expiresAt) {
+    final now = DateTime.now().toUtc();
+    final diff = expiresAt.difference(now);
+    final days = diff.inDays;
+    final isUrgent = days <= 2;
+    final color = isUrgent ? Colors.red : Colors.orange;
+    final label = days <= 0
+        ? 'Délai de retrait expiré'
+        : days == 1
+            ? 'Dernier jour pour récupérer'
+            : '$days jours restants pour récupérer';
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.timer_outlined, size: 18, color: color),
+            const SizedBox(width: 8),
+            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRatingCard(Parcel parcel) {
     return _RatingCard(parcelId: parcel.id);
   }
@@ -955,6 +1012,75 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               }
             },
             child: const Text('Confirmer', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangeModeDialog(BuildContext context, WidgetRef ref, Parcel parcel) {
+    final isCurrentlyHome = parcel.deliveryMode.endsWith('_to_home');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile'),
+        content: Text(isCurrentlyHome
+            ? 'Votre colis sera déposé dans un relais près de chez vous. Le prix sera recalculé.'
+            : 'Un livreur apportera le colis à votre adresse. Le prix sera recalculé.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final api = ref.read(apiClientProvider);
+                final Map<String, dynamic> body = {};
+                if (isCurrentlyHome) {
+                  // Vers relais — on laisse le backend choisir le relais le plus proche
+                  // Pour l'instant, on demande le relais destination d'origine s'il existe
+                  body['new_mode'] = 'relay';
+                  body['relay_id'] = parcel.destinationRelayId ?? '';
+                  if (body['relay_id'] == '') {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Aucun relais de destination trouvé. Contactez le support.'),
+                      ));
+                    }
+                    return;
+                  }
+                } else {
+                  // Vers domicile — utiliser le GPS actuel
+                  body['new_mode'] = 'home';
+                  try {
+                    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+                    body['lat'] = pos.latitude;
+                    body['lng'] = pos.longitude;
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Impossible d\'obtenir votre position GPS.'),
+                      ));
+                    }
+                    return;
+                  }
+                }
+                await api.changeDeliveryMode(parcel.id, body);
+                if (context.mounted) {
+                  ref.invalidate(parcelProvider(widget.id));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}'),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Confirmer'),
           ),
         ],
       ),

@@ -314,7 +314,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     setState(() => _isProcessing = true);
     try {
       final api = ref.read(apiClientProvider);
-      await api.confirmPickup(widget.id, code);
+      double? lat, lng;
+      try {
+        final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (_) {}
+      await api.confirmPickup(widget.id, code, lat: lat, lng: lng);
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -335,12 +341,22 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
   }
 
-  // ── Signaler l'arrivée à destination (R2H) ─────────────────────────────────
+  // ── Signaler l'arrivée à destination (R2H / H2H) — GPS vérifié < 500m ──────
   Future<void> _arriveAtDestination(String parcelId) async {
     setState(() => _isProcessing = true);
     try {
+      // Capturer la position GPS du driver
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        throw 'Permission GPS requise pour confirmer l\'arrivée';
+      }
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+
       final api = ref.read(apiClientProvider);
-      await api.arriveAtDestination(parcelId);
+      await api.arriveAtDestination(parcelId, lat: pos.latitude, lng: pos.longitude);
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -351,7 +367,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('$e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -571,10 +587,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       final api = ref.read(apiClientProvider);
       final res = await api.failDelivery(parcelId, {'failure_reason': reason});
       final redirectRelayId = res.data['redirect_relay_id'] as String?;
-      if (mounted && redirectRelayId != null) {
-        await _confirmRedirect(parcelId, redirectRelayId);
-      } else if (mounted) {
+      if (mounted) {
         ref.invalidate(myMissionsProvider);
+        final msg = redirectRelayId != null
+            ? 'Livraison échouée — colis redirigé vers le relais de repli'
+            : 'Livraison échouée';
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg)));
         Navigator.pop(context);
       }
     } catch (e) {
@@ -585,41 +604,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } finally {
       if (mounted) {
         setState(() => _isProcessing = false);
-      }
-    }
-  }
-
-  Future<void> _confirmRedirect(String parcelId, String relayId) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Relais de repli trouvé'),
-        content: Text('Déposer le colis au relais $relayId ?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Plus tard')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Confirmer')),
-        ],
-      ),
-    );
-    if (confirm == true && mounted) {
-      try {
-        await ref
-            .read(apiClientProvider)
-            .redirectToRelay(parcelId, {'redirect_relay_id': relayId});
-        ref.invalidate(myMissionsProvider);
-        if (mounted) {
-          Navigator.pop(context);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
-        }
       }
     }
   }
@@ -720,8 +704,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 title: 'Destinataire (Livraison)',
                 name: mission.recipientName!,
                 photo: mission.recipientPhotoUrl,
-                phone: maskPhone(mission.recipientPhone ?? ''),
-                showCall: mission.status == 'in_progress',
+                phone: mission.recipientPhone ?? '',
+                // Le backend masque le numéro jusqu'à ce que le driver soit à <500m
+                showCall: true,
               ),
 
             const SizedBox(height: 20),
@@ -896,20 +881,24 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           ),
         ],
 
-        // ── Bouton "Naviguer" plein-largeur ──────────────────────────
-        const SizedBox(height: 10),
+        // ── Bouton "Naviguer" plein-largeur bien visible ──────────────────────────
+        const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
+          height: 56,
           child: ElevatedButton.icon(
             onPressed: () => _openNavigation(navLat, navLng, navLabel),
-            icon: const Icon(Icons.navigation),
-            label: Text('Naviguer vers $navLabel'),
+            icon: const Icon(Icons.navigation_rounded, size: 28),
+            label: Text(
+              'NAVIGUER VERS $navLabel'.toUpperCase(),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+            ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
+              backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              elevation: 4,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(14)),
             ),
           ),
         ),
@@ -1294,12 +1283,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ],
             ),
           ),
-          if (showCall)
+          if (showCall && phone != null && !phone.contains('•'))
             IconButton(
               icon: const Icon(Icons.phone_in_talk, color: Colors.green),
-              onPressed: () {
-                // Future call implementation
-              },
+              onPressed: () => launchUrl(Uri.parse('tel:$phone')),
             ),
         ],
       ),

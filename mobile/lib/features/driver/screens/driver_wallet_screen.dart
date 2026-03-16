@@ -4,23 +4,39 @@ import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
-import '../../relay/providers/relay_provider.dart'; // Pour réutiliser transactions
+import '../../../core/models/wallet.dart';
 import '../../../shared/widgets/loading_button.dart';
 
-class DriverWalletScreen extends ConsumerWidget {
+final driverTransactionsProvider = FutureProvider.family<List<WalletTransaction>, String?>((ref, period) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getTransactions(period: period);
+  final data = res.data as Map<String, dynamic>;
+  return (data['transactions'] as List? ?? [])
+      .map((e) => WalletTransaction.fromJson(e as Map<String, dynamic>))
+      .toList();
+});
+
+class DriverWalletScreen extends ConsumerStatefulWidget {
   const DriverWalletScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DriverWalletScreen> createState() => _DriverWalletScreenState();
+}
+
+class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
+  String? _period; // null = tout, 'week', 'month'
+
+  @override
+  Widget build(BuildContext context) {
     final walletAsync = ref.watch(driverWalletProvider);
-    final transactionsAsync = ref.watch(relayTransactionsProvider); // On réutilise le même mécanisme
+    final transactionsAsync = ref.watch(driverTransactionsProvider(_period));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mes Commissions')),
       body: RefreshIndicator(
         onRefresh: () => Future.wait([
           ref.refresh(driverWalletProvider.future),
-          ref.refresh(relayTransactionsProvider.future),
+          ref.refresh(driverTransactionsProvider(_period).future),
         ]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -29,15 +45,36 @@ class DriverWalletScreen extends ConsumerWidget {
             children: [
               _buildBalanceCard(context, walletAsync),
               const SizedBox(height: 32),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Historique des gains', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Historique des gains', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  _buildPeriodFilter(),
+                ],
               ),
               const SizedBox(height: 16),
               _buildTransactionsList(transactionsAsync),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPeriodFilter() {
+    return SegmentedButton<String?>(
+      segments: const [
+        ButtonSegment(value: null, label: Text('Tout')),
+        ButtonSegment(value: 'week', label: Text('7j')),
+        ButtonSegment(value: 'month', label: Text('30j')),
+      ],
+      selected: {_period},
+      onSelectionChanged: (v) => setState(() => _period = v.first),
+      style: SegmentedButton.styleFrom(
+        selectedBackgroundColor: Colors.blue.shade100,
+        textStyle: const TextStyle(fontSize: 12),
+        visualDensity: VisualDensity.compact,
       ),
     );
   }
@@ -138,7 +175,7 @@ class DriverWalletScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildTransactionsList(AsyncValue transactionsAsync) {
+  Widget _buildTransactionsList(AsyncValue<List<WalletTransaction>> transactionsAsync) {
     return transactionsAsync.when(
       data: (txs) {
         if (txs.isEmpty) return const Text('Aucun gain enregistré.');
@@ -151,7 +188,7 @@ class DriverWalletScreen extends ConsumerWidget {
             final tx = txs[index];
             return ListTile(
               leading: const Icon(Icons.add_circle, color: Colors.green),
-              title: Text(tx.description),
+              title: Text(tx.description ?? tx.type),
               subtitle: Text(formatDate(tx.createdAt)),
               trailing: Text('+ ${formatXof(tx.amount)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
             );

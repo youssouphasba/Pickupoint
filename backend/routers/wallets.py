@@ -4,7 +4,8 @@ Router wallets : wallet personnel, transactions, demandes de retrait.
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from typing import Optional
+from fastapi import APIRouter, Depends, Query
 
 from core.dependencies import get_current_user
 from core.exceptions import not_found_exception, bad_request_exception
@@ -30,19 +31,26 @@ async def get_my_wallet(current_user: dict = Depends(get_current_user)):
 async def get_my_transactions(
     skip: int = 0,
     limit: int = 50,
+    period: Optional[str] = Query(None, description="Filtre: 'week' ou 'month'"),
     current_user: dict = Depends(get_current_user),
 ):
     wallet = await db.wallets.find_one({"owner_id": current_user["user_id"]}, {"_id": 0})
     if not wallet:
         return {"transactions": [], "total": 0}
 
-    cursor = db.wallet_transactions.find(
-        {"wallet_id": wallet["wallet_id"]},
-        {"_id": 0},
-    ).sort("created_at", -1).skip(skip).limit(limit)
+    query: dict = {"wallet_id": wallet["wallet_id"]}
+    if period:
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        if period == "week":
+            query["created_at"] = {"$gte": now - timedelta(days=7)}
+        elif period == "month":
+            query["created_at"] = {"$gte": now - timedelta(days=30)}
+
+    cursor = db.wallet_transactions.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
 
     txs = await cursor.to_list(length=limit)
-    total = await db.wallet_transactions.count_documents({"wallet_id": wallet["wallet_id"]})
+    total = await db.wallet_transactions.count_documents(query)
     return {"transactions": txs, "total": total}
 
 

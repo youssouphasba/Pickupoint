@@ -86,6 +86,7 @@ class Parcel {
     this.deliveryVoiceNote,
     this.addressChangeSurchargeXof = 0.0,
     this.driverBonusXof = 0.0,
+    this.expiresAt,
   });
 
   final String id;
@@ -148,6 +149,7 @@ class Parcel {
   final String? deliveryVoiceNote;
   final double addressChangeSurchargeXof;
   final double driverBonusXof;
+  final DateTime? expiresAt;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -231,6 +233,7 @@ class Parcel {
       addressChangeSurchargeXof:
           (json['address_change_surcharge_xof'] as num?)?.toDouble() ?? 0.0,
       driverBonusXof: (json['driver_bonus_xof'] as num?)?.toDouble() ?? 0.0,
+      expiresAt: DateTime.tryParse(json['expires_at']?.toString() ?? ''),
     );
   }
 
