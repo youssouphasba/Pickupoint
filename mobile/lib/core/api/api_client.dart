@@ -197,6 +197,9 @@ class ApiClient {
   Future<Response> confirmPickup(String id, String code) =>
       _dio.post(ApiEndpoints.confirmPickup(id), data: {'code': code});
 
+  Future<Response> arriveAtDestination(String parcelId) =>
+      _dio.post(ApiEndpoints.arriveAtDestination(parcelId));
+
   Future<Response> releaseMission(String id) =>
       _dio.post(ApiEndpoints.releaseMission(id));
 

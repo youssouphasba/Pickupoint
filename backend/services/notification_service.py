@@ -226,9 +226,14 @@ async def notify_delivery_code(
     recipient_name: str,
     tracking_code: str,
     delivery_code: str,
+    is_relay_pickup: bool = False,
     payment_url: Optional[str] = None,
 ) -> None:
-    """Envoie le code de livraison au destinataire par WhatsApp/SMS."""
+    """Envoie le code de réception au destinataire par WhatsApp/SMS."""
+    if is_relay_pickup:
+        instruction = "Présentez ce code à l'agent du point relais pour retirer votre colis."
+    else:
+        instruction = "Donnez ce code au livreur pour valider la remise."
     msg = (
         f"Bonjour {recipient_name},\n"
         f"Un colis vous est destiné (réf. {tracking_code}).\n"
@@ -236,11 +241,11 @@ async def notify_delivery_code(
     )
     if payment_url:
         msg += f"Paiement requis ({payment_url})\n"
-    msg += "Donnez ce code au livreur pour valider la remise. Ne le partagez pas."
+    msg += f"{instruction} Ne le partagez pas."
     try:
         await _send_sms_or_whatsapp(phone, msg)
     except Exception as e:
-        logger.warning("Impossible d'envoyer le code livraison: %s", e)
+        logger.warning("Impossible d'envoyer le code réception: %s", e)
 
 
 async def notify_approaching_driver(parcel: dict):

@@ -164,11 +164,23 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                   error: (e, _) => Center(child: Text('Erreur: $e', style: const TextStyle(color: Colors.red))),
                   data: (messages) {
                     if (messages.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          'Aucun message.\nEnvoyez une instruction au livreur.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.chat_bubble_outline, size: 36, color: Colors.grey.shade300),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Discussion avec le livreur',
+                              style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Envoyez un message texte ou une note vocale.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                            ),
+                          ],
                         ),
                       );
                     }
@@ -256,17 +268,16 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
             ),
           ),
           const SizedBox(width: 6),
-          // Bouton micro (maintenir pour enregistrer)
+          // Bouton micro (tap pour démarrer l'enregistrement)
           GestureDetector(
-            onLongPressStart: (_) => _startRecording(),
-            onLongPressEnd:   (_) => _stopAndSendRecording(),
+            onTap: _startRecording,
             child: Container(
               width: 40, height: 40,
               decoration: BoxDecoration(
-                color: Colors.grey.shade200,
+                color: Colors.orange.shade100,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.mic, size: 20, color: Colors.grey),
+              child: Icon(Icons.mic, size: 20, color: Colors.orange.shade800),
             ),
           ),
           const SizedBox(width: 6),

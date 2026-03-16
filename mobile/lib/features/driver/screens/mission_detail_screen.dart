@@ -335,6 +335,32 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
   }
 
+  // ── Signaler l'arrivée à destination (R2H) ─────────────────────────────────
+  Future<void> _arriveAtDestination(String parcelId) async {
+    setState(() => _isProcessing = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.arriveAtDestination(parcelId);
+      if (mounted) {
+        ref.invalidate(missionProvider(widget.id));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Arrivée confirmée ! Validez la livraison avec le code.'),
+          backgroundColor: Colors.green,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   // ── Prendre une photo (Preuve) + Compression WebP (Phase 7) ───────────────
   Future<void> _takePhoto() async {
     final picker = ImagePicker();
@@ -1055,6 +1081,35 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 ),
               ),
             ]),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton.icon(
+              onPressed: _isProcessing
+                  ? null
+                  : () => _showFailDialog(mission.parcelId),
+              icon: const Icon(Icons.report_problem, color: Colors.red),
+              label: const Text('Impossible de livrer',
+                  style: TextStyle(color: Colors.red)),
+            ),
+          ),
+        ]);
+      }
+
+      // Driver en transit vers le domicile → bouton "Je suis arrivé"
+      if (mission.parcelStatus == 'in_transit') {
+        return Column(children: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing ? null : () => _arriveAtDestination(mission.parcelId),
+              icon: const Icon(Icons.location_on),
+              label: const Text('Je suis arrivé à destination'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           Center(

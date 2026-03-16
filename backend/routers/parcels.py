@@ -863,9 +863,43 @@ async def pickup_parcel(
         {"parcel_id": parcel_id, "assigned_driver_id": parcel.get("assigned_driver_id")},
         {"$set": {"assigned_driver_id": current_user["user_id"], "updated_at": now}},
     )
+
+    # H2R : le driver transporte vers un relais, pas vers un domicile → IN_TRANSIT
+    # H2H / R2H : le driver livre au domicile → OUT_FOR_DELIVERY
+    mode = parcel.get("delivery_mode", "")
+    target_status = (
+        ParcelStatus.IN_TRANSIT
+        if mode == "home_to_relay"
+        else ParcelStatus.OUT_FOR_DELIVERY
+    )
+    return await transition_status(
+        parcel_id, target_status,
+        actor_id=current_user["user_id"], actor_role=current_user["role"],
+    )
+
+
+@router.post("/{parcel_id}/arrive-at-destination", summary="Driver signale son arrivée au domicile destinataire")
+async def arrive_at_destination(
+    parcel_id: str,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """Le driver signale qu'il est arrivé chez le destinataire (R2H / H2H).
+    Transition IN_TRANSIT → OUT_FOR_DELIVERY."""
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration.")
+    _ensure_driver_action_allowed(parcel, current_user)
+    if parcel.get("status") != ParcelStatus.IN_TRANSIT.value:
+        raise bad_request_exception("Le colis doit être en transit pour signaler l'arrivée à destination")
+
     return await transition_status(
         parcel_id, ParcelStatus.OUT_FOR_DELIVERY,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
+        notes="Arrivée au domicile du destinataire",
     )
 
 

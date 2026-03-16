@@ -34,8 +34,8 @@ def _generate_delivery_code() -> str:
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
     ParcelStatus.CREATED: [
         ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
-        ParcelStatus.OUT_FOR_DELIVERY,   # HOME_TO_* : driver vient chercher chez l'expéditeur
-        ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver part de l'expéditeur vers le relais
+        ParcelStatus.OUT_FOR_DELIVERY,   # HOME_TO_HOME : driver vient chercher et livre au domicile
+        ParcelStatus.IN_TRANSIT,         # HOME_TO_RELAY : driver collecte chez l'expéditeur → transit vers relais
         ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.CANCELLED,
         ParcelStatus.SUSPENDED,
@@ -422,9 +422,12 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "who_pays":              data.who_pays,
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
-        "pickup_code":           _generate_code(),          # 6 chiffres — livreur collecte
-        "delivery_code":         _generate_delivery_code(), # 4 chiffres — destinataire domicile
-        "relay_pin":             f"{random.randint(1000, 9999)}",  # 4 chiffres — retrait relais
+        # pickup_code (6ch) : toujours — remis au driver par l'agent relais ou l'expéditeur
+        # delivery_code (4ch) : *_to_home uniquement — destinataire le donne au driver
+        # relay_pin (4ch) : *_to_relay uniquement — destinataire le donne à l'agent relais
+        "pickup_code":           _generate_code(),
+        "delivery_code":         _generate_delivery_code() if data.delivery_mode.value.endswith("_to_home") else None,
+        "relay_pin":             f"{random.randint(1000, 9999)}" if data.delivery_mode.value.endswith("_to_relay") else None,
         "paid_price":            None,
         "payment_status":        "pending",
         "payment_method":        None,
@@ -533,14 +536,19 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             }}
         )
 
-    # ── Envoyer le code de livraison au destinataire par SMS/WhatsApp ──
-    await notify_delivery_code(
-        phone=data.recipient_phone,
-        recipient_name=data.recipient_name,
-        tracking_code=tracking_code,
-        delivery_code=parcel_doc["delivery_code"],
-        payment_url=payment_url if data.who_pays == "recipient" else None, # On envoie le lien au destinataire s'il paye
-    )
+    # ── Envoyer le code de réception au destinataire par SMS/WhatsApp ──
+    # *_to_relay → relay_pin | *_to_home → delivery_code
+    recipient_code = parcel_doc.get("relay_pin") or parcel_doc.get("delivery_code")
+    if recipient_code:
+        is_relay_pickup = data.delivery_mode.value.endswith("_to_relay")
+        await notify_delivery_code(
+            phone=data.recipient_phone,
+            recipient_name=data.recipient_name,
+            tracking_code=tracking_code,
+            delivery_code=recipient_code,
+            is_relay_pickup=is_relay_pickup,
+            payment_url=payment_url if data.who_pays == "recipient" else None,
+        )
 
     # ── Envoyer le lien de confirmation GPS (SMS / WhatsApp) ──
     recipient_confirm_url = None

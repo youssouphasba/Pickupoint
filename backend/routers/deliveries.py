@@ -231,10 +231,8 @@ async def confirm_pickup(
     elif p_status in [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]:
         await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up depuis relais destination", **actor)
     elif p_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-        if parcel.get("delivery_mode") == "relay_to_home":
-            await transition_status(parcel["parcel_id"], ParcelStatus.OUT_FOR_DELIVERY, notes="Pick-up au relais origine (vers domicile)", **actor)
-        else:
-            await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up au relais origine (transit)", **actor)
+        # R2H et R2R : driver quitte le relais origine → IN_TRANSIT
+        await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up au relais origine", **actor)
 
     return {"message": "Collecte confirmée", "mission_id": mission_id}
 
@@ -255,6 +253,7 @@ async def get_mission(
         {"parcel_id": mission["parcel_id"]},
         {
             "_id": 0,
+            "status": 1,
             "payment_status": 1,
             "payment_method": 1,
             "who_pays": 1,
@@ -265,6 +264,7 @@ async def get_mission(
         },
     )
     if parcel:
+        mission["parcel_status"] = parcel.get("status")
         mission["payment_status"] = parcel.get("payment_status", "pending")
         mission["payment_method"] = mission.get("payment_method") or parcel.get("payment_method")
         mission["who_pays"] = mission.get("who_pays") or parcel.get("who_pays")

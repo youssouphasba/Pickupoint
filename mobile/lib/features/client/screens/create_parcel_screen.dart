@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
 import '../providers/client_provider.dart';
@@ -56,13 +54,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
   final _weightController = TextEditingController(text: '1.0');
   final _pickupNoteController = TextEditingController();
-  final _voiceRecorder = AudioRecorder();
   double _declaredValue = 10000;
   bool _isExpress = false;
   String _whoPays = 'sender'; // 'sender' | 'recipient'
   bool _isQuoteLoading = false;
-  bool _isRecordingPickupVoice = false;
-  String? _pickupVoicePath;
 
   // ── Mode de livraison calculé ─────────────────────────────────────────────────
   String get _deliveryMode {
@@ -89,34 +84,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _addressDistrictController.dispose();
     _weightController.dispose();
     _pickupNoteController.dispose();
-    _voiceRecorder.dispose();
     super.dispose();
-  }
-
-  Future<void> _togglePickupVoiceRecording() async {
-    if (_isRecordingPickupVoice) {
-      await _voiceRecorder.stop();
-      if (mounted) {
-        setState(() => _isRecordingPickupVoice = false);
-      }
-      return;
-    }
-
-    if (!await _voiceRecorder.hasPermission()) {
-      _showError('Permission micro refusée');
-      return;
-    }
-
-    final dir = await getTemporaryDirectory();
-    _pickupVoicePath =
-        '${dir.path}/pickup_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _voiceRecorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000),
-      path: _pickupVoicePath!,
-    );
-    if (mounted) {
-      setState(() => _isRecordingPickupVoice = true);
-    }
   }
 
   // ── Navigation ────────────────────────────────────────────────────────────────
@@ -259,7 +227,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'initiated_by': isReverse ? 'recipient' : 'sender',
         if (_pickupNoteController.text.trim().isNotEmpty)
           'pickup_voice_note': _pickupNoteController.text.trim(),
-        if (_pickupVoicePath != null) 'pickup_voice_path': _pickupVoicePath,
         if (isReverse) 'sender_phone': _senderPhoneController.text.trim(),
         'recipient_name': isReverse
             ? (authUser?.fullName ?? authUser?.phone ?? '')
@@ -820,41 +787,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.note_alt_outlined),
             ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _pickupVoicePath == null
-                      ? 'Ajoutez une note vocale si besoin'
-                      : (_isRecordingPickupVoice
-                          ? 'Enregistrement en cours…'
-                          : 'Note vocale prête à être envoyée'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color:
-                        _isRecordingPickupVoice ? Colors.red : Colors.blueGrey,
-                  ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _togglePickupVoiceRecording,
-                icon: Icon(_isRecordingPickupVoice
-                    ? Icons.stop_circle_outlined
-                    : Icons.mic_none_rounded),
-                label:
-                    Text(_isRecordingPickupVoice ? 'Arrêter' : 'Enregistrer'),
-              ),
-              if (_pickupVoicePath != null && !_isRecordingPickupVoice) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Supprimer',
-                  onPressed: () => setState(() => _pickupVoicePath = null),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
-            ],
           ),
           const SizedBox(height: 20),
           _sectionTitle(Icons.payment, 'Qui règle la livraison ?'),

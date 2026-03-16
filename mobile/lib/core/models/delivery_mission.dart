@@ -39,6 +39,7 @@ class DeliveryMission {
     this.senderPhotoUrl,
     this.recipientPhotoUrl,
     this.encodedPolyline,
+    this.parcelStatus,
   });
 
   final String id;
@@ -93,6 +94,9 @@ class DeliveryMission {
   final String? recipientPhotoUrl;
   final String? encodedPolyline;
 
+  /// Statut du colis lié (in_transit, out_for_delivery, etc.)
+  final String? parcelStatus;
+
   factory DeliveryMission.fromJson(Map<String, dynamic> json) {
     // Pickup geopin
     final pg = (json['pickup_geopin'] as Map<String, dynamic>?);
@@ -144,6 +148,7 @@ class DeliveryMission {
       senderPhotoUrl: json['sender_photo_url'] as String?,
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
       encodedPolyline: json['encoded_polyline'] as String?,
+      parcelStatus: json['parcel_status'] as String?,
     );
   }
 
