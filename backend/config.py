@@ -21,8 +21,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # OTP
-    OTP_PROVIDER: str = "mock"  # "mock" | "twilio"
+    # Firebase
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = "firebase-service-account.json"
+
+    # OTP (legacy — Firebase Auth gère l'OTP en prod)
+    OTP_PROVIDER: str = "mock"  # "mock" | "twilio" | "firebase"
     OTP_EXPIRE_MINUTES: int = 10
     OTP_LENGTH: int = 6
     OTP_MOCK_CODE: str = "123456"
@@ -31,7 +34,12 @@ class Settings(BaseSettings):
     GPS_REMINDER_ESCALATION_MINUTES: int = 10
     GPS_REMINDER_MAX_COUNT: int = 4
 
-    # Twilio
+    # WhatsApp Cloud API (Meta)
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_API_VERSION: str = "v21.0"
+
+    # Twilio (legacy — fallback SMS uniquement)
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_WHATSAPP_NUMBER: str = "whatsapp:+14155238886"
@@ -71,8 +79,8 @@ class Settings(BaseSettings):
         if is_prod and (not self.JWT_SECRET or self.JWT_SECRET == weak_default_secret or len(self.JWT_SECRET) < 32):
             raise ValueError("JWT_SECRET must be configured with at least 32 chars in production")
 
-        if self.OTP_PROVIDER not in {"mock", "twilio"}:
-            raise ValueError("OTP_PROVIDER must be either 'mock' or 'twilio'")
+        if self.OTP_PROVIDER not in {"mock", "twilio", "firebase"}:
+            raise ValueError("OTP_PROVIDER must be 'mock', 'twilio', or 'firebase'")
 
         if self.OTP_MAX_ATTEMPTS < 1:
             raise ValueError("OTP_MAX_ATTEMPTS must be >= 1")

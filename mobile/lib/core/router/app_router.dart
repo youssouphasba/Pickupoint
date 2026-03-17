@@ -114,6 +114,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         final data = state.extra as Map<String, dynamic>;
         return OtpScreen(
           phone: data['phone'] as String,
+          verificationId: data['verificationId'] as String?,
         );
       }),
       GoRoute(path: '/auth/setup', builder: (_, state) {

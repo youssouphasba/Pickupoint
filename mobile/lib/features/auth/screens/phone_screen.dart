@@ -31,27 +31,57 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // D'abord vérifier si l'utilisateur a un PIN configuré
       final client = ApiClient();
       final res = await client.checkPhone({'phone': phone});
       final data = res.data as Map<String, dynamic>;
 
       if (data['exists'] == true && data['has_pin'] == true) {
+        // Utilisateur existant avec PIN → écran PIN
         if (mounted) {
           context.push('/auth/pin', extra: {'phone': phone});
         }
-      } else {
-        // Le compte n'existe pas ou n'a pas fini son inscription PIN.
-        // On envoie un OTP.
-        final testCode = await ref.read(authProvider.notifier).requestOtp(phone);
-        if (mounted && testCode != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Mode test: utilisez le code $testCode')),
-          );
-        }
-        if (mounted) {
-          context.push('/auth/otp', extra: {'phone': phone});
-        }
+        return;
       }
+
+      // Sinon → Firebase Phone Auth (envoie le SMS)
+      await ref.read(authProvider.notifier).startFirebasePhoneAuth(
+        phone,
+        onCodeSent: (verificationId) {
+          if (mounted) {
+            context.push('/auth/otp', extra: {
+              'phone': phone,
+              'verificationId': verificationId,
+            });
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Erreur : $error')),
+            );
+          }
+        },
+        onAutoVerified: (credential) async {
+          // Auto-vérification Android — connecter directement
+          try {
+            final regToken = await ref
+                .read(authProvider.notifier)
+                .signInWithFirebaseCredential(credential);
+            if (mounted && regToken != null) {
+              context.pushReplacement('/auth/setup', extra: {
+                'registration_token': regToken,
+              });
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Erreur: $e')),
+              );
+            }
+          }
+        },
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -73,7 +103,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Bienvenue sur PickuPoint',
+              'Bienvenue sur Denkma',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),

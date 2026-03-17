@@ -9,8 +9,9 @@ import '../../../shared/widgets/otp_input.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
+  final String? verificationId;
 
-  const OtpScreen({super.key, required this.phone});
+  const OtpScreen({super.key, required this.phone, this.verificationId});
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -48,10 +49,8 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _verify(String otp) async {
     setState(() => _isLoading = true);
     try {
-      final token = await ref.read(authProvider.notifier).verifyOtp(
-            widget.phone,
-            otp,
-          );
+      // Firebase OTP verification
+      final token = await ref.read(authProvider.notifier).verifyFirebaseOtp(otp);
 
       if (token != null && mounted) {
         context.pushReplacement('/auth/setup', extra: {
@@ -72,16 +71,36 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _resend() async {
     if (_secondsRemaining > 0) return;
     try {
-      final testCode = await ref.read(authProvider.notifier).requestOtp(widget.phone);
-      _startTimer();
-      if (mounted) {
-        final message = testCode != null
-            ? 'Code renvoyé. Mode test: $testCode'
-            : 'Code renvoyé';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      }
+      await ref.read(authProvider.notifier).startFirebasePhoneAuth(
+        widget.phone,
+        onCodeSent: (verificationId) {
+          _startTimer();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Code renvoyé')),
+            );
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Erreur: $error')),
+            );
+          }
+        },
+        onAutoVerified: (credential) async {
+          try {
+            final regToken = await ref
+                .read(authProvider.notifier)
+                .signInWithFirebaseCredential(credential);
+            if (mounted && regToken != null) {
+              context.pushReplacement('/auth/setup', extra: {
+                'registration_token': regToken,
+              });
+            }
+          } catch (_) {}
+        },
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -119,7 +138,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                 border: Border.all(color: Colors.blue.shade100),
               ),
               child: const Text(
-                'Saisissez les 6 chiffres reçus. En mode test, un code peut être affiché dans l’application.',
+                'Saisissez les 6 chiffres reçus par SMS.',
                 style: TextStyle(fontSize: 12),
                 textAlign: TextAlign.center,
               ),

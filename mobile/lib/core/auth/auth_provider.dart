@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import '../api/api_client.dart';
 import '../models/user.dart';
 import 'token_storage.dart';
@@ -140,7 +141,95 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Étape 2 — vérification OTP. Returns registration_token if new user, null if logged in.
+  // ── Firebase Phone Auth ──────────────────────────────────────────────────
+
+  String? _firebaseVerificationId;
+
+  /// Étape 1 Firebase — envoie le SMS via Firebase Auth
+  Future<void> startFirebasePhoneAuth(String phone, {
+    required void Function(String verificationId) onCodeSent,
+    required void Function(String error) onError,
+    required void Function(fb.PhoneAuthCredential credential) onAutoVerified,
+  }) async {
+    state = const AsyncLoading();
+    await fb.FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: phone,
+      timeout: const Duration(seconds: 60),
+      verificationCompleted: (fb.PhoneAuthCredential credential) {
+        // Auto-verification Android
+        onAutoVerified(credential);
+      },
+      verificationFailed: (fb.FirebaseAuthException e) {
+        state = AsyncData(AuthState(
+          status: AuthStatus.unauthenticated,
+          error: e.message ?? 'Erreur Firebase',
+        ));
+        onError(e.message ?? 'Erreur de vérification');
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        _firebaseVerificationId = verificationId;
+        state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
+        onCodeSent(verificationId);
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        _firebaseVerificationId = verificationId;
+      },
+    );
+  }
+
+  /// Étape 2 Firebase — vérifie le code SMS et connecte au backend Denkma
+  Future<String?> verifyFirebaseOtp(String smsCode) async {
+    if (_firebaseVerificationId == null) {
+      throw Exception('Aucune vérification en cours');
+    }
+    state = const AsyncLoading();
+    try {
+      final credential = fb.PhoneAuthProvider.credential(
+        verificationId: _firebaseVerificationId!,
+        smsCode: smsCode,
+      );
+      return await signInWithFirebaseCredential(credential);
+    } catch (e) {
+      state = AsyncData(AuthState(
+        status: AuthStatus.unauthenticated,
+        error: _extractError(e),
+      ));
+      rethrow;
+    }
+  }
+
+  /// Sign in with Firebase credential, then authenticate with Denkma backend.
+  /// Returns registration_token if new user, null if logged in.
+  Future<String?> signInWithFirebaseCredential(fb.PhoneAuthCredential credential) async {
+    try {
+      final userCredential = await fb.FirebaseAuth.instance.signInWithCredential(credential);
+      final idToken = await userCredential.user?.getIdToken();
+      if (idToken == null) throw Exception('Impossible de récupérer le token Firebase');
+
+      // Envoyer l'ID token au backend Denkma
+      final client = ApiClient();
+      final res = await client.firebaseLogin(idToken);
+      final data = res.data as Map<String, dynamic>;
+
+      if (data['is_new_user'] == true) {
+        state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
+        return data['registration_token'] as String;
+      }
+
+      final sessionData = data['session'] as Map<String, dynamic>?;
+      if (sessionData == null) throw Exception("Session manquante dans la réponse API.");
+      await _handleTokenResponse(sessionData);
+      return null;
+    } catch (e) {
+      state = AsyncData(AuthState(
+        status: AuthStatus.unauthenticated,
+        error: _extractError(e),
+      ));
+      rethrow;
+    }
+  }
+
+  /// Étape 2 — vérification OTP (legacy, pour mode mock/twilio). Returns registration_token if new user, null if logged in.
   Future<String?> verifyOtp(String phone, String otp) async {
     state = const AsyncLoading();
     try {

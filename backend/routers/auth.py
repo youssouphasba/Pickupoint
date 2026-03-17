@@ -1,7 +1,8 @@
 """
-Router auth : OTP flow complet + gestion session JWT.
+Router auth : Firebase Auth + OTP flow + gestion session JWT.
 """
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 
 from typing import Optional
@@ -22,9 +23,93 @@ from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, Pr
 from services.otp_service import send_otp, verify_otp
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Utilisation du limiter global défini dans core/limiter
 from core.limiter import limiter
+
+# ── Firebase Admin SDK init ──────────────────────────────────────────────────
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
+
+if not firebase_admin._apps:
+    import os, json
+    firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
+    if firebase_creds_env:
+        # Railway: JSON complet dans la variable d'env
+        cred = credentials.Certificate(json.loads(firebase_creds_env))
+    elif settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
+        cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
+    else:
+        cred = None
+        logger.warning("Firebase credentials not found — /auth/firebase will not work")
+    if cred:
+        firebase_admin.initialize_app(cred)
+
+
+# ── Firebase Auth endpoint ───────────────────────────────────────────────────
+
+class FirebaseAuthRequest(BaseModel):
+    id_token: str
+
+@router.post("/firebase", summary="Authentification via Firebase Phone Auth")
+@limiter.limit("10/minute")
+async def firebase_login(body: FirebaseAuthRequest, request: Request):
+    """
+    Reçoit un Firebase ID token après vérification téléphone côté Flutter.
+    Crée ou connecte l'utilisateur et renvoie les JWT Denkma.
+    """
+    try:
+        decoded = firebase_auth.verify_id_token(body.id_token)
+    except Exception as e:
+        logger.warning("Firebase token verification failed: %s", e)
+        raise bad_request_exception("Token Firebase invalide ou expiré")
+
+    phone = decoded.get("phone_number")
+    if not phone:
+        raise bad_request_exception("Le token Firebase ne contient pas de numéro de téléphone")
+
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
+
+    # Nouvel utilisateur → renvoyer un registration_token
+    if not user_doc:
+        temp_token = create_access_token(
+            {"sub": phone, "type": "registration_token"},
+            expires_delta=timedelta(hours=1),
+        )
+        return {"is_new_user": True, "registration_token": temp_token}
+
+    # Utilisateur banni
+    if user_doc.get("is_banned"):
+        from core.exceptions import forbidden_exception
+        raise forbidden_exception("Votre compte a été suspendu par l'administration.")
+
+    # Marquer le téléphone comme vérifié
+    await db.users.update_one(
+        {"phone": phone},
+        {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
+    )
+    user_doc["is_phone_verified"] = True
+
+    token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    await db.user_sessions.insert_one({
+        "user_id":       user_doc["user_id"],
+        "refresh_token": refresh_token,
+        "created_at":    datetime.now(timezone.utc),
+        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    })
+
+    return {
+        "is_new_user": False,
+        "session": {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": User(**user_doc).model_dump(),
+        },
+    }
 
 
 @router.post("/request-otp", summary="Envoyer OTP")

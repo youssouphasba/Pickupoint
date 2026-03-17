@@ -65,6 +65,9 @@ class ApiClient {
   Future<Response> verifyOtp(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.verifyOtp, data: body);
 
+  Future<Response> firebaseLogin(String idToken) =>
+      _dio.post(ApiEndpoints.firebaseAuth, data: {'id_token': idToken});
+
   Future<Response> checkPhone(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.checkPhone, data: body);
 

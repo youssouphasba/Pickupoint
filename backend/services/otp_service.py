@@ -98,7 +98,7 @@ async def _send_via_twilio(phone: str, otp_code: str) -> bool:
     try:
         from twilio.rest import Client
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        message_body = f"Votre code PickuPoint : {otp_code}. Valable {settings.OTP_EXPIRE_MINUTES} minutes."
+        message_body = f"Votre code Denkma : {otp_code}. Valable {settings.OTP_EXPIRE_MINUTES} minutes."
 
         # Tentative WhatsApp
         if settings.TWILIO_WHATSAPP_NUMBER:

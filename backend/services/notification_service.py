@@ -20,20 +20,28 @@ _firebase_initialized = False
 
 
 def _ensure_firebase():
-    """Initialise Firebase Admin au premier appel, silencieusement si indispo."""
+    """Vérifie que Firebase Admin est initialisé (par auth.py ou ici)."""
     global _firebase_initialized
     if _firebase_initialized:
         return
     try:
-        import os
         import firebase_admin
+        # Vérifier si déjà initialisé par auth.py
+        if firebase_admin._apps:
+            _firebase_initialized = True
+            return
+        # Sinon, initialiser
+        import os, json
         from firebase_admin import credentials
-        cred_path = "firebase-service-account.json"
-        if os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred)
+        firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
+        if firebase_creds_env:
+            cred = credentials.Certificate(json.loads(firebase_creds_env))
+        elif os.path.exists("firebase-service-account.json"):
+            cred = credentials.Certificate("firebase-service-account.json")
         else:
-            firebase_admin.initialize_app()
+            cred = None
+        if cred:
+            firebase_admin.initialize_app(cred)
         _firebase_initialized = True
     except Exception as e:
         logger.warning(f"Firebase Admin non initialisé (push désactivé) : {e}")
@@ -50,7 +58,7 @@ STATUS_MESSAGES = {
     ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis est arrivé au relais destination.",
     ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis est disponible pour retrait au relais. Code PIN requis.",
     ParcelStatus.OUT_FOR_DELIVERY:        "Un livreur est en route pour livrer votre colis.",
-    ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Merci d'avoir utilisé PickuPoint !",
+    ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Merci d'avoir utilisé Denkma !",
     ParcelStatus.DELIVERY_FAILED:         "La livraison a échoué. Votre colis sera redirigé vers un relais.",
     ParcelStatus.REDIRECTED_TO_RELAY:     "Votre colis est disponible au relais. Votre code de retrait : {relay_pin}",
     ParcelStatus.CANCELLED:               "Votre colis a été annulé.",
@@ -201,18 +209,34 @@ async def _send_sms(phone: str, body: str):
 
 
 async def _send_whatsapp(phone: str, body: str):
-    """Envoi WhatsApp via Twilio (best-effort)."""
+    """Envoi WhatsApp via Meta Cloud API (best-effort)."""
     try:
-        if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_WHATSAPP_NUMBER:
+        if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+            logger.debug("WhatsApp Cloud API non configuré, message ignoré")
             return
-        from twilio.rest import Client
 
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        client.messages.create(
-            body=body,
-            from_=settings.TWILIO_WHATSAPP_NUMBER,
-            to=f"whatsapp:{phone}",
-        )
+        import httpx
+
+        url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        # Formater le numéro (retirer le + pour l'API Meta)
+        to_number = phone.lstrip("+")
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to_number,
+            "type": "text",
+            "text": {"body": body},
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                logger.info("WhatsApp envoyé à %s via Cloud API", phone)
+            else:
+                logger.warning("WhatsApp Cloud API erreur %s: %s", resp.status_code, resp.text)
     except Exception as e:
         logger.warning("WhatsApp non envoyé à %s : %s", phone, e)
 
@@ -316,6 +340,80 @@ async def send_location_confirmation_prompt(
 
     if phone:
         await _send_sms_or_whatsapp(phone, body)
+
+
+async def notify_relay_agent_parcel_arrived(relay_id: str, parcel: dict):
+    """Notifie l'agent relais qu'un colis est arrivé dans son relais."""
+    tracking_code = parcel.get("tracking_code", "")
+    parcel_id = parcel.get("parcel_id")
+
+    # Trouver l'agent relais lié à ce relay_point
+    agent = await db.users.find_one(
+        {"relay_point_id": relay_id, "role": "relay_agent"},
+        {"user_id": 1},
+    )
+    if not agent:
+        return
+
+    await _store_and_send(
+        user_id=agent["user_id"],
+        title="Nouveau colis arrivé",
+        body=f"Le colis {tracking_code} est arrivé dans votre relais. Veuillez le réceptionner.",
+        ref_type="parcel",
+        ref_id=parcel_id,
+    )
+
+
+async def notify_payout_result(user_id: str, amount: float, approved: bool):
+    """Notifie un driver/relay du résultat de sa demande de retrait."""
+    if approved:
+        title = "Retrait approuvé"
+        body = f"Votre demande de retrait de {int(amount)} XOF a été approuvée. Le virement est en cours."
+    else:
+        title = "Retrait refusé"
+        body = f"Votre demande de retrait de {int(amount)} XOF a été refusée. Le montant a été recrédité sur votre cagnotte."
+
+    await _store_and_send(
+        user_id=user_id,
+        title=title,
+        body=body,
+        ref_type="payout",
+    )
+
+
+async def notify_parcel_expired(parcel: dict):
+    """Notifie l'expéditeur et le destinataire qu'un colis a expiré."""
+    tracking_code = parcel.get("tracking_code", "")
+    parcel_id = parcel.get("parcel_id")
+    body = f"Le colis {tracking_code} n'a pas été retiré dans les délais et a expiré."
+
+    sender_id = parcel.get("sender_user_id")
+    if sender_id:
+        await _store_and_send(
+            user_id=sender_id,
+            title="Colis expiré",
+            body=body,
+            ref_type="parcel",
+            ref_id=parcel_id,
+        )
+
+    recipient_phone = parcel.get("recipient_phone")
+    recipient_user_id = parcel.get("recipient_user_id")
+    if not recipient_user_id and recipient_phone:
+        user = await db.users.find_one({"phone": recipient_phone}, {"user_id": 1})
+        if user:
+            recipient_user_id = user["user_id"]
+
+    if recipient_user_id:
+        await _store_and_send(
+            user_id=recipient_user_id,
+            title="Colis expiré",
+            body=body,
+            ref_type="parcel",
+            ref_id=parcel_id,
+        )
+    elif recipient_phone:
+        await _send_sms_or_whatsapp(recipient_phone, body)
 
 
 async def notify_location_confirmation_request(parcel: dict, actor: str, confirm_url: str, escalate_external: bool = False):

@@ -11,6 +11,7 @@ from core.exceptions import not_found_exception, bad_request_exception
 from database import db
 from models.common import UserRole, ParcelStatus
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
+from services.notification_service import notify_payout_result, notify_relay_agent_parcel_arrived
 
 router = APIRouter()
 
@@ -237,6 +238,11 @@ async def approve_payout(payout_id: str, _admin=Depends(require_admin_dep)):
         metadata={"payout_id": payout_id, "amount": payout["amount"]}
     )
     
+    # Notifier le driver/relay
+    owner_id = payout.get("user_id") or payout.get("owner_id")
+    if owner_id:
+        await notify_payout_result(owner_id, payout["amount"], approved=True)
+
     return {"message": "Retrait approuvé", "payout_id": payout_id}
 
 
@@ -782,6 +788,11 @@ async def reject_payout(payout_id: str, _admin=Depends(require_admin_dep)):
         notes=f"Retrait rejeté pour {payout['amount']} XOF",
         metadata={"payout_id": payout_id, "amount": payout["amount"]}
     )
+    # Notifier le driver/relay
+    owner_id = payout.get("user_id") or payout.get("owner_id")
+    if owner_id:
+        await notify_payout_result(owner_id, payout["amount"], approved=False)
+
     return {"message": "Retrait rejeté", "payout_id": payout_id}
 
 

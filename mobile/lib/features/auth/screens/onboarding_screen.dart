@@ -75,7 +75,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bienvenue sur PickuPoint'),
+        title: const Text('Bienvenue sur Denkma'),
         automaticallyImplyLeading: false, // Pas de bouton retour
       ),
       body: SingleChildScrollView(

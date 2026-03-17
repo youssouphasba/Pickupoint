@@ -41,6 +41,11 @@ venv.bak/
 desktop.ini
 Thumbs.db
 
+# Firebase
+google-services.json
+GoogleService-Info.plist
+firebase-service-account.json
+
 # Project specific
 backend/__pycache__/
 backend/.env

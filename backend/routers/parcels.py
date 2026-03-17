@@ -38,6 +38,7 @@ from services.parcel_service import (
     sync_active_mission_with_parcel,
 )
 from services.pricing_service import calculate_price, _haversine_km
+from services.notification_service import notify_relay_agent_parcel_arrived
 from services.wallet_service import credit_wallet, debit_wallet
 from config import settings
 
@@ -840,6 +841,8 @@ async def _scan_arrival_at_relay(parcel: dict, current_user: dict, *, batch: boo
 
     if target_relay_id:
         await db.relay_points.update_one({"relay_id": target_relay_id}, {"$inc": {"current_load": 1}})
+        # Notifier l'agent relais de destination
+        await notify_relay_agent_parcel_arrived(target_relay_id, parcel)
     return result
 
 

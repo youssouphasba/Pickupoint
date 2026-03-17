@@ -5,27 +5,21 @@ import 'package:firebase_core/firebase_core.dart';
 import 'core/notifications/notification_service.dart';
 import 'app.dart';
 
-const bool _pushNotificationsEnabled = bool.fromEnvironment(
-  'ENABLE_PUSH_NOTIFICATIONS',
-  defaultValue: false,
-);
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await initializeDateFormatting('fr_FR', null);
-  
+
+  // Firebase est requis pour Auth + FCM
+  await Firebase.initializeApp();
+
   final container = ProviderContainer();
 
-  if (_pushNotificationsEnabled) {
-    try {
-      await Firebase.initializeApp();
-      await container.read(notificationServiceProvider).init();
-    } catch (e) {
-      debugPrint('Push notifications init failed: $e');
-    }
-  } else {
-    debugPrint('Push notifications disabled via --dart-define');
+  // Init push notifications (FCM)
+  try {
+    await container.read(notificationServiceProvider).init();
+  } catch (e) {
+    debugPrint('Push notifications init failed: $e');
   }
 
   runApp(UncontrolledProviderScope(

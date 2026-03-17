@@ -17,6 +17,7 @@ class ApiEndpoints {
   static const completeReg = '$_base/api/auth/complete-registration';
   static const resetPin = '$_base/api/auth/reset-pin';
   static const verifyOtp = '$_base/api/auth/verify-otp';
+  static const firebaseAuth = '$_base/api/auth/firebase';
   static const refresh = '$_base/api/auth/refresh';
   static const me = '$_base/api/auth/me';
   static const profile = '$_base/api/auth/profile';

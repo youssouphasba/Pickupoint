@@ -229,8 +229,30 @@ async def _gps_confirmation_reminder_loop() -> None:
             logger.error("Erreur relances GPS : %s", exc)
 
 
+async def _expire_stale_parcels():
+    """Expire les colis AVAILABLE_AT_RELAY / REDIRECTED_TO_RELAY dont expires_at est dépassé."""
+    try:
+        from services.notification_service import notify_parcel_expired
+        now = datetime.now(timezone.utc)
+        query = {
+            "status": {"$in": ["available_at_relay", "redirected_to_relay"]},
+            "expires_at": {"$lte": now},
+        }
+        expired_parcels = await db.parcels.find(query, {"_id": 0}).to_list(length=100)
+        for parcel in expired_parcels:
+            await db.parcels.update_one(
+                {"parcel_id": parcel["parcel_id"]},
+                {"$set": {"status": "expired", "updated_at": now}},
+            )
+            await notify_parcel_expired(parcel)
+            logger.info("Colis %s expiré automatiquement", parcel.get("tracking_code"))
+    except Exception as exc:
+        logger.error("Erreur job expiration colis : %s", exc)
+
+
 scheduler = AsyncIOScheduler()
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
+scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
 
 
 @asynccontextmanager
@@ -241,7 +263,7 @@ async def lifespan(app: FastAPI):
     auto_release_task = asyncio.create_task(_auto_release_stuck_missions())
     dispatch_task = asyncio.create_task(_advance_delivery_dispatch_loop())
     gps_reminder_task = asyncio.create_task(_gps_confirmation_reminder_loop())
-    logger.info("PickuPoint API started (with scheduler)")
+    logger.info("Denkma API started (with scheduler)")
     yield
     # Shutdown
     auto_release_task.cancel()
@@ -249,11 +271,11 @@ async def lifespan(app: FastAPI):
     gps_reminder_task.cancel()
     scheduler.shutdown()
     await close_db()
-    logger.info("PickuPoint API stopped")
+    logger.info("Denkma API stopped")
 
 
 app = FastAPI(
-    title="PickuPoint API",
+    title="Denkma API",
     description="Plateforme de livraison et points relais — Sénégal",
     version="1.0.0",
     lifespan=lifespan,

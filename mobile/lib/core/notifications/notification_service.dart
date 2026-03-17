@@ -4,10 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
-const bool _pushNotificationsEnabled = bool.fromEnvironment(
-  'ENABLE_PUSH_NOTIFICATIONS',
-  defaultValue: false,
-);
 
 class NotificationService {
   final Ref _ref;
@@ -17,10 +13,6 @@ class NotificationService {
   NotificationService(this._ref);
 
   Future<void> init() async {
-    if (!_pushNotificationsEnabled) {
-      return;
-    }
-
     // 1. Demander les permissions
     NotificationSettings settings = await _fcm.requestPermission(
       alert: true,
