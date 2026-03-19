@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+
 import '../../../core/auth/auth_provider.dart';
-import '../providers/client_provider.dart';
-import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/loading_button.dart';
+import '../providers/client_provider.dart';
 
 class QuoteScreen extends ConsumerStatefulWidget {
   const QuoteScreen({super.key, required this.data});
+
   final Map<String, dynamic> data;
 
   @override
@@ -22,9 +24,8 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     setState(() => _isConfirming = true);
     try {
       final api = ref.read(apiClientProvider);
-
       final formData =
-          Map<String, dynamic>.from(widget.data['formData'] as Map);
+          Map<String, dynamic>.from(widget.data['formData'] as Map? ?? const {});
       final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
       final payload = {
         ...formData,
@@ -42,7 +43,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       final paymentUrl = res.data['payment_url'] as String?;
 
       if (!mounted) return;
-
       if (paymentUrl != null) {
         _showPaymentWebView(paymentUrl);
       } else {
@@ -50,11 +50,14 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         ref.invalidate(parcelsProvider);
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la création : $e')),
+        SnackBar(content: Text('Erreur lors de la creation : $e')),
       );
     } finally {
-      if (mounted) setState(() => _isConfirming = false);
+      if (mounted) {
+        setState(() => _isConfirming = false);
+      }
     }
   }
 
@@ -68,7 +71,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         child: Column(
           children: [
             AppBar(
-              title: const Text('Paiement sécurisé'),
+              title: const Text('Paiement securise'),
               leading: IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => Navigator.pop(context),
@@ -77,15 +80,17 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             Expanded(
               child: InAppWebView(
                 initialUrlRequest: URLRequest(url: WebUri(url)),
-                onLoadStop: (controller, url) {
-                  if (url.toString().contains('callback') ||
-                      url.toString().contains('status=successful')) {
+                onLoadStop: (controller, uri) {
+                  final current = uri.toString();
+                  if (current.contains('callback') ||
+                      current.contains('status=successful')) {
                     Navigator.pop(context);
                     this.context.go('/client');
                     ref.invalidate(parcelsProvider);
                     ScaffoldMessenger.of(this.context).showSnackBar(
                       const SnackBar(
-                          content: Text('Paiement réussi ! Colis créé.')),
+                        content: Text('Paiement reussi. Colis cree.'),
+                      ),
                     );
                   }
                 },
@@ -99,10 +104,13 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final quote = widget.data['quote'] as Map<String, dynamic>;
-    final total = (quote['price'] as num).toDouble();
-    final breakdown = (quote['breakdown'] as Map<String, dynamic>?) ?? {};
-
+    final quote = Map<String, dynamic>.from(
+      widget.data['quote'] as Map<String, dynamic>? ?? const {},
+    );
+    final breakdown = Map<String, dynamic>.from(
+      quote['breakdown'] as Map<String, dynamic>? ?? const {},
+    );
+    final total = _num(quote['price']);
     final base = _num(breakdown['base']);
     final distKm = _num(breakdown['distance_km']);
     final distCost = _num(breakdown['distance_cost']);
@@ -111,11 +119,12 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final sousTotal = _num(breakdown['sous_total']);
     final coeff = _num(breakdown['coefficient'], def: 1.0);
     final expressCost = _num(breakdown['express_cost']);
-    final isExpress = breakdown['is_express'] as bool? ?? false;
-    final whoPays = breakdown['who_pays'] as String? ?? 'sender';
-    final estHours = breakdown['estimated_hours'] as String? ?? '—';
-    final coeffFactors =
-        (breakdown['coeff_factors'] as Map<String, dynamic>?) ?? {};
+    final isExpress = breakdown['is_express'] == true;
+    final whoPays = breakdown['who_pays']?.toString() ?? 'sender';
+    final estHours = breakdown['estimated_hours']?.toString() ?? '-';
+    final coeffFactors = Map<String, dynamic>.from(
+      breakdown['coeff_factors'] as Map<String, dynamic>? ?? const {},
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Votre devis')),
@@ -124,7 +133,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Prix total mis en avant ─────────────────────────────────
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -132,79 +140,86 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                 color: Theme.of(context).primaryColor,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Column(children: [
-                const Text('TOTAL À PAYER',
+              child: Column(
+                children: [
+                  const Text(
+                    'TOTAL A PAYER',
                     style: TextStyle(
-                        color: Colors.white70, fontSize: 13, letterSpacing: 1)),
-                const SizedBox(height: 6),
-                Text(
-                  formatXof(total),
-                  style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    formatXof(total),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 36,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isExpress ? estHours : 'Estimation livraison : $estHours',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ]),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isExpress ? estHours : 'Estimation livraison : $estHours',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
-
             const SizedBox(height: 20),
-
-            // ── Détail du calcul ─────────────────────────────────────────
-            _sectionTitle('Détail du prix'),
+            _sectionTitle('Resume de l envoi'),
+            const SizedBox(height: 8),
+            _buildOrderSummary(),
+            const SizedBox(height: 20),
+            _sectionTitle('Detail du prix'),
             const SizedBox(height: 8),
             _row('Prix de base', base),
             _row('Distance (${distKm.toStringAsFixed(1)} km)', distCost),
             if (extraKg > 0)
-              _row('Supplément poids (${extraKg.toStringAsFixed(1)} kg)',
-                  weightCost),
+              _row(
+                'Supplement poids (${extraKg.toStringAsFixed(1)} kg)',
+                weightCost,
+              ),
             const Divider(height: 20),
             _row('Sous-total', sousTotal, bold: true),
-
-            // Coefficient dynamique
             if (coeff != 1.0) ...[
               const SizedBox(height: 4),
               _coeffRow(coeff, coeffFactors),
             ],
-
-            // Express
             if (isExpress && expressCost > 0) ...[
               const SizedBox(height: 4),
-              _row('Supplément express (+30 %)', expressCost,
-                  color: const Color(0xFFFF6B00)),
+              _row(
+                'Supplement express (+30 %)',
+                expressCost,
+                color: const Color(0xFFFF6B00),
+              ),
             ],
-
             const Divider(height: 20),
             _row('TOTAL', total, bold: true, large: true),
-
             const SizedBox(height: 20),
-
-            // ── Infos pratiques ──────────────────────────────────────────
             _sectionTitle('Informations pratiques'),
             const SizedBox(height: 8),
             _infoCard([
-              _infoRow(Icons.schedule, 'Délai estimé', estHours),
+              _infoRow(Icons.schedule, 'Delai estime', estHours),
               _infoRow(
                 Icons.payment,
                 'Paiement',
                 whoPays == 'sender'
-                    ? 'Réglé par l\'expéditeur'
-                    : 'Réglé par le destinataire (contre-remboursement)',
+                    ? 'Regle par l expediteur'
+                    : 'Regle par le destinataire',
               ),
               if (isExpress)
-                _infoRow(Icons.bolt, 'Mode', 'Express — priorité maximale',
-                    color: const Color(0xFFFF6B00)),
+                _infoRow(
+                  Icons.bolt,
+                  'Mode',
+                  'Express - priorite maximale',
+                  color: const Color(0xFFFF6B00),
+                ),
             ]),
-
             const SizedBox(height: 24),
-
-            // Conditions + bouton
             const Text(
-              'En confirmant, vous acceptez nos conditions générales de transport.',
+              'En confirmant, vous acceptez nos conditions generales de transport.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
@@ -223,18 +238,84 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     );
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  Widget _buildOrderSummary() {
+    final formData =
+        Map<String, dynamic>.from(widget.data['formData'] as Map? ?? const {});
+    final recipientName = widget.data['recipient_name']?.toString() ?? '-';
+    final recipientPhone = widget.data['recipient_phone']?.toString() ?? '-';
+    final weight =
+        (formData['weight_kg'] as num?)?.toDouble() ??
+            double.tryParse(formData['weight_kg']?.toString() ?? '') ??
+            0.0;
+    final declaredValue =
+        (formData['declared_value'] as num?)?.toDouble() ?? 0.0;
+    final whoPays = formData['who_pays']?.toString() ?? 'sender';
+    final initiatedBy = formData['initiated_by']?.toString() ?? 'sender';
+    final isExpress = formData['is_express'] == true;
 
-  double _num(dynamic v, {double def = 0.0}) =>
-      v == null ? def : (v as num).toDouble();
+    return _infoCard([
+      _infoRow(
+        Icons.alt_route_outlined,
+        'Mode',
+        _modeLabel(formData['delivery_mode']?.toString()),
+      ),
+      _infoRow(Icons.person_outline, 'Destinataire', recipientName),
+      _infoRow(Icons.phone_outlined, 'Telephone', recipientPhone),
+      _infoRow(Icons.scale_outlined, 'Poids', '${weight.toStringAsFixed(1)} kg'),
+      _infoRow(
+        Icons.shield_outlined,
+        'Valeur declaree',
+        formatXof(declaredValue),
+      ),
+      _infoRow(
+        Icons.payments_outlined,
+        'Paiement',
+        whoPays == 'recipient'
+            ? 'Pris en charge par le destinataire'
+            : 'Pris en charge par l expediteur',
+      ),
+      _infoRow(
+        Icons.swap_horiz,
+        'Initiative',
+        initiatedBy == 'recipient'
+            ? 'Le destinataire initie la demande'
+            : 'L expediteur initie la demande',
+      ),
+      if (isExpress)
+        _infoRow(Icons.bolt_outlined, 'Express', 'Oui'),
+    ]);
+  }
+
+  double _num(dynamic value, {double def = 0.0}) =>
+      value == null ? def : (value as num).toDouble();
+
+  String _modeLabel(String? mode) {
+    switch (mode) {
+      case 'relay_to_relay':
+        return 'Relais vers relais';
+      case 'relay_to_home':
+        return 'Relais vers domicile';
+      case 'home_to_relay':
+        return 'Domicile vers relais';
+      case 'home_to_home':
+        return 'Domicile vers domicile';
+      default:
+        return mode ?? '-';
+    }
+  }
 
   Widget _sectionTitle(String title) => Text(
         title,
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
       );
 
-  Widget _row(String label, double amount,
-      {bool bold = false, bool large = false, Color? color}) {
+  Widget _row(
+    String label,
+    double amount, {
+    bool bold = false,
+    bool large = false,
+    Color? color,
+  }) {
     final style = TextStyle(
       fontSize: large ? 18 : 14,
       fontWeight: bold ? FontWeight.bold : FontWeight.normal,
@@ -262,22 +343,32 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         : 'Remise creux ($sign$pct %)';
 
     final reasons = factors.entries
-        .where((e) => !e.key.startsWith('_'))
-        .map((e) {
-          final k = e.key;
-          final v = e.value;
-          return switch (k) {
-            'rush_hour' => 'Heure de pointe',
-            'lunch_rush' => 'Heure du déjeuner',
-            'night' => 'Tarif nuit',
-            'sunday' => 'Tarif dimanche',
-            'surge_high' => 'Forte demande',
-            'surge_medium' => 'Demande élevée',
-            'low_demand' => 'Faible activité',
-            'loyalty_tier' => 'Avantage membre ${v.toString().toUpperCase()}',
-            'is_frequent' => v == true ? 'Bonus Fidèle (+10 livraisons)' : null,
-            _ => k,
-          };
+        .where((entry) => !entry.key.startsWith('_'))
+        .map((entry) {
+          final key = entry.key;
+          final value = entry.value;
+          switch (key) {
+            case 'rush_hour':
+              return 'Heure de pointe';
+            case 'lunch_rush':
+              return 'Heure du dejeuner';
+            case 'night':
+              return 'Tarif nuit';
+            case 'sunday':
+              return 'Tarif dimanche';
+            case 'surge_high':
+              return 'Forte demande';
+            case 'surge_medium':
+              return 'Demande elevee';
+            case 'low_demand':
+              return 'Faible activite';
+            case 'loyalty_tier':
+              return 'Avantage membre ${value.toString().toUpperCase()}';
+            case 'is_frequent':
+              return value == true ? 'Bonus fidele' : null;
+            default:
+              return key;
+          }
         })
         .whereType<String>()
         .join(', ');
@@ -290,23 +381,39 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(children: [
-        Icon(isBoost ? Icons.trending_up : Icons.trending_down,
-            color: color, size: 18),
-        const SizedBox(width: 8),
-        Expanded(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label,
-                style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: color)),
-            if (reasons.isNotEmpty)
-              Text(reasons,
+      child: Row(
+        children: [
+          Icon(
+            isBoost ? Icons.trending_up : Icons.trending_down,
+            color: color,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
                   style: TextStyle(
-                      fontSize: 11, color: color.withValues(alpha: 0.8))),
-          ]),
-        ),
-      ]),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+                if (reasons.isNotEmpty)
+                  Text(
+                    reasons,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color.withValues(alpha: 0.8),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -325,20 +432,27 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
   Widget _infoRow(IconData icon, String label, String value, {Color? color}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        Icon(icon, size: 16, color: color ?? Colors.grey),
-        const SizedBox(width: 8),
-        Text('$label : ',
-            style: const TextStyle(fontSize: 13, color: Colors.grey)),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w500, color: color),
-            textAlign: TextAlign.right,
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color ?? Colors.grey),
+          const SizedBox(width: 8),
+          Text(
+            '$label : ',
+            style: const TextStyle(fontSize: 13, color: Colors.grey),
           ),
-        ),
-      ]),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

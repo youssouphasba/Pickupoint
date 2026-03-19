@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
+import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
 import '../../../shared/widgets/timeline_widget.dart';
 
 class TrackingScreen extends ConsumerStatefulWidget {
   const TrackingScreen({super.key, this.code});
+
   final String? code;
 
   @override
@@ -22,19 +25,18 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   String? _error;
 
   @override
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   void initState() {
     super.initState();
     if (widget.code != null) {
       _searchController.text = widget.code!;
       _track(widget.code!);
     }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _track(String code) async {
@@ -47,20 +49,18 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final res = await api.trackParcel(code);
-      if (mounted) {
-        setState(() {
-          _parcel = Parcel.fromJson(res.data as Map<String, dynamic>);
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Code introuvable ou erreur de connexion.';
-          _isLoading = false;
-          _parcel = null;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _parcel = Parcel.fromJson(res.data as Map<String, dynamic>);
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Code introuvable ou erreur de connexion.';
+        _isLoading = false;
+        _parcel = null;
+      });
     }
   }
 
@@ -92,16 +92,19 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Entrez votre code de tracking (ex: PK-XXXX)',
+          hintText: 'Entrez votre code de suivi',
           suffixIcon: IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => _track(_searchController.text.trim()),
           ),
           filled: true,
           fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
         ),
-        onSubmitted: (v) => _track(v.trim()),
+        onSubmitted: (value) => _track(value.trim()),
       ),
     );
   }
@@ -110,7 +113,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     return const EmptyStateView(
       icon: Icons.search_off,
       title: 'Saisissez un code de suivi',
-      subtitle: 'Le code de tracking est envoyé à l\'expéditeur.',
+      subtitle: 'Le code de suivi est partage au moment de la creation du colis.',
     );
   }
 
@@ -125,30 +128,45 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
   Widget _buildResult() {
     final parcel = _parcel!;
-    final hasId  = parcel.id.isNotEmpty;
+    final hasId = parcel.id.isNotEmpty;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // En-tête cliquable si on a un parcel_id (client connecté)
           InkWell(
             onTap: hasId ? () => context.push('/client/parcel/${parcel.id}') : null,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.blue.shade100),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Expanded(
-                    child: Text(
-                      'CODE: ${parcel.trackingCode}',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          parcel.trackingCode,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _modeLabel(parcel.deliveryMode),
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   ParcelStatusBadge(status: parcel.status),
@@ -160,38 +178,30 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
-
-          if (parcel.driverPhotoUrl != null && ['assigned', 'picked_up', 'out_for_delivery'].contains(parcel.status)) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade100),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundImage: NetworkImage(parcel.driverPhotoUrl!),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Livreur assigné', style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
-                        Text('Votre colis est entre de bonnes mains.', style: TextStyle(fontSize: 13, color: Colors.black87)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
+          const SizedBox(height: 20),
+          _InfoCard(
+            title: 'Resume',
+            children: [
+              _infoRow('Expediteur', parcel.senderName ?? 'Non communique'),
+              _infoRow('Destinataire', parcel.recipientName ?? 'Non communique'),
+              if ((parcel.destinationAddress ?? '').isNotEmpty)
+                _infoRow('Destination', parcel.destinationAddress!),
+              if (parcel.totalPrice != null)
+                _infoRow('Montant', formatXof(parcel.totalPrice!)),
+              if (parcel.paymentStatus != null)
+                _infoRow('Paiement', _paymentLabel(parcel)),
+              if (parcel.etaText != null) _infoRow('ETA', parcel.etaText!),
+              if (parcel.distanceText != null)
+                _infoRow('Distance restante', parcel.distanceText!),
+            ],
+          ),
+          if (parcel.driverName != null ||
+              parcel.driverPhotoUrl != null ||
+              parcel.etaText != null) ...[
+            const SizedBox(height: 16),
+            _buildDriverCard(parcel),
           ],
-
+          const SizedBox(height: 24),
           const Text(
             'Historique du colis',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -199,10 +209,143 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           const SizedBox(height: 12),
           parcel.events.isEmpty
               ? const Text(
-                  'Aucun événement enregistré pour l\'instant.',
+                  'Aucun evenement enregistre pour l instant.',
                   style: TextStyle(color: Colors.grey),
                 )
               : TimelineWidget(events: parcel.events),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDriverCard(Parcel parcel) {
+    final photoUrl = parcel.driverPhotoUrl;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.shade100),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.white,
+            backgroundImage:
+                photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+            child: photoUrl == null || photoUrl.isEmpty
+                ? const Icon(Icons.delivery_dining)
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Livreur en charge',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.green,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  parcel.driverName ?? 'Livreur assigne',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                if (parcel.etaText != null)
+                  Text(
+                    parcel.etaText!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _modeLabel(String mode) {
+    switch (mode) {
+      case 'relay_to_relay':
+        return 'Relais vers relais';
+      case 'relay_to_home':
+        return 'Relais vers domicile';
+      case 'home_to_relay':
+        return 'Domicile vers relais';
+      case 'home_to_home':
+        return 'Domicile vers domicile';
+      default:
+        return mode;
+    }
+  }
+
+  static String _paymentLabel(Parcel parcel) {
+    if (parcel.whoPays == 'recipient' && parcel.paymentStatus != 'paid') {
+      return 'contre-remboursement';
+    }
+    return parcel.paymentStatus ?? '-';
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          ...children,
         ],
       ),
     );

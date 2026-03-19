@@ -31,6 +31,12 @@ class User {
     this.profilePictureUrl,
     this.favoriteAddresses = const [],
     this.notificationPrefs = const NotificationPrefs(),
+    this.isPhoneVerified = false,
+    this.language = 'fr',
+    this.currency = 'XOF',
+    this.countryCode = 'SN',
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -66,6 +72,12 @@ class User {
   final String? kycLicenseUrl;
   final List<FavoriteAddress> favoriteAddresses;
   final NotificationPrefs notificationPrefs;
+  final bool isPhoneVerified;
+  final String language;
+  final String currency;
+  final String countryCode;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   /// Nom d'affichage : fullName ou téléphone comme fallback
   String get name => fullName ?? phone;
@@ -124,6 +136,16 @@ class User {
           ? NotificationPrefs.fromJson(
               json['notification_prefs'] as Map<String, dynamic>)
           : const NotificationPrefs(),
+      isPhoneVerified: json['is_phone_verified'] as bool? ?? false,
+      language: json['language'] as String? ?? 'fr',
+      currency: json['currency'] as String? ?? 'XOF',
+      countryCode: json['country_code'] as String? ?? 'SN',
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'] as String)
+          : null,
+      updatedAt: json['updated_at'] != null
+          ? DateTime.tryParse(json['updated_at'] as String)
+          : null,
     );
   }
 
@@ -141,6 +163,12 @@ class User {
         'is_banned': isBanned,
         'bio': bio,
         'notification_prefs': notificationPrefs.toJson(),
+        'is_phone_verified': isPhoneVerified,
+        'language': language,
+        'currency': currency,
+        'country_code': countryCode,
+        'created_at': createdAt?.toIso8601String(),
+        'updated_at': updatedAt?.toIso8601String(),
       };
 
   bool get isClient => role == 'client';
@@ -180,6 +208,12 @@ class User {
     String? kycLicenseUrl,
     List<FavoriteAddress>? favoriteAddresses,
     NotificationPrefs? notificationPrefs,
+    bool? isPhoneVerified,
+    String? language,
+    String? currency,
+    String? countryCode,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) =>
       User(
         id: id ?? this.id,
@@ -213,6 +247,12 @@ class User {
         kycLicenseUrl: kycLicenseUrl ?? this.kycLicenseUrl,
         favoriteAddresses: favoriteAddresses ?? this.favoriteAddresses,
         notificationPrefs: notificationPrefs ?? this.notificationPrefs,
+        isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
+        language: language ?? this.language,
+        currency: currency ?? this.currency,
+        countryCode: countryCode ?? this.countryCode,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
       );
 }
 

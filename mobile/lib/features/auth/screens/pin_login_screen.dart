@@ -1,13 +1,15 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
 
 class PinLoginScreen extends ConsumerStatefulWidget {
-  final String phone;
-
   const PinLoginScreen({super.key, required this.phone});
+
+  final String phone;
 
   @override
   ConsumerState<PinLoginScreen> createState() => _PinLoginScreenState();
@@ -17,11 +19,12 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
   final _pinController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePin = true;
+  bool _resetDialogOpen = false;
 
   Future<void> _submit() async {
-    final pin = _pinController.text;
+    final pin = _pinController.text.trim();
     if (pin.length != 4) {
-      _showError('Veuillez entrer votre code PIN à 4 chiffres');
+      _showError('Veuillez entrer votre code PIN a 4 chiffres');
       return;
     }
 
@@ -29,143 +32,242 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     try {
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
     } catch (e) {
-      if (mounted) _showError(e.toString());
+      if (mounted) {
+        _showError(e.toString());
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _startResetPinFlow() async {
-    // Étape 1 : demander un OTP
+    if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).requestOtp(widget.phone);
+      await fb.FirebaseAuth.instance.setLanguageCode('fr');
+      await fb.FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: widget.phone,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (credential) {
+          if (!mounted || _resetDialogOpen) return;
+          _resetDialogOpen = true;
+          _openResetDialog(autoCredential: credential);
+        },
+        verificationFailed: (error) {
+          if (!mounted) return;
+          _showError(error.message ?? 'Verification impossible.');
+        },
+        codeSent: (verificationId, resendToken) {
+          if (!mounted || _resetDialogOpen) return;
+          _resetDialogOpen = true;
+          _openResetDialog(verificationId: verificationId);
+        },
+        codeAutoRetrievalTimeout: (_) {},
+      );
       if (mounted) {
-        _showResetPinDialog();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification lancee. Entrez le code recu ou choisissez votre nouveau PIN.'),
+          ),
+        );
       }
     } catch (e) {
-      if (mounted) _showError('Impossible d\'envoyer le code : $e');
+      if (mounted) {
+        _showError('Impossible de lancer la verification : $e');
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _showResetPinDialog() {
+  void _openResetDialog({
+    String? verificationId,
+    fb.PhoneAuthCredential? autoCredential,
+  }) {
     final otpController = TextEditingController();
     final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
+    bool obscure = true;
     bool isSubmitting = false;
+    String? errorText;
 
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Réinitialiser le PIN'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Un code de vérification a été envoyé au ${widget.phone}',
-                style: const TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: otpController,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  labelText: 'Code OTP',
-                  prefixIcon: Icon(Icons.sms),
-                  border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Reinitialiser le PIN'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  autoCredential != null
+                      ? 'Votre numero a ete verifie automatiquement. Choisissez un nouveau code PIN.'
+                      : 'Un code de verification a ete envoye au ${widget.phone}.',
+                  style: const TextStyle(color: Colors.grey),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: newPinController,
-                keyboardType: TextInputType.number,
-                obscureText: true,
-                maxLength: 4,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  labelText: 'Nouveau code PIN',
-                  prefixIcon: Icon(Icons.lock_reset),
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                if (verificationId != null) ...[
+                  TextField(
+                    controller: otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'Code SMS',
+                      prefixIcon: Icon(Icons.sms_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: newPinController,
+                  keyboardType: TextInputType.number,
+                  obscureText: obscure,
+                  maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: InputDecoration(
+                    labelText: 'Nouveau code PIN',
+                    prefixIcon: const Icon(Icons.lock_reset_outlined),
+                    suffixIcon: IconButton(
+                      onPressed: () =>
+                          setDialogState(() => obscure = !obscure),
+                      icon: Icon(
+                        obscure ? Icons.visibility : Icons.visibility_off,
+                      ),
+                    ),
+                    errorText: errorText,
+                    border: const OutlineInputBorder(),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmPinController,
+                  keyboardType: TextInputType.number,
+                  obscureText: obscure,
+                  maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    labelText: 'Confirmer le code PIN',
+                    prefixIcon: Icon(Icons.lock_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: isSubmitting
                   ? null
-                  : () {
-                      otpController.dispose();
-                      newPinController.dispose();
-                      Navigator.pop(ctx);
-                    },
+                  : () => Navigator.of(dialogContext).pop(),
               child: const Text('Annuler'),
             ),
             ElevatedButton(
               onPressed: isSubmitting
                   ? null
                   : () async {
-                      final otp = otpController.text.trim();
+                      final smsCode = otpController.text.trim();
                       final newPin = newPinController.text.trim();
-                      if (otp.length < 4 || newPin.length != 4) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(
-                              content: Text('Remplissez tous les champs'),
-                              backgroundColor: Colors.red),
+                      final confirmPin = confirmPinController.text.trim();
+
+                      if (verificationId != null && smsCode.length != 6) {
+                        setDialogState(
+                          () => errorText =
+                              'Entrez les 6 chiffres recus par SMS.',
                         );
                         return;
                       }
-                      setDialogState(() => isSubmitting = true);
+                      if (newPin.length != 4) {
+                        setDialogState(
+                          () => errorText =
+                              'Le nouveau PIN doit contenir 4 chiffres.',
+                        );
+                        return;
+                      }
+                      if (newPin != confirmPin) {
+                        setDialogState(
+                          () => errorText =
+                              'Les deux codes PIN ne correspondent pas.',
+                        );
+                        return;
+                      }
+
+                      setDialogState(() {
+                        errorText = null;
+                        isSubmitting = true;
+                      });
                       try {
-                        await ref.read(apiClientProvider).resetPin({
-                          'phone': widget.phone,
-                          'otp': otp,
+                        final credential = autoCredential ??
+                            fb.PhoneAuthProvider.credential(
+                              verificationId: verificationId!,
+                              smsCode: smsCode,
+                            );
+                        final userCredential = await fb.FirebaseAuth.instance
+                            .signInWithCredential(credential);
+                        final idToken =
+                            await userCredential.user?.getIdToken(true);
+                        if (idToken == null) {
+                          throw Exception(
+                            'Impossible de valider votre verification.',
+                          );
+                        }
+                        await ref.read(apiClientProvider).resetPinWithFirebase({
+                          'id_token': idToken,
                           'new_pin': newPin,
                         });
-                        otpController.dispose();
-                        newPinController.dispose();
-                        if (ctx.mounted) Navigator.pop(ctx);
+                        await fb.FirebaseAuth.instance.signOut();
+                        if (!dialogContext.mounted) return;
+                        Navigator.of(dialogContext).pop();
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                  'PIN réinitialisé ! Connectez-vous avec votre nouveau code.'),
+                                'PIN reinitialise. Connectez-vous avec votre nouveau code.',
+                              ),
                               backgroundColor: Colors.green,
                             ),
                           );
                         }
                       } catch (e) {
-                        setDialogState(() => isSubmitting = false);
-                        if (ctx.mounted) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            SnackBar(
-                                content: Text('Erreur : $e'),
-                                backgroundColor: Colors.red),
-                          );
-                        }
+                        await fb.FirebaseAuth.instance.signOut();
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() {
+                          isSubmitting = false;
+                          errorText = e.toString();
+                        });
                       }
                     },
               child: isSubmitting
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2))
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Text('Valider'),
             ),
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      otpController.dispose();
+      newPinController.dispose();
+      confirmPinController.dispose();
+      _resetDialogOpen = false;
+    });
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.red));
+      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -205,8 +307,10 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                 prefixIcon: const Icon(Icons.lock),
                 suffixIcon: IconButton(
                   icon: Icon(
-                      _obscurePin ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                    _obscurePin ? Icons.visibility : Icons.visibility_off,
+                  ),
+                  onPressed: () =>
+                      setState(() => _obscurePin = !_obscurePin),
                 ),
                 border: const OutlineInputBorder(),
               ),
@@ -215,7 +319,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: _isLoading ? null : _startResetPinFlow,
-                child: const Text('Code oublié ?'),
+                child: const Text('Code oublie ?'),
               ),
             ),
             const SizedBox(height: 16),

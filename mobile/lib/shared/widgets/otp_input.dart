@@ -60,7 +60,7 @@ class _OtpInputState extends State<OtpInput> {
         break;
       }
       _controllers[cursor].text = digit;
-      _controllers[cursor].selection = TextSelection.collapsed(offset: 1);
+      _controllers[cursor].selection = const TextSelection.collapsed(offset: 1);
       cursor++;
     }
 
@@ -123,7 +123,7 @@ class _OtpInputState extends State<OtpInput> {
               fontWeight: FontWeight.w700,
               letterSpacing: 0,
             ),
-            inputFormatters: const [
+            inputFormatters: [
               FilteringTextInputFormatter.digitsOnly,
             ],
             decoration: InputDecoration(

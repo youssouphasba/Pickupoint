@@ -328,6 +328,37 @@ async def add_favorite(
     return {"message": f"Adresse '{addr.name}' ajoutee"}
 
 
+@router.put("/me/favorite-addresses/{name}", summary="Modifier une adresse favorite")
+async def update_favorite(
+    name: str,
+    addr: FavoriteAddress,
+    current_user: dict = Depends(get_current_user),
+):
+    favs = current_user.get("favorite_addresses", [])
+    existing = next((fav for fav in favs if fav["name"] == name), None)
+    if not existing:
+        raise not_found_exception("Adresse favorite")
+
+    if addr.name != name and any(fav["name"] == addr.name for fav in favs):
+        raise bad_request_exception(
+            f"Une adresse nommee '{addr.name}' existe deja"
+        )
+
+    await db.users.update_one(
+        {
+            "user_id": current_user["user_id"],
+            "favorite_addresses.name": name,
+        },
+        {
+            "$set": {
+                "favorite_addresses.$": addr.model_dump(),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    return {"message": f"Adresse '{name}' mise a jour"}
+
+
 @router.delete("/me/favorite-addresses/{name}", summary="Supprimer une adresse favorite")
 async def delete_favorite(
     name: str,

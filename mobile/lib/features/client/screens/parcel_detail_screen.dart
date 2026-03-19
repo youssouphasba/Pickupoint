@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
+import '../../../core/models/relay_point.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/timeline_widget.dart';
@@ -39,6 +40,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   final _voiceNoteController = TextEditingController();
   String? _liveEtaText;
   String? _liveDistanceText;
+  final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
 
   @override
   void initState() {
@@ -100,6 +102,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     } catch (_) {}
   }
 
+  Future<RelayPoint?> _loadRelayPoint(String relayId) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final res = await api.getRelayPoint(relayId);
+      return RelayPoint.fromJson(res.data as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final parcelAsync = ref.watch(parcelProvider(widget.id));
@@ -158,7 +170,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 _buildQrSection(context, parcel, isRecipient: isRecipient),
 
                 const SizedBox(height: 20),
-                _buildInfoSection(parcel, isRecipient: isRecipient),
+                _buildEnhancedInfoSection(parcel, isRecipient: isRecipient),
                 const SizedBox(height: 28),
 
                 const Text('Historique',
@@ -927,6 +939,30 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     }
   }
 
+  Future<void> _callRelay(String? phone) async {
+    if (phone == null || phone.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Numero du point relais indisponible pour le moment'),
+        ),
+      );
+      return;
+    }
+
+    final telUri = Uri(scheme: 'tel', path: phone.trim());
+    if (await canLaunchUrl(telUri)) {
+      await launchUrl(telUri);
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('Impossible dâ€™ouvrir lâ€™application tÃ©lÃ©phone')),
+    );
+  }
+
   Future<void> _callDriver(String? phone) async {
     if (phone == null || phone.trim().isEmpty) {
       if (!mounted) return;
@@ -950,6 +986,217 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
+  Widget _buildEnhancedInfoSection(dynamic parcel, {bool isRecipient = false}) {
+    final destinationRelayId = (parcel.destinationRelayId as String?)?.trim();
+    final originRelayId = (parcel.originRelayId as String?)?.trim();
+
+    return Column(
+      children: [
+        _buildInfoRow(
+            Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
+        _buildInfoRow(
+            Icons.phone, 'TÃ©lÃ©phone', maskPhone(parcel.recipientPhone ?? '')),
+        if (parcel.isRelayToHome)
+          _buildInfoRow(
+            Icons.location_on,
+            'Adresse',
+            parcel.destinationAddress ?? 'N/A',
+          ),
+        if (originRelayId != null && originRelayId.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _buildRelayInfoCard(
+            relayId: originRelayId,
+            title: 'Relais de dÃ©part',
+            fallbackLabel: 'Relais de dÃ©part',
+          ),
+        ],
+        if (destinationRelayId != null &&
+            destinationRelayId.isNotEmpty &&
+            destinationRelayId != originRelayId) ...[
+          const SizedBox(height: 8),
+          _buildRelayInfoCard(
+            relayId: destinationRelayId,
+            title: parcel.isRelayPickup
+                ? 'Relais de retrait'
+                : 'Relais d\'arrivÃ©e',
+            fallbackLabel: parcel.isRelayPickup
+                ? 'Relais de retrait'
+                : 'Relais d\'arrivÃ©e',
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRelayInfoCard({
+    required String relayId,
+    required String title,
+    required String fallbackLabel,
+  }) {
+    final future =
+        _relayFutureCache.putIfAbsent(relayId, () => _loadRelayPoint(relayId));
+
+    return FutureBuilder<RelayPoint?>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildRelayCardSkeleton(title);
+        }
+
+        final relay = snapshot.data;
+        if (relay == null) {
+          return _buildInfoRow(Icons.storefront, fallbackLabel, relayId);
+        }
+
+        return _buildRelayCard(relay, title);
+      },
+    );
+  }
+
+  Widget _buildRelayCardSkeleton(String title) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: Colors.blue.shade50,
+            child: const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Container(height: 12, color: Colors.grey.shade200),
+                const SizedBox(height: 6),
+                Container(height: 10, color: Colors.grey.shade100),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRelayCard(RelayPoint relay, String title) {
+    final summaryParts = <String>[];
+    if (relay.addressLabel.trim().isNotEmpty) {
+      summaryParts.add(relay.addressLabel.trim());
+    }
+    if (relay.phone.trim().isNotEmpty) {
+      summaryParts.add(relay.phone.trim());
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: Colors.blue.shade50,
+                child: Icon(Icons.storefront, color: Colors.blue.shade700),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      relay.name,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    if (summaryParts.isNotEmpty)
+                      Text(
+                        summaryParts.join(' • '),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.blueGrey,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (relay.phone.trim().isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.phone_in_talk, color: Colors.green),
+                  onPressed: () => _callRelay(relay.phone),
+                ),
+            ],
+          ),
+          if ((relay.openingHours?['general']?.toString() ?? '')
+              .trim()
+              .isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.schedule, size: 16, color: Colors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      relay.openingHours!['general'].toString(),
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if ((relay.description ?? '').trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline,
+                      size: 16, color: Colors.indigo),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      relay.description!.trim(),
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element, unused_element_parameter
   Widget _buildInfoSection(dynamic parcel, {bool isRecipient = false}) {
     return Column(
       children: [

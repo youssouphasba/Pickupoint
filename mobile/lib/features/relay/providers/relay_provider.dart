@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
+import '../../../core/models/relay_point.dart';
 import '../../../core/models/wallet.dart';
 
 /// Provider pour le stock actuel du point relais de l'agent connecté.
@@ -49,4 +50,17 @@ final relayTransactionsProvider =
   return (data['transactions'] as List? ?? [])
       .map((e) => WalletTransaction.fromJson(e as Map<String, dynamic>))
       .toList();
+});
+
+/// Provider pour la fiche detaillee du point relais de l'agent connecte.
+final relayPointProfileProvider = FutureProvider<RelayPoint?>((ref) async {
+  final user = ref.watch(authProvider).valueOrNull?.user;
+  final relayId = user?.relayPointId;
+  if (relayId == null) {
+    return null;
+  }
+
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getRelayPoint(relayId);
+  return RelayPoint.fromJson(res.data as Map<String, dynamic>);
 });

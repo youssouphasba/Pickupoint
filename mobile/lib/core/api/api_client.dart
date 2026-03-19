@@ -81,6 +81,9 @@ class ApiClient {
   Future<Response> resetPin(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.resetPin, data: body);
 
+  Future<Response> resetPinWithFirebase(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.resetPinFirebase, data: body);
+
   Future<Response> refreshToken(String refreshToken) =>
       _dio.post(ApiEndpoints.refresh, data: {'refresh_token': refreshToken});
 
@@ -99,6 +102,9 @@ class ApiClient {
 
   Future<Response> addFavoriteAddress(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.favoriteAddresses, data: body);
+
+  Future<Response> updateFavoriteAddress(String name, Map<String, dynamic> body) =>
+      _dio.put('${ApiEndpoints.favoriteAddresses}/$name', data: body);
 
   Future<Response> deleteFavoriteAddress(String name) =>
       _dio.delete('${ApiEndpoints.favoriteAddresses}/$name');

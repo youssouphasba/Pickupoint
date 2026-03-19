@@ -1,25 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/widgets/map_picker_modal.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class FavoriteAddressesScreen extends ConsumerStatefulWidget {
   const FavoriteAddressesScreen({super.key});
 
   @override
-  ConsumerState<FavoriteAddressesScreen> createState() => _FavoriteAddressesScreenState();
+  ConsumerState<FavoriteAddressesScreen> createState() =>
+      _FavoriteAddressesScreenState();
 }
 
-class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScreen> {
+class _FavoriteAddressesScreenState
+    extends ConsumerState<FavoriteAddressesScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
     final favorites = user?.favoriteAddresses ?? [];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes Adresses Favorites')),
+      appBar: AppBar(title: const Text('Mes adresses favorites')),
       body: favorites.isEmpty
           ? _buildEmptyState()
           : ListView.separated(
@@ -32,7 +35,7 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: favorites.length >= 10 ? null : _showAddAddressDialog,
+        onPressed: favorites.length >= 10 ? null : () => _openAddressDialog(),
         icon: const Icon(Icons.add),
         label: const Text('Ajouter'),
         backgroundColor: favorites.length >= 10 ? Colors.grey : Colors.blue,
@@ -45,15 +48,19 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.location_off_outlined, size: 64, color: Colors.grey.shade400),
+          Icon(
+            Icons.location_off_outlined,
+            size: 64,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 16),
           Text(
-            'Aucune adresse enregistrée',
+            'Aucune adresse enregistree',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Enregistrez vos adresses fréquentes pour\ngagner du temps lors de vos envois.',
+            'Gardez vos adresses frequentes pour gagner du temps a la creation.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey, fontSize: 13),
           ),
@@ -74,26 +81,50 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
           backgroundColor: Colors.blue.shade50,
           child: const Icon(Icons.place, color: Colors.blue),
         ),
-        title: Text(addr.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(addr.address, maxLines: 2, overflow: TextOverflow.ellipsis),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, color: Colors.red),
-          onPressed: () => _confirmDelete(addr),
+        title: Text(
+          addr.name,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(addr.address, maxLines: 2, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Text(
+              '${addr.lat.toStringAsFixed(5)}, ${addr.lng.toStringAsFixed(5)}',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ],
+        ),
+        trailing: PopupMenuButton<String>(
+          onSelected: (value) {
+            if (value == 'edit') {
+              _openAddressDialog(existing: addr);
+            } else if (value == 'delete') {
+              _confirmDelete(addr);
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'edit', child: Text('Modifier')),
+            PopupMenuItem(value: 'delete', child: Text('Supprimer')),
+          ],
         ),
       ),
     );
   }
 
-  void _showAddAddressDialog() {
-    final nameCtrl = TextEditingController();
-    final addrCtrl = TextEditingController();
-    LatLng? selectedLatLng;
+  void _openAddressDialog({FavoriteAddress? existing}) {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final addrCtrl = TextEditingController(text: existing?.address ?? '');
+    LatLng? selectedLatLng = existing == null
+        ? null
+        : LatLng(existing.lat, existing.lng);
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Nouvelle adresse'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(existing == null ? 'Nouvelle adresse' : 'Modifier l adresse'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -108,20 +139,22 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
                 const SizedBox(height: 16),
                 TextField(
                   controller: addrCtrl,
+                  maxLines: 2,
                   decoration: const InputDecoration(
-                    labelText: 'Adresse complète',
+                    labelText: 'Adresse complete',
                     border: OutlineInputBorder(),
                   ),
-                  maxLines: 2,
                 ),
                 const SizedBox(height: 16),
                 InkWell(
                   onTap: () async {
-                    final LatLng? result = await showModalBottomSheet(
-                      context: context,
+                    final result = await showModalBottomSheet<LatLng>(
+                      context: dialogContext,
                       isScrollControlled: true,
                       backgroundColor: Colors.transparent,
-                      builder: (context) => const MapPickerModal(title: 'Localiser l\'adresse'),
+                      builder: (_) => const MapPickerModal(
+                        title: 'Localiser l adresse',
+                      ),
                     );
                     if (result != null) {
                       setDialogState(() => selectedLatLng = result);
@@ -130,24 +163,31 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      border: Border.all(color: selectedLatLng != null ? Colors.green : Colors.grey),
+                      border: Border.all(
+                        color: selectedLatLng != null ? Colors.green : Colors.grey,
+                      ),
                       borderRadius: BorderRadius.circular(8),
                       color: selectedLatLng != null ? Colors.green.shade50 : null,
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          selectedLatLng != null ? Icons.location_on : Icons.map_outlined,
-                          color: selectedLatLng != null ? Colors.green : Colors.grey,
+                          selectedLatLng != null
+                              ? Icons.location_on
+                              : Icons.map_outlined,
+                          color:
+                              selectedLatLng != null ? Colors.green : Colors.grey,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             selectedLatLng != null
-                                ? 'Position sélectionnée ✅'
-                                : 'Sélectionner sur la carte (GPS) *',
+                                ? 'Position selectionnee'
+                                : 'Selectionner sur la carte',
                             style: TextStyle(
-                              color: selectedLatLng != null ? Colors.green.shade700 : Colors.grey.shade700,
+                              color: selectedLatLng != null
+                                  ? Colors.green.shade700
+                                  : Colors.grey.shade700,
                             ),
                           ),
                         ),
@@ -159,26 +199,43 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.isEmpty || addrCtrl.text.isEmpty || selectedLatLng == null) {
+                if (nameCtrl.text.trim().isEmpty ||
+                    addrCtrl.text.trim().isEmpty ||
+                    selectedLatLng == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Veuillez remplir tous les champs et choisir la position')),
+                    const SnackBar(
+                      content: Text(
+                        'Veuillez remplir tous les champs et choisir la position.',
+                      ),
+                    ),
                   );
                   return;
                 }
+
                 final name = nameCtrl.text.trim();
                 final address = addrCtrl.text.trim();
-                Navigator.pop(context);
-                _addAddress(name, address, selectedLatLng!);
+                Navigator.pop(dialogContext);
+                if (existing == null) {
+                  _addAddress(name, address, selectedLatLng!);
+                } else {
+                  _updateAddress(existing.name, name, address, selectedLatLng!);
+                }
               },
-              child: const Text('Enregistrer'),
+              child: Text(existing == null ? 'Enregistrer' : 'Mettre a jour'),
             ),
           ],
         ),
       ),
-    );
+    ).whenComplete(() {
+      nameCtrl.dispose();
+      addrCtrl.dispose();
+    });
   }
 
   Future<void> _addAddress(String name, String address, LatLng coords) async {
@@ -191,34 +248,59 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
         'lng': coords.longitude,
       });
       await ref.read(authProvider.notifier).fetchMe();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Adresse "$name" ajoutée')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Adresse "$name" ajoutee')),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
+    }
+  }
+
+  Future<void> _updateAddress(
+    String currentName,
+    String name,
+    String address,
+    LatLng coords,
+  ) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.updateFavoriteAddress(currentName, {
+        'name': name,
+        'address': address,
+        'lat': coords.latitude,
+        'lng': coords.longitude,
+      });
+      await ref.read(authProvider.notifier).fetchMe();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Adresse "$name" mise a jour')),
+      );
+    } catch (e) {
+      _showError(e);
     }
   }
 
   void _confirmDelete(FavoriteAddress addr) {
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Supprimer l\'adresse ?'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer l adresse ?'),
         content: Text('Voulez-vous vraiment supprimer "${addr.name}" ?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               _deleteAddress(addr);
             },
-            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Supprimer',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -230,12 +312,22 @@ class _FavoriteAddressesScreenState extends ConsumerState<FavoriteAddressesScree
       final api = ref.read(apiClientProvider);
       await api.deleteFavoriteAddress(addr.name);
       await ref.read(authProvider.notifier).fetchMe();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Adresse "${addr.name}" supprimee')),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _showError(e);
     }
+  }
+
+  void _showError(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Erreur: $error'),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
 }

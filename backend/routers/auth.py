@@ -353,6 +353,12 @@ class ResetPinRequest(BaseModel):
     otp: str
     new_pin: str
 
+
+class FirebaseResetPinRequest(BaseModel):
+    id_token: str
+    new_pin: str
+
+
 @router.post("/reset-pin", summary="Réinitialiser le PIN via OTP")
 @limiter.limit("5/minute")
 async def reset_pin(body: ResetPinRequest, request: Request):
@@ -377,6 +383,45 @@ async def reset_pin(body: ResetPinRequest, request: Request):
         }}
     )
     return {"message": "Code PIN réinitialisé avec succès."}
+
+
+@router.post("/reset-pin-firebase", summary="Reinitialiser le PIN via Firebase")
+@limiter.limit("5/minute")
+async def reset_pin_firebase(body: FirebaseResetPinRequest, request: Request):
+    try:
+        decoded = firebase_auth.verify_id_token(body.id_token)
+    except Exception as e:
+        logger.warning("Firebase reset-pin token verification failed: %s", e)
+        raise bad_request_exception("Verification Firebase invalide ou expiree")
+
+    phone = normalize_phone(decoded.get("phone_number"))
+    if not phone:
+        raise bad_request_exception(
+            "Le token Firebase ne contient pas de numero de telephone"
+        )
+
+    if len(body.new_pin) < 4:
+        raise bad_request_exception(
+            "Le code PIN doit contenir au moins 4 chiffres."
+        )
+
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if not user_doc:
+        raise bad_request_exception("Utilisateur introuvable")
+
+    from core.security import hash_password
+
+    await db.users.update_one(
+        {"phone": phone},
+        {
+            "$set": {
+                "pin_hash": hash_password(body.new_pin),
+                "is_phone_verified": True,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    return {"message": "Code PIN reinitialise avec succes."}
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Rafraîchir access token")
