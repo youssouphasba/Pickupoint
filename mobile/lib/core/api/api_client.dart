@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'api_endpoints.dart';
 
@@ -102,11 +103,19 @@ class ApiClient {
   Future<Response> deleteFavoriteAddress(String name) =>
       _dio.delete('${ApiEndpoints.favoriteAddresses}/$name');
 
+  Future<Response> getReferralInfo() => _dio.post(ApiEndpoints.referralInfo);
+
+  Future<Response> applyReferralCode(String code) =>
+      _dio.post(ApiEndpoints.applyReferral, data: {'referral_code': code});
+
   // ─── Parcels ─────────────────────────────────────────────────────────────
   Future<Response> getParcels({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.parcels, queryParameters: params);
 
   Future<Response> getParcel(String id) => _dio.get(ApiEndpoints.parcel(id));
+
+  Future<Response> lookupParcelByTracking(String code) =>
+      _dio.get(ApiEndpoints.parcelLookupByTracking(code));
 
   Future<Response> getQuote(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.quote, data: body);
@@ -184,6 +193,9 @@ class ApiClient {
   Future<Response> getRelayStock(String id) =>
       _dio.get(ApiEndpoints.relayStock(id));
 
+  Future<Response> getRelayHistory(String id) =>
+      _dio.get(ApiEndpoints.relayHistory(id));
+
   // ─── Deliveries ───────────────────────────────────────────────────────────
   Future<Response> getAvailableMissions(
       {double? lat, double? lng, double radiusKm = 5.0}) {
@@ -200,15 +212,18 @@ class ApiClient {
   Future<Response> acceptMission(String id) =>
       _dio.post(ApiEndpoints.acceptMission(id));
 
-  Future<Response> confirmPickup(String id, String code, {double? lat, double? lng}) =>
+  Future<Response> confirmPickup(String id, String code,
+          {double? lat, double? lng}) =>
       _dio.post(ApiEndpoints.confirmPickup(id), data: {
         'code': code,
         if (lat != null) 'lat': lat,
         if (lng != null) 'lng': lng,
       });
 
-  Future<Response> arriveAtDestination(String parcelId, {required double lat, required double lng}) =>
-      _dio.post(ApiEndpoints.arriveAtDestination(parcelId), data: {'lat': lat, 'lng': lng});
+  Future<Response> arriveAtDestination(String parcelId,
+          {required double lat, required double lng}) =>
+      _dio.post(ApiEndpoints.arriveAtDestination(parcelId),
+          data: {'lat': lat, 'lng': lng});
 
   Future<Response> releaseMission(String id) =>
       _dio.post(ApiEndpoints.releaseMission(id));
@@ -254,6 +269,8 @@ class ApiClient {
   Future<Response> getHeatmapData() => _dio.get(ApiEndpoints.adminHeatmap);
   Future<Response> getCodMonitoring() =>
       _dio.get(ApiEndpoints.adminCodMonitoring);
+  Future<Response> getFinanceReconciliation() =>
+      _dio.get(ApiEndpoints.adminFinanceReconciliation);
 
   Future<Response> getParcelAudit(String id) =>
       _dio.get(ApiEndpoints.adminParcelAudit(id));
@@ -261,12 +278,15 @@ class ApiClient {
   Future<Response> getAdminAuditLog({int limit = 100}) =>
       _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});
 
-  Future<Response> reassignMission(String id, String driverId) =>
+  Future<Response> reassignMission(String id, String driverId,
+          {String reason = 'Reassignation admin'}) =>
       _dio.post(ApiEndpoints.adminReassignMission(id),
-          data: {'new_driver_id': driverId});
+          data: {'new_driver_id': driverId, 'reason': reason});
 
-  Future<Response> forceParcelStatus(String id, String status) =>
-      _dio.put(ApiEndpoints.adminParcelStatus(id), data: {'status': status});
+  Future<Response> forceParcelStatus(String id, String status,
+          {required String notes}) =>
+      _dio.post(ApiEndpoints.adminParcelStatus(id),
+          queryParameters: {'new_status': status, 'notes': notes});
 
   Future<Response> getAdminRelays() => _dio.get(ApiEndpoints.adminRelays);
 
@@ -278,8 +298,8 @@ class ApiClient {
   Future<Response> approvePayout(String id) =>
       _dio.put(ApiEndpoints.adminApprove(id));
 
-  Future<Response> rejectPayout(String id) =>
-      _dio.put(ApiEndpoints.adminReject(id));
+  Future<Response> rejectPayout(String id, {required String reason}) =>
+      _dio.put(ApiEndpoints.adminReject(id), data: {'reason': reason});
 
   Future<Response> settleCod(String driverId, {double? amount}) =>
       _dio.post(ApiEndpoints.adminSettleCod, queryParameters: {
@@ -313,11 +333,17 @@ class ApiClient {
   Future<Response> getUserHistory(String userId) =>
       _dio.get(ApiEndpoints.adminUserHistory(userId));
 
-  Future<Response> banUser(String userId) =>
-      _dio.post(ApiEndpoints.adminBanUser(userId));
+  Future<Response> getAdminUserDetail(String userId) =>
+      _dio.get(ApiEndpoints.adminUserDetail(userId));
 
-  Future<Response> unbanUser(String userId) =>
-      _dio.post(ApiEndpoints.adminUnbanUser(userId));
+  Future<Response> getAdminRelayDetail(String relayId) =>
+      _dio.get(ApiEndpoints.adminRelayDetail(relayId));
+
+  Future<Response> banUser(String userId, {required String reason}) =>
+      _dio.post(ApiEndpoints.adminBanUser(userId), data: {'reason': reason});
+
+  Future<Response> unbanUser(String userId, {required String reason}) =>
+      _dio.post(ApiEndpoints.adminUnbanUser(userId), data: {'reason': reason});
 
   Future<Response> getRelayPoint(String id) =>
       _dio.get(ApiEndpoints.relayPoint(id));
@@ -371,7 +397,7 @@ class ApiClient {
       });
 
   // ─── Anomales ─────────────────────────────────────────────────────────────
-  Future<Response> getAnomalies() => _dio.get('/admin/anomalies');
+  Future<Response> getAnomalies() => _dio.get(ApiEndpoints.adminAnomalyAlerts);
 
   // ─── Legal ────────────────────────────────────────────────────────────────
   Future<Response> getLegal(String docType) =>
@@ -397,9 +423,52 @@ class ApiClient {
     return _dio.post(ApiEndpoints.parcelVoiceMessage(parcelId), data: formData);
   }
 
+  Future<Uint8List> downloadParcelVoice(
+      String parcelId, String messageId) async {
+    final response = await _dio.get(
+      ApiEndpoints.parcelVoiceAsset(parcelId, messageId),
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final raw = response.data;
+    if (raw == null) {
+      throw Exception('Audio introuvable');
+    }
+    if (raw is Uint8List) {
+      if (raw.isEmpty) {
+        throw Exception('Audio introuvable');
+      }
+      return raw;
+    }
+    if (raw is List<int>) {
+      if (raw.isEmpty) {
+        throw Exception('Audio introuvable');
+      }
+      return Uint8List.fromList(raw);
+    }
+    if (raw is List) {
+      if (raw.isEmpty) {
+        throw Exception('Audio introuvable');
+      }
+      return Uint8List.fromList(raw.cast<int>());
+    }
+    throw Exception('Format audio invalide');
+  }
+
+  // ─── App Settings (public/admin) ─────────────────────────────────────────
+  Future<Response> getPublicAppSettings() =>
+      _dio.get(ApiEndpoints.publicSettings);
+
   // ─── App Settings (admin) ────────────────────────────────────────────────
   Future<Response> getAppSettings() => _dio.get(ApiEndpoints.adminSettings);
 
   Future<Response> setExpressEnabled(bool enabled) =>
       _dio.put(ApiEndpoints.adminSettingsExpress, data: {'enabled': enabled});
+
+  Future<Response> setReferralSettings(Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.adminSettingsReferral, data: body);
+
+  Future<Response> setUserReferralAccess(
+          String userId, bool? enabledOverride) =>
+      _dio.put(ApiEndpoints.adminUserReferralAccess(userId),
+          data: {'enabled_override': enabledOverride});
 }

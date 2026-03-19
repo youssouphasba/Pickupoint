@@ -21,6 +21,8 @@ class NotificationPrefs(BaseModel):
     push: bool = True
     email: bool = True
     whatsapp: bool = True
+    parcel_updates: bool = True
+    promotions: bool = True
 
 
 class User(BaseModel):
@@ -57,6 +59,7 @@ class User(BaseModel):
     referral_code:     str          = ""
     referred_by:       Optional[str] = None      # user_id du parrain
     referral_credited: bool          = False
+    referral_enabled_override: Optional[bool] = None
     # Driver specific (Phase 7 & 8)
     last_driver_location:    Optional[dict] = None  # {"lat": float, "lng": float}
     last_driver_location_at: Optional[datetime] = None

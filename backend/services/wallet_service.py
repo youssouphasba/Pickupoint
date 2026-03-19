@@ -20,6 +20,38 @@ def _tx_id() -> str:
     return f"wtx_{uuid.uuid4().hex[:12]}"
 
 
+async def record_wallet_transaction(
+    wallet_id: str,
+    amount: float,
+    tx_type: str,
+    description: str,
+    *,
+    parcel_id: Optional[str] = None,
+    reference: Optional[str] = None,
+    ensure_unique: bool = False,
+) -> dict:
+    if ensure_unique and reference:
+        existing = await db.wallet_transactions.find_one(
+            {"wallet_id": wallet_id, "reference": reference, "tx_type": tx_type},
+            {"_id": 0},
+        )
+        if existing:
+            return existing
+
+    tx = {
+        "tx_id": _tx_id(),
+        "wallet_id": wallet_id,
+        "parcel_id": parcel_id,
+        "amount": amount,
+        "tx_type": tx_type,
+        "description": description,
+        "reference": reference,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.wallet_transactions.insert_one(tx)
+    return {k: v for k, v in tx.items() if k != "_id"}
+
+
 async def get_or_create_wallet(owner_id: str, owner_type: str) -> dict:
     """Retourne le wallet existant ou en crée un nouveau."""
     wallet = await db.wallets.find_one({"owner_id": owner_id}, {"_id": 0})
@@ -64,19 +96,16 @@ async def credit_wallet(
         {"$inc": {"total_earned": amount}}
     )
 
-    tx = {
-        "tx_id":       _tx_id(),
-        "wallet_id":   wallet["wallet_id"],
-        "parcel_id":   parcel_id,
-        "amount":      amount,
-        "tx_type":     TransactionType.CREDIT.value,
-        "description": description,
-        "reference":   reference,
-        "created_at":  now,
-    }
-    await db.wallet_transactions.insert_one(tx)
+    tx = await record_wallet_transaction(
+        wallet_id=wallet["wallet_id"],
+        amount=amount,
+        tx_type=TransactionType.CREDIT.value,
+        description=description,
+        parcel_id=parcel_id,
+        reference=reference,
+    )
     logger.info(f"Wallet crédité : owner={owner_id} montant={amount} XOF")
-    return {k: v for k, v in tx.items() if k != "_id"}
+    return tx
 
 
 async def debit_wallet(
@@ -95,18 +124,13 @@ async def debit_wallet(
         {"$inc": {"balance": -amount}, "$set": {"updated_at": now}},
     )
 
-    tx = {
-        "tx_id":       _tx_id(),
-        "wallet_id":   wallet["wallet_id"],
-        "parcel_id":   parcel_id,
-        "amount":      amount,
-        "tx_type":     TransactionType.DEBIT.value,
-        "description": description,
-        "reference":   None,
-        "created_at":  now,
-    }
-    await db.wallet_transactions.insert_one(tx)
-    return {k: v for k, v in tx.items() if k != "_id"}
+    return await record_wallet_transaction(
+        wallet_id=wallet["wallet_id"],
+        amount=amount,
+        tx_type=TransactionType.DEBIT.value,
+        description=description,
+        parcel_id=parcel_id,
+    )
 
 
 async def distribute_delivery_revenue(parcel: dict):

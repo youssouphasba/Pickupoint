@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/utils/date_format.dart';
@@ -39,11 +41,13 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
             separatorBuilder: (_, __) => const Divider(),
             itemBuilder: (context, i) {
               final ev = events[i] as Map<String, dynamic>;
-              final date = ev['created_at'] != null ? formatDate(DateTime.parse(ev['created_at'])) : "---";
+              final date = ev['created_at'] != null
+                  ? formatDate(DateTime.parse(ev['created_at']))
+                  : "---";
               final type = ev['event_type'] ?? "UNKNOWN";
               final actor = ev['actor_name'] ?? ev['actor_role'] ?? "Système";
               final tracking = ev['tracking_code'] ?? "---";
-              
+
               return ListTile(
                 leading: _getEventIcon(type),
                 title: Text(type.replaceAll('_', ' ')),
@@ -56,10 +60,24 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
                   ],
                 ),
                 isThreeLine: true,
-                trailing: ev['notes'] != null ? IconButton(
-                  icon: const Icon(Icons.notes, size: 18),
-                  onPressed: () => _showNotes(context, ev['notes']),
-                ) : null,
+                trailing: Wrap(
+                  spacing: 4,
+                  children: [
+                    if (ev['notes'] != null)
+                      IconButton(
+                        icon: const Icon(Icons.notes, size: 18),
+                        onPressed: () => _showNotes(context, ev['notes']),
+                      ),
+                    if ((ev['metadata'] as Map?)?.isNotEmpty == true)
+                      IconButton(
+                        icon: const Icon(Icons.data_object, size: 18),
+                        onPressed: () => _showMetadata(
+                          context,
+                          Map<String, dynamic>.from(ev['metadata'] as Map),
+                        ),
+                      ),
+                  ],
+                ),
               );
             },
           );
@@ -77,18 +95,51 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
         title: const Text('Notes d\'événement'),
         content: Text(notes),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+        ],
+      ),
+    );
+  }
+
+  void _showMetadata(BuildContext context, Map<String, dynamic> metadata) {
+    const encoder = JsonEncoder.withIndent('  ');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Metadonnees'),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            encoder.convert(metadata),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fermer'),
+          ),
         ],
       ),
     );
   }
 
   Widget _getEventIcon(String type) {
-    if (type.contains('CREATED')) return const Icon(Icons.add_box, color: Colors.blue);
-    if (type.contains('SCAN')) return const Icon(Icons.qr_code_scanner, color: Colors.purple);
-    if (type.contains('ARRIVE')) return const Icon(Icons.store, color: Colors.orange);
-    if (type.contains('DELIVERED')) return const Icon(Icons.check_circle, color: Colors.green);
-    if (type.contains('FAIL')) return const Icon(Icons.error_outline, color: Colors.red);
+    if (type.contains('CREATED')) {
+      return const Icon(Icons.add_box, color: Colors.blue);
+    }
+    if (type.contains('SCAN')) {
+      return const Icon(Icons.qr_code_scanner, color: Colors.purple);
+    }
+    if (type.contains('ARRIVE')) {
+      return const Icon(Icons.store, color: Colors.orange);
+    }
+    if (type.contains('DELIVERED')) {
+      return const Icon(Icons.check_circle, color: Colors.green);
+    }
+    if (type.contains('FAIL')) {
+      return const Icon(Icons.error_outline, color: Colors.red);
+    }
     return const Icon(Icons.history, color: Colors.grey);
   }
 }

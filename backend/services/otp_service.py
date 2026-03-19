@@ -41,15 +41,12 @@ async def send_otp(phone: str) -> dict:
     if provider == "mock":
         otp_code = _build_mock_code()
         await _store_otp(phone, otp_code)
-        logger.info("OTP mock generated for %s", phone)
+        logger.info("OTP mock generated for %s (code logged in DEBUG only)", phone)
         if settings.DEBUG:
-            print("\n" + "!" * 60, flush=True)
-            print(f"[DEBUG OTP] {phone} -> {otp_code}", flush=True)
-            print("!" * 60 + "\n", flush=True)
+            logger.debug("[DEBUG OTP] %s -> %s", phone, otp_code)
         return {
             "sent": True,
             "channel": "mock",
-            "test_code": otp_code if settings.DEBUG else None,
         }
 
     otp_code = generate_otp(settings.OTP_LENGTH)

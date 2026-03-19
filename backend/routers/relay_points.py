@@ -22,6 +22,25 @@ def _relay_id() -> str:
     return f"rly_{uuid.uuid4().hex[:12]}"
 
 
+async def _get_relay_or_404(relay_id: str) -> dict:
+    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+    if not relay:
+        raise not_found_exception("Point relais")
+    return relay
+
+
+def _can_manage_relay(relay: dict, current_user: dict) -> bool:
+    role = current_user.get("role")
+    if role in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]:
+        return True
+    user_id = current_user.get("user_id")
+    return (
+        relay.get("owner_user_id") == user_id
+        or user_id in (relay.get("agent_user_ids") or [])
+        or current_user.get("relay_point_id") == relay.get("relay_id")
+    )
+
+
 @router.get("", summary="Liste des relais (public)")
 @limiter.limit("10/minute")
 async def list_relay_points(
@@ -70,14 +89,15 @@ async def nearby_relay_points(
 
 @router.get("/{relay_id}", summary="Détail d'un relais")
 async def get_relay_point(relay_id: str):
-    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
-    if not relay:
-        raise not_found_exception("Point relais")
-    return relay
+    return await _get_relay_or_404(relay_id)
 
 
 @router.get("/{relay_id}/stock", summary="Colis en stock dans ce relais")
 async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_user)):
+    relay = await _get_relay_or_404(relay_id)
+    if not _can_manage_relay(relay, current_user):
+        raise forbidden_exception("Acces refuse a ce stock relais")
+
     cursor = db.parcels.find(
         {
             "$or": [
@@ -86,7 +106,12 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
                     "origin_relay_id": relay_id,
                     "status": "dropped_at_origin_relay",
                 },
-                # Relais DESTINATION : colis en cours d'arrivée ou disponible ici
+                # Relais DESTINATION : colis en route vers ce relais
+                {
+                    "destination_relay_id": relay_id,
+                    "status": "in_transit",
+                },
+                # Relais DESTINATION : colis arrivé ou disponible ici
                 {
                     "destination_relay_id": relay_id,
                     "status": {"$in": ["at_destination_relay", "available_at_relay"]},
@@ -100,7 +125,34 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
         },
         {"_id": 0},
     )
-    return {"parcels": await cursor.to_list(length=200)}
+    parcels = await cursor.to_list(length=200)
+    # Masquer les codes des colis pas encore physiquement au relais
+    for p in parcels:
+        if p.get("status") == "in_transit":
+            p.pop("pickup_code", None)
+            p.pop("relay_pin", None)
+            p.pop("delivery_code", None)
+    return {"parcels": parcels}
+
+
+@router.get("/{relay_id}/history", summary="Historique des colis remis par ce relais")
+async def relay_history(relay_id: str, current_user: dict = Depends(get_current_user)):
+    relay = await _get_relay_or_404(relay_id)
+    if not _can_manage_relay(relay, current_user):
+        raise forbidden_exception("Acces refuse a cet historique relais")
+
+    cursor = db.parcels.find(
+        {
+            "status": "delivered",
+            "$or": [
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+            ],
+        },
+        {"_id": 0},
+    ).sort("updated_at", -1).limit(50)
+    parcels = await cursor.to_list(length=50)
+    return {"parcels": parcels, "total": len(parcels)}
 
 
 @router.post("", response_model=RelayPoint, summary="Créer un relais (admin)")

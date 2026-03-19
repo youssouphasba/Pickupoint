@@ -67,6 +67,21 @@ STATUS_MESSAGES = {
 }
 
 
+def _category_pref_key(category: Optional[str]) -> str | None:
+    return {
+        "parcel_updates": "parcel_updates",
+        "promotions": "promotions",
+    }.get(category)
+
+
+def _notification_category_enabled(user_doc: dict | None, category: Optional[str]) -> bool:
+    pref_key = _category_pref_key(category)
+    if not pref_key:
+        return True
+    prefs = (user_doc or {}).get("notification_prefs") or {}
+    return bool(prefs.get(pref_key, True))
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
@@ -83,6 +98,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             body=body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
+            category="parcel_updates",
         )
 
     # Notifier destinataire
@@ -101,6 +117,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             body=body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
+            category="parcel_updates",
         )
     elif recipient_phone:
         # Si pas d'ID, on reste sur le SMS classique
@@ -113,8 +130,16 @@ async def _store_and_send(
     body: str,
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
+    category: Optional[str] = None,
 ):
     """Stocke la notification en base et tente l'envoi."""
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"notification_prefs": 1},
+    )
+    if not _notification_category_enabled(user, category):
+        return
+
     await _store_notification(
         user_id=user_id,
         channel=NotificationChannel.IN_APP,
@@ -130,6 +155,7 @@ async def _store_and_send(
         body=body,
         ref_type=ref_type,
         ref_id=ref_id,
+        category=category,
     )
 
 
@@ -167,15 +193,16 @@ async def _send_push(
     body: str,
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
+    category: Optional[str] = None,
 ):
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"fcm_token": 1, "notification_prefs.push": 1},
+        {"fcm_token": 1, "notification_prefs": 1},
     )
     fcm_token = user.get("fcm_token") if user else None
     push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
 
-    if not fcm_token or not push_enabled:
+    if not fcm_token or not push_enabled or not _notification_category_enabled(user, category):
         return
 
     _ensure_firebase()
@@ -286,6 +313,7 @@ async def notify_approaching_driver(parcel: dict):
             body=f"Votre livreur approche avec votre colis {tracking_code} ! Préparez votre code de réception.",
             ref_type="parcel",
             ref_id=parcel_id,
+            category="parcel_updates",
         )
 
     # 2. Notifier le destinataire s'il est un utilisateur enregistré
@@ -300,6 +328,7 @@ async def notify_approaching_driver(parcel: dict):
                 body=f"Votre colis {tracking_code} arrive ! Votre livreur est à moins de 500m.",
                 ref_type="parcel",
                 ref_id=parcel_id,
+                category="parcel_updates",
             )
 
 
@@ -395,6 +424,7 @@ async def notify_parcel_expired(parcel: dict):
             body=body,
             ref_type="parcel",
             ref_id=parcel_id,
+            category="parcel_updates",
         )
 
     recipient_phone = parcel.get("recipient_phone")
@@ -411,6 +441,7 @@ async def notify_parcel_expired(parcel: dict):
             body=body,
             ref_type="parcel",
             ref_id=parcel_id,
+            category="parcel_updates",
         )
     elif recipient_phone:
         await _send_sms_or_whatsapp(recipient_phone, body)

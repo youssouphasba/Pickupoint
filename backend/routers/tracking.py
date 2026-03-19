@@ -1,6 +1,8 @@
 """
 Router tracking : endpoints publics (sans authentification).
 """
+import html
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
@@ -13,33 +15,36 @@ router = APIRouter()
 from core.limiter import limiter
 
 
+def _serialize_public_event(event: dict) -> dict:
+    return {
+        key: value
+        for key, value in event.items()
+        if key not in ("actor_id", "metadata")
+    }
+
+
+def _build_public_tracking_payload(parcel: dict, timeline: list[dict]) -> dict:
+    return {
+        "parcel_id": parcel.get("parcel_id"),
+        "tracking_code": parcel.get("tracking_code"),
+        "status": parcel.get("status"),
+        "delivery_mode": parcel.get("delivery_mode"),
+        "created_at": parcel.get("created_at"),
+        "updated_at": parcel.get("updated_at"),
+        "events": [_serialize_public_event(evt) for evt in timeline],
+    }
+
+
 @router.get("/{tracking_code}", summary="Statut public d'un colis")
 @limiter.limit("5/minute")
 async def track_parcel(tracking_code: str, request: Request):
-    parcel = await db.parcels.find_one(
-        {"tracking_code": tracking_code},
-        {
-            "_id": 0,
-            "sender_user_id": 0,
-            "payment_ref": 0,
-            "pickup_code": 0,     # codes de sécurité non exposés publiquement
-            "delivery_code": 0,
-        },
-    )
+    parcel = await db.parcels.find_one({"tracking_code": tracking_code}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
 
-    # Inclure la timeline publique
     parcel_id = parcel.get("parcel_id")
-    if parcel_id:
-        timeline = await get_parcel_timeline(parcel_id)
-        public_timeline = [
-            {k: v for k, v in evt.items() if k not in ("actor_id", "metadata")}
-            for evt in timeline
-        ]
-        parcel["events"] = public_timeline
-
-    return parcel
+    timeline = await get_parcel_timeline(parcel_id) if parcel_id else []
+    return _build_public_tracking_payload(parcel, timeline)
 
 
 @router.get("/{tracking_code}/events", summary="Historique complet du colis")
@@ -53,11 +58,7 @@ async def track_parcel_events(tracking_code: str, request: Request):
         raise not_found_exception("Colis")
 
     timeline = await get_parcel_timeline(parcel["parcel_id"])
-    # On retire actor_id des événements publics
-    public_timeline = [
-        {k: v for k, v in evt.items() if k not in ("actor_id", "metadata")}
-        for evt in timeline
-    ]
+    public_timeline = [_serialize_public_event(evt) for evt in timeline]
     return {"tracking_code": tracking_code, "events": public_timeline}
 
 
@@ -65,7 +66,7 @@ async def track_parcel_events(tracking_code: str, request: Request):
 @limiter.limit("5/minute")
 async def view_parcel_web(tracking_code: str, request: Request):
     """Affiche une page HTML élégante pour le suivi public."""
-    parcel = await track_parcel(tracking_code) # Utilise la logique existante
+    parcel = await track_parcel(tracking_code, request) # Utilise la logique existante
     
     status_map = {
         "CREATED": ("Créé", "📦"),
@@ -79,8 +80,11 @@ async def view_parcel_web(tracking_code: str, request: Request):
     }
     
     current_status = parcel.get("status", "CREATED")
+    safe_tracking_code = html.escape(str(tracking_code))
     status_label, status_emoji = status_map.get(current_status, (current_status, "📦"))
     
+    safe_status_label = html.escape(str(status_label))
+    safe_status_emoji = html.escape(str(status_emoji))
     events_html = ""
     for evt in reversed(parcel.get("events", [])):
         ts = evt.get("created_at")
@@ -88,12 +92,14 @@ async def view_parcel_web(tracking_code: str, request: Request):
              # Format simple: "2023-10-27T10:00:00Z" -> "27 Oct 10:00"
              ts = ts.replace("T", " ")[:16]
         
+        event_time = html.escape(str(ts or "â€”"))
+        event_title = html.escape(str(evt.get('notes') or evt.get('to_status') or "Mise Ã  jour"))
         events_html += f"""
         <div class="event">
             <div class="event-dot"></div>
             <div class="event-content">
-                <div class="event-time">{ts}</div>
-                <div class="event-title">{evt.get('notes') or evt.get('to_status')}</div>
+                <div class="event-time">{event_time}</div>
+                <div class="event-title">{event_title}</div>
             </div>
         </div>
         """
@@ -104,7 +110,7 @@ async def view_parcel_web(tracking_code: str, request: Request):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Suivi PickuPoint - {tracking_code}</title>
+        <title>Suivi PickuPoint - {safe_tracking_code}</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
             :root {{
@@ -235,8 +241,8 @@ async def view_parcel_web(tracking_code: str, request: Request):
             
             <div class="card">
                 <div class="status-badge">Suivi en direct</div>
-                <h1 class="tracking-id">{tracking_code}</h1>
-                <div class="status-large">{status_emoji} {status_label}</div>
+                <h1 class="tracking-id">{safe_tracking_code}</h1>
+                <div class="status-large">{safe_status_emoji} {safe_status_label}</div>
             </div>
 
             <div class="card">
@@ -245,7 +251,13 @@ async def view_parcel_web(tracking_code: str, request: Request):
                 </div>
             </div>
 
-            <a href="#" class="btn-app">Ouvrir dans l'application</a>
+            <div class="card" style="text-align:center;">
+                <div style="font-weight:600; margin-bottom:8px;">Besoin de plus de détails ?</div>
+                <div style="color: var(--text-muted); font-size: 14px;">
+                    Connectez-vous dans l'application PickuPoint pour voir la carte live,
+                    le paiement et les actions disponibles.
+                </div>
+            </div>
 
             <div class="footer">
                 &copy; 2026 PickuPoint - Logistique Connectée

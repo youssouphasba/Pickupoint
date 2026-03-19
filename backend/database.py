@@ -65,12 +65,12 @@ async def create_indexes():
         ],
         "otps": [
             IndexModel([("phone", 1)]),
-            IndexModel([("expires_at", 1)]),
+            IndexModel([("expires_at", 1)], expireAfterSeconds=0),
         ],
         "user_sessions": [
             IndexModel([("refresh_token", 1)], unique=True),
             IndexModel([("user_id", 1)]),
-            IndexModel([("expires_at", 1)]),
+            IndexModel([("expires_at", 1)], expireAfterSeconds=0),
         ],
         "relay_points": [
             IndexModel([("relay_id", 1)], unique=True),

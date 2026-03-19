@@ -9,7 +9,9 @@ final parcelsProvider = FutureProvider<List<Parcel>>((ref) async {
   final res = await api.getParcels(params: {'role_view': 'client'});
   final data = res.data as Map<String, dynamic>;
   // Backend retourne {"parcels": [...], "total": N}
-  return (data['parcels'] as List? ?? []).map((e) => Parcel.fromJson(e as Map<String, dynamic>)).toList();
+  return (data['parcels'] as List? ?? [])
+      .map((e) => Parcel.fromJson(e as Map<String, dynamic>))
+      .toList();
 });
 
 /// Provider pour un colis spécifique identifié par son ID.
@@ -23,11 +25,11 @@ final parcelProvider = FutureProvider.family<Parcel, String>((ref, id) async {
   return Parcel.fromJson({...parcelData, 'events': timeline});
 });
 
-/// Provider pour savoir si la livraison express est activée (admin).
+/// Provider pour savoir si la livraison express est activée.
 final expressEnabledProvider = FutureProvider<bool>((ref) async {
   try {
     final api = ref.watch(apiClientProvider);
-    final res = await api.getAppSettings();
+    final res = await api.getPublicAppSettings();
     final data = res.data as Map<String, dynamic>;
     return data['express_enabled'] as bool? ?? false;
   } catch (_) {
@@ -41,5 +43,7 @@ final relayPointsProvider = FutureProvider<List<RelayPoint>>((ref) async {
   final res = await api.getRelayPoints();
   final data = res.data as Map<String, dynamic>;
   // Backend retourne {"relay_points": [...], "total": N}
-  return (data['relay_points'] as List? ?? []).map((e) => RelayPoint.fromJson(e as Map<String, dynamic>)).toList();
+  return (data['relay_points'] as List? ?? [])
+      .map((e) => RelayPoint.fromJson(e as Map<String, dynamic>))
+      .toList();
 });

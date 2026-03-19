@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from models.common import DeliveryMode, ParcelStatus, GeoPin, Address
 
 
@@ -187,16 +187,16 @@ class ParcelRatingRequest(BaseModel):
 
 
 class LocationConfirmPayload(BaseModel):
-    lat:       float
-    lng:       float
-    accuracy:  Optional[float] = None
+    lat:       float = Field(..., ge=-90, le=90)
+    lng:       float = Field(..., ge=-180, le=180)
+    accuracy:  Optional[float] = Field(None, ge=0)
     voice_note: Optional[str]  = None
 
 
 class AddressChangePreviewRequest(BaseModel):
-    lat: float
-    lng: float
-    accuracy: Optional[float] = None
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0)
     voice_note: Optional[str] = None
 
 

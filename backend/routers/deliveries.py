@@ -2,23 +2,26 @@
 Router deliveries : missions de livraison pour les drivers.
 """
 import math
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pymongo import ReturnDocument
 
+from config import settings
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from services.parcel_service import transition_status
 from services.google_maps_service import get_directions_eta
 from services.notification_service import notify_approaching_driver
-from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts
+from core.limiter import limiter
+from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, phone_suffix
 
 router = APIRouter()
 
@@ -145,16 +148,16 @@ async def available_missions(
         result.sort(key=lambda m: m.get("distance_km") if m.get("distance_km") is not None else 9999)
         return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
 
-    # Fallback : pas de GPS (permission refusée) → toutes les missions
+    if current_user["role"] == UserRole.DRIVER.value:
+        return {
+            "missions": [],
+            "driver_lat": None,
+            "driver_lng": None,
+            "radius_km": None,
+            "gps_required": True,
+        }
+
     missions.sort(key=lambda m: m["created_at"])
-    
-    # Masquage anti-bypass
-    for m in missions:
-        # Enrichir avec la photo du client (sender) pour l'aperçu livreur
-        sender = await db.users.find_one({"user_id": m.get("sender_user_id")}, {"profile_picture_url": 1})
-        if sender:
-            m["sender_photo_url"] = sender.get("profile_picture_url")
-                
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
@@ -186,13 +189,15 @@ async def my_missions(
 
 class ConfirmPickupRequest(BaseModel):
     code: str
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
 
 @router.post("/{mission_id}/confirm-pickup", summary="Confirmer collecte avec code")
+@limiter.limit("10/minute")
 async def confirm_pickup(
     mission_id: str,
     body: ConfirmPickupRequest,
+    request: Request,
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -220,7 +225,7 @@ async def confirm_pickup(
     await clear_code_attempts(db, parcel["parcel_id"], "pickup_code")
 
     # Vérification proximité : driver doit être proche du point de collecte (< 500m)
-    if body.lat is not None and body.lng is not None and not parcel.get("is_simulation"):
+    if body.lat is not None and body.lng is not None and not (parcel.get("is_simulation") and settings.DEBUG):
         from services.pricing_service import _haversine_km
         pickup_geopin = None
         mode = parcel.get("delivery_mode", "")
@@ -313,25 +318,38 @@ async def get_mission(
     # Enrichissement Photos
     # Driver
     if mission.get("driver_id"):
-        driver = await db.users.find_one({"user_id": mission["driver_id"]}, {"profile_picture_url": 1})
+        driver = await db.users.find_one(
+            {"user_id": mission["driver_id"]},
+            {"name": 1, "phone": 1, "profile_picture_url": 1},
+        )
         if driver:
+            mission["driver_name"] = driver.get("name")
+            mission["driver_phone"] = driver.get("phone")
             mission["driver_photo_url"] = driver.get("profile_picture_url")
     
     # Sender
-    sender = await db.users.find_one({"user_id": mission.get("sender_user_id")}, {"profile_picture_url": 1})
+    sender = await db.users.find_one(
+        {"user_id": mission.get("sender_user_id")},
+        {"name": 1, "profile_picture_url": 1},
+    )
     if sender:
+        mission["sender_name"] = sender.get("name")
         mission["sender_photo_url"] = sender.get("profile_picture_url")
     
     # Recipient
     recipient_uid = mission.get("recipient_user_id")
     if not recipient_uid and mission.get("recipient_phone"):
         phone = mission["recipient_phone"]
-        recipient_user = await db.users.find_one({
-            "$or": [
-                {"phone": phone},
-                {"phone": {"$regex": f"{phone[-9:]}$"}}
-            ]
-        }, {"profile_picture_url": 1})
+        suffix = phone_suffix(phone)
+        phone_query = {"phone": phone}
+        if suffix:
+            phone_query = {
+                "$or": [
+                    {"phone": phone},
+                    {"phone": {"$regex": f"{re.escape(suffix)}$"}},
+                ]
+            }
+        recipient_user = await db.users.find_one(phone_query, {"profile_picture_url": 1})
         if recipient_user:
             mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
     elif recipient_uid:

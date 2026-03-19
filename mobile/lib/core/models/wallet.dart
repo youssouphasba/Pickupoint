@@ -18,7 +18,9 @@ class Wallet {
         userId: json['owner_id'] as String? ?? json['user_id'] as String? ?? '',
         balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
         currency: json['currency'] as String? ?? 'XOF',
-        pendingBalance: (json['pending'] as num?)?.toDouble() ?? (json['pending_balance'] as num?)?.toDouble() ?? 0,
+        pendingBalance: (json['pending'] as num?)?.toDouble() ??
+            (json['pending_balance'] as num?)?.toDouble() ??
+            0,
       );
 }
 
@@ -84,12 +86,14 @@ class PayoutRequest {
   final DateTime createdAt;
 
   factory PayoutRequest.fromJson(Map<String, dynamic> json) => PayoutRequest(
-        id: json['id'] as String,
-        userId: json['user_id'] as String,
-        amount: (json['amount'] as num).toDouble(),
-        method: json['method'] as String,
-        phoneNumber: json['phone_number'] as String,
-        status: json['status'] as String,
-        createdAt: DateTime.parse(json['created_at'] as String),
+        id: json['payout_id'] as String? ?? json['id'] as String? ?? '',
+        userId: json['owner_id'] as String? ?? json['user_id'] as String? ?? '',
+        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+        method: json['method'] as String? ?? '',
+        phoneNumber:
+            json['phone'] as String? ?? json['phone_number'] as String? ?? '',
+        status: json['status'] as String? ?? 'pending',
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
       );
 }

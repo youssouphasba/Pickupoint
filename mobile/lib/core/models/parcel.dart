@@ -73,6 +73,8 @@ class Parcel {
     this.senderPhotoUrl,
     this.recipientPhotoUrl,
     this.driverPhotoUrl,
+    this.driverName,
+    this.driverPhone,
     this.driverLocation,
     this.etaText,
     this.distanceText,
@@ -136,6 +138,8 @@ class Parcel {
   final String? senderPhotoUrl;
   final String? recipientPhotoUrl;
   final String? driverPhotoUrl;
+  final String? driverName;
+  final String? driverPhone;
   final Map<String, dynamic>? driverLocation;
   final String? etaText;
   final String? distanceText;
@@ -218,6 +222,8 @@ class Parcel {
       senderPhotoUrl: json['sender_photo_url'] as String?,
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
       driverPhotoUrl: json['driver_photo_url'] as String?,
+      driverName: json['driver_name'] as String?,
+      driverPhone: json['driver_phone'] as String?,
       driverLocation: json['driver_location'] as Map<String, dynamic>?,
       etaText: json['eta_text'] as String?,
       distanceText: json['distance_text'] as String?,
@@ -239,7 +245,8 @@ class Parcel {
 
   bool get canBeCancelled => status == 'created';
   bool get isDelivered => status == 'delivered';
-  bool get isRelayToHome => deliveryMode == 'relay_to_home';
+  bool get isRelayToHome => deliveryMode.endsWith('_to_home');
+  bool get isRelayPickup => deliveryMode.endsWith('_to_relay');
 }
 
 class QuoteResponse {

@@ -18,9 +18,15 @@ from core.security import (
     verify_refresh_token,
 )
 from core.dependencies import get_current_user
+from core.utils import normalize_phone
 from database import db
 from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.otp_service import send_otp, verify_otp
+from services.user_service import (
+    generate_referral_code,
+    get_global_app_settings,
+    is_referral_enabled_for_user,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -65,7 +71,7 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
         logger.warning("Firebase token verification failed: %s", e)
         raise bad_request_exception("Token Firebase invalide ou expiré")
 
-    phone = decoded.get("phone_number")
+    phone = normalize_phone(decoded.get("phone_number"))
     if not phone:
         raise bad_request_exception("Le token Firebase ne contient pas de numéro de téléphone")
 
@@ -115,14 +121,14 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
 @router.post("/request-otp", summary="Envoyer OTP")
 @limiter.limit("5/minute")
 async def request_otp(body: OTPRequest, request: Request):
-    result = await send_otp(body.phone)
+    phone = normalize_phone(body.phone)
+    result = await send_otp(phone)
     if not result.get("sent"):
         raise bad_request_exception("Envoi OTP indisponible pour le moment. Réessayez plus tard.")
     return {
         "sent": True,
-        "phone": body.phone,
+        "phone": phone,
         "channel": result.get("channel"),
-        "test_code": result.get("test_code"),
     }
 
 
@@ -134,7 +140,8 @@ async def check_phone(body: OTPRequest, request: Request):
     Permet à l'app mobile de savoir si elle doit afficher l'écran de Login PIN
     ou envoyer un OTP pour une nouvelle inscription.
     """
-    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0, "pin_hash": 1})
+    phone = normalize_phone(body.phone)
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0, "pin_hash": 1})
     if not user_doc:
         return {"exists": False, "has_pin": False}
     
@@ -150,7 +157,8 @@ class PINLoginRequest(BaseModel):
 @router.post("/login-pin", response_model=TokenResponse, summary="Connexion par PIN")
 @limiter.limit("10/minute")
 async def login_pin(body: PINLoginRequest, request: Request):
-    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
+    phone = normalize_phone(body.phone)
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user_doc:
         raise bad_request_exception("Utilisateur introuvable")
     
@@ -196,16 +204,17 @@ class OTPVerifyResponse(BaseModel):
 @router.post("/verify-otp", response_model=OTPVerifyResponse, summary="Vérifier OTP")
 @limiter.limit("10/minute")
 async def verify_otp_endpoint(body: OTPVerify, request: Request):
-    valid = await verify_otp(body.phone, body.otp)
+    phone = normalize_phone(body.phone)
+    valid = await verify_otp(phone, body.otp)
     if not valid:
         raise bad_request_exception("OTP invalide ou expiré")
 
-    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
     
     # 1. Nouvel utilisateur
     if not user_doc:
         # Créer un JWT temporaire valable 1 heure pour finaliser l'inscription
-        temp_token = create_access_token({"sub": body.phone, "type": "registration_token"}, expires_delta=timedelta(hours=1))
+        temp_token = create_access_token({"sub": phone, "type": "registration_token"}, expires_delta=timedelta(hours=1))
         return OTPVerifyResponse(is_new_user=True, registration_token=temp_token)
         
     # 2. Utilisateur existant
@@ -214,7 +223,7 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
         raise forbidden_exception("Votre compte a été suspendu par l'administration.")
 
     await db.users.update_one(
-        {"phone": body.phone},
+        {"phone": phone},
         {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
     )
     user_doc["is_phone_verified"] = True
@@ -245,6 +254,7 @@ class CompleteRegistrationRequest(BaseModel):
     name: str
     pin: str
     accepted_legal: bool
+    referral_code: Optional[str] = None
 
 @router.post("/complete-registration", response_model=TokenResponse, summary="Finaliser l'inscription avec Nom et PIN")
 @limiter.limit("5/minute")
@@ -257,7 +267,7 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         payload = decode_token(body.registration_token)
         if payload.get("type") != "registration_token":
             raise bad_request_exception("Token d'inscription invalide.")
-        phone = payload.get("sub")
+        phone = normalize_phone(payload.get("sub"))
     except Exception:
         raise bad_request_exception("Token d'inscription expiré ou invalide.")
         
@@ -269,10 +279,20 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     if len(body.pin) < 4:
         raise bad_request_exception("Le code PIN doit contenir au moins 4 chiffres.")
 
+    referral_code = (body.referral_code or "").upper().strip() or None
+    referred_by = None
+    if referral_code:
+        app_settings = await get_global_app_settings()
+        sponsor = await db.users.find_one({"referral_code": referral_code}, {"_id": 0})
+        if not sponsor:
+            raise bad_request_exception("Code parrainage invalide")
+        if not is_referral_enabled_for_user(sponsor, app_settings):
+            raise bad_request_exception("Ce code parrainage n'est pas actif")
+        referred_by = sponsor["user_id"]
+
     from core.security import hash_password
     now = datetime.now(timezone.utc)
-    from services.user_service import generate_referral_code
-    
+
     user_doc = {
         "user_id":           f"usr_{uuid.uuid4().hex[:12]}",
         "phone":             phone,
@@ -294,6 +314,7 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "loyalty_points":    0,
         "loyalty_tier":      "bronze",
         "referral_code":     generate_referral_code(phone),
+        "referred_by":       referred_by,
         "created_at":        now,
         "updated_at":        now,
     }
@@ -325,11 +346,12 @@ class ResetPinRequest(BaseModel):
 @router.post("/reset-pin", summary="Réinitialiser le PIN via OTP")
 @limiter.limit("5/minute")
 async def reset_pin(body: ResetPinRequest, request: Request):
-    valid = await verify_otp(body.phone, body.otp)
+    phone = normalize_phone(body.phone)
+    valid = await verify_otp(phone, body.otp)
     if not valid:
         raise bad_request_exception("OTP invalide ou expiré")
         
-    user_doc = await db.users.find_one({"phone": body.phone}, {"_id": 0})
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user_doc:
         raise bad_request_exception("Utilisateur introuvable")
         
@@ -338,7 +360,7 @@ async def reset_pin(body: ResetPinRequest, request: Request):
         
     from core.security import hash_password
     await db.users.update_one(
-        {"phone": body.phone},
+        {"phone": phone},
         {"$set": {
             "pin_hash": hash_password(body.new_pin),
             "updated_at": datetime.now(timezone.utc)

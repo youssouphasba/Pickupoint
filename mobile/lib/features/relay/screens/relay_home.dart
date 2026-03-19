@@ -42,14 +42,27 @@ class RelayHome extends ConsumerWidget {
         },
         child: stockAsync.when(
           data: (parcels) {
+            final incoming = parcels.where((p) => p.status == 'in_transit').toList();
             final pending = parcels.where((p) => p.status == 'redirected_to_relay').toList();
-            final inStock = parcels.where((p) => p.status != 'redirected_to_relay').toList();
+            final inStock = parcels.where((p) =>
+                p.status != 'redirected_to_relay' && p.status != 'in_transit').toList();
             final history = historyAsync.valueOrNull ?? [];
 
             if (parcels.isEmpty && history.isEmpty) return _buildEmptyState();
 
             return ListView(
               children: [
+                if (incoming.isNotEmpty) ...[
+                  _buildSectionHeader(
+                    context,
+                    icon: Icons.local_shipping,
+                    label: '${incoming.length} colis en route',
+                    color: Colors.indigo,
+                    bg: Colors.indigo.shade50,
+                  ),
+                  ...incoming.map((p) => _buildIncomingCard(context, p)),
+                  const SizedBox(height: 8),
+                ],
                 if (pending.isNotEmpty) ...[
                   _buildSectionHeader(
                     context,
@@ -173,6 +186,38 @@ class RelayHome extends ConsumerWidget {
                 style: OutlinedButton.styleFrom(foregroundColor: Colors.orange),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIncomingCard(BuildContext context, Parcel p) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.indigo.shade200, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.local_shipping, color: Colors.indigo.shade400, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('En route vers votre relais',
+                    style: TextStyle(fontSize: 12, color: Colors.indigo.shade400, fontWeight: FontWeight.w500)),
+              ),
+              ParcelStatusBadge(status: p.status),
+            ]),
+            const SizedBox(height: 8),
+            Text('Code : ${p.trackingCode}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Text('Destinataire : ${p.recipientName ?? '—'}',
+                style: const TextStyle(fontSize: 13)),
           ],
         ),
       ),

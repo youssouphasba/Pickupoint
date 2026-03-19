@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
@@ -81,11 +83,14 @@ class ClientProfileScreen extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                   const Icon(Icons.verified, color: Colors.blueAccent, size: 20),
-                   const SizedBox(width: 4),
-                   Text(
+                  const Icon(Icons.verified,
+                      color: Colors.blueAccent, size: 20),
+                  const SizedBox(width: 4),
+                  Text(
                     user.phone,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
+                    style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontSize: 14),
                   ),
                 ],
               ),
@@ -93,49 +98,59 @@ class ClientProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 4),
                 Text(
                   user.email!,
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9), fontSize: 13),
                 ),
               ],
               const SizedBox(height: 8),
-                Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          user.role.toUpperCase(),
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
+              Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                      if (user.kycStatus == 'verified') ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-                          child: const Icon(Icons.verified, color: Colors.white, size: 10),
-                        ),
-                      ],
+                      child: Text(
+                        user.role.toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (user.kycStatus == 'verified') ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                            color: Colors.green, shape: BoxShape.circle),
+                        child: const Icon(Icons.verified,
+                            color: Colors.white, size: 10),
+                      ),
                     ],
+                  ],
+                ),
+              ),
+              if (user.bio != null && user.bio!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Text(
+                    user.bio!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (user.bio != null && user.bio!.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Text(
-                      user.bio!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white70, fontSize: 13, fontStyle: FontStyle.italic),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
+              ],
             ],
           ),
         ),
@@ -181,7 +196,8 @@ class ClientProfileScreen extends ConsumerWidget {
                 color: Colors.blueAccent,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+              child:
+                  const Icon(Icons.camera_alt, color: Colors.white, size: 18),
             ),
           ),
         ),
@@ -207,16 +223,18 @@ class ClientProfileScreen extends ConsumerWidget {
   Widget _buildStatItem(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(value,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
       ],
     );
   }
 
-  Widget _buildLoyaltyProgress(dynamic user, AsyncValue<Map<String, dynamic>> statsAsync) {
+  Widget _buildLoyaltyProgress(
+      dynamic user, AsyncValue<Map<String, dynamic>> statsAsync) {
     final points = user.loyaltyPoints ?? 0;
     final tier = user.loyaltyTier ?? 'bronze';
-    
+
     int nextTierPoints = 200;
     String nextTier = "Silver";
     if (tier == 'silver') {
@@ -233,7 +251,9 @@ class ClientProfileScreen extends ConsumerWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,8 +261,10 @@ class ClientProfileScreen extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Statut $tier'.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text('$points / $nextTierPoints PTS', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text('Statut $tier'.toUpperCase(),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('$points / $nextTierPoints PTS',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ],
           ),
           const SizedBox(height: 12),
@@ -255,8 +277,12 @@ class ClientProfileScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           if (tier != 'gold')
-            Text('Plus que ${nextTierPoints - points} points pour devenir $nextTier !', 
-              style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.blueGrey)),
+            Text(
+                'Plus que ${nextTierPoints - points} points pour devenir $nextTier !',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.blueGrey)),
         ],
       ),
     );
@@ -268,7 +294,7 @@ class ClientProfileScreen extends ConsumerWidget {
         _buildActionCard([
           const ListTile(
             leading: Icon(Icons.switch_account_outlined),
-            title: Text('Changer de rôle (Debug)'),
+            title: Text('Changer de rôle'),
             trailing: AccountSwitcherButton(),
           ),
           const Divider(height: 1),
@@ -280,7 +306,9 @@ class ClientProfileScreen extends ConsumerWidget {
           ),
         ]),
         const SizedBox(height: 20),
-        const Text('PRÉFÉRENCES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+        const Text('PRÉFÉRENCES',
+            style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
         const SizedBox(height: 12),
         _buildActionCard([
           ListTile(
@@ -301,7 +329,8 @@ class ClientProfileScreen extends ConsumerWidget {
             leading: const Icon(Icons.description_outlined),
             title: const Text('Ma Bio professionnelle'),
             trailing: const Icon(Icons.edit, size: 18, color: Colors.blue),
-            onTap: () => _showEditBio(context, ref, ref.read(authProvider).valueOrNull?.user),
+            onTap: () => _showEditBio(
+                context, ref, ref.read(authProvider).valueOrNull?.user),
           ),
         ]),
         const SizedBox(height: 20),
@@ -317,9 +346,7 @@ class ClientProfileScreen extends ConsumerWidget {
             leading: const Icon(Icons.share_outlined),
             title: const Text('Partager mon code parrainage'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              // Copy to clipboard or share
-            },
+            onTap: () => _shareReferral(context, ref),
           ),
         ]),
         const SizedBox(height: 20),
@@ -351,6 +378,140 @@ class ClientProfileScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _shareReferral(BuildContext context, WidgetRef ref) async {
+    try {
+      final response = await ref.read(apiClientProvider).getReferralInfo();
+      final data = Map<String, dynamic>.from(
+        response.data as Map<String, dynamic>? ?? const {},
+      );
+      final enabled = data['enabled'] as bool? ?? false;
+      if (!enabled) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                data['message']?.toString() ??
+                    'Le parrainage n\'est pas actif pour ce compte.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final shareMessage = data['share_message']?.toString().trim() ?? '';
+      final referralCode =
+          data['referral_code']?.toString().trim().toUpperCase() ?? '';
+      final referralUrl = data['referral_url']?.toString().trim();
+      if (!context.mounted) {
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Parrainage Denkma',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  referralCode.isEmpty
+                      ? 'Votre code sera disponible apres l’activation du parrainage.'
+                      : 'Code: $referralCode',
+                ),
+                if (referralUrl != null && referralUrl.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    referralUrl,
+                    style: const TextStyle(color: Colors.blueGrey),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.copy_outlined),
+                  title: const Text('Copier le message'),
+                  subtitle: const Text('Code et lien de parrainage'),
+                  onTap: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: shareMessage),
+                    );
+                    if (!sheetContext.mounted) {
+                      return;
+                    }
+                    Navigator.of(sheetContext).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Message de parrainage copie'),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.tag_outlined),
+                  title: const Text('Copier seulement le code'),
+                  onTap: referralCode.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: referralCode),
+                          );
+                          if (!sheetContext.mounted) {
+                            return;
+                          }
+                          Navigator.of(sheetContext).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Code parrainage copie'),
+                            ),
+                          );
+                        },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading:
+                      const Icon(Icons.message_outlined, color: Colors.green),
+                  title: const Text('Partager sur WhatsApp'),
+                  onTap: () async {
+                    final whatsappUri = Uri.parse(
+                      'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
+                    );
+                    if (await canLaunchUrl(whatsappUri)) {
+                      await launchUrl(
+                        whatsappUri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                    if (!sheetContext.mounted) {
+                      return;
+                    }
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Widget _buildLogoutButton(WidgetRef ref) {
     return TextButton.icon(
       style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -362,18 +523,23 @@ class ClientProfileScreen extends ConsumerWidget {
 
   Future<void> _pickAndUploadImage(BuildContext context, WidgetRef ref) async {
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-    
+    final image =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+
     if (image != null) {
       try {
         await ref.read(apiClientProvider).uploadAvatar(File(image.path));
         if (context.mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo mise à jour !')));
-           // Re-fetch user profile to update avatar everywhere
-           ref.read(authProvider.notifier).fetchMe();
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Photo mise à jour !')));
+          // Re-fetch user profile to update avatar everywhere
+          ref.read(authProvider.notifier).fetchMe();
         }
       } catch (e) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        }
       }
     }
   }
@@ -381,16 +547,20 @@ class ClientProfileScreen extends ConsumerWidget {
   void _showDigitalID(BuildContext context, dynamic user) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('ID Digital PickuPoint', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('ID Digital Denkma',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text('Présentez ce code QR à un agent relais pour identification.', 
-                       textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+            const Text(
+                'Présentez ce code QR à un agent relais pour identification.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 24),
             QrImageView(
               data: user.id,
@@ -398,7 +568,8 @@ class ClientProfileScreen extends ConsumerWidget {
               size: 200.0,
             ),
             const SizedBox(height: 12),
-            Text(user.fullName ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(user.fullName ?? '',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
           ],
         ),
@@ -408,7 +579,7 @@ class ClientProfileScreen extends ConsumerWidget {
 
   void _showEditProfile(BuildContext context, WidgetRef ref, dynamic user) {
     final emailCtrl = TextEditingController(text: user.email);
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -416,27 +587,39 @@ class ClientProfileScreen extends ConsumerWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-             TextFormField(
+            TextFormField(
               initialValue: user.fullName,
               enabled: false,
-              decoration: const InputDecoration(labelText: 'Nom (non modifiable)', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Nom (non modifiable)',
+                  border: OutlineInputBorder()),
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: emailCtrl,
-              decoration: const InputDecoration(labelText: 'E-mail', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'E-mail', border: OutlineInputBorder()),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
               try {
-                await ref.read(authProvider.notifier).updateProfile(email: emailCtrl.text);
-                if (context.mounted) Navigator.pop(context);
+                await ref
+                    .read(authProvider.notifier)
+                    .updateProfile(email: emailCtrl.text);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               } catch (e) {
-                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                }
               }
             },
             child: const Text('Enregistrer'),
@@ -448,7 +631,7 @@ class ClientProfileScreen extends ConsumerWidget {
 
   void _showEditBio(BuildContext context, WidgetRef ref, dynamic user) {
     final bioCtrl = TextEditingController(text: user.bio);
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -473,14 +656,23 @@ class ClientProfileScreen extends ConsumerWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
               try {
-                await ref.read(authProvider.notifier).updateProfile(bio: bioCtrl.text);
-                if (context.mounted) Navigator.pop(context);
+                await ref
+                    .read(authProvider.notifier)
+                    .updateProfile(bio: bioCtrl.text);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               } catch (e) {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                }
               }
             },
             child: const Text('Enregistrer'),

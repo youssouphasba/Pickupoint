@@ -3,15 +3,18 @@ Router confirmation d'adresse — système bidirectionnel GPS.
 Liens envoyés par SMS/WhatsApp à l'expéditeur ou au destinataire.
 Aucune authentification requise — token signé suffit.
 """
+import html
+import json
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from core.exceptions import not_found_exception, bad_request_exception
+from core.limiter import limiter
 from database import db
 from services.otp_service import _send_via_twilio
 
@@ -19,16 +22,19 @@ router = APIRouter()
 
 
 class LocationPayload(BaseModel):
-    lat:       float
-    lng:       float
-    accuracy:  Optional[float] = None
+    lat:       float = Field(..., ge=-90, le=90)
+    lng:       float = Field(..., ge=-180, le=180)
+    accuracy:  Optional[float] = Field(None, ge=0)
     voice_note: Optional[str]  = None  # base64 ou URL enregistrement vocal
 
 
 def _html_page(token: str, role: str, recipient_name: str = "") -> str:
     """Page HTML minimaliste — 1 grand bouton, aucun texte obligatoire à lire."""
     role_label = "livraison" if role == "recipient" else "enlèvement"
-    greeting   = f"Bonjour {recipient_name} ! " if recipient_name else ""
+    safe_name = html.escape(recipient_name)
+    safe_role_label = html.escape(role_label)
+    greeting   = f"Bonjour {safe_name} ! " if safe_name else ""
+    token_json = json.dumps(token)
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -75,7 +81,7 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
 <body>
   <div class="logo">📦</div>
   <h1>{greeting}Votre colis PickuPoint</h1>
-  <p>Appuyez sur le bouton pour indiquer<br>votre position de <strong>{role_label}</strong></p>
+  <p>Appuyez sur le bouton pour indiquer<br>votre position de <strong>{safe_role_label}</strong></p>
 
   <button class="btn" id="btn-locate" onclick="getLocation()">
     📍 Confirmer ma position
@@ -94,7 +100,7 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
   </div>
 
   <script>
-    const TOKEN = "{token}";
+    const TOKEN = {token_json};
     let mediaRecorder, audioChunks = [], isRecording = false, voiceBase64 = null;
 
     async function getLocation() {{
@@ -168,7 +174,8 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/{token}", response_class=HTMLResponse, include_in_schema=False)
-async def confirmation_page(token: str):
+@limiter.limit("10/minute")
+async def confirmation_page(token: str, request: Request):
     """Sert la page HTML de confirmation au destinataire ou à l'expéditeur."""
     parcel = await db.parcels.find_one({
         "$or": [
@@ -185,7 +192,8 @@ async def confirmation_page(token: str):
 
 
 @router.post("/{token}/locate")
-async def confirm_location(token: str, payload: LocationPayload):
+@limiter.limit("10/minute")
+async def confirm_location(token: str, payload: LocationPayload, request: Request):
     """Enregistre les coordonnées GPS sur le colis."""
     parcel = await db.parcels.find_one({
         "$or": [
@@ -254,7 +262,8 @@ async def confirm_location(token: str, payload: LocationPayload):
 
 
 @router.post("/{token}/voice")
-async def save_voice_note(token: str, payload: dict):
+@limiter.limit("10/minute")
+async def save_voice_note(token: str, payload: dict, request: Request):
     """Sauvegarde la note vocale après confirmation GPS."""
     parcel = await db.parcels.find_one({
         "$or": [

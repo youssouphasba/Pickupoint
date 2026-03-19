@@ -17,8 +17,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
   final _manualCtrl = TextEditingController();
 
   bool _isProcessing = false;
-  bool _scanPaused   = false;
-  bool _isBatchMode  = false;
+  bool _scanPaused = false;
+  bool _isBatchMode = false;
   final List<String> _batchCodes = [];
 
   @override
@@ -55,20 +55,23 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
       return;
     }
 
-    setState(() { _isProcessing = true; _scanPaused = true; });
+    setState(() {
+      _isProcessing = true;
+      _scanPaused = true;
+    });
 
     try {
       final api = ref.read(apiClientProvider);
-      final res  = await api.trackParcel(trimmed);
+      final res = await api.lookupParcelByTracking(trimmed);
       final parcelData = res.data as Map<String, dynamic>;
 
-      final parcelId  = parcelData['parcel_id'] as String? ?? '';
+      final parcelId = parcelData['parcel_id'] as String? ?? '';
       if (parcelId.isEmpty) {
         _showError('Colis introuvable : $trimmed');
         return;
       }
-      final status       = parcelData['status'] as String? ?? '';
-      final recipient    = parcelData['recipient_name'] as String? ?? '—';
+      final status = parcelData['status'] as String? ?? '';
+      final recipient = parcelData['recipient_name'] as String? ?? '—';
       final isRedirected = status == 'redirected_to_relay';
 
       final confirmed = await _showConfirmDialog(
@@ -103,7 +106,12 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
     } catch (e) {
       _showError('Erreur : $e');
     } finally {
-      if (mounted) setState(() { _isProcessing = false; _scanPaused = false; });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _scanPaused = false;
+        });
+      }
     }
   }
 
@@ -144,15 +152,19 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$success colis validés avec succès ✅', style: const TextStyle(color: Colors.green)),
+            Text('$success colis validés avec succès ✅',
+                style: const TextStyle(color: Colors.green)),
             if (fail > 0) ...[
               const SizedBox(height: 8),
-              Text('$fail erreurs ❌', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              Text('$fail erreurs ❌',
+                  style: const TextStyle(
+                      color: Colors.red, fontWeight: FontWeight.bold)),
             ],
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
         ],
       ),
     );
@@ -172,7 +184,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
           Icon(isRedirected ? Icons.reply : Icons.download,
               color: isRedirected ? Colors.orange : Colors.green),
           const SizedBox(width: 8),
-          Expanded(child: Text(isRedirected ? 'Colis redirigé' : 'Réceptionner')),
+          Expanded(
+              child: Text(isRedirected ? 'Colis redirigé' : 'Réceptionner')),
         ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -198,7 +211,9 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -212,19 +227,23 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
   }
 
   Widget _infoRow(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(children: [
-      SizedBox(width: 90,
-          child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13))),
-      Expanded(child: Text(value,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-    ]),
-  );
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(children: [
+          SizedBox(
+              width: 90,
+              child: Text(label,
+                  style: const TextStyle(color: Colors.grey, fontSize: 13))),
+          Expanded(
+              child: Text(value,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 13))),
+        ]),
+      );
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -252,7 +271,7 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
           controller: _tabCtrl,
           tabs: const [
             Tab(icon: Icon(Icons.qr_code_scanner), text: 'Scanner QR'),
-            Tab(icon: Icon(Icons.keyboard),        text: 'Saisir le code'),
+            Tab(icon: Icon(Icons.keyboard), text: 'Saisir le code'),
           ],
         ),
       ),
@@ -265,7 +284,11 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)],
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 10)
+                ],
               ),
               child: SafeArea(
                 child: Column(
@@ -274,10 +297,13 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('${_batchCodes.length} colis scannés', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('${_batchCodes.length} colis scannés',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
                         TextButton(
                           onPressed: () => setState(() => _batchCodes.clear()),
-                          child: const Text('Effacer tout', style: TextStyle(color: Colors.red)),
+                          child: const Text('Effacer tout',
+                              style: TextStyle(color: Colors.red)),
                         ),
                       ],
                     ),
@@ -286,10 +312,13 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: _isProcessing ? null : _submitBatch,
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 16)),
-                        child: _isProcessing 
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text('Valider le lot'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: const EdgeInsets.symmetric(vertical: 16)),
+                        child: _isProcessing
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Text('Valider le lot'),
                       ),
                     ),
                   ],
@@ -313,7 +342,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
       // Viseur
       Center(
         child: Container(
-          width: 260, height: 260,
+          width: 260,
+          height: 260,
           decoration: BoxDecoration(
             border: Border.all(
               color: _scanPaused ? Colors.orange : Colors.green,
@@ -326,18 +356,25 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
       if (_isProcessing)
         Container(
           color: Colors.black45,
-          child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+          child: const Center(
+              child: CircularProgressIndicator(color: Colors.white)),
         ),
       Positioned(
-        bottom: 48, left: 0, right: 0,
+        bottom: 48,
+        left: 0,
+        right: 0,
         child: Column(children: [
           const Icon(Icons.qr_code_scanner, color: Colors.white, size: 28),
           const SizedBox(height: 8),
           Text(
-            _scanPaused ? 'Traitement…' : 'Scannez le QR affiché sur l\'app client',
+            _scanPaused
+                ? 'Traitement…'
+                : 'Scannez le QR affiché sur l\'app client',
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
               shadows: [Shadow(blurRadius: 4, color: Colors.black)],
             ),
           ),
@@ -346,7 +383,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
             'ou utilisez l\'onglet "Saisir le code"',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white70, fontSize: 12,
+              color: Colors.white70,
+              fontSize: 12,
               shadows: [Shadow(blurRadius: 4, color: Colors.black)],
             ),
           ),
@@ -363,7 +401,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 24),
-          const Icon(Icons.inventory_2_outlined, size: 64, color: Colors.blueGrey),
+          const Icon(Icons.inventory_2_outlined,
+              size: 64, color: Colors.blueGrey),
           const SizedBox(height: 24),
           const Text(
             'Entrez le code de suivi du colis',
@@ -390,10 +429,14 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
-            onPressed: _isProcessing ? null : () => _processCode(_manualCtrl.text),
+            onPressed:
+                _isProcessing ? null : () => _processCode(_manualCtrl.text),
             icon: _isProcessing
-                ? const SizedBox(width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.check),
             label: Text(_isProcessing ? 'Recherche…' : 'Réceptionner'),
             style: ElevatedButton.styleFrom(

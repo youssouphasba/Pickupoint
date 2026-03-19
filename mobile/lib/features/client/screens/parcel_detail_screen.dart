@@ -177,7 +177,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 const SizedBox(height: 28),
 
                 if (isRecipient &&
-                    ['created', 'dropped_at_origin_relay'].contains(parcel.status))
+                    ['created', 'dropped_at_origin_relay']
+                        .contains(parcel.status))
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
@@ -192,7 +193,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                         side: BorderSide(color: Colors.orange.shade300),
                         minimumSize: const Size(double.infinity, 44),
                       ),
-                      onPressed: () => _showChangeModeDialog(context, ref, parcel),
+                      onPressed: () =>
+                          _showChangeModeDialog(context, ref, parcel),
                     ),
                   ),
                 if (parcel.canBeCancelled && !isRecipient)
@@ -363,9 +365,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final mode = parcel.deliveryMode as String;
     final isHomePickup = mode == 'home_to_relay' || mode == 'home_to_home';
     final code = parcel.pickupCode as String?;
-    return isHomePickup &&
-        parcel.status == 'created' &&
-        code != null;
+    return isHomePickup && parcel.status == 'created' && code != null;
   }
 
   Widget _buildPickupCodeCard(dynamic parcel) {
@@ -425,9 +425,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
         (parcel.deliveryMode as String) == 'home_to_relay';
     final code = parcel.pinCode as String?;
-    return isRelayDest &&
-        parcel.status == 'available_at_relay' &&
-        code != null;
+    return isRelayDest && parcel.status == 'available_at_relay' && code != null;
   }
 
   Widget _buildDeliveryCodeCard(dynamic parcel) {
@@ -540,7 +538,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         const SizedBox(
           width: double.infinity,
           child: Text(
-            'Le QR code ou le code à 4 chiffres — montrez-en un seul.',
+            'Le QR code ou le code à 6 chiffres — montrez-en un seul.',
             style: TextStyle(color: Colors.white70, fontSize: 11),
             textAlign: TextAlign.center,
           ),
@@ -710,7 +708,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         ),
         // Countdown si colis en attente de retrait au relais
         if (parcel.expiresAt != null &&
-            (parcel.status == 'available_at_relay' || parcel.status == 'redirected_to_relay'))
+            (parcel.status == 'available_at_relay' ||
+                parcel.status == 'redirected_to_relay'))
           _buildExpiryCountdown(parcel.expiresAt!),
         const SizedBox(height: 16),
         Row(children: [
@@ -748,7 +747,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           Text(formatDate(parcel.createdAt),
               style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
-        if (parcel.driverPhotoUrl != null &&
+        if ((parcel.driverName != null ||
+                parcel.driverPhone != null ||
+                parcel.driverPhotoUrl != null) &&
             (parcel.status == 'assigned' ||
                 parcel.status == 'picked_up' ||
                 parcel.status == 'out_for_delivery')) ...[
@@ -760,6 +761,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   Widget _buildDriverInfo(dynamic parcel) {
+    final driverPhotoUrl = parcel.driverPhotoUrl as String?;
+    final hasPhoto = driverPhotoUrl != null && driverPhotoUrl.trim().isNotEmpty;
+    final driverName = (parcel.driverName as String?)?.trim();
+    final driverPhone = (parcel.driverPhone as String?)?.trim();
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -771,26 +777,42 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         children: [
           CircleAvatar(
             radius: 18,
-            backgroundImage: NetworkImage(parcel.driverPhotoUrl!),
+            backgroundColor: Colors.blueGrey.shade50,
+            backgroundImage: hasPhoto ? NetworkImage(driverPhotoUrl) : null,
+            child: hasPhoto
+                ? null
+                : const Icon(Icons.delivery_dining, color: Colors.blueGrey),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Livreur en charge',
+                const Text('Livreur en charge',
                     style: TextStyle(fontSize: 11, color: Colors.grey)),
-                Text('Votre livreur est en route',
-                    style:
-                        TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text(
+                  driverName != null && driverName.isNotEmpty
+                      ? driverName
+                      : 'Livreur Denkma',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (driverPhone != null && driverPhone.isNotEmpty)
+                  Text(
+                    driverPhone,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
               ],
             ),
           ),
           IconButton(
             icon: const Icon(Icons.phone_in_talk, color: Colors.green),
-            onPressed: () {
-              // Appeler le livreur si nécessaire
-            },
+            onPressed: () => _callDriver(parcel.driverPhone),
           ),
         ],
       ),
@@ -905,6 +927,29 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     }
   }
 
+  Future<void> _callDriver(String? phone) async {
+    if (phone == null || phone.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Numéro du livreur indisponible pour le moment')),
+      );
+      return;
+    }
+
+    final telUri = Uri(scheme: 'tel', path: phone.trim());
+    if (await canLaunchUrl(telUri)) {
+      await launchUrl(telUri);
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('Impossible d’ouvrir l’application téléphone')),
+    );
+  }
+
   Widget _buildInfoSection(dynamic parcel, {bool isRecipient = false}) {
     return Column(
       children: [
@@ -965,15 +1010,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.4)),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
         ),
         child: Row(
           children: [
             Icon(Icons.timer_outlined, size: 18, color: color),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            Text(label,
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.w600, fontSize: 13)),
           ],
         ),
       ),
@@ -1018,17 +1065,21 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
-  void _showChangeModeDialog(BuildContext context, WidgetRef ref, Parcel parcel) {
+  void _showChangeModeDialog(
+      BuildContext context, WidgetRef ref, Parcel parcel) {
     final isCurrentlyHome = parcel.deliveryMode.endsWith('_to_home');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile'),
+        title: Text(
+            isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile'),
         content: Text(isCurrentlyHome
             ? 'Votre colis sera déposé dans un relais près de chez vous. Le prix sera recalculé.'
             : 'Un livreur apportera le colis à votre adresse. Le prix sera recalculé.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
@@ -1039,26 +1090,59 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   // Vers relais — on laisse le backend choisir le relais le plus proche
                   // Pour l'instant, on demande le relais destination d'origine s'il existe
                   body['new_mode'] = 'relay';
-                  body['relay_id'] = parcel.destinationRelayId ?? '';
-                  if (body['relay_id'] == '') {
+                  double? relaySearchLat;
+                  double? relaySearchLng;
+                  try {
+                    final pos = await Geolocator.getCurrentPosition(
+                        desiredAccuracy: LocationAccuracy.high);
+                    relaySearchLat = pos.latitude;
+                    relaySearchLng = pos.longitude;
+                  } catch (_) {
+                    relaySearchLat =
+                        parcel.destinationLat ?? parcel.deliveryLat;
+                    relaySearchLng =
+                        parcel.destinationLng ?? parcel.deliveryLng;
+                  }
+                  if (relaySearchLat == null || relaySearchLng == null) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Aucun relais de destination trouvé. Contactez le support.'),
+                        content: Text(
+                            'Aucun relais de destination trouvé. Contactez le support.'),
                       ));
                     }
                     return;
                   }
+                  body['lat'] = relaySearchLat;
+                  body['lng'] = relaySearchLng;
+                  try {
+                    final nearbyResponse = await api.getNearbyRelays(
+                        relaySearchLat, relaySearchLng);
+                    final nearbyData = Map<String, dynamic>.from(
+                      nearbyResponse.data as Map<String, dynamic>? ?? const {},
+                    );
+                    final nearbyRelays = List<Map<String, dynamic>>.from(
+                      nearbyData['relay_points'] as List? ?? const [],
+                    );
+                    if (nearbyRelays.isNotEmpty) {
+                      body['relay_id'] =
+                          nearbyRelays.first['relay_id']?.toString();
+                      body['selected_relay_name'] =
+                          nearbyRelays.first['name']?.toString();
+                    }
+                  } catch (_) {}
                 } else {
                   // Vers domicile — utiliser le GPS actuel
                   body['new_mode'] = 'home';
                   try {
-                    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+                    final pos = await Geolocator.getCurrentPosition(
+                        desiredAccuracy: LocationAccuracy.high);
                     body['lat'] = pos.latitude;
                     body['lng'] = pos.longitude;
                   } catch (_) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Impossible d\'obtenir votre position GPS.'),
+                        content:
+                            Text('Impossible d\'obtenir votre position GPS.'),
                       ));
                     }
                     return;
@@ -1068,14 +1152,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 if (context.mounted) {
                   ref.invalidate(parcelProvider(widget.id));
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}'),
+                    content: Text(
+                        'Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}'),
                     backgroundColor: Colors.green,
                   ));
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                    SnackBar(
+                        content: Text('Erreur: $e'),
+                        backgroundColor: Colors.red),
                   );
                 }
               }

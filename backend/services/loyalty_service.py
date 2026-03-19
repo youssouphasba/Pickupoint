@@ -2,12 +2,12 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from database import db
+from services.user_service import get_global_app_settings, get_referral_bonus_xof
 
 logger = logging.getLogger(__name__)
 
 # Config from PLAN_RECOMPENSES_PROMOTIONS.md
 POINTS_PER_DELIVERY = 10
-REFERRAL_BONUS_XOF = 500
 
 # Tiers thresholds and discounts
 TIER_BRONZE = "bronze"
@@ -82,6 +82,12 @@ async def _check_referral_bonus(user_id: str):
     if delivery_count == 1:
         parrain_id = user["referred_by"]
         now = datetime.now(timezone.utc)
+        settings_doc = await get_global_app_settings()
+        bonus_xof = get_referral_bonus_xof(settings_doc)
+        if bonus_xof <= 0:
+            logger.info("Referral bonus disabled by settings for user %s", user_id)
+            return
+        REFERRAL_BONUS_XOF = bonus_xof
 
         # Credit filleul
         await _add_to_wallet(user_id, REFERRAL_BONUS_XOF, "referral_bonus", "Bonus parrainage — 1ère livraison", now)

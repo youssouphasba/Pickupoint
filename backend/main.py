@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
@@ -16,7 +16,7 @@ from database import connect_db, close_db, db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications, promotions, legal
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications, promotions, legal, app_settings
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -45,17 +45,28 @@ async def _auto_release_stuck_missions() -> None:
             released = 0
             async for mission in cursor:
                 now = datetime.now(timezone.utc)
-                await _db.delivery_missions.update_one(
-                    {"mission_id": mission["mission_id"]},
+                update_result = await _db.delivery_missions.update_one(
+                    {
+                        "mission_id": mission["mission_id"],
+                        "status": "assigned",
+                        "assigned_at": {"$lt": cutoff},
+                        "started_at": None,
+                        "driver_id": mission.get("driver_id"),
+                    },
                     {"$set": {
-                        "status":      "pending",
-                        "driver_id":   None,
+                        "status": "pending",
+                        "driver_id": None,
                         "assigned_at": None,
-                        "updated_at":  now,
+                        "updated_at": now,
                     }},
                 )
+                if update_result.modified_count == 0:
+                    continue
                 await _db.parcels.update_one(
-                    {"parcel_id": mission["parcel_id"]},
+                    {
+                        "parcel_id": mission["parcel_id"],
+                        "assigned_driver_id": mission.get("driver_id"),
+                    },
                     {"$set": {"assigned_driver_id": None, "updated_at": now}},
                 )
                 released += 1
@@ -288,11 +299,37 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else ["https://pickupoint.sn"],
+    allow_origins=["http://localhost:3000", "http://localhost:8080", "http://localhost:8001"] if settings.DEBUG else ["https://pickupoint.sn", "https://denkma.sn"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(self)",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "img-src 'self' data: https:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self' https:; "
+        "media-src 'self' https: data: blob:;",
+    )
+    return response
 
 # Static files (uploads)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -303,6 +340,7 @@ app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(confirm.router, prefix="/confirm", tags=["Confirmation GPS"])  # lien SMS/WhatsApp
 app.include_router(legal.router, prefix="/api/legal", tags=["Legal"])
+app.include_router(app_settings.router, prefix="/api/settings", tags=["App Settings"])
 
 # Routers — avec auth
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

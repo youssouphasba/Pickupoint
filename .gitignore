@@ -41,14 +41,22 @@ venv.bak/
 desktop.ini
 Thumbs.db
 
-# Firebase
+# Firebase / credentials
 google-services.json
 GoogleService-Info.plist
 firebase-service-account.json
+*-adminsdk-*.json
+firebase-debug.log
+
+# Secrets — ne jamais commit
+*.env
+.env*
+!.env.example
+!backend/.env.example
+backend/.env.railway
 
 # Project specific
 backend/__pycache__/
-backend/.env
 backend/.venv
 ios_replacements.txt
 mobile/.dart_tool/

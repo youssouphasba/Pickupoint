@@ -1,17 +1,28 @@
 """
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, Field
 
 from core.dependencies import require_role
 from core.exceptions import not_found_exception, bad_request_exception
+from core.limiter import limiter
 from database import db
 from models.common import UserRole, ParcelStatus
+from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
-from services.notification_service import notify_payout_result, notify_relay_agent_parcel_arrived
+from services.notification_service import notify_payout_result
+from services.user_service import (
+    build_referral_url,
+    get_referral_bonus_xof,
+    get_referral_share_base_url,
+    is_referral_enabled_for_user,
+    is_referral_globally_enabled,
+)
+from services.wallet_service import record_wallet_transaction
 
 router = APIRouter()
 
@@ -19,20 +30,141 @@ require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 
 
 class PaymentOverrideRequest(BaseModel):
-    reason: str
+    reason: str = Field(..., min_length=3, max_length=300)
+
+
+class AdminDecisionRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=300)
+
+
+class MissionReassignRequest(BaseModel):
+    new_driver_id: str = Field(..., min_length=3, max_length=64)
+    reason: str = Field("Reassignation admin", min_length=3, max_length=300)
+
+
+class ReferralSettingsRequest(BaseModel):
+    enabled: bool
+    bonus_xof: int = Field(500, ge=0, le=1000000)
+    share_base_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class UserReferralAccessRequest(BaseModel):
+    enabled_override: Optional[bool] = None
+
+
+def _pick_snapshot(doc: dict | None, fields: list[str]) -> dict:
+    if not doc:
+        return {}
+    return {field: doc.get(field) for field in fields}
+
+
+def _user_identity_snapshot(user: dict | None) -> dict | None:
+    if not user:
+        return None
+    return {
+        "user_id": user.get("user_id"),
+        "name": user.get("name"),
+        "phone": user.get("phone"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+        "profile_picture_url": user.get("profile_picture_url"),
+        "is_active": user.get("is_active", True),
+        "is_banned": user.get("is_banned", False),
+        "is_available": user.get("is_available", False),
+        "kyc_status": user.get("kyc_status", "none"),
+        "relay_point_id": user.get("relay_point_id"),
+        "deliveries_completed": user.get("deliveries_completed", 0),
+        "average_rating": user.get("average_rating", 0.0),
+        "total_earned": user.get("total_earned", 0.0),
+        "created_at": user.get("created_at"),
+        "updated_at": user.get("updated_at"),
+        "last_driver_location": user.get("last_driver_location"),
+        "last_driver_location_at": user.get("last_driver_location_at"),
+    }
+
+
+def _relay_identity_snapshot(relay: dict | None) -> dict | None:
+    if not relay:
+        return None
+    return {
+        "relay_id": relay.get("relay_id"),
+        "name": relay.get("name"),
+        "phone": relay.get("phone"),
+        "description": relay.get("description"),
+        "relay_type": relay.get("relay_type"),
+        "address": relay.get("address"),
+        "opening_hours": relay.get("opening_hours"),
+        "owner_user_id": relay.get("owner_user_id"),
+        "agent_user_ids": relay.get("agent_user_ids") or [],
+        "max_capacity": relay.get("max_capacity", 0),
+        "current_load": relay.get("current_load", 0),
+        "coverage_radius_km": relay.get("coverage_radius_km"),
+        "score": relay.get("score"),
+        "is_active": relay.get("is_active", True),
+        "is_verified": relay.get("is_verified", False),
+        "store_id": relay.get("store_id"),
+        "external_ref": relay.get("external_ref"),
+        "created_at": relay.get("created_at"),
+        "updated_at": relay.get("updated_at"),
+    }
 
 
 @router.get("/dashboard", summary="KPIs temps réel")
 async def dashboard(_admin=Depends(require_admin_dep)):
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    fleet_cutoff = now - timedelta(hours=1)
+    signal_lost_cutoff = now - timedelta(minutes=20)
+    long_mission_cutoff = now - timedelta(hours=3)
+    stale_cutoff = now - timedelta(days=7)
+    active_statuses = [
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.IN_TRANSIT.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+        ParcelStatus.INCIDENT_REPORTED.value,
+    ]
+    stale_statuses = [
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+    ]
+    payment_blocked_statuses = [
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+    ]
 
     total_parcels = await db.parcels.count_documents({})
     parcels_today = await db.parcels.count_documents({"created_at": {"$gte": today_start}})
     delivered     = await db.parcels.count_documents({"status": ParcelStatus.DELIVERED.value})
     failed        = await db.parcels.count_documents({"status": ParcelStatus.DELIVERY_FAILED.value})
+    active_parcels = await db.parcels.count_documents({"status": {"$in": active_statuses}})
+    pending_payouts = await db.payout_requests.count_documents({"status": "pending"})
     active_relays = await db.relay_points.count_documents({"is_active": True})
     active_drivers = await db.users.count_documents({"role": UserRole.DRIVER.value, "is_active": True})
+    live_fleet = await db.delivery_missions.count_documents({"location_updated_at": {"$gte": fleet_cutoff}})
+    signal_lost = await db.delivery_missions.count_documents({
+        "status": {"$in": ["assigned", "in_progress"]},
+        "location_updated_at": {"$lt": signal_lost_cutoff},
+    })
+    critical_delay = await db.delivery_missions.count_documents({
+        "status": {"$in": ["assigned", "in_progress"]},
+        "assigned_at": {"$lt": long_mission_cutoff},
+    })
+    stale_parcels = await db.parcels.count_documents({
+        "status": {"$in": stale_statuses},
+        "updated_at": {"$lt": stale_cutoff},
+    })
+    payment_blocked_parcels = await db.parcels.count_documents({
+        "status": {"$in": payment_blocked_statuses},
+        "payment_status": {"$ne": "paid"},
+        "payment_override": {"$ne": True},
+    })
 
     success_rate = round(delivered / total_parcels * 100, 1) if total_parcels else 0.0
 
@@ -49,9 +181,16 @@ async def dashboard(_admin=Depends(require_admin_dep)):
         "parcels_today":  parcels_today,
         "delivered":      delivered,
         "failed":         failed,
+        "active_parcels": active_parcels,
+        "pending_payouts": pending_payouts,
         "success_rate":   success_rate,
         "active_relays":  active_relays,
         "active_drivers": active_drivers,
+        "live_fleet":     live_fleet,
+        "signal_lost":    signal_lost,
+        "critical_delay": critical_delay,
+        "stale_parcels":  stale_parcels,
+        "payment_blocked_parcels": payment_blocked_parcels,
         "revenue_xof":    ca,
     }
 
@@ -100,14 +239,19 @@ async def admin_confirm_payment(
 
 
 @router.post("/parcels/{parcel_id}/payment-override", summary="Lever le blocage paiement d'un colis")
+@limiter.limit("10/minute")
 async def admin_payment_override(
     parcel_id: str,
     body: PaymentOverrideRequest,
+    request: Request,
     _admin=Depends(require_admin_dep),
 ):
     reason = body.reason.strip()
     if not reason:
         raise bad_request_exception("Le motif d'override paiement est obligatoire")
+    before = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not before:
+        raise not_found_exception("Colis")
 
     now = datetime.now(timezone.utc)
     result = await db.parcels.update_one(
@@ -131,6 +275,22 @@ async def admin_payment_override(
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
         notes=reason,
+        metadata={
+            "before": _pick_snapshot(before, [
+                "payment_status",
+                "payment_override",
+                "payment_override_reason",
+                "payment_override_by",
+                "payment_override_at",
+            ]),
+            "after": _pick_snapshot(parcel, [
+                "payment_status",
+                "payment_override",
+                "payment_override_reason",
+                "payment_override_by",
+                "payment_override_at",
+            ]),
+        },
     )
     return {"message": "Blocage paiement levé", "parcel_id": parcel_id}
 
@@ -214,36 +374,94 @@ async def admin_pending_payouts(_admin=Depends(require_admin_dep)):
 
 
 @router.put("/wallets/payouts/{payout_id}/approve", summary="Valider retrait")
-async def approve_payout(payout_id: str, _admin=Depends(require_admin_dep)):
+@limiter.limit("10/minute")
+async def approve_payout(
+    payout_id: str,
+    request: Request,
+    _admin=Depends(require_admin_dep),
+):
     payout = await db.payout_requests.find_one({"payout_id": payout_id}, {"_id": 0})
     if not payout:
         raise not_found_exception("Demande de retrait")
+    wallet_before = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
 
     now = datetime.now(timezone.utc)
-    await db.payout_requests.update_one(
-        {"payout_id": payout_id},
-        {"$set": {"status": "approved", "updated_at": now}},
+    payout_result = await db.payout_requests.update_one(
+        {"payout_id": payout_id, "status": "pending"},
+        {"$set": {
+            "status": "approved",
+            "approved_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+            "approved_at": now,
+            "updated_at": now,
+        }},
     )
-    # Libérer le pending
-    await db.wallets.update_one(
-        {"wallet_id": payout["wallet_id"]},
+    if payout_result.matched_count == 0:
+        raise bad_request_exception("Ce retrait n'est plus en attente")
+
+    wallet_result = await db.wallets.update_one(
+        {"wallet_id": payout["wallet_id"], "pending": {"$gte": payout["amount"]}},
         {"$inc": {"pending": -payout["amount"]}, "$set": {"updated_at": now}},
     )
-    
+    if wallet_result.modified_count == 0:
+        await db.payout_requests.update_one(
+            {"payout_id": payout_id, "status": "approved"},
+            {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise bad_request_exception("Solde bloque incoherent pour cette demande")
+
+    wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
+    await record_wallet_transaction(
+        wallet_id=payout["wallet_id"],
+        amount=payout["amount"],
+        tx_type=TransactionType.DEBIT.value,
+        description="Retrait approuve et verse",
+        reference=payout_id,
+        ensure_unique=True,
+    )
+
     await _record_event(
         event_type="PAYOUT_APPROVED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=f"Retrait approuvé pour le montant {payout['amount']} XOF",
-        metadata={"payout_id": payout_id, "amount": payout["amount"]}
+        notes=f"Retrait approuve pour le montant {payout['amount']} XOF",
+        metadata={
+            "payout_id": payout_id,
+            "amount": payout["amount"],
+            "before": {
+                "payout": _pick_snapshot(payout, [
+                    "status",
+                    "amount",
+                    "method",
+                    "phone",
+                    "created_at",
+                ]),
+                "wallet": _pick_snapshot(wallet_before, [
+                    "balance",
+                    "pending",
+                    "updated_at",
+                ]),
+            },
+            "after": {
+                "payout": {
+                    "status": "approved",
+                    "approved_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+                    "approved_at": now,
+                },
+                "wallet": _pick_snapshot(wallet_after, [
+                    "balance",
+                    "pending",
+                    "updated_at",
+                ]),
+            },
+        },
     )
-    
-    # Notifier le driver/relay
+
     owner_id = payout.get("user_id") or payout.get("owner_id")
     if owner_id:
         await notify_payout_result(owner_id, payout["amount"], approved=True)
 
-    return {"message": "Retrait approuvé", "payout_id": payout_id}
+    return {"message": "Retrait approuve", "payout_id": payout_id}
+
 
 
 # ── Gestion des Utilisateurs & Bannissement ───────────────────────────────────
@@ -266,62 +484,302 @@ async def admin_list_users(
     return {"users": users, "total": total}
 
 
-@router.post("/users/{user_id}/ban", summary="Bannir un utilisateur")
-async def admin_ban_user(
+@router.get("/users/{user_id}/detail", summary="Fiche detaillee d'un utilisateur")
+async def admin_user_detail(
     user_id: str,
     _admin=Depends(require_admin_dep),
 ):
-    """
-    Marque un utilisateur comme banni. 
-    Empêche toute nouvelle connexion et invalide les sessions actives.
-    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise not_found_exception("Utilisateur")
+
+    phone_candidates = [candidate for candidate in {user.get("phone")} if candidate]
+    received_query = {"recipient_user_id": user_id}
+    if phone_candidates:
+        received_query = {
+            "$or": [
+                {"recipient_user_id": user_id},
+                {"recipient_phone": {"$in": phone_candidates}},
+            ]
+        }
+
+    linked_relay = None
+    relay_id = user.get("relay_point_id")
+    if relay_id:
+        relay_doc = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+        linked_relay = _relay_identity_snapshot(relay_doc)
+
+    wallet = await db.wallets.find_one({"owner_id": user_id}, {"_id": 0})
+    active_mission = await db.delivery_missions.find_one(
+        {"driver_id": user_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {"_id": 0},
+        sort=[("updated_at", -1)],
+    )
+    last_mission = await db.delivery_missions.find_one(
+        {"driver_id": user_id},
+        {"_id": 0},
+        sort=[("updated_at", -1)],
+    )
+    recent_events = await db.parcel_events.find(
+        {"actor_id": user_id},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(10).to_list(length=10)
+    last_session = await db.user_sessions.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "refresh_token": 0},
+        sort=[("created_at", -1)],
+    )
+    active_sessions = await db.user_sessions.count_documents(
+        {"user_id": user_id, "expires_at": {"$gte": datetime.now(timezone.utc)}}
+    )
+    app_settings = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    referred_by_user = None
+    if user.get("referred_by"):
+        referred_by_user = await db.users.find_one(
+            {"user_id": user["referred_by"]},
+            {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1},
+        )
+
+    return {
+        "user": user,
+        "summary": {
+            "parcels_sent": await db.parcels.count_documents({"sender_user_id": user_id}),
+            "parcels_received": await db.parcels.count_documents(received_query),
+            "missions_count": await db.delivery_missions.count_documents({"driver_id": user_id}),
+            "active_sessions": active_sessions,
+        },
+        "linked_relay": linked_relay,
+        "wallet": _pick_snapshot(
+            wallet,
+            [
+                "wallet_id",
+                "owner_type",
+                "balance",
+                "pending",
+                "currency",
+                "updated_at",
+            ],
+        ),
+        "active_mission": _pick_snapshot(
+            active_mission,
+            [
+                "mission_id",
+                "parcel_id",
+                "status",
+                "pickup_label",
+                "delivery_label",
+                "assigned_at",
+                "updated_at",
+                "location_updated_at",
+                "driver_location",
+            ],
+        ),
+        "last_mission": _pick_snapshot(
+            last_mission,
+            [
+                "mission_id",
+                "parcel_id",
+                "status",
+                "pickup_label",
+                "delivery_label",
+                "assigned_at",
+                "completed_at",
+                "updated_at",
+            ],
+        ),
+        "last_session": last_session,
+        "recent_events": recent_events,
+        "referral": {
+            "code": user.get("referral_code"),
+            "referred_by": user.get("referred_by"),
+            "referred_by_user": referred_by_user,
+            "referral_credited": user.get("referral_credited", False),
+            "enabled_override": user.get("referral_enabled_override"),
+            "effective_enabled": is_referral_enabled_for_user(user, app_settings),
+            "share_base_url": get_referral_share_base_url(app_settings),
+            "referral_url": build_referral_url(
+                user.get("referral_code", ""),
+                get_referral_share_base_url(app_settings),
+            ),
+            "bonus_xof": get_referral_bonus_xof(app_settings),
+            "referrals_count": await db.users.count_documents({"referred_by": user_id}),
+        },
+    }
+
+
+@router.post("/users/{user_id}/ban", summary="Bannir un utilisateur")
+@limiter.limit("10/minute")
+async def admin_ban_user(
+    user_id: str,
+    body: AdminDecisionRequest,
+    request: Request,
+    _admin=Depends(require_admin_dep),
+):
+    """Marque un utilisateur comme banni et trace le motif."""
+    reason = body.reason.strip()
+    if not reason:
+        raise bad_request_exception("Le motif du bannissement est obligatoire")
+
+    admin_user_id = _admin.get("user_id") if isinstance(_admin, dict) else None
+    if admin_user_id and admin_user_id == user_id:
+        raise bad_request_exception("Vous ne pouvez pas vous bannir vous-meme")
+
+    before = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not before:
+        raise not_found_exception("Utilisateur")
+
     now = datetime.now(timezone.utc)
     result = await db.users.update_one(
         {"user_id": user_id},
-        {"$set": {"is_banned": True, "updated_at": now}}
+        {"$set": {
+            "is_banned": True,
+            "ban_reason": reason,
+            "banned_by": admin_user_id or "admin",
+            "banned_at": now,
+            "updated_at": now,
+        }}
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
-    
-    # Invalider toutes les sessions en cours
+
     await db.user_sessions.delete_many({"user_id": user_id})
-    
+    after = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
     await _record_event(
         event_type="USER_BANNED",
-        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_id=admin_user_id or "admin",
         actor_role="admin",
-        notes=f"Utilisateur {user_id} banni par l'administration",
-        metadata={"target_user_id": user_id}
+        notes=reason,
+        metadata={
+            "target_user_id": user_id,
+            "before": _pick_snapshot(before, [
+                "role",
+                "is_active",
+                "is_banned",
+                "ban_reason",
+                "banned_by",
+                "banned_at",
+                "updated_at",
+            ]),
+            "after": _pick_snapshot(after, [
+                "role",
+                "is_active",
+                "is_banned",
+                "ban_reason",
+                "banned_by",
+                "banned_at",
+                "updated_at",
+            ]),
+        }
     )
-    
-    return {"message": "Utilisateur banni et sessions révoquées"}
+
+    return {"message": "Utilisateur banni et sessions revoquees"}
 
 
 @router.post("/users/{user_id}/unban", summary="Lever le bannissement")
 async def admin_unban_user(
     user_id: str,
+    body: AdminDecisionRequest,
     _admin=Depends(require_admin_dep),
 ):
+    reason = body.reason.strip()
+    if not reason:
+        raise bad_request_exception("Le motif du debannissement est obligatoire")
+
+    before = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not before:
+        raise not_found_exception("Utilisateur")
+
     now = datetime.now(timezone.utc)
     result = await db.users.update_one(
         {"user_id": user_id},
-        {"$set": {"is_banned": False, "updated_at": now}}
+        {"$set": {
+            "is_banned": False,
+            "unban_reason": reason,
+            "unbanned_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+            "unbanned_at": now,
+            "updated_at": now,
+        }}
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
-    
+
+    after = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
     await _record_event(
         event_type="USER_UNBANNED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=f"Bannissement levé pour l'utilisateur {user_id}",
-        metadata={"target_user_id": user_id}
+        notes=reason,
+        metadata={
+            "target_user_id": user_id,
+            "before": _pick_snapshot(before, [
+                "role",
+                "is_active",
+                "is_banned",
+                "ban_reason",
+                "banned_by",
+                "banned_at",
+                "updated_at",
+            ]),
+            "after": _pick_snapshot(after, [
+                "role",
+                "is_active",
+                "is_banned",
+                "unban_reason",
+                "unbanned_by",
+                "unbanned_at",
+                "updated_at",
+            ]),
+        }
     )
-    
-    return {"message": "Bannissement levé"}
+
+    return {"message": "Bannissement leve"}
 
 
-# ── Nouveaux Endpoints "Contrôle Max" (Phase 9) ────────────────────────────────
+@router.put("/users/{user_id}/referral-access", summary="Configurer l'acces parrainage d'un utilisateur")
+async def admin_set_user_referral_access(
+    user_id: str,
+    body: UserReferralAccessRequest,
+    _admin=Depends(require_admin_dep),
+):
+    before = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not before:
+        raise not_found_exception("Utilisateur")
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "referral_enabled_override": body.enabled_override,
+            "updated_at": now,
+        }},
+    )
+    after = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    await _record_event(
+        event_type="USER_REFERRAL_ACCESS_UPDATED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes="Acces parrainage utilisateur mis a jour",
+        metadata={
+            "target_user_id": user_id,
+            "before": {
+                "referral_enabled_override": before.get("referral_enabled_override"),
+                "effective_enabled": is_referral_enabled_for_user(before, settings_doc),
+            },
+            "after": {
+                "referral_enabled_override": after.get("referral_enabled_override"),
+                "effective_enabled": is_referral_enabled_for_user(after, settings_doc),
+            },
+        },
+    )
+    return {
+        "user_id": user_id,
+        "enabled_override": after.get("referral_enabled_override"),
+        "effective_enabled": is_referral_enabled_for_user(after, settings_doc),
+    }
+
 
 @router.get("/fleet/live", summary="Position GPS temps réel de la flotte")
 async def get_live_fleet(_admin=Depends(require_admin_dep)):
@@ -399,7 +857,10 @@ async def get_anomaly_alerts(_admin=Depends(require_admin_dep)):
             "type": "signal_lost",
             "severity": "high",
             "mission_id": m["mission_id"],
+            "parcel_id": m.get("parcel_id"),
             "driver_id": m["driver_id"],
+            "mission_status": m.get("status"),
+            "can_reassign": m.get("status") in {"pending", "assigned", "incident_reported"},
             "last_seen": m.get("location_updated_at"),
             "description": "Aucun signal GPS depuis plus de 20 minutes."
         })
@@ -419,7 +880,10 @@ async def get_anomaly_alerts(_admin=Depends(require_admin_dep)):
             "type": "critical_delay",
             "severity": "medium",
             "mission_id": m["mission_id"],
+            "parcel_id": m.get("parcel_id"),
             "driver_id": m["driver_id"],
+            "mission_status": m.get("status"),
+            "can_reassign": m.get("status") in {"pending", "assigned", "incident_reported"},
             "assigned_at": m.get("assigned_at"),
             "description": "Mission active depuis plus de 3 heures."
         })
@@ -572,6 +1036,92 @@ async def get_user_history(user_id: str, _admin=Depends(require_admin_dep)):
     }
 
 
+@router.get("/relay-points/{relay_id}/detail", summary="Fiche detaillee d'un point relais")
+async def admin_relay_point_detail(
+    relay_id: str,
+    _admin=Depends(require_admin_dep),
+):
+    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+    if not relay:
+        raise not_found_exception("Point relais")
+
+    owner = await db.users.find_one({"user_id": relay.get("owner_user_id")}, {"_id": 0})
+    agent_ids = set(relay.get("agent_user_ids") or [])
+    agent_filter = []
+    if agent_ids:
+        agent_filter.append({"user_id": {"$in": list(agent_ids)}})
+    agent_filter.append({"relay_point_id": relay_id})
+    agents = await db.users.find(
+        {"$or": agent_filter},
+        {"_id": 0},
+    ).to_list(length=20)
+
+    stock_summary = {
+        "pending_origin": await db.parcels.count_documents({
+            "origin_relay_id": relay_id,
+            "status": "dropped_at_origin_relay",
+        }),
+        "incoming": await db.parcels.count_documents({
+            "destination_relay_id": relay_id,
+            "status": "in_transit",
+        }),
+        "available": await db.parcels.count_documents({
+            "$or": [
+                {
+                    "destination_relay_id": relay_id,
+                    "status": {"$in": ["at_destination_relay", "available_at_relay"]},
+                },
+                {
+                    "redirect_relay_id": relay_id,
+                    "status": {"$in": ["redirected_to_relay", "at_destination_relay", "available_at_relay"]},
+                },
+            ]
+        }),
+        "delivered_total": await db.parcels.count_documents({
+            "status": "delivered",
+            "$or": [
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+            ],
+        }),
+    }
+
+    recent_parcels = await db.parcels.find(
+        {
+            "$or": [
+                {"origin_relay_id": relay_id},
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+            ]
+        },
+        {"_id": 0},
+    ).sort("updated_at", -1).limit(8).to_list(length=8)
+
+    relay_wallet = await db.wallets.find_one(
+        {"owner_id": relay.get("owner_user_id"), "owner_type": "relay"},
+        {"_id": 0},
+    )
+
+    return {
+        "relay_point": relay,
+        "owner": _user_identity_snapshot(owner),
+        "agents": [_user_identity_snapshot(agent) for agent in agents],
+        "stock_summary": stock_summary,
+        "wallet": _pick_snapshot(
+            relay_wallet,
+            [
+                "wallet_id",
+                "owner_type",
+                "balance",
+                "pending",
+                "currency",
+                "updated_at",
+            ],
+        ),
+        "recent_parcels": recent_parcels,
+    }
+
+
 @router.get("/finance/cod-monitoring", summary="Suivi du cash autorisé")
 async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     """
@@ -588,11 +1138,285 @@ async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     return {"entities": drivers_cash}
 
 
-    return {"message": "Mission réassignée avec succès"}
+@router.get("/finance/reconciliation", summary="Rapport de reconciliation finance et operations")
+async def get_finance_reconciliation(_admin=Depends(require_admin_dep)):
+    wallets = await db.wallets.find(
+        {},
+        {
+            "_id": 0,
+            "wallet_id": 1,
+            "owner_id": 1,
+            "owner_type": 1,
+            "balance": 1,
+            "pending": 1,
+            "currency": 1,
+            "updated_at": 1,
+        },
+    ).to_list(length=2000)
+    payouts = await db.payout_requests.find(
+        {},
+        {
+            "_id": 0,
+            "payout_id": 1,
+            "wallet_id": 1,
+            "owner_id": 1,
+            "amount": 1,
+            "method": 1,
+            "phone": 1,
+            "status": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        },
+    ).to_list(length=5000)
+    txs = await db.wallet_transactions.find(
+        {"reference": {"$ne": None}},
+        {
+            "_id": 0,
+            "wallet_id": 1,
+            "reference": 1,
+            "tx_type": 1,
+            "amount": 1,
+            "created_at": 1,
+        },
+    ).to_list(length=10000)
+
+    tx_index = {
+        (tx.get("wallet_id"), tx.get("reference"), tx.get("tx_type")): tx
+        for tx in txs
+        if tx.get("reference")
+    }
+
+    pending_by_wallet: dict[str, float] = {}
+    for payout in payouts:
+        if payout.get("status") == "pending":
+            wallet_id = payout.get("wallet_id")
+            pending_by_wallet[wallet_id] = pending_by_wallet.get(wallet_id, 0.0) + float(payout.get("amount", 0.0) or 0.0)
+
+    wallet_pending_mismatches = []
+    negative_wallets = []
+    for wallet in wallets:
+        wallet_id = wallet["wallet_id"]
+        expected_pending = round(pending_by_wallet.get(wallet_id, 0.0), 2)
+        actual_pending = round(float(wallet.get("pending", 0.0) or 0.0), 2)
+        if abs(actual_pending - expected_pending) > 0.01:
+            wallet_pending_mismatches.append({
+                "wallet_id": wallet_id,
+                "owner_id": wallet.get("owner_id"),
+                "owner_type": wallet.get("owner_type"),
+                "wallet_pending": actual_pending,
+                "expected_pending": expected_pending,
+                "updated_at": wallet.get("updated_at"),
+            })
+        if float(wallet.get("balance", 0.0) or 0.0) < 0 or actual_pending < 0:
+            negative_wallets.append({
+                "wallet_id": wallet_id,
+                "owner_id": wallet.get("owner_id"),
+                "owner_type": wallet.get("owner_type"),
+                "balance": float(wallet.get("balance", 0.0) or 0.0),
+                "pending": actual_pending,
+                "updated_at": wallet.get("updated_at"),
+            })
+
+    payout_ledger_gaps = []
+    expected_tx_types = {
+        "pending": TransactionType.PENDING.value,
+        "approved": TransactionType.DEBIT.value,
+        "rejected": TransactionType.CREDIT.value,
+    }
+    for payout in payouts:
+        expected_type = expected_tx_types.get(payout.get("status"))
+        if not expected_type:
+            continue
+        key = (payout.get("wallet_id"), payout.get("payout_id"), expected_type)
+        if key not in tx_index:
+            payout_ledger_gaps.append({
+                "payout_id": payout.get("payout_id"),
+                "wallet_id": payout.get("wallet_id"),
+                "owner_id": payout.get("owner_id"),
+                "status": payout.get("status"),
+                "expected_tx_type": expected_type,
+                "amount": float(payout.get("amount", 0.0) or 0.0),
+                "updated_at": payout.get("updated_at"),
+            })
+
+    active_missions = await db.delivery_missions.find(
+        {"status": {"$in": ["pending", "assigned", "in_progress"]}},
+        {"_id": 0, "mission_id": 1, "parcel_id": 1, "status": 1, "driver_id": 1, "updated_at": 1},
+    ).to_list(length=1000)
+    active_parcel_statuses = {
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.IN_TRANSIT.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+        ParcelStatus.INCIDENT_REPORTED.value,
+        ParcelStatus.SUSPENDED.value,
+    }
+    mission_parcel_mismatches = []
+    if active_missions:
+        parcel_ids = [mission["parcel_id"] for mission in active_missions if mission.get("parcel_id")]
+        parcels = await db.parcels.find(
+            {"parcel_id": {"$in": parcel_ids}},
+            {"_id": 0, "parcel_id": 1, "status": 1, "payment_status": 1, "payment_override": 1, "updated_at": 1},
+        ).to_list(length=len(parcel_ids))
+        parcel_map = {parcel["parcel_id"]: parcel for parcel in parcels}
+        for mission in active_missions:
+            parcel = parcel_map.get(mission.get("parcel_id"))
+            if not parcel or parcel.get("status") not in active_parcel_statuses:
+                mission_parcel_mismatches.append({
+                    "mission_id": mission.get("mission_id"),
+                    "parcel_id": mission.get("parcel_id"),
+                    "mission_status": mission.get("status"),
+                    "parcel_status": parcel.get("status") if parcel else None,
+                    "driver_id": mission.get("driver_id"),
+                    "updated_at": mission.get("updated_at"),
+                })
+
+    delivered_unpaid = await db.parcels.find(
+        {
+            "status": ParcelStatus.DELIVERED.value,
+            "payment_status": {"$ne": "paid"},
+            "payment_override": {"$ne": True},
+            "who_pays": {"$ne": "recipient"},
+        },
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "tracking_code": 1,
+            "payment_status": 1,
+            "who_pays": 1,
+            "updated_at": 1,
+        },
+    ).to_list(length=100)
+
+    return {
+        "summary": {
+            "wallets_checked": len(wallets),
+            "payouts_checked": len(payouts),
+            "wallet_pending_mismatches": len(wallet_pending_mismatches),
+            "negative_wallets": len(negative_wallets),
+            "payout_ledger_gaps": len(payout_ledger_gaps),
+            "mission_parcel_mismatches": len(mission_parcel_mismatches),
+            "delivered_unpaid": len(delivered_unpaid),
+            "issues_total": (
+                len(wallet_pending_mismatches)
+                + len(negative_wallets)
+                + len(payout_ledger_gaps)
+                + len(mission_parcel_mismatches)
+                + len(delivered_unpaid)
+            ),
+        },
+        "wallet_pending_mismatches": wallet_pending_mismatches[:20],
+        "negative_wallets": negative_wallets[:20],
+        "payout_ledger_gaps": payout_ledger_gaps[:20],
+        "mission_parcel_mismatches": mission_parcel_mismatches[:20],
+        "delivered_unpaid": delivered_unpaid[:20],
+    }
 
 
-from pydantic import BaseModel
-from typing import Optional
+@router.post("/missions/{mission_id}/reassign", summary="Reassigner une mission a un autre livreur")
+async def admin_reassign_mission(
+    mission_id: str,
+    body: MissionReassignRequest,
+    _admin=Depends(require_admin_dep),
+):
+    from models.delivery import MissionStatus
+
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    if mission.get("status") not in {
+        MissionStatus.PENDING.value,
+        MissionStatus.ASSIGNED.value,
+        MissionStatus.INCIDENT_REPORTED.value,
+    }:
+        raise bad_request_exception(
+            "La reassignation directe n'est autorisee qu'avant la collecte ou apres un incident."
+        )
+
+    driver = await db.users.find_one(
+        {
+            "user_id": body.new_driver_id,
+            "role": UserRole.DRIVER.value,
+            "is_active": True,
+        },
+        {"_id": 0, "name": 1, "is_available": 1},
+    )
+    if not driver:
+        raise bad_request_exception("Livreur cible introuvable ou inactif")
+    if driver.get("is_available") is False:
+        raise bad_request_exception("Le livreur cible est actuellement indisponible")
+
+    active_mission = await db.delivery_missions.find_one(
+        {
+            "mission_id": {"$ne": mission_id},
+            "driver_id": body.new_driver_id,
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]},
+        },
+        {"_id": 0, "mission_id": 1},
+    )
+    if active_mission:
+        raise bad_request_exception("Le livreur cible a deja une mission en cours")
+
+    now = datetime.now(timezone.utc)
+    current_candidates = list(mission.get("candidate_drivers") or [])
+    candidate_drivers = [body.new_driver_id] + [
+        driver_id for driver_id in current_candidates if driver_id != body.new_driver_id
+    ]
+
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": {
+            "driver_id": body.new_driver_id,
+            "status": MissionStatus.ASSIGNED.value,
+            "assigned_at": now,
+            "updated_at": now,
+            "is_broadcast": False,
+            "ping_index": 0,
+            "ping_expires_at": None,
+            "candidate_drivers": candidate_drivers,
+        }},
+    )
+    updated_mission = await db.delivery_missions.find_one(
+        {"mission_id": mission_id},
+        {"_id": 0},
+    )
+    await db.parcels.update_one(
+        {"parcel_id": mission["parcel_id"]},
+        {"$set": {
+            "assigned_driver_id": body.new_driver_id,
+            "updated_at": now,
+        }},
+    )
+
+    await _record_event(
+        event_type="MISSION_REASSIGNED",
+        parcel_id=mission.get("parcel_id"),
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=body.reason,
+        metadata={
+            "mission_id": mission_id,
+            "previous_driver_id": mission.get("driver_id"),
+            "new_driver_id": body.new_driver_id,
+        },
+    )
+    if updated_mission:
+        from services.notification_service import notify_new_mission_ping
+
+        await notify_new_mission_ping(body.new_driver_id, updated_mission)
+
+    return {
+        "message": "Mission reassignée avec succes",
+        "mission_id": mission_id,
+        "parcel_id": mission.get("parcel_id"),
+        "driver_id": body.new_driver_id,
+        "driver_name": driver.get("name"),
+    }
+
 
 class IncidentResolutionRequest(BaseModel):
     action: str  # "reassign", "return", "cancel"
@@ -764,47 +1588,118 @@ async def admin_get_audit_log(
 
 
 @router.put("/wallets/payouts/{payout_id}/reject", summary="Rejeter retrait")
-async def reject_payout(payout_id: str, _admin=Depends(require_admin_dep)):
+@limiter.limit("10/minute")
+async def reject_payout(
+    payout_id: str,
+    body: AdminDecisionRequest,
+    request: Request,
+    _admin=Depends(require_admin_dep),
+):
+    reason = body.reason.strip()
+    if not reason:
+        raise bad_request_exception("Le motif du rejet est obligatoire")
+
     payout = await db.payout_requests.find_one({"payout_id": payout_id}, {"_id": 0})
     if not payout:
         raise not_found_exception("Demande de retrait")
     if payout["status"] != "pending":
         raise bad_request_exception("Ce retrait n'est plus en attente")
+    wallet_before = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
 
     now = datetime.now(timezone.utc)
-    await db.payout_requests.update_one(
-        {"payout_id": payout_id},
-        {"$set": {"status": "rejected", "updated_at": now}},
+    payout_result = await db.payout_requests.update_one(
+        {"payout_id": payout_id, "status": "pending"},
+        {"$set": {
+            "status": "rejected",
+            "rejected_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+            "rejected_at": now,
+            "rejection_reason": reason,
+            "updated_at": now,
+        }},
     )
-    # Libérer le montant bloqué → retour au solde disponible
-    await db.wallets.update_one(
-        {"wallet_id": payout["wallet_id"]},
-        {"$inc": {"pending": -payout["amount"], "balance": payout["amount"]}, "$set": {"updated_at": now}},
+    if payout_result.matched_count == 0:
+        raise bad_request_exception("Ce retrait n'est plus en attente")
+
+    wallet_result = await db.wallets.update_one(
+        {"wallet_id": payout["wallet_id"], "pending": {"$gte": payout["amount"]}},
+        {
+            "$inc": {"pending": -payout["amount"], "balance": payout["amount"]},
+            "$set": {"updated_at": now},
+        },
     )
+    if wallet_result.modified_count == 0:
+        await db.payout_requests.update_one(
+            {"payout_id": payout_id, "status": "rejected"},
+            {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
+        )
+        raise bad_request_exception("Solde bloque incoherent pour cette demande")
+
+    wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
+    await record_wallet_transaction(
+        wallet_id=payout["wallet_id"],
+        amount=payout["amount"],
+        tx_type=TransactionType.CREDIT.value,
+        description="Retrait rejete et montant restitue",
+        reference=payout_id,
+        ensure_unique=True,
+    )
+
     await _record_event(
         event_type="PAYOUT_REJECTED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=f"Retrait rejeté pour {payout['amount']} XOF",
-        metadata={"payout_id": payout_id, "amount": payout["amount"]}
+        notes=reason,
+        metadata={
+            "payout_id": payout_id,
+            "amount": payout["amount"],
+            "reason": reason,
+            "before": {
+                "payout": _pick_snapshot(payout, [
+                    "status",
+                    "amount",
+                    "method",
+                    "phone",
+                    "created_at",
+                ]),
+                "wallet": _pick_snapshot(wallet_before, [
+                    "balance",
+                    "pending",
+                    "updated_at",
+                ]),
+            },
+            "after": {
+                "payout": {
+                    "status": "rejected",
+                    "rejected_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+                    "rejected_at": now,
+                    "rejection_reason": reason,
+                },
+                "wallet": _pick_snapshot(wallet_after, [
+                    "balance",
+                    "pending",
+                    "updated_at",
+                ]),
+            },
+        },
     )
-    # Notifier le driver/relay
     owner_id = payout.get("user_id") or payout.get("owner_id")
     if owner_id:
         await notify_payout_result(owner_id, payout["amount"], approved=False)
 
-    return {"message": "Retrait rejeté", "payout_id": payout_id}
+    return {"message": "Retrait rejete", "payout_id": payout_id}
+
 
 
 # ── App Settings (Express, etc.) ─────────────────────────────────────────────
 
 @router.get("/settings", summary="Lire les paramètres globaux de l'app")
 async def get_app_settings(_admin=Depends(require_admin_dep)):
-    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0})
-    if not settings_doc:
-        return {"express_enabled": False}
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
+        "referral_enabled": is_referral_globally_enabled(settings_doc),
+        "referral_bonus_xof": get_referral_bonus_xof(settings_doc),
+        "referral_share_base_url": get_referral_share_base_url(settings_doc),
     }
 
 
@@ -818,3 +1713,48 @@ async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
     )
     status = "activée" if enabled else "désactivée"
     return {"express_enabled": enabled, "message": f"Livraison Express {status}"}
+
+
+@router.put("/settings/referral", summary="Configurer le parrainage")
+async def update_referral_settings(
+    body: ReferralSettingsRequest,
+    _admin=Depends(require_admin_dep),
+):
+    share_base_url = (body.share_base_url or "").strip() or None
+    now = datetime.now(timezone.utc)
+    before = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {
+            "referral_enabled": body.enabled,
+            "referral_bonus_xof": body.bonus_xof,
+            "referral_share_base_url": share_base_url,
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+    after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    await _record_event(
+        event_type="ADMIN_REFERRAL_SETTINGS_UPDATED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes="Configuration du parrainage mise a jour",
+        metadata={
+            "before": {
+                "referral_enabled": before.get("referral_enabled", True),
+                "referral_bonus_xof": before.get("referral_bonus_xof", 500),
+                "referral_share_base_url": before.get("referral_share_base_url"),
+            },
+            "after": {
+                "referral_enabled": after.get("referral_enabled", True),
+                "referral_bonus_xof": after.get("referral_bonus_xof", 500),
+                "referral_share_base_url": after.get("referral_share_base_url"),
+            },
+        },
+    )
+    return {
+        "referral_enabled": is_referral_globally_enabled(after),
+        "referral_bonus_xof": get_referral_bonus_xof(after),
+        "referral_share_base_url": get_referral_share_base_url(after),
+        "message": "Configuration du parrainage mise a jour",
+    }

@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../core/auth/auth_provider.dart';
 
 // Provider local (pas besoin de le déplacer — écran unique)
-final _applicationsProvider = FutureProvider.family<List<Map<String, dynamic>>, String>(
+final _applicationsProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
   (ref, status) async {
     final api = ref.watch(apiClientProvider);
     final res = await api.getAdminApplications(status: status);
     final data = res.data as Map<String, dynamic>;
-    return (data['applications'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
+    return (data['applications'] as List? ?? []).cast<Map<String, dynamic>>();
   },
 );
 
@@ -78,13 +79,16 @@ class _ApplicationsList extends ConsumerWidget {
       data: (apps) {
         if (apps.isEmpty) {
           return Center(
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            child:
+                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade400),
               const SizedBox(height: 12),
               Text(
-                status == 'pending' ? 'Aucune candidature en attente'
-                    : status == 'approved' ? 'Aucune candidature approuvée'
-                    : 'Aucune candidature rejetée',
+                status == 'pending'
+                    ? 'Aucune candidature en attente'
+                    : status == 'approved'
+                        ? 'Aucune candidature approuvée'
+                        : 'Aucune candidature rejetée',
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             ]),
@@ -114,16 +118,16 @@ class _ApplicationCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final type   = app['type'] as String;
+    final type = app['type'] as String;
     final status = app['status'] as String;
-    final data   = app['data'] as Map<String, dynamic>? ?? {};
-    final phone  = app['user_phone'] as String? ?? '—';
-    final name   = app['user_name'] as String? ?? phone;
-    final appId  = app['application_id'] as String;
+    final data = app['data'] as Map<String, dynamic>? ?? {};
+    final phone = app['user_phone'] as String? ?? '—';
+    final name = app['user_name'] as String? ?? phone;
+    final appId = app['application_id'] as String;
 
     final isDriver = type == 'driver';
-    final color    = isDriver ? Colors.blue : Colors.orange;
-    final icon     = isDriver ? Icons.delivery_dining : Icons.store;
+    final color = isDriver ? Colors.blue : Colors.orange;
+    final icon = isDriver ? Icons.delivery_dining : Icons.store;
 
     return Card(
       shape: RoundedRectangleBorder(
@@ -157,7 +161,7 @@ class _ApplicationCard extends ConsumerWidget {
             _row(Icons.location_on, 'Adresse',
                 '${data['address_label'] ?? ''}, ${data['city'] ?? ''}'),
             if (data['geopin'] != null)
-              _row(Icons.gps_fixed, 'Position GPS', 
+              _row(Icons.gps_fixed, 'Position GPS',
                   '${data['geopin']['lat'].toStringAsFixed(5)}, ${data['geopin']['lng'].toStringAsFixed(5)}'),
             _row(Icons.access_time, 'Horaires', data['opening_hours'] ?? '—'),
             if (data['business_reg'] != null)
@@ -173,7 +177,8 @@ class _ApplicationCard extends ConsumerWidget {
               ),
               child: Text(
                 '"${data['message']}"',
-                style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
+                style:
+                    const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
               ),
             ),
           ],
@@ -224,32 +229,33 @@ class _ApplicationCard extends ConsumerWidget {
         const SizedBox(width: 8),
         SizedBox(
           width: 90,
-          child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          child: Text(label,
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ),
         Expanded(
           child: Text(value,
-              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+              style:
+                  const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
         ),
       ]),
     );
   }
 
-  void _call(BuildContext context, String phone) {
-    // Sur Android/iOS, ouvre le composeur téléphonique
-    // Nécessite url_launcher — on affiche juste le numéro pour l'instant
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Appeler le candidat'),
-        content: Text(phone, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
-        ],
-      ),
+  Future<void> _call(BuildContext context, String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      return;
+    }
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('Impossible d’ouvrir le composeur téléphonique')),
     );
   }
 
-  void _showApproveDialog(BuildContext ctx, WidgetRef ref, String id, String type) {
+  void _showApproveDialog(
+      BuildContext ctx, WidgetRef ref, String id, String type) {
     final notesCtrl = TextEditingController();
     showDialog(
       context: ctx,
@@ -277,24 +283,32 @@ class _ApplicationCard extends ConsumerWidget {
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               try {
                 final api = ref.read(apiClientProvider);
                 await api.approveApplication(id,
-                    notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim());
+                    notes: notesCtrl.text.trim().isEmpty
+                        ? null
+                        : notesCtrl.text.trim());
                 ref.invalidate(_applicationsProvider('pending'));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('Candidature approuvée ✅'), backgroundColor: Colors.green),
+                    const SnackBar(
+                        content: Text('Candidature approuvée ✅'),
+                        backgroundColor: Colors.green),
                   );
                 }
               } catch (e) {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                    SnackBar(
+                        content: Text('Erreur: $e'),
+                        backgroundColor: Colors.red),
                   );
                 }
               }
@@ -332,24 +346,32 @@ class _ApplicationCard extends ConsumerWidget {
           ),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
               try {
                 final api = ref.read(apiClientProvider);
                 await api.rejectApplication(id,
-                    notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim());
+                    notes: notesCtrl.text.trim().isEmpty
+                        ? null
+                        : notesCtrl.text.trim());
                 ref.invalidate(_applicationsProvider('pending'));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('Candidature rejetée'), backgroundColor: Colors.orange),
+                    const SnackBar(
+                        content: Text('Candidature rejetée'),
+                        backgroundColor: Colors.orange),
                   );
                 }
               } catch (e) {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+                    SnackBar(
+                        content: Text('Erreur: $e'),
+                        backgroundColor: Colors.red),
                   );
                 }
               }
@@ -371,8 +393,8 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
       'approved' => ('Approuvé', Colors.green),
-      'rejected' => ('Rejeté',   Colors.red),
-      _          => ('En attente', Colors.orange),
+      'rejected' => ('Rejeté', Colors.red),
+      _ => ('En attente', Colors.orange),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -382,7 +404,8 @@ class _StatusBadge extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(label,
-          style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+          style: TextStyle(
+              color: color, fontSize: 11, fontWeight: FontWeight.bold)),
     );
   }
 }

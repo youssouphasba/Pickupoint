@@ -8,7 +8,6 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/currency_format.dart';
-import '../../../shared/utils/phone_utils.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart';
@@ -316,7 +315,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       final api = ref.read(apiClientProvider);
       double? lat, lng;
       try {
-        final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high);
         lat = pos.latitude;
         lng = pos.longitude;
       } catch (_) {}
@@ -350,17 +350,21 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
         throw 'Permission GPS requise pour confirmer l\'arrivée';
       }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
 
       final api = ref.read(apiClientProvider);
-      await api.arriveAtDestination(parcelId, lat: pos.latitude, lng: pos.longitude);
+      await api.arriveAtDestination(parcelId,
+          lat: pos.latitude, lng: pos.longitude);
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Arrivée confirmée ! Validez la livraison avec le code.'),
+          content:
+              Text('Arrivée confirmée ! Validez la livraison avec le code.'),
           backgroundColor: Colors.green,
         ));
       }
@@ -431,8 +435,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   Future<void> _confirmDelivery(String parcelId) async {
     final code = await _showCodeDialog(
       title: 'Code du destinataire',
-      hint: '• • • •',
-      maxLength: 4,
+      hint: '• • • • • •',
+      maxLength: 6,
     );
     if (code == null || code.isEmpty) {
       return;
@@ -592,8 +596,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         final msg = redirectRelayId != null
             ? 'Livraison échouée — colis redirigé vers le relais de repli'
             : 'Livraison échouée';
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
         Navigator.pop(context);
       }
     } catch (e) {
@@ -675,6 +679,38 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             // ── Statut du paiement ─────────────────────────────────────
             _buildPaymentStatus(mission),
             const SizedBox(height: 20),
+            if ((mission.driverName?.isNotEmpty ?? false) ||
+                (mission.driverPhone?.isNotEmpty ?? false) ||
+                (mission.driverPhotoUrl?.isNotEmpty ?? false) ||
+                (mission.senderName?.isNotEmpty ?? false) ||
+                (mission.senderPhotoUrl?.isNotEmpty ?? false)) ...[
+              const Text(
+                'Identites',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if ((mission.driverName?.isNotEmpty ?? false) ||
+                  (mission.driverPhone?.isNotEmpty ?? false) ||
+                  (mission.driverPhotoUrl?.isNotEmpty ?? false)) ...[
+                _buildContactCard(
+                  title: 'Livreur en charge',
+                  name: mission.driverName ?? 'Livreur Denkma',
+                  photo: mission.driverPhotoUrl,
+                  phone: mission.driverPhone,
+                ),
+                const SizedBox(height: 12),
+              ],
+              if ((mission.senderName?.isNotEmpty ?? false) ||
+                  (mission.senderPhotoUrl?.isNotEmpty ?? false)) ...[
+                _buildContactCard(
+                  title: 'Expediteur',
+                  name: mission.senderName ?? 'Expediteur',
+                  photo: mission.senderPhotoUrl,
+                  phone: null,
+                ),
+                const SizedBox(height: 20),
+              ],
+            ],
             if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
                 (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
               _buildInstructionCards(mission),
@@ -891,7 +927,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             icon: const Icon(Icons.navigation_rounded, size: 28),
             label: Text(
               'NAVIGUER VERS $navLabel'.toUpperCase(),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
@@ -1091,7 +1130,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _isProcessing ? null : () => _arriveAtDestination(mission.parcelId),
+              onPressed: _isProcessing
+                  ? null
+                  : () => _arriveAtDestination(mission.parcelId),
               icon: const Icon(Icons.location_on),
               label: const Text('Je suis arrivé à destination'),
               style: ElevatedButton.styleFrom(

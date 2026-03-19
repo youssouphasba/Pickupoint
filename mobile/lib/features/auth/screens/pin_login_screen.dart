@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:local_auth/local_auth.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
 
@@ -16,44 +15,8 @@ class PinLoginScreen extends ConsumerStatefulWidget {
 
 class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
   final _pinController = TextEditingController();
-  final LocalAuthentication _auth = LocalAuthentication();
   bool _isLoading = false;
   bool _obscurePin = true;
-  bool _canCheckBiometrics = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkBiometricAvailability();
-  }
-
-  Future<void> _checkBiometricAvailability() async {
-    try {
-      final canCheck = await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
-      if (canCheck) {
-        setState(() => _canCheckBiometrics = true);
-        _authenticateBiometric();
-      }
-    } catch (e) {
-      debugPrint("Biometric error: $e");
-    }
-  }
-
-  Future<void> _authenticateBiometric() async {
-    try {
-      final authenticated = await _auth.authenticate(
-        localizedReason: 'Déverrouillez pour vous connecter',
-      );
-
-      if (authenticated) {
-        // FIXME: Biometric authentication needs a secure way to hold the PIN 
-        // or a dedicated backend token exchange endpoint
-        if (mounted) _showError('Biométrie temporairement désactivée. Veuillez utiliser le code PIN.');
-      }
-    } catch (e) {
-      debugPrint("Authentication error: $e");
-    }
-  }
 
   Future<void> _submit() async {
     final pin = _pinController.text;
@@ -65,7 +28,6 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     setState(() => _isLoading = true);
     try {
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
-      // AuthNotifier va rediriger automatiquement l'utilisateur
     } catch (e) {
       if (mounted) _showError(e.toString());
     } finally {
@@ -73,8 +35,137 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     }
   }
 
+  Future<void> _startResetPinFlow() async {
+    // Étape 1 : demander un OTP
+    setState(() => _isLoading = true);
+    try {
+      await ref.read(authProvider.notifier).requestOtp(widget.phone);
+      if (mounted) {
+        _showResetPinDialog();
+      }
+    } catch (e) {
+      if (mounted) _showError('Impossible d\'envoyer le code : $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showResetPinDialog() {
+    final otpController = TextEditingController();
+    final newPinController = TextEditingController();
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Réinitialiser le PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Un code de vérification a été envoyé au ${widget.phone}',
+                style: const TextStyle(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: otpController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Code OTP',
+                  prefixIcon: Icon(Icons.sms),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: newPinController,
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 4,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Nouveau code PIN',
+                  prefixIcon: Icon(Icons.lock_reset),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () {
+                      otpController.dispose();
+                      newPinController.dispose();
+                      Navigator.pop(ctx);
+                    },
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: isSubmitting
+                  ? null
+                  : () async {
+                      final otp = otpController.text.trim();
+                      final newPin = newPinController.text.trim();
+                      if (otp.length < 4 || newPin.length != 4) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                              content: Text('Remplissez tous les champs'),
+                              backgroundColor: Colors.red),
+                        );
+                        return;
+                      }
+                      setDialogState(() => isSubmitting = true);
+                      try {
+                        await ref.read(apiClientProvider).resetPin({
+                          'phone': widget.phone,
+                          'otp': otp,
+                          'new_pin': newPin,
+                        });
+                        otpController.dispose();
+                        newPinController.dispose();
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'PIN réinitialisé ! Connectez-vous avec votre nouveau code.'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDialogState(() => isSubmitting = false);
+                        if (ctx.mounted) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                                content: Text('Erreur : $e'),
+                                backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    },
+              child: isSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Valider'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   @override
@@ -113,7 +204,8 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                 hintText: '----',
                 prefixIcon: const Icon(Icons.lock),
                 suffixIcon: IconButton(
-                  icon: Icon(_obscurePin ? Icons.visibility : Icons.visibility_off),
+                  icon: Icon(
+                      _obscurePin ? Icons.visibility : Icons.visibility_off),
                   onPressed: () => setState(() => _obscurePin = !_obscurePin),
                 ),
                 border: const OutlineInputBorder(),
@@ -122,10 +214,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () {
-                  // TODO: Lancer le flow OTP pour reset le PIN
-                  _showError('Fonction de récupération bientôt disponible');
-                },
+                onPressed: _isLoading ? null : _startResetPinFlow,
                 child: const Text('Code oublié ?'),
               ),
             ),
@@ -138,18 +227,6 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                 onPressed: _submit,
               ),
             ),
-            if (_canCheckBiometrics) ...[
-              const SizedBox(height: 24),
-              Center(
-                child: IconButton(
-                  icon: const Icon(Icons.fingerprint, size: 50, color: Colors.blue),
-                  onPressed: _authenticateBiometric,
-                ),
-              ),
-              const Center(
-                child: Text('Utiliser TouchID / FaceID', style: TextStyle(color: Colors.grey)),
-              ),
-            ]
           ],
         ),
       ),

@@ -22,6 +22,10 @@ class DeliveryMission {
     this.recipientName,
     this.recipientPhone,
     this.driverId,
+    this.driverName,
+    this.driverPhone,
+    this.driverPhotoUrl,
+    this.senderName,
     this.failureReason,
     this.assignedAt,
     this.completedAt,
@@ -73,6 +77,10 @@ class DeliveryMission {
   final double earnAmount;
   final double? distanceKm; // distance livreur → pickup (null si GPS inconnu)
   final String? driverId;
+  final String? driverName;
+  final String? driverPhone;
+  final String? driverPhotoUrl;
+  final String? senderName;
   final String? failureReason;
   final DateTime createdAt;
   final DateTime? assignedAt;
@@ -125,6 +133,10 @@ class DeliveryMission {
       earnAmount: (json['earn_amount'] as num? ?? 0).toDouble(),
       distanceKm: (json['distance_km'] as num?)?.toDouble(),
       driverId: json['driver_id'] as String?,
+      driverName: json['driver_name'] as String?,
+      driverPhone: json['driver_phone'] as String?,
+      driverPhotoUrl: json['driver_photo_url'] as String?,
+      senderName: json['sender_name'] as String?,
       failureReason: json['failure_reason'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       assignedAt: json['assigned_at'] != null

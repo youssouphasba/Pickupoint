@@ -22,9 +22,11 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
+                    Icon(Icons.check_circle_outline,
+                        size: 64, color: Colors.green),
                     SizedBox(height: 16),
-                    Text('Aucune anomalie détectée.', style: TextStyle(color: Colors.grey)),
+                    Text('Aucune anomalie détectée.',
+                        style: TextStyle(color: Colors.grey)),
                   ],
                 ),
               );
@@ -36,13 +38,19 @@ class AdminAnomaliesScreen extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final a = anomalies[index];
                 final isHigh = a['severity'] == 'high';
+                final canReassign = a['can_reassign'] == true;
+                final parcelId = a['parcel_id']?.toString();
 
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: isHigh ? Colors.red.shade200 : Colors.orange.shade200),
+                    side: BorderSide(
+                        color: isHigh
+                            ? Colors.red.shade200
+                            : Colors.orange.shade200),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -54,7 +62,8 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: (isHigh ? Colors.red : Colors.orange).withValues(alpha: 0.1),
+                                color: (isHigh ? Colors.red : Colors.orange)
+                                    .withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -69,32 +78,42 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    a['type'] == 'signal_lost' ? 'Signal Perdu' : 'Retard Critique',
+                                    a['type'] == 'signal_lost'
+                                        ? 'Signal Perdu'
+                                        : 'Retard Critique',
                                     style: TextStyle(
-                                      color: isHigh ? Colors.red : Colors.orange,
+                                      color:
+                                          isHigh ? Colors.red : Colors.orange,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
                                     ),
                                   ),
                                   Text(
                                     a['driver_name'] ?? 'Livreur inconnu',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16),
                                   ),
                                 ],
                               ),
                             ),
                             TextButton.icon(
-                              onPressed: () => _showReassignDialog(context, ref, a['mission_id']),
+                              onPressed: canReassign
+                                  ? () => _showReassignDialog(
+                                      context, ref, a['mission_id'].toString())
+                                  : null,
                               icon: const Icon(Icons.swap_horiz, size: 18),
                               label: const Text('Réassigner'),
-                              style: TextButton.styleFrom(foregroundColor: Colors.blue),
+                              style: TextButton.styleFrom(
+                                  foregroundColor: Colors.blue),
                             ),
                           ],
                         ),
                         const Divider(height: 24),
                         Text(
                           a['description'],
-                          style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+                          style: TextStyle(
+                              color: Colors.grey.shade700, fontSize: 14),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -102,14 +121,30 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                           children: [
                             Text(
                               'Mission: ${a['mission_id']}',
-                              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey.shade500),
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                  color: Colors.grey.shade500),
                             ),
                             TextButton(
-                              onPressed: () => context.push('/admin/parcels/${a['mission_id']}/audit'),
-                              child: const Text('Voir Audit', style: TextStyle(fontSize: 12)),
+                              onPressed: parcelId == null
+                                  ? null
+                                  : () => context
+                                      .push('/admin/parcels/$parcelId/audit'),
+                              child: const Text('Voir Audit',
+                                  style: TextStyle(fontSize: 12)),
                             ),
                           ],
                         ),
+                        if (!canReassign)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Réassignation indisponible après collecte. Utilise plutôt l’audit colis.',
+                              style: TextStyle(
+                                  color: Colors.grey.shade600, fontSize: 12),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -124,36 +159,63 @@ class AdminAnomaliesScreen extends ConsumerWidget {
     );
   }
 
-  void _showReassignDialog(BuildContext context, WidgetRef ref, String missionId) {
-    final controller = TextEditingController();
+  void _showReassignDialog(
+      BuildContext context, WidgetRef ref, String missionId) {
+    final driverController = TextEditingController();
+    final reasonController = TextEditingController(
+        text: 'Réassignation manuelle depuis le centre anomalies');
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Réassigner la mission'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'ID du nouveau livreur',
-            hintText: 'drv_...',
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: driverController,
+              decoration: const InputDecoration(
+                labelText: 'ID du nouveau livreur',
+                hintText: 'drv_...',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Motif',
+              ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
-              if (controller.text.isEmpty) return;
+              if (driverController.text.trim().isEmpty ||
+                  reasonController.text.trim().isEmpty) {
+                return;
+              }
               try {
-                await ref.read(apiClientProvider).reassignMission(missionId, controller.text);
+                await ref.read(apiClientProvider).reassignMission(
+                      missionId,
+                      driverController.text.trim(),
+                      reason: reasonController.text.trim(),
+                    );
                 if (context.mounted) {
                   Navigator.pop(context);
                   ref.invalidate(adminAnomalyProvider);
+                  ref.invalidate(adminDashboardProvider);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Mission réassignée !')),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
                 }
               }
             },

@@ -20,8 +20,8 @@ class DriverHome extends ConsumerStatefulWidget {
 class _DriverHomeState extends ConsumerState<DriverHome> {
   double? _driverLat;
   double? _driverLng;
-  bool    _gpsLoading = true;
-  bool    _toggling   = false;
+  bool _gpsLoading = true;
+  bool _toggling = false;
 
   @override
   void initState() {
@@ -39,7 +39,6 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        // GPS refusé → on affiche quand même toutes les missions (sans filtre)
         if (mounted) setState(() => _gpsLoading = false);
         return;
       }
@@ -81,10 +80,11 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
 
   @override
   Widget build(BuildContext context) {
-    final isAvailable     = ref.watch(authProvider).value?.user?.isAvailable ?? false;
-    final availableAsync  = ref.watch(availableMissionsProvider(_driverLoc));
+    final isAvailable =
+        ref.watch(authProvider).value?.user?.isAvailable ?? false;
+    final availableAsync = ref.watch(availableMissionsProvider(_driverLoc));
     final myMissionsAsync = ref.watch(myMissionsProvider);
-    final hasGps          = _driverLat != null;
+    final hasGps = _driverLat != null;
 
     return DefaultTabController(
       length: 2,
@@ -98,34 +98,37 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                 // Barre GPS status
                 if (!_gpsLoading)
                   Container(
-                    color: hasGps ? Colors.green.shade700 : Colors.orange.shade700,
-                    padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 16),
+                    color:
+                        hasGps ? Colors.green.shade700 : Colors.orange.shade700,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 3, horizontal: 16),
                     width: double.infinity,
                     child: Row(children: [
                       Icon(
                         hasGps ? Icons.my_location : Icons.location_off,
-                        size: 13, color: Colors.white,
+                        size: 13,
+                        color: Colors.white,
                       ),
                       const SizedBox(width: 6),
                       Text(
                         hasGps
                             ? 'Missions dans un rayon de 5 km'
-                            : 'GPS indisponible — toutes les missions affichées',
-                        style: const TextStyle(color: Colors.white, fontSize: 11),
+                            : 'GPS requis pour voir les missions disponibles',
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 11),
                       ),
-                      if (hasGps) ...[
-                        const Spacer(),
-                        InkWell(
-                          onTap: _fetchDriverLocation,
-                          child: const Icon(Icons.refresh, size: 14, color: Colors.white70),
-                        ),
-                      ],
+                      const Spacer(),
+                      InkWell(
+                        onTap: _fetchDriverLocation,
+                        child: const Icon(Icons.refresh,
+                            size: 14, color: Colors.white70),
+                      ),
                     ]),
                   ),
                 const TabBar(
                   tabs: [
-                    Tab(icon: Icon(Icons.inbox),          text: 'Disponibles'),
-                    Tab(icon: Icon(Icons.local_shipping),  text: 'Mes missions'),
+                    Tab(icon: Icon(Icons.inbox), text: 'Disponibles'),
+                    Tab(icon: Icon(Icons.local_shipping), text: 'Mes missions'),
                   ],
                 ),
               ],
@@ -144,8 +147,10 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                 const SizedBox(width: 4),
                 _toggling
                     ? const SizedBox(
-                        width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : Switch(
                         value: isAvailable,
@@ -161,8 +166,10 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
               GestureDetector(
                 onTap: () => context.push('/driver/performance'),
                 child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                   decoration: BoxDecoration(
                     color: Colors.amber.shade100,
                     borderRadius: BorderRadius.circular(12),
@@ -176,10 +183,9 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                       Text(
                         'Lvl ${ref.watch(authProvider).value!.user!.level}',
                         style: const TextStyle(
-                          color: Colors.amber, 
-                          fontWeight: FontWeight.bold, 
-                          fontSize: 12
-                        ),
+                            color: Colors.amber,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12),
                       ),
                     ],
                   ),
@@ -193,23 +199,26 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
         ),
         body: _gpsLoading
             ? const Center(
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text('Localisation en cours…', style: TextStyle(color: Colors.grey)),
-                ]),
+                child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('Localisation en cours…',
+                          style: TextStyle(color: Colors.grey)),
+                    ]),
               )
             : TabBarView(
                 children: [
                   _MissionsList(
-                    asyncValue:  availableAsync,
+                    asyncValue: availableAsync,
                     isAvailable: true,
-                    driverLoc:   _driverLoc,
+                    driverLoc: _driverLoc,
                   ),
                   _MissionsList(
-                    asyncValue:  myMissionsAsync,
+                    asyncValue: myMissionsAsync,
                     isAvailable: false,
-                    driverLoc:   _driverLoc,
+                    driverLoc: _driverLoc,
                   ),
                 ],
               ),
@@ -240,8 +249,13 @@ class _MissionsList extends ConsumerWidget {
         data: (missions) {
           // Pour "Mes missions" : séparer actives et terminées
           if (!isAvailable) {
-            final active    = missions.where((m) => m.status == 'assigned' || m.status == 'in_progress').toList();
-            final completed = missions.where((m) => m.status == 'completed' || m.status == 'failed').toList();
+            final active = missions
+                .where(
+                    (m) => m.status == 'assigned' || m.status == 'in_progress')
+                .toList();
+            final completed = missions
+                .where((m) => m.status == 'completed' || m.status == 'failed')
+                .toList();
 
             if (active.isEmpty && completed.isEmpty) {
               return _buildEmpty('Vous n\'avez pas encore de mission');
@@ -253,18 +267,25 @@ class _MissionsList extends ConsumerWidget {
                 // ── Missions actives ──────────────────────────────────
                 if (active.isNotEmpty) ...[
                   ...active.map((m) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _MissionCard(mission: m, isAvailable: false, driverLoc: driverLoc),
-                  )),
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _MissionCard(
+                            mission: m,
+                            isAvailable: false,
+                            driverLoc: driverLoc),
+                      )),
                 ] else ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     color: Colors.blue.shade50,
                     child: Row(children: [
-                      Icon(Icons.check_circle, color: Colors.blue.shade300, size: 18),
+                      Icon(Icons.check_circle,
+                          color: Colors.blue.shade300, size: 18),
                       const SizedBox(width: 10),
                       Text('Aucune mission en cours',
-                          style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.w500)),
+                          style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.w500)),
                     ]),
                   ),
                   const SizedBox(height: 8),
@@ -273,13 +294,17 @@ class _MissionsList extends ConsumerWidget {
                 // ── Historique gains ──────────────────────────────────
                 if (completed.isNotEmpty) ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     color: Colors.grey.shade100,
                     child: Row(children: [
-                      Icon(Icons.history, color: Colors.grey.shade600, size: 20),
+                      Icon(Icons.history,
+                          color: Colors.grey.shade600, size: 20),
                       const SizedBox(width: 10),
                       Text('${completed.length} mission(s) terminée(s)',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade700)),
                     ]),
                   ),
                   const SizedBox(height: 4),
@@ -301,9 +326,9 @@ class _MissionsList extends ConsumerWidget {
             itemCount: missions.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (_, i) => _MissionCard(
-              mission:     missions[i],
+              mission: missions[i],
               isAvailable: true,
-              driverLoc:   driverLoc,
+              driverLoc: driverLoc,
             ),
           );
         },
@@ -314,17 +339,20 @@ class _MissionsList extends ConsumerWidget {
   }
 
   Widget _buildEmpty(String msg) => Center(
-    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.local_shipping_outlined, size: 64, color: Colors.grey.shade300),
-      const SizedBox(height: 16),
-      Text(msg, style: const TextStyle(fontSize: 15, color: Colors.grey), textAlign: TextAlign.center),
-    ]),
-  );
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.local_shipping_outlined,
+              size: 64, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          Text(msg,
+              style: const TextStyle(fontSize: 15, color: Colors.grey),
+              textAlign: TextAlign.center),
+        ]),
+      );
 
   Widget _buildCompletedCard(BuildContext context, DeliveryMission m) {
-    final isFailed  = m.status == 'failed';
-    final color     = isFailed ? Colors.red : Colors.green;
-    final icon      = isFailed ? Icons.cancel_outlined : Icons.check_circle_outline;
+    final isFailed = m.status == 'failed';
+    final color = isFailed ? Colors.red : Colors.green;
+    final icon = isFailed ? Icons.cancel_outlined : Icons.check_circle_outline;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
@@ -336,7 +364,10 @@ class _MissionsList extends ConsumerWidget {
         ),
         title: Text(
           m.trackingCode ?? m.id.substring(0, 10),
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, fontFamily: 'monospace'),
+          style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              fontFamily: 'monospace'),
         ),
         subtitle: Text(
           '${m.pickupLabel} → ${m.deliveryLabel}',
@@ -409,11 +440,13 @@ class _MissionCard extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color: _distanceColor(mission.distanceKm!).withValues(alpha: 0.12),
+                  color: _distanceColor(mission.distanceKm!)
+                      .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.near_me, size: 11, color: _distanceColor(mission.distanceKm!)),
+                  Icon(Icons.near_me,
+                      size: 11, color: _distanceColor(mission.distanceKm!)),
                   const SizedBox(width: 3),
                   Text(
                     '${mission.distanceKm!.toStringAsFixed(1)} km',
@@ -429,13 +462,17 @@ class _MissionCard extends ConsumerWidget {
             Text(
               formatXof(mission.earnAmount),
               style: const TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Colors.green),
             ),
           ]),
           const SizedBox(height: 14),
           // Pickup
           _locationRow(
-            icon: mission.pickupIsRelay ? Icons.store : Icons.radio_button_checked,
+            icon: mission.pickupIsRelay
+                ? Icons.store
+                : Icons.radio_button_checked,
             color: mission.pickupIsRelay ? Colors.orange : Colors.blue,
             label: mission.pickupIsRelay
                 ? 'Récupérer au relais'
@@ -445,7 +482,8 @@ class _MissionCard extends ConsumerWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(left: 10),
-            child: Icon(Icons.arrow_downward, size: 18, color: Colors.grey.shade400),
+            child: Icon(Icons.arrow_downward,
+                size: 18, color: Colors.grey.shade400),
           ),
           // Livraison
           _locationRow(
@@ -488,7 +526,8 @@ class _MissionCard extends ConsumerWidget {
                         padding: const EdgeInsets.symmetric(vertical: 12)),
                   )
                 : OutlinedButton.icon(
-                    onPressed: () => context.push('/driver/mission/${mission.id}'),
+                    onPressed: () =>
+                        context.push('/driver/mission/${mission.id}'),
                     icon: const Icon(Icons.map_outlined),
                     label: const Text('Voir les détails'),
                   ),
@@ -516,9 +555,13 @@ class _MissionCard extends ConsumerWidget {
       const SizedBox(width: 8),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-          Text(address, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-          Text(city, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+          Text(label,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+          Text(address,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+          Text(city,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
         ]),
       ),
     ]);

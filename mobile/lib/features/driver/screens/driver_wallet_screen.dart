@@ -7,7 +7,9 @@ import '../../../shared/utils/date_format.dart';
 import '../../../core/models/wallet.dart';
 import '../../../shared/widgets/loading_button.dart';
 
-final driverTransactionsProvider = FutureProvider.family<List<WalletTransaction>, String?>((ref, period) async {
+final driverTransactionsProvider =
+    FutureProvider.family<List<WalletTransaction>, String?>(
+        (ref, period) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getTransactions(period: period);
   final data = res.data as Map<String, dynamic>;
@@ -48,7 +50,9 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               Row(
                 children: [
                   const Expanded(
-                    child: Text('Historique des gains', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text('Historique des gains',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   _buildPeriodFilter(),
                 ],
@@ -85,26 +89,33 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
         padding: const EdgeInsets.all(24),
         width: double.infinity,
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: [Colors.blue.shade800, Colors.blue.shade500]),
+          gradient: LinearGradient(
+              colors: [Colors.blue.shade800, Colors.blue.shade500]),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
           children: [
-            const Text('Cagnotte Livreur', style: TextStyle(color: Colors.white70, fontSize: 16)),
+            const Text('Cagnotte Livreur',
+                style: TextStyle(color: Colors.white70, fontSize: 16)),
             const SizedBox(height: 8),
             Text(
               formatXof(wallet.balance),
-              style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold),
             ),
             if (wallet.pendingBalance > 0) ...[
               const SizedBox(height: 4),
-              Text('En attente : ${formatXof(wallet.pendingBalance)}', style: const TextStyle(color: Colors.white60, fontSize: 13)),
+              Text('En attente : ${formatXof(wallet.pendingBalance)}',
+                  style: const TextStyle(color: Colors.white60, fontSize: 13)),
             ],
             const SizedBox(height: 24),
             LoadingButton(
               label: 'Décaisser mes gains',
               color: Colors.white,
-              onPressed: wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
+              onPressed:
+                  wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
             ),
           ],
         ),
@@ -128,23 +139,29 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               TextField(
                 controller: amountCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Montant (XOF)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                    labelText: 'Montant (XOF)', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: method,
-                decoration: const InputDecoration(labelText: 'Méthode', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                    labelText: 'Méthode', border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 'wave', child: Text('Wave')),
-                  DropdownMenuItem(value: 'orange_money', child: Text('Orange Money')),
-                  DropdownMenuItem(value: 'free_money', child: Text('Free Money')),
+                  DropdownMenuItem(
+                      value: 'orange_money', child: Text('Orange Money')),
+                  DropdownMenuItem(
+                      value: 'free_money', child: Text('Free Money')),
                 ],
                 onChanged: (v) => setState(() => method = v!),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler')),
             Consumer(
               builder: (context, ref, _) => ElevatedButton(
                 onPressed: () async {
@@ -159,11 +176,17 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                     });
                     if (ctx.mounted) {
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demande envoyée, en attente de validation.')));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text(
+                              'Demande envoyée, en attente de validation.')));
                       ref.invalidate(driverWalletProvider);
+                      ref.invalidate(driverTransactionsProvider(_period));
                     }
                   } catch (e) {
-                    if (ctx.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    }
                   }
                 },
                 child: const Text('Envoyer'),
@@ -175,7 +198,8 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
     );
   }
 
-  Widget _buildTransactionsList(AsyncValue<List<WalletTransaction>> transactionsAsync) {
+  Widget _buildTransactionsList(
+      AsyncValue<List<WalletTransaction>> transactionsAsync) {
     return transactionsAsync.when(
       data: (txs) {
         if (txs.isEmpty) return const Text('Aucun gain enregistré.');
@@ -190,7 +214,9 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               leading: const Icon(Icons.add_circle, color: Colors.green),
               title: Text(tx.description ?? tx.type),
               subtitle: Text(formatDate(tx.createdAt)),
-              trailing: Text('+ ${formatXof(tx.amount)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+              trailing: Text('+ ${formatXof(tx.amount)}',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, color: Colors.green)),
             );
           },
         );

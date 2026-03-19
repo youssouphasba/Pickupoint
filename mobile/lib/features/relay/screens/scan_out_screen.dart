@@ -51,11 +51,11 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
     _tabCtrl = TabController(length: 2, vsync: this);
 
     if (widget.prefilledParcelId != null) {
-      _parcelId       = widget.prefilledParcelId;
-      _trackingCode   = widget.prefilledTrackingCode;
-      _recipientName  = widget.prefilledRecipientName;
+      _parcelId = widget.prefilledParcelId;
+      _trackingCode = widget.prefilledTrackingCode;
+      _recipientName = widget.prefilledRecipientName;
       _recipientPhone = widget.prefilledRecipientPhone;
-      _step           = _OutStep.enterPin;
+      _step = _OutStep.enterPin;
     } else {
       _step = _OutStep.findParcel;
     }
@@ -74,12 +74,15 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
     final trimmed = code.trim().toUpperCase();
     if (trimmed.isEmpty || _isProcessing) return;
 
-    setState(() { _isProcessing = true; _scanPaused = true; });
+    setState(() {
+      _isProcessing = true;
+      _scanPaused = true;
+    });
     try {
-      final api  = ref.read(apiClientProvider);
-      final res  = await api.trackParcel(trimmed);
+      final api = ref.read(apiClientProvider);
+      final res = await api.lookupParcelByTracking(trimmed);
       final data = res.data as Map<String, dynamic>;
-      final id   = data['parcel_id'] as String? ?? '';
+      final id = data['parcel_id'] as String? ?? '';
 
       if (id.isEmpty) {
         _showError('Colis introuvable : $trimmed');
@@ -87,26 +90,31 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
       }
       if (mounted) {
         setState(() {
-          _parcelId       = id;
-          _trackingCode   = trimmed;
-          _recipientName  = data['recipient_name']  as String? ?? '—';
+          _parcelId = id;
+          _trackingCode = trimmed;
+          _recipientName = data['recipient_name'] as String? ?? '—';
           _recipientPhone = data['recipient_phone'] as String? ?? '—';
-          _step           = _OutStep.enterPin;
+          _step = _OutStep.enterPin;
           _pinCtrl.clear();
         });
       }
     } catch (e) {
       _showError('Erreur : $e');
     } finally {
-      if (mounted) setState(() { _isProcessing = false; _scanPaused = false; });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _scanPaused = false;
+        });
+      }
     }
   }
 
   // ─── Étape 2 : valider la remise avec le PIN ──────────────────────────────
   Future<void> _confirmHandout() async {
     final pin = _pinCtrl.text.trim();
-    if (pin.length != 4) {
-      _showError('Le code PIN doit contenir exactement 4 chiffres');
+    if (pin.length != 6) {
+      _showError('Le code PIN doit contenir exactement 6 chiffres');
       return;
     }
     if (_isProcessing) return;
@@ -149,8 +157,8 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -167,7 +175,7 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
           controller: _tabCtrl,
           tabs: const [
             Tab(icon: Icon(Icons.qr_code_scanner), text: 'Scanner QR'),
-            Tab(icon: Icon(Icons.keyboard),         text: 'Saisir le code'),
+            Tab(icon: Icon(Icons.keyboard), text: 'Saisir le code'),
           ],
         ),
       ),
@@ -189,7 +197,8 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
       ),
       Center(
         child: Container(
-          width: 260, height: 260,
+          width: 260,
+          height: 260,
           decoration: BoxDecoration(
             border: Border.all(
               color: _scanPaused ? Colors.blue : Colors.orange,
@@ -202,18 +211,25 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
       if (_isProcessing)
         Container(
           color: Colors.black45,
-          child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+          child: const Center(
+              child: CircularProgressIndicator(color: Colors.white)),
         ),
       Positioned(
-        bottom: 48, left: 0, right: 0,
+        bottom: 48,
+        left: 0,
+        right: 0,
         child: Column(children: [
           const Icon(Icons.qr_code_scanner, color: Colors.white, size: 28),
           const SizedBox(height: 8),
           Text(
-            _scanPaused ? 'Traitement…' : 'Scannez le QR affiché sur l\'app client',
+            _scanPaused
+                ? 'Traitement…'
+                : 'Scannez le QR affiché sur l\'app client',
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
               shadows: [Shadow(blurRadius: 4, color: Colors.black)],
             ),
           ),
@@ -222,7 +238,8 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
             'ou utilisez l\'onglet "Saisir le code"',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.white70, fontSize: 12,
+              color: Colors.white70,
+              fontSize: 12,
               shadows: [Shadow(blurRadius: 4, color: Colors.black)],
             ),
           ),
@@ -265,11 +282,15 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
-            onPressed: _isProcessing ? null : () => _resolveCode(_manualTrackingCtrl.text),
+            onPressed: _isProcessing
+                ? null
+                : () => _resolveCode(_manualTrackingCtrl.text),
             icon: _isProcessing
                 ? const SizedBox(
-                    width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.search),
             label: Text(_isProcessing ? 'Recherche…' : 'Chercher le colis'),
             style: ElevatedButton.styleFrom(
@@ -320,17 +341,20 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Icon(Icons.inventory_2_outlined, color: Colors.blue.shade700, size: 20),
+                    Icon(Icons.inventory_2_outlined,
+                        color: Colors.blue.shade700, size: 20),
                     const SizedBox(width: 8),
                     Text(
                       'Colis à remettre',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade700),
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700),
                     ),
                   ]),
                   const SizedBox(height: 12),
-                  _infoRow('Code',         _trackingCode   ?? '—'),
-                  _infoRow('Destinataire', _recipientName  ?? '—'),
-                  _infoRow('Téléphone',    _recipientPhone ?? '—'),
+                  _infoRow('Code', _trackingCode ?? '—'),
+                  _infoRow('Destinataire', _recipientName ?? '—'),
+                  _infoRow('Téléphone', _recipientPhone ?? '—'),
                 ],
               ),
             ),
@@ -344,7 +368,7 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
             ),
             const SizedBox(height: 6),
             const Text(
-              'Demandez au client son code PIN à 4 chiffres affiché sur son application.',
+              'Demandez au client son code PIN à 6 chiffres affiché sur son application.',
               style: TextStyle(color: Colors.grey, fontSize: 13),
             ),
             const SizedBox(height: 16),
@@ -352,19 +376,22 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
             TextField(
               controller: _pinCtrl,
               keyboardType: TextInputType.number,
-              maxLength: 4,
+              maxLength: 6,
               autofocus: widget.prefilledParcelId != null,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: 12,
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 12,
               ),
               decoration: InputDecoration(
-                labelText: 'Code PIN (4 chiffres)',
+                labelText: 'Code PIN (6 chiffres)',
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.lock_outline),
                 counterText: '',
                 focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.green.shade700, width: 2),
+                  borderSide:
+                      BorderSide(color: Colors.green.shade700, width: 2),
                 ),
               ),
             ),
@@ -389,8 +416,10 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
               onPressed: _isProcessing ? null : _confirmHandout,
               icon: _isProcessing
                   ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.check_circle_outline),
               label: Text(_isProcessing ? 'Validation…' : 'Valider la remise'),
               style: ElevatedButton.styleFrom(
@@ -411,17 +440,20 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
       child: Row(children: [
         SizedBox(
           width: 90,
-          child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+          child: Text(label,
+              style: const TextStyle(color: Colors.grey, fontSize: 13)),
         ),
         Expanded(
-          child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          child: Text(value,
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         ),
       ]),
     );
   }
 }
 
-// ─── Bottom sheet caméra pour scanner le PIN (4 chiffres) ────────────────────
+// ─── Bottom sheet caméra pour scanner le PIN (6 chiffres) ────────────────────
 class _PinScannerSheet extends StatefulWidget {
   const _PinScannerSheet({required this.onPinDetected});
   final void Function(String pin) onPinDetected;
@@ -441,7 +473,8 @@ class _PinScannerSheetState extends State<_PinScannerSheet> {
         children: [
           // Poignée
           Container(
-            width: 40, height: 4,
+            width: 40,
+            height: 4,
             margin: const EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
               color: Colors.grey.shade300,
@@ -468,9 +501,10 @@ class _PinScannerSheetState extends State<_PinScannerSheet> {
                 MobileScanner(
                   onDetect: (capture) {
                     if (_detected) return;
-                    final raw = (capture.barcodes.firstOrNull?.rawValue ?? '').trim();
-                    // On accepte uniquement un code à 4 chiffres
-                    if (RegExp(r'^\d{4}$').hasMatch(raw)) {
+                    final raw =
+                        (capture.barcodes.firstOrNull?.rawValue ?? '').trim();
+                    // On accepte uniquement un code à 6 chiffres
+                    if (RegExp(r'^\d{6}$').hasMatch(raw)) {
                       setState(() => _detected = true);
                       widget.onPinDetected(raw);
                     }
@@ -478,7 +512,8 @@ class _PinScannerSheetState extends State<_PinScannerSheet> {
                 ),
                 Center(
                   child: Container(
-                    width: 200, height: 200,
+                    width: 200,
+                    height: 200,
                     decoration: BoxDecoration(
                       border: Border.all(
                         color: _detected ? Colors.green : Colors.orange,
@@ -492,16 +527,22 @@ class _PinScannerSheetState extends State<_PinScannerSheet> {
                   Container(
                     color: Colors.black45,
                     child: const Center(
-                      child: Icon(Icons.check_circle, color: Colors.green, size: 72),
+                      child: Icon(Icons.check_circle,
+                          color: Colors.green, size: 72),
                     ),
                   ),
                 Positioned(
-                  bottom: 16, left: 0, right: 0,
+                  bottom: 16,
+                  left: 0,
+                  right: 0,
                   child: Text(
-                    _detected ? 'PIN détecté ✅' : 'Cadrez le QR code PIN du client',
+                    _detected
+                        ? 'PIN détecté ✅'
+                        : 'Cadrez le QR code PIN du client',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Colors.white, fontSize: 13,
+                      color: Colors.white,
+                      fontSize: 13,
                       shadows: [Shadow(blurRadius: 4, color: Colors.black)],
                     ),
                   ),

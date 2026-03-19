@@ -16,9 +16,10 @@ class SetupProfileScreen extends ConsumerStatefulWidget {
 
 class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
   final _nameController = TextEditingController();
+  final _referralController = TextEditingController();
   final _pinController = TextEditingController();
   final _confirmPinController = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _acceptedLegal = false;
   bool _obscurePin = true;
@@ -41,17 +42,19 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
       return;
     }
     if (!_acceptedLegal) {
-      _showError('Veuillez accepter les CGU et la Politique de confidentialité');
+      _showError(
+          'Veuillez accepter les CGU et la Politique de confidentialité');
       return;
     }
 
     setState(() => _isLoading = true);
     try {
       await ref.read(authProvider.notifier).completeRegistration(
-        token: widget.registrationToken,
-        name: name,
-        pin: pin,
-      );
+            token: widget.registrationToken,
+            name: name,
+            pin: pin,
+            referralCode: _referralController.text.trim(),
+          );
       // AuthProvider va mettre à jour l'état et GoRouter va rediriger automatiquement.
     } catch (e) {
       if (mounted) _showError(e.toString());
@@ -61,12 +64,14 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _referralController.dispose();
     _pinController.dispose();
     _confirmPinController.dispose();
     super.dispose();
@@ -102,6 +107,16 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
             ),
             const SizedBox(height: 24),
             TextField(
+              controller: _referralController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Code parrainage (optionnel)',
+                prefixIcon: Icon(Icons.card_giftcard_outlined),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            TextField(
               controller: _pinController,
               keyboardType: TextInputType.number,
               obscureText: _obscurePin,
@@ -111,7 +126,8 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
                 labelText: 'Code PIN (4 chiffres)',
                 prefixIcon: const Icon(Icons.lock),
                 suffixIcon: IconButton(
-                  icon: Icon(_obscurePin ? Icons.visibility : Icons.visibility_off),
+                  icon: Icon(
+                      _obscurePin ? Icons.visibility : Icons.visibility_off),
                   onPressed: () => setState(() => _obscurePin = !_obscurePin),
                 ),
                 border: const OutlineInputBorder(),

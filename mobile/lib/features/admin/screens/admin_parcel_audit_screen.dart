@@ -76,33 +76,55 @@ class AdminParcelAuditScreen extends ConsumerWidget {
                 const Divider(height: 32),
                 _buildSectionTitle('Missions & GPS (Dispute Center)'),
                 if (missions.isEmpty) const Text('Aucune mission trouvée.'),
-                ...missions.map((m) => Card(
-                      child: ExpansionTile(
-                        title: Text('Mission: ${m['mission_id']}'),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                'Livreur: ${m['driver_name'] ?? m['driver_id']}'),
-                            Text('Status: ${m['status']}'),
-                          ],
-                        ),
-                        trailing: IconButton(
-                          icon:
-                              const Icon(Icons.swap_horiz, color: Colors.blue),
-                          tooltip: 'Réassigner',
-                          onPressed: () => _showReassignDialog(
-                              context, ref, m['mission_id']),
-                        ),
+                ...missions.map((m) {
+                  final canReassign = const [
+                    'pending',
+                    'assigned',
+                    'incident_reported'
+                  ].contains(m['status']);
+                  return Card(
+                    child: ExpansionTile(
+                      title: Text('Mission: ${m['mission_id']}'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Text(
-                                'Traces GPS: ${(m['gps_trail'] as List).length} points enregistrés.'),
-                          ),
+                          Text(
+                              'Livreur: ${m['driver_name'] ?? m['driver_id']}'),
+                          Text('Status: ${m['status']}'),
                         ],
                       ),
-                    )),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.swap_horiz, color: Colors.blue),
+                        tooltip: 'Réassigner',
+                        onPressed: canReassign
+                            ? () => _showReassignDialog(
+                                context, ref, m['mission_id'])
+                            : null,
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  'Traces GPS: ${(m['gps_trail'] as List).length} points enregistrés.'),
+                              if (!canReassign)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'Réassignation directe indisponible pour cette mission.',
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.grey),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
               ],
             ),
           );
@@ -115,14 +137,28 @@ class AdminParcelAuditScreen extends ConsumerWidget {
 
   void _showReassignDialog(
       BuildContext context, WidgetRef ref, String missionId) {
-    final controller = TextEditingController();
+    final driverController = TextEditingController();
+    final reasonController = TextEditingController(
+        text: 'Réassignation manuelle depuis l’audit colis');
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Réassigner la mission'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'ID du nouveau livreur'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: driverController,
+              decoration:
+                  const InputDecoration(labelText: 'ID du nouveau livreur'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Motif'),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -130,10 +166,16 @@ class AdminParcelAuditScreen extends ConsumerWidget {
               child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () async {
+              if (driverController.text.trim().isEmpty ||
+                  reasonController.text.trim().isEmpty) {
+                return;
+              }
               try {
-                await ref
-                    .read(apiClientProvider)
-                    .reassignMission(missionId, controller.text);
+                await ref.read(apiClientProvider).reassignMission(
+                      missionId,
+                      driverController.text.trim(),
+                      reason: reasonController.text.trim(),
+                    );
                 if (!context.mounted) return;
                 Navigator.pop(context);
                 ref.invalidate(adminParcelAuditProvider(id));

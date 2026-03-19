@@ -50,6 +50,33 @@ async def clear_code_attempts(db, parcel_id: str, code_type: str):
     await db.code_attempts.delete_one({"_id": f"{parcel_id}:{code_type}"})
 
 
+def normalize_phone(phone: str | None) -> str:
+    """Normalise un numero en supprimant les separateurs et en gerant le prefixe 00."""
+    if not phone:
+        return ""
+
+    raw = phone.strip()
+    if raw.startswith("00"):
+        raw = f"+{raw[2:]}"
+
+    if raw.startswith("+"):
+        return f"+{re.sub(r'\\D', '', raw[1:])}"
+
+    return re.sub(r"\D", "", raw)
+
+
+def phones_match(left: str | None, right: str | None) -> bool:
+    left_normalized = normalize_phone(left)
+    right_normalized = normalize_phone(right)
+    return bool(left_normalized and right_normalized and left_normalized == right_normalized)
+
+
+def phone_suffix(phone: str | None, digits: int = 9) -> str:
+    normalized = normalize_phone(phone)
+    numeric = re.sub(r"\D", "", normalized)
+    return numeric[-digits:] if numeric else ""
+
+
 def mask_phone(phone: str) -> str:
     """
     Masque un numéro de téléphone en ne laissant que l'indicatif (si présent) 

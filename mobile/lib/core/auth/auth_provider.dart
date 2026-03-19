@@ -48,12 +48,12 @@ class AuthState {
     bool clearActiveView = false,
   }) =>
       AuthState(
-        status:       status       ?? this.status,
-        user:         user         ?? this.user,
-        accessToken:  accessToken  ?? this.accessToken,
+        status: status ?? this.status,
+        user: user ?? this.user,
+        accessToken: accessToken ?? this.accessToken,
         refreshToken: refreshToken ?? this.refreshToken,
-        error:        error,
-        activeView:   clearActiveView ? null : (activeView ?? this.activeView),
+        error: error,
+        activeView: clearActiveView ? null : (activeView ?? this.activeView),
       );
 }
 
@@ -78,7 +78,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
   /// Chargement automatique au démarrage.
   Future<AuthState> _tryLoadFromStorage() async {
-    final accessToken  = await _storage.getAccessToken();
+    final accessToken = await _storage.getAccessToken();
     final refreshToken = await _storage.getRefreshToken();
 
     if (accessToken == null) {
@@ -127,7 +127,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final res = await client.requestOtp({'phone': phone});
       final data = res.data as Map<String, dynamic>;
       if (data['sent'] != true) {
-        throw Exception(data['detail'] ?? data['message'] ?? "Envoi OTP indisponible.");
+        throw Exception(
+            data['detail'] ?? data['message'] ?? "Envoi OTP indisponible.");
       }
       // Revenir à unauthenticated pour afficher OtpScreen
       state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
@@ -146,7 +147,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   String? _firebaseVerificationId;
 
   /// Étape 1 Firebase — envoie le SMS via Firebase Auth
-  Future<void> startFirebasePhoneAuth(String phone, {
+  Future<void> startFirebasePhoneAuth(
+    String phone, {
     required void Function(String verificationId) onCodeSent,
     required void Function(String error) onError,
     required void Function(fb.PhoneAuthCredential credential) onAutoVerified,
@@ -200,11 +202,15 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
   /// Sign in with Firebase credential, then authenticate with Denkma backend.
   /// Returns registration_token if new user, null if logged in.
-  Future<String?> signInWithFirebaseCredential(fb.PhoneAuthCredential credential) async {
+  Future<String?> signInWithFirebaseCredential(
+      fb.PhoneAuthCredential credential) async {
     try {
-      final userCredential = await fb.FirebaseAuth.instance.signInWithCredential(credential);
+      final userCredential =
+          await fb.FirebaseAuth.instance.signInWithCredential(credential);
       final idToken = await userCredential.user?.getIdToken();
-      if (idToken == null) throw Exception('Impossible de récupérer le token Firebase');
+      if (idToken == null) {
+        throw Exception('Impossible de récupérer le token Firebase');
+      }
 
       // Envoyer l'ID token au backend Denkma
       final client = ApiClient();
@@ -217,7 +223,9 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       }
 
       final sessionData = data['session'] as Map<String, dynamic>?;
-      if (sessionData == null) throw Exception("Session manquante dans la réponse API.");
+      if (sessionData == null) {
+        throw Exception("Session manquante dans la réponse API.");
+      }
       await _handleTokenResponse(sessionData);
       return null;
     } catch (e) {
@@ -243,7 +251,9 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       }
 
       final sessionData = data['session'] as Map<String, dynamic>?;
-      if (sessionData == null) throw Exception("Session manquante dans la réponse API.");
+      if (sessionData == null) {
+        throw Exception("Session manquante dans la réponse API.");
+      }
       _handleTokenResponse(sessionData);
       return null;
     } catch (e) {
@@ -256,7 +266,12 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   /// Étape Finale — Complete Registration
-  Future<void> completeRegistration({required String token, required String name, required String pin}) async {
+  Future<void> completeRegistration({
+    required String token,
+    required String name,
+    required String pin,
+    String? referralCode,
+  }) async {
     state = const AsyncLoading();
     try {
       final client = ApiClient();
@@ -265,10 +280,13 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         'name': name,
         'pin': pin,
         'accepted_legal': true,
+        if (referralCode != null && referralCode.trim().isNotEmpty)
+          'referral_code': referralCode.trim().toUpperCase(),
       });
       _handleTokenResponse(res.data as Map<String, dynamic>);
     } catch (e) {
-      state = AsyncData(AuthState(status: AuthStatus.unauthenticated, error: _extractError(e)));
+      state = AsyncData(AuthState(
+          status: AuthStatus.unauthenticated, error: _extractError(e)));
       rethrow;
     }
   }
@@ -281,40 +299,49 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final res = await client.loginPin({'phone': phone, 'pin': pin});
       _handleTokenResponse(res.data as Map<String, dynamic>);
     } catch (e) {
-      state = AsyncData(AuthState(status: AuthStatus.unauthenticated, error: _extractError(e)));
+      state = AsyncData(AuthState(
+          status: AuthStatus.unauthenticated, error: _extractError(e)));
       rethrow;
     }
   }
 
   Future<void> _handleTokenResponse(Map<String, dynamic> data) async {
-      final accessTokenRaw = data['access_token'];
-      final refreshTokenRaw = data['refresh_token'];
+    final accessTokenRaw = data['access_token'];
+    final refreshTokenRaw = data['refresh_token'];
 
-      if (accessTokenRaw == null || refreshTokenRaw == null) {
-        final errorMsg = data['detail'] ?? data['message'] ?? 'Formats absents de la réponse API.';
-        throw Exception("Échec de connexion : $errorMsg");
-      }
+    if (accessTokenRaw == null || refreshTokenRaw == null) {
+      final errorMsg = data['detail'] ??
+          data['message'] ??
+          'Formats absents de la réponse API.';
+      throw Exception("Échec de connexion : $errorMsg");
+    }
 
-      final accessToken  = accessTokenRaw.toString();
-      final refreshToken = refreshTokenRaw.toString();
-      
-      final userData = data['user'];
-      if (userData == null) throw Exception("Profil utilisateur manquant.");
+    final accessToken = accessTokenRaw.toString();
+    final refreshToken = refreshTokenRaw.toString();
 
-      final user = User.fromJson(userData as Map<String, dynamic>);
+    final userData = data['user'];
+    if (userData == null) throw Exception("Profil utilisateur manquant.");
 
-      await _storage.saveTokens(accessToken: accessToken, refreshToken: refreshToken);
+    final user = User.fromJson(userData as Map<String, dynamic>);
 
-      state = AsyncData(AuthState(
-        status: AuthStatus.authenticated,
-        user: user,
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-      ));
+    await _storage.saveTokens(
+        accessToken: accessToken, refreshToken: refreshToken);
+
+    state = AsyncData(AuthState(
+      status: AuthStatus.authenticated,
+      user: user,
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    ));
   }
 
   /// Mise à jour du profil (E-mail et Type)
-  Future<void> updateProfile({String? email, String? userType, Map<String, dynamic>? notificationPrefs, String? language, String? bio}) async {
+  Future<void> updateProfile(
+      {String? email,
+      String? userType,
+      Map<String, dynamic>? notificationPrefs,
+      String? language,
+      String? bio}) async {
     final current = state.valueOrNull;
     if (current == null || !current.isAuthenticated) return;
 
@@ -324,13 +351,15 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final body = <String, dynamic>{};
       if (email != null) body['email'] = email;
       if (userType != null) body['user_type'] = userType;
-      if (notificationPrefs != null) body['notification_prefs'] = notificationPrefs;
+      if (notificationPrefs != null) {
+        body['notification_prefs'] = notificationPrefs;
+      }
       if (language != null) body['language'] = language;
       if (bio != null) body['bio'] = bio;
-      
+
       final res = await client.updateProfile(body);
       final updatedUser = User.fromJson(res.data as Map<String, dynamic>);
-      
+
       state = AsyncData(current.copyWith(user: updatedUser));
     } catch (e) {
       state = AsyncData(current.copyWith(error: _extractError(e)));

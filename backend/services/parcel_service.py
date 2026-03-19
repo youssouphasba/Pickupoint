@@ -10,6 +10,7 @@ from typing import Optional
 from config import settings
 from database import db
 from core.exceptions import bad_request_exception
+from core.utils import normalize_phone
 from core.security import generate_tracking_code
 from models.common import ParcelStatus, DeliveryMode
 from models.parcel import ParcelCreate, ParcelEvent, QuoteResponse
@@ -27,8 +28,8 @@ def _generate_code() -> str:
 
 
 def _generate_delivery_code() -> str:
-    """Génère un code numérique à 4 chiffres (delivery_code destinataire domicile)."""
-    return f"{random.randint(1000, 9999)}"
+    """Génère un code numérique à 6 chiffres (delivery_code destinataire domicile)."""
+    return f"{random.randint(100000, 999999)}"
 
 # ── Machine d'états ───────────────────────────────────────────────────────────
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
@@ -381,7 +382,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     )
 
     sender_name_str = (user or {}).get("name", "Expéditeur")
-    sender_phone_value = sender_phone or data.sender_phone or (user or {}).get("phone", "")
+    sender_phone_value = normalize_phone(sender_phone or data.sender_phone or (user or {}).get("phone", ""))
+    recipient_phone = normalize_phone(data.recipient_phone)
 
     # Vérifications métier complémentaires: relais existants et actifs.
     if data.origin_relay_id:
@@ -407,7 +409,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "sender_user_id":        sender_user_id,
         "sender_name":           sender_name_str,
         "sender_phone":          sender_phone_value or None,
-        "recipient_phone":       data.recipient_phone,
+        "recipient_phone":       recipient_phone,
         "recipient_name":        data.recipient_name,
         "recipient_user_id":     None,  # Lié ci-dessous
         "delivery_mode":         data.delivery_mode.value,
@@ -425,11 +427,11 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
         # pickup_code (6ch) : toujours — remis au driver par l'agent relais ou l'expéditeur
-        # delivery_code (4ch) : *_to_home uniquement — destinataire le donne au driver
-        # relay_pin (4ch) : *_to_relay uniquement — destinataire le donne à l'agent relais
+        # delivery_code (6ch) : *_to_home uniquement — destinataire le donne au driver
+        # relay_pin (6ch) : *_to_relay uniquement — destinataire le donne à l'agent relais
         "pickup_code":           _generate_code(),
         "delivery_code":         _generate_delivery_code() if data.delivery_mode.value.endswith("_to_home") else None,
-        "relay_pin":             f"{random.randint(1000, 9999)}" if data.delivery_mode.value.endswith("_to_relay") else None,
+        "relay_pin":             _generate_delivery_code() if data.delivery_mode.value.endswith("_to_relay") else None,
         "paid_price":            None,
         "payment_status":        "pending",
         "payment_method":        None,
@@ -495,7 +497,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             parcel_doc["pickup_confirmed"] = False
 
     # ── Liaison automatique du destinataire si compte existant ──
-    recipient_user = await db.users.find_one({"phone": data.recipient_phone}, {"user_id": 1})
+    recipient_user = await db.users.find_one({"phone": recipient_phone}, {"user_id": 1})
     if recipient_user:
         parcel_doc["recipient_user_id"] = recipient_user["user_id"]
 

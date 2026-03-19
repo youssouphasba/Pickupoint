@@ -82,6 +82,9 @@ class Settings(BaseSettings):
         if self.OTP_PROVIDER not in {"mock", "twilio", "firebase"}:
             raise ValueError("OTP_PROVIDER must be 'mock', 'twilio', or 'firebase'")
 
+        if is_prod and self.OTP_PROVIDER == "mock":
+            raise ValueError("OTP_PROVIDER cannot be 'mock' in production — set to 'firebase' or 'twilio'")
+
         if self.OTP_MAX_ATTEMPTS < 1:
             raise ValueError("OTP_MAX_ATTEMPTS must be >= 1")
 

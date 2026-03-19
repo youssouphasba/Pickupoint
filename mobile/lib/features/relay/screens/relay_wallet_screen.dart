@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/relay_provider.dart';
+
+import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../providers/relay_provider.dart';
 
-class RelayWalletScreen extends ConsumerWidget {
+class RelayWalletScreen extends ConsumerStatefulWidget {
   const RelayWalletScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RelayWalletScreen> createState() => _RelayWalletScreenState();
+}
+
+class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
+  @override
+  Widget build(BuildContext context) {
     final walletAsync = ref.watch(relayWalletProvider);
     final transactionsAsync = ref.watch(relayTransactionsProvider);
 
@@ -28,7 +35,10 @@ class RelayWalletScreen extends ConsumerWidget {
             children: [
               _buildBalanceCard(context, walletAsync),
               const SizedBox(height: 32),
-              const Text('Dernières transactions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Dernieres transactions',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 16),
               _buildTransactionsList(transactionsAsync),
             ],
@@ -49,18 +59,32 @@ class RelayWalletScreen extends ConsumerWidget {
         ),
         child: Column(
           children: [
-            const Text('Solde actuel', style: TextStyle(color: Colors.white70, fontSize: 16)),
+            const Text(
+              'Solde actuel',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
             const SizedBox(height: 8),
             Text(
               formatXof(wallet.balance),
-              style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+              ),
             ),
+            if (wallet.pendingBalance > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                'En attente : ${formatXof(wallet.pendingBalance)}',
+                style: const TextStyle(color: Colors.white60, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: 24),
             LoadingButton(
               label: 'Demander un retrait',
               color: Colors.white,
-              onPressed: () => _showPayoutSheet(context),
-              // Texte noir sur blanc pour white color
+              onPressed:
+                  wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
             ),
           ],
         ),
@@ -73,7 +97,9 @@ class RelayWalletScreen extends ConsumerWidget {
   Widget _buildTransactionsList(AsyncValue transactionsAsync) {
     return transactionsAsync.when(
       data: (txs) {
-        if (txs.isEmpty) return const Text('Aucune transaction.');
+        if (txs.isEmpty) {
+          return const Text('Aucune transaction.');
+        }
         return ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -87,7 +113,7 @@ class RelayWalletScreen extends ConsumerWidget {
                 isCredit ? Icons.add_circle : Icons.remove_circle,
                 color: isCredit ? Colors.green : Colors.red,
               ),
-              title: Text(tx.description),
+              title: Text(tx.description ?? tx.type),
               subtitle: Text(formatDate(tx.createdAt)),
               trailing: Text(
                 '${isCredit ? '+' : '-'}${formatXof(tx.amount)}',
@@ -105,36 +131,95 @@ class RelayWalletScreen extends ConsumerWidget {
     );
   }
 
-  void _showPayoutSheet(BuildContext context) {
-    // Liste des méthodes de retrait
-    showModalBottomSheet(
+  void _showPayoutDialog(BuildContext context) {
+    final amountCtrl = TextEditingController();
+    String method = 'wave';
+
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Demande de retrait'),
+          content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Demander un retrait', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Montant (XOF)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
               const SizedBox(height: 16),
-              const Text('Choisissez votre méthode de paiement préférée.'),
-              const SizedBox(height: 24),
-              ListTile(
-                leading: const Icon(Icons.wallet, color: Colors.blue),
-                title: const Text('Wave / Orange Money'),
-                subtitle: const Text('Traitement en 24h'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fonctionnalité de retrait bientôt disponible !')));
+              DropdownButtonFormField<String>(
+                initialValue: method,
+                decoration: const InputDecoration(
+                  labelText: 'Methode',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'wave', child: Text('Wave')),
+                  DropdownMenuItem(
+                    value: 'orange_money',
+                    child: Text('Orange Money'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'free_money',
+                    child: Text('Free Money'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => method = value);
+                  }
                 },
               ),
-              const SizedBox(height: 24),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final amount = double.tryParse(amountCtrl.text.trim());
+                if (amount == null || amount <= 0) {
+                  return;
+                }
+                try {
+                  final user = ref.read(authProvider).valueOrNull?.user;
+                  await ref.read(apiClientProvider).requestPayout({
+                    'amount': amount,
+                    'method': method,
+                    'phone': user?.phone ?? '',
+                  });
+                  if (!ctx.mounted) {
+                    return;
+                  }
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Demande envoyee, en attente de validation.',
+                      ),
+                    ),
+                  );
+                  ref.invalidate(relayWalletProvider);
+                  ref.invalidate(relayTransactionsProvider);
+                } catch (e) {
+                  if (!ctx.mounted) {
+                    return;
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erreur: $e')),
+                  );
+                }
+              },
+              child: const Text('Envoyer'),
+            ),
+          ],
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
+import 'admin_user_detail_screen.dart';
 import 'admin_user_history_screen.dart';
 
 class AdminUsersScreen extends ConsumerStatefulWidget {
@@ -14,7 +15,8 @@ class AdminUsersScreen extends ConsumerStatefulWidget {
 
 class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
   final _searchCtrl = TextEditingController();
-  String _filter = 'all'; // 'all' | 'client' | 'relay_agent' | 'driver' | 'admin'
+  String _filter =
+      'all'; // 'all' | 'client' | 'relay_agent' | 'driver' | 'admin'
 
   @override
   void dispose() {
@@ -58,11 +60,11 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
-                _filterChip('Tous',     'all'),
-                _filterChip('Clients',  'client'),
-                _filterChip('Relais',   'relay_agent'),
+                _filterChip('Tous', 'all'),
+                _filterChip('Clients', 'client'),
+                _filterChip('Relais', 'relay_agent'),
                 _filterChip('Livreurs', 'driver'),
-                _filterChip('Admins',   'admin'),
+                _filterChip('Admins', 'admin'),
               ],
             ),
           ),
@@ -87,7 +89,8 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, indent: 72),
                   itemBuilder: (_, i) => _UserTile(user: filtered[i]),
                 );
               },
@@ -120,39 +123,44 @@ class _UserTile extends ConsumerWidget {
   final User user;
 
   static const _roleLabels = {
-    'client':      'Client',
+    'client': 'Client',
     'relay_agent': 'Agent Relais',
-    'driver':      'Livreur',
-    'admin':       'Admin',
-    'superadmin':  'Super Admin',
+    'driver': 'Livreur',
+    'admin': 'Admin',
+    'superadmin': 'Super Admin',
   };
 
   static const _roleColors = {
-    'client':      Colors.grey,
+    'client': Colors.grey,
     'relay_agent': Colors.orange,
-    'driver':      Colors.blue,
-    'admin':       Colors.purple,
-    'superadmin':  Colors.red,
+    'driver': Colors.blue,
+    'admin': Colors.purple,
+    'superadmin': Colors.red,
   };
 
   static const _roleIcons = {
-    'client':      Icons.person,
+    'client': Icons.person,
     'relay_agent': Icons.store,
-    'driver':      Icons.delivery_dining,
-    'admin':       Icons.admin_panel_settings,
-    'superadmin':  Icons.security,
+    'driver': Icons.delivery_dining,
+    'admin': Icons.admin_panel_settings,
+    'superadmin': Icons.security,
   };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final color = _roleColors[user.role] ?? Colors.grey;
-    final icon  = _roleIcons[user.role]  ?? Icons.person;
+    final icon = _roleIcons[user.role] ?? Icons.person;
     final label = _roleLabels[user.role] ?? user.role;
+    final profilePicture = user.profilePictureUrl;
+    final hasProfilePicture =
+        profilePicture != null && profilePicture.trim().isNotEmpty;
 
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: color.withValues(alpha: 0.15),
-        child: Icon(icon, color: color, size: 20),
+        backgroundImage:
+            hasProfilePicture ? NetworkImage(profilePicture) : null,
+        child: hasProfilePicture ? null : Icon(icon, color: color, size: 20),
       ),
       title: Text(
         user.name,
@@ -163,7 +171,8 @@ class _UserTile extends ConsumerWidget {
         children: [
           Text(user.phone, style: const TextStyle(fontSize: 12)),
           if (user.email != null && user.email!.isNotEmpty)
-            Text(user.email!, style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+            Text(user.email!,
+                style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
           if (user.relayPointId != null)
             Text('Relais: ${user.relayPointId}',
                 style: TextStyle(fontSize: 11, color: Colors.orange.shade700)),
@@ -172,18 +181,6 @@ class _UserTile extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            icon: const Icon(Icons.history, color: Colors.blue, size: 20),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => AdminUserHistoryScreen(
-                  userId: user.id,
-                  userName: user.name,
-                ),
-              ),
-            ),
-          ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
@@ -191,11 +188,24 @@ class _UserTile extends ConsumerWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: color.withValues(alpha: 0.4)),
             ),
-            child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+            child: Text(label,
+                style: TextStyle(
+                    color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_horiz),
+            tooltip: 'Actions',
+            onPressed: () => _showUserActions(context, ref),
           ),
         ],
       ),
-      onTap: () => _showUserActions(context, ref),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AdminUserDetailScreen(userId: user.id),
+        ),
+      ),
+      onLongPress: () => _showUserActions(context, ref),
     );
   }
 
@@ -235,18 +245,29 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
             const Icon(Icons.manage_accounts, size: 22),
             const SizedBox(width: 10),
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(widget.user.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text(widget.user.phone, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                if (widget.user.email != null && widget.user.email!.isNotEmpty)
-                  Text(widget.user.email!, style: const TextStyle(color: Colors.blueGrey, fontSize: 13)),
-              ]),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.user.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(widget.user.phone,
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 13)),
+                    if (widget.user.email != null &&
+                        widget.user.email!.isNotEmpty)
+                      Text(widget.user.email!,
+                          style: const TextStyle(
+                              color: Colors.blueGrey, fontSize: 13)),
+                  ]),
             ),
           ]),
           const SizedBox(height: 20),
           const Text('Changer le rôle',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey)),
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: Colors.grey)),
           const SizedBox(height: 10),
           // Boutons de changement de rôle
           if (_loading)
@@ -256,17 +277,24 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _roleButton(context, 'Client',      'client',      Icons.person,           Colors.grey),
-                _roleButton(context, 'Livreur',     'driver',      Icons.delivery_dining,  Colors.blue),
-                _roleButton(context, 'Agent Relais','relay_agent', Icons.store,            Colors.orange),
-                _roleButton(context, 'Admin',       'admin',       Icons.admin_panel_settings, Colors.purple),
+                _roleButton(
+                    context, 'Client', 'client', Icons.person, Colors.grey),
+                _roleButton(context, 'Livreur', 'driver', Icons.delivery_dining,
+                    Colors.blue),
+                _roleButton(context, 'Agent Relais', 'relay_agent', Icons.store,
+                    Colors.orange),
+                _roleButton(context, 'Admin', 'admin',
+                    Icons.admin_panel_settings, Colors.purple),
               ],
             ),
           // Si relay_agent : lier un point relais
-          if (widget.user.role == 'relay_agent' || true) ...[
+          if (widget.user.role == 'relay_agent') ...[
             const SizedBox(height: 20),
             const Text('Lier un point relais',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: Colors.grey)),
             const SizedBox(height: 8),
             _LinkRelayButton(user: widget.user),
           ],
@@ -275,7 +303,8 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
           ListTile(
             leading: const Icon(Icons.history, color: Colors.blue),
             title: const Text('Voir l\'historique d\'activité',
-                style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                style:
+                    TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
             onTap: () {
               Navigator.pop(context);
               Navigator.push(
@@ -296,7 +325,9 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
               color: widget.user.isBanned ? Colors.green : Colors.red,
             ),
             title: Text(
-              widget.user.isBanned ? 'Débannir l\'utilisateur' : 'Bannir l\'utilisateur',
+              widget.user.isBanned
+                  ? 'Débannir l\'utilisateur'
+                  : 'Bannir l\'utilisateur',
               style: TextStyle(
                 color: widget.user.isBanned ? Colors.green : Colors.red,
                 fontWeight: FontWeight.bold,
@@ -310,45 +341,40 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
   }
 
   Future<void> _toggleBan(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
+    final reason = await _askAdminReason(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(widget.user.isBanned ? 'Confirmer le débannissement' : 'Confirmer le bannissement'),
-        content: Text(widget.user.isBanned 
-          ? 'Souhaitez-vous lever la suspension de ${widget.user.name} ?' 
-          : 'Souhaitez-vous suspendre le compte de ${widget.user.name} ? Ses sessions seront révoquées.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: widget.user.isBanned ? Colors.green : Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true), 
-            child: Text(widget.user.isBanned ? 'Débannir' : 'Bannir'),
-          ),
-        ],
-      ),
+      title: widget.user.isBanned
+          ? 'Confirmer le debannissement'
+          : 'Confirmer le bannissement',
+      helper: widget.user.isBanned
+          ? 'Explique pourquoi tu leves la suspension de ${widget.user.name}.'
+          : 'Explique pourquoi tu suspend le compte de ${widget.user.name}. Les sessions actives seront revoquees.',
+      confirmLabel: widget.user.isBanned ? 'Debannir' : 'Bannir',
+      confirmColor: widget.user.isBanned ? Colors.green : Colors.red,
     );
 
-    if (confirmed != true) return;
+    if (reason == null) return;
 
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
       if (widget.user.isBanned) {
-        await api.unbanUser(widget.user.id);
+        await api.unbanUser(widget.user.id, reason: reason);
       } else {
-        await api.banUser(widget.user.id);
+        await api.banUser(widget.user.id, reason: reason);
       }
-      
+
       ref.invalidate(adminUsersProvider);
-      
+
       if (context.mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.user.isBanned ? 'Utilisateur débanni ✅' : 'Utilisateur banni 🚫'),
+            content: Text(
+              widget.user.isBanned
+                  ? 'Utilisateur debanni avec succes.'
+                  : 'Utilisateur banni avec succes.',
+            ),
             backgroundColor: widget.user.isBanned ? Colors.green : Colors.red,
           ),
         );
@@ -364,6 +390,73 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     }
   }
 
+  Future<String?> _askAdminReason({
+    required BuildContext context,
+    required String title,
+    required String helper,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) async {
+    final controller = TextEditingController();
+    String? errorText;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(helper),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                minLines: 2,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  labelText: 'Motif',
+                  hintText:
+                      'Exemple: fraude constatee, documents invalides, erreur corrigee',
+                  errorText: errorText,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmColor,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(
+                    () =>
+                        errorText = "Saisis un motif d'au moins 3 caracteres.",
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: Text(confirmLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    controller.dispose();
+    return result;
+  }
+
   Widget _roleButton(BuildContext context, String label, String role,
       IconData icon, Color color) {
     final isCurrent = widget.user.role == role;
@@ -371,10 +464,15 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
       onPressed: isCurrent ? null : () => _changeRole(context, role),
       icon: Icon(icon, size: 16, color: isCurrent ? Colors.grey : color),
       label: Text(label,
-          style: TextStyle(color: isCurrent ? Colors.grey : color, fontSize: 13)),
+          style:
+              TextStyle(color: isCurrent ? Colors.grey : color, fontSize: 13)),
       style: OutlinedButton.styleFrom(
-        side: BorderSide(color: isCurrent ? Colors.grey.shade300 : color.withValues(alpha: 0.5)),
-        backgroundColor: isCurrent ? Colors.grey.shade100 : color.withValues(alpha: 0.05),
+        side: BorderSide(
+            color: isCurrent
+                ? Colors.grey.shade300
+                : color.withValues(alpha: 0.5)),
+        backgroundColor:
+            isCurrent ? Colors.grey.shade100 : color.withValues(alpha: 0.05),
       ),
     );
   }
@@ -435,16 +533,23 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
             isDense: true,
             hintText: 'Sélectionner un relais…',
           ),
-          items: relays.map((r) => DropdownMenuItem(
-            value: r.id,
-            child: Text('${r.name} — ${r.city}', style: const TextStyle(fontSize: 13)),
-          )).toList(),
-          onChanged: _loading ? null : (relayId) {
-            if (relayId != null) _assignRelay(context, relayId);
-          },
+          items: relays
+              .map((r) => DropdownMenuItem(
+                    value: r.id,
+                    child: Text('${r.name} — ${r.city}',
+                        style: const TextStyle(fontSize: 13)),
+                  ))
+              .toList(),
+          onChanged: _loading
+              ? null
+              : (relayId) {
+                  if (relayId != null) _assignRelay(context, relayId);
+                },
         );
       },
-      loading: () => const SizedBox(height: 20, width: 20,
+      loading: () => const SizedBox(
+          height: 20,
+          width: 20,
           child: CircularProgressIndicator(strokeWidth: 2)),
       error: (e, __) => Text('Erreur relais: $e',
           style: const TextStyle(color: Colors.red, fontSize: 12)),

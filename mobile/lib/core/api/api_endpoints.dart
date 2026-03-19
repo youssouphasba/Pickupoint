@@ -27,12 +27,16 @@ class ApiEndpoints {
   static const userAvatar = '$_base/api/users/me/avatar';
   static const userKyc = '$_base/api/users/me/kyc';
   static const favoriteAddresses = '$_base/api/users/me/favorite-addresses';
+  static const referralInfo = '$_base/api/users/refer';
+  static const applyReferral = '$_base/api/users/apply-referral';
 
   // ─── Parcels ─────────────────────────────────────────────────────────────
   static const parcels = '$_base/api/parcels';
   static const bulkAction = '$_base/api/parcels/bulk-action';
   static const quote = '$_base/api/parcels/quote';
   static String parcel(String id) => '$_base/api/parcels/$id';
+  static String parcelLookupByTracking(String code) =>
+      '$_base/api/parcels/lookup/tracking/$code';
   static String parcelEvent(String id, String event) =>
       '$_base/api/parcels/$id/$event';
   static String track(String code) => '$_base/api/tracking/$code';
@@ -53,6 +57,8 @@ class ApiEndpoints {
   static const relayNearby = '$_base/api/relay-points/nearby';
   static String relayPoint(String id) => '$_base/api/relay-points/$id';
   static String relayStock(String id) => '$_base/api/relay-points/$id/stock';
+  static String relayHistory(String id) =>
+      '$_base/api/relay-points/$id/history';
   static String relayVerify(String id) => '$_base/api/relay-points/$id/verify';
 
   // ─── Deliveries ───────────────────────────────────────────────────────────
@@ -84,7 +90,7 @@ class ApiEndpoints {
   static const dashboard = '$_base/api/admin/dashboard';
   static const adminParcels = '$_base/api/admin/parcels';
   static String adminParcelStatus(String id) =>
-      '$_base/api/admin/parcels/$id/status';
+      '$_base/api/admin/parcels/$id/override';
   static const adminRelays = '$_base/api/admin/relay-points';
   static const adminPayouts = '$_base/api/admin/wallets/payouts';
   static String adminApprove(String id) =>
@@ -103,6 +109,8 @@ class ApiEndpoints {
   static const adminAnomalyAlerts = '$_base/api/admin/analytics/anomaly-alerts';
   static const adminHeatmap = '$_base/api/admin/analytics/heatmap';
   static const adminCodMonitoring = '$_base/api/admin/finance/cod-monitoring';
+  static const adminFinanceReconciliation =
+      '$_base/api/admin/finance/reconciliation';
   static String adminParcelAudit(String id) =>
       '$_base/api/admin/parcels/$id/audit';
   static String adminReassignMission(String id) =>
@@ -118,8 +126,12 @@ class ApiEndpoints {
   static String adminUserRelay(String id) => '$_base/api/users/$id/relay-point';
   static String adminUserHistory(String id) =>
       '$_base/api/admin/users/$id/history';
+  static String adminUserDetail(String id) =>
+      '$_base/api/admin/users/$id/detail';
   static String adminBanUser(String id) => '$_base/api/admin/users/$id/ban';
   static String adminUnbanUser(String id) => '$_base/api/admin/users/$id/unban';
+  static String adminRelayDetail(String id) =>
+      '$_base/api/admin/relay-points/$id/detail';
 
   // ─── Candidatures ─────────────────────────────────────────────────────────
   static const applyDriver = '$_base/api/applications/driver';
@@ -138,8 +150,16 @@ class ApiEndpoints {
   static String parcelMessages(String id) => '$_base/api/parcels/$id/messages';
   static String parcelVoiceMessage(String id) =>
       '$_base/api/parcels/$id/messages/voice';
+  static String parcelVoiceAsset(String parcelId, String messageId) =>
+      '$_base/api/parcels/$parcelId/messages/$messageId/voice';
+
+  // ─── App Settings (public/admin) ─────────────────────────────────────────
+  static const publicSettings = '$_base/api/settings';
 
   // ─── App Settings (admin) ─────────────────────────────────────────────────
   static const adminSettings = '$_base/api/admin/settings';
   static const adminSettingsExpress = '$_base/api/admin/settings/express';
+  static const adminSettingsReferral = '$_base/api/admin/settings/referral';
+  static String adminUserReferralAccess(String id) =>
+      '$_base/api/admin/users/$id/referral-access';
 }

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Pickupoint</string>
+	<string>Denkma</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>pickupoint</string>
+	<string>Denkma</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -45,13 +45,19 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>GoogleMapsApiKey</key>
+	<string></string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Cette application a besoin d'accéder à votre position pour le suivi des livraisons.</string>
+	<string>Cette application a besoin d'acceder a votre position pour le suivi des livraisons.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Cette application a besoin d'accéder à votre position en arrière-plan pour le suivi des livraisons en temps réel.</string>
+	<string>Cette application a besoin d'acceder a votre position en arriere-plan pour le suivi des livraisons en temps reel.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Cette application a besoin d'accéder à l'appareil photo pour scanner les codes de livraison et prendre des preuves de dépôt.</string>
+	<string>Cette application a besoin d'acceder a l'appareil photo pour scanner les codes de livraison et prendre des preuves de depot.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Cette application a besoin d'accéder à votre bibliothèque de photos pour enregistrer les preuves de livraison.</string>
+	<string>Cette application a besoin d'acceder a votre bibliotheque de photos pour enregistrer les preuves de livraison.</string>
 </dict>
 </plist>

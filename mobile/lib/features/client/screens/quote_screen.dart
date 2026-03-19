@@ -174,7 +174,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             // Express
             if (isExpress && expressCost > 0) ...[
               const SizedBox(height: 4),
-              _row('Supplément express (+40 %)', expressCost,
+              _row('Supplément express (+30 %)', expressCost,
                   color: const Color(0xFFFF6B00)),
             ],
 

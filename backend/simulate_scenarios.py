@@ -2,15 +2,15 @@
 simulate_scenarios.py — Scenarios de test end-to-end (v4)
 
 Couvre les 4 modes de livraison avec les flows corriges :
-  R2R:  CREATED -> DROPPED_AT_ORIGIN_RELAY -> IN_TRANSIT -> AT_DESTINATION_RELAY -> AVAILABLE_AT_RELAY -> DELIVERED
+  R2R:  CREATED -> DROPPED_AT_ORIGIN_RELAY -> IN_TRANSIT -> AVAILABLE_AT_RELAY -> DELIVERED
   R2H:  CREATED -> DROPPED_AT_ORIGIN_RELAY -> IN_TRANSIT -> OUT_FOR_DELIVERY -> DELIVERED
-  H2R:  CREATED -> IN_TRANSIT -> AT_DESTINATION_RELAY -> AVAILABLE_AT_RELAY -> DELIVERED
-  H2H:  CREATED -> OUT_FOR_DELIVERY -> DELIVERED
+  H2R:  CREATED -> IN_TRANSIT -> AVAILABLE_AT_RELAY -> DELIVERED
+  H2H:  CREATED -> IN_TRANSIT -> OUT_FOR_DELIVERY -> DELIVERED
 
 Codes par mode :
   pickup_code (6ch) : toujours genere — agent relais ou expediteur le donne au driver
-  delivery_code (4ch) : *_to_home uniquement — destinataire le donne au driver
-  relay_pin (4ch) : *_to_relay uniquement — destinataire le donne a l'agent relais
+  delivery_code (6ch) : *_to_home uniquement — destinataire le donne au driver
+  relay_pin (6ch) : *_to_relay uniquement — destinataire le donne a l'agent relais
 
 Cas speciaux : redirection apres echec, express, destinataire paie
 
@@ -89,9 +89,6 @@ def _tracking_code():
 
 def _pin6():
     return str(random.randint(100000, 999999))
-
-def _pin4():
-    return str(random.randint(1000, 9999))
 
 def _event(parcel_id, status, actor_id, actor_role, note="", ts=None):
     return {
@@ -216,8 +213,8 @@ async def _make_parcel(label, mode, sender, recipient,
     pickup_code    = _pin6()  # toujours — agent relais ou expediteur le donne au driver
     home_delivery  = mode.value.endswith("_to_home")
     relay_delivery = mode.value.endswith("_to_relay")
-    delivery_code  = _pin4() if home_delivery  else None
-    relay_pin      = _pin4() if relay_delivery else None
+    delivery_code  = _pin6() if home_delivery  else None
+    relay_pin      = _pin6() if relay_delivery else None
 
     base_price = {"relay_to_relay": 700, "relay_to_home": 1100,
                   "home_to_relay": 900, "home_to_home": 1300}[mode.value]
@@ -342,16 +339,19 @@ async def _make_mission(parcel, driver, pickup_relay=None, pickup_loc=None,
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 
-async def main(wipe=False):
+async def main(wipe=False, wipe_only=False):
     await connect_db()
 
-    if wipe:
+    if wipe or wipe_only:
         print("\n--- PURGE ---")
         r1 = await db.parcels.delete_many({"is_simulation": True})
         r2 = await db.parcel_events.delete_many({})
         r3 = await db.delivery_missions.delete_many({})
         await db.relay_points.update_many({}, {"$set": {"current_load": 0}})
         print(f"  {r1.deleted_count} colis  |  {r2.deleted_count} evts  |  {r3.deleted_count} missions  supprimes")
+        if wipe_only:
+            print("Purge terminee (--wipe-only).")
+            return
 
     # ── 1. Comptes ──────────────────────────────────────────────────────────
     print("\n--- COMPTES ---")
@@ -420,274 +420,68 @@ async def main(wipe=False):
     loc_ibra   = {"label": "Bureau Ibrahima, Plateau",  "city": "Dakar",  "geopin": {"lat": 14.710, "lng": -17.430}}
     loc_ibra2  = {"label": "Domicile Ibrahima, Thies",  "city": "Thies",  "geopin": {"lat": 14.795, "lng": -16.940}}
 
-    # ── 5. Scenarios ────────────────────────────────────────────────────────
+    # ── 5. Scenarios (4 colis CREATED, 1 par mode — test end-to-end) ───────
+    print("\n--- SCENARIOS (1 colis CREATED par mode) ---")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # R2R — RELAY TO RELAY
-    # Flow : CREATED -> DROPPED_AT_ORIGIN_RELAY -> IN_TRANSIT
-    #        -> AT_DESTINATION_RELAY -> AVAILABLE_AT_RELAY -> DELIVERED
-    #
-    # Codes : pickup_code (agent relais -> driver) + relay_pin (destinataire -> agent relais)
-    # ══════════════════════════════════════════════════════════════════════════
-    print("\n--- R2R (Relay to Relay) ---")
-
+    # ── R2R : Relay to Relay ──────────────────────────────────────────────
+    # Flow complet : CREATED → depot relais (scan_in) → DROPPED_AT_ORIGIN_RELAY
+    #   → driver collecte (confirm-pickup) → IN_TRANSIT
+    #   → agent relais dest scan_in → AVAILABLE_AT_RELAY
+    #   → destinataire retire (scan_out + relay_pin) → DELIVERED
     await _make_parcel(
-        "R2R-1 | CREATED — en attente depot relais Medina",
+        "R2R | Fatou envoie a Ibrahima : Medina -> Escale Thies",
         DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
         origin_relay_id=medina["relay_id"], dest_relay_id=escale["relay_id"],
         status=ParcelStatus.CREATED,
-        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Colis cree"}],
+        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Colis cree — en attente de depot au relais Medina"}],
     )
 
+    # ── R2H : Relay to Home ──────────────────────────────────────────────
+    # Flow complet : CREATED → depot relais (scan_in) → DROPPED_AT_ORIGIN_RELAY
+    #   → driver collecte (confirm-pickup) → IN_TRANSIT
+    #   → driver arrive domicile (arrive-at-destination) → OUT_FOR_DELIVERY
+    #   → destinataire donne delivery_code (confirm-delivery) → DELIVERED
     await _make_parcel(
-        "R2R-2 | DROPPED — au relais Medina, en attente driver",
-        DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_relay_id=escale["relay_id"],
-        status=ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent", "note": "Scan entree relais Medina"},
-        ],
-    )
-
-    p_r2r_transit = await _make_parcel(
-        "R2R-3 | IN_TRANSIT — driver en route Dakar -> Thies (express)",
-        DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_relay_id=escale["relay_id"],
-        status=ParcelStatus.IN_TRANSIT,
-        assigned_driver_id=driver["user_id"],
-        is_express=True,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"],        "actor_role": "driver", "note": "Collecte au relais Medina (pickup_code valide)"},
-        ],
-    )
-    await _make_mission(p_r2r_transit, driver,
-                        pickup_relay=medina, delivery_relay=escale)
-
-    await _make_parcel(
-        "R2R-4 | AT_DESTINATION_RELAY — arrive a Thies, agent confirme",
-        DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_relay_id=escale["relay_id"],
-        status=ParcelStatus.AT_DESTINATION_RELAY,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"],        "actor_role": "driver"},
-            {"status": ParcelStatus.AT_DESTINATION_RELAY.value,      "actor_id": agent_escale["user_id"],  "actor_role": "relay_agent", "note": "Scan entree relais Escale Thies"},
-        ],
-    )
-
-    await _make_parcel(
-        "R2R-5 | AVAILABLE — pret au retrait, destinataire doit presenter relay_pin",
-        DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_relay_id=escale["relay_id"],
-        status=ParcelStatus.AVAILABLE_AT_RELAY,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"],        "actor_role": "driver"},
-            {"status": ParcelStatus.AT_DESTINATION_RELAY.value,      "actor_id": agent_escale["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.AVAILABLE_AT_RELAY.value,        "actor_id": agent_escale["user_id"],  "actor_role": "relay_agent", "note": "Pret au retrait"},
-        ],
-    )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # H2R — HOME TO RELAY
-    # Flow : CREATED -> IN_TRANSIT (driver collecte chez expediteur)
-    #        -> AT_DESTINATION_RELAY -> AVAILABLE_AT_RELAY -> DELIVERED
-    #
-    # Codes : pickup_code (expediteur -> driver) + relay_pin (destinataire -> agent relais)
-    # ══════════════════════════════════════════════════════════════════════════
-    print("\n--- H2R (Home to Relay) ---")
-
-    p_h2r_created = await _make_parcel(
-        "H2R-1 | CREATED — driver doit collecter chez Fatou (note vocale)",
-        DeliveryMode.HOME_TO_RELAY, fatou, ibra,
-        origin_loc=loc_fatou, dest_relay_id=plateau["relay_id"],
-        status=ParcelStatus.CREATED,
-        pickup_voice_note="uploads/voice/note_test.m4a",
-        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Note vocale laissee pour le livreur"}],
-    )
-    await _create_delivery_mission(p_h2r_created, ParcelStatus.CREATED)
-
-    await _make_parcel(
-        "H2R-2 | IN_TRANSIT — driver a collecte, en route vers Relais Plateau",
-        DeliveryMode.HOME_TO_RELAY, fatou, ibra,
-        origin_loc=loc_fatou, dest_relay_id=plateau["relay_id"],
-        status=ParcelStatus.IN_TRANSIT,
-        assigned_driver_id=driver["user_id"],
-        who_pays="recipient",
-        events=[
-            {"status": ParcelStatus.CREATED.value,     "actor_id": fatou["user_id"],  "actor_role": "client"},
-            {"status": ParcelStatus.IN_TRANSIT.value,   "actor_id": driver["user_id"], "actor_role": "driver", "note": "Collecte chez l'expediteur (pickup_code valide)"},
-        ],
-    )
-
-    await _make_parcel(
-        "H2R-3 | AT_DESTINATION_RELAY — depose au Relais Plateau",
-        DeliveryMode.HOME_TO_RELAY, fatou, ibra,
-        origin_loc=loc_fatou, dest_relay_id=plateau["relay_id"],
-        status=ParcelStatus.AT_DESTINATION_RELAY,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                 "actor_id": fatou["user_id"],          "actor_role": "client"},
-            {"status": ParcelStatus.IN_TRANSIT.value,               "actor_id": driver["user_id"],         "actor_role": "driver"},
-            {"status": ParcelStatus.AT_DESTINATION_RELAY.value,    "actor_id": agent_plateau["user_id"],  "actor_role": "relay_agent", "note": "Scan entree Relais Plateau"},
-        ],
-    )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # R2H — RELAY TO HOME
-    # Flow : CREATED -> DROPPED_AT_ORIGIN_RELAY -> IN_TRANSIT
-    #        -> OUT_FOR_DELIVERY (arrive-at-destination) -> DELIVERED
-    #
-    # Codes : pickup_code (agent relais -> driver) + delivery_code (destinataire -> driver)
-    # ══════════════════════════════════════════════════════════════════════════
-    print("\n--- R2H (Relay to Home) ---")
-
-    await _make_parcel(
-        "R2H-1 | CREATED — en attente depot relais + GPS destinataire",
+        "R2H | Fatou envoie a Ibrahima : Medina -> domicile Plateau",
         DeliveryMode.RELAY_TO_HOME, fatou, ibra,
         origin_relay_id=medina["relay_id"], dest_addr=loc_ibra,
         status=ParcelStatus.CREATED,
-        delivery_voice_note="uploads/voice/livraison_test.m4a",
-        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Instruction vocale pour la livraison"}],
+        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Colis cree — en attente de depot au relais Medina"}],
     )
 
-    await _make_parcel(
-        "R2H-2 | IN_TRANSIT — driver a collecte au relais, en route vers domicile",
-        DeliveryMode.RELAY_TO_HOME, fatou, ibra,
-        origin_relay_id=medina["relay_id"],
-        dest_addr={"label": "Domicile Ibrahima (GPS confirme)", "city": "Dakar",
-                   "geopin": {"lat": 14.7123, "lng": -17.4290}},
-        status=ParcelStatus.IN_TRANSIT,
-        assigned_driver_id=driver["user_id"],
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"],        "actor_role": "driver", "note": "Collecte au relais Medina (pickup_code valide)"},
-        ],
-        quoted_price=1650,
+    # ── H2R : Home to Relay ──────────────────────────────────────────────
+    # Flow complet : CREATED → dispatch driver → driver collecte chez expediteur
+    #   (confirm-pickup + pickup_code) → IN_TRANSIT
+    #   → agent relais dest scan_in → AVAILABLE_AT_RELAY
+    #   → destinataire retire (scan_out + relay_pin) → DELIVERED
+    p_h2r = await _make_parcel(
+        "H2R | Fatou envoie a Ibrahima : domicile Medina -> Relais Plateau",
+        DeliveryMode.HOME_TO_RELAY, fatou, ibra,
+        origin_loc=loc_fatou, dest_relay_id=plateau["relay_id"],
+        status=ParcelStatus.CREATED,
+        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Colis cree — en attente dispatch driver"}],
     )
+    await _create_delivery_mission(p_h2r, ParcelStatus.CREATED)
 
-    p_r2h_out = await _make_parcel(
-        "R2H-3 | OUT_FOR_DELIVERY — driver arrive chez Ibrahima, code requis",
-        DeliveryMode.RELAY_TO_HOME, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_addr=loc_ibra,
-        status=ParcelStatus.OUT_FOR_DELIVERY,
-        assigned_driver_id=driver["user_id"],
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],         "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"],        "actor_role": "driver"},
-            {"status": ParcelStatus.OUT_FOR_DELIVERY.value,          "actor_id": driver["user_id"],        "actor_role": "driver", "note": "Arrivee au domicile du destinataire"},
-        ],
-    )
-    await _make_mission(p_r2h_out, driver,
-                        pickup_relay=medina, delivery_loc=loc_ibra)
-
-    await _make_parcel(
-        "R2H-4 | DELIVERED — livre au domicile, code confirme",
-        DeliveryMode.RELAY_TO_HOME, fatou, ibra,
-        origin_relay_id=medina["relay_id"], dest_addr=loc_ibra,
-        status=ParcelStatus.DELIVERED,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],  "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_medina["user_id"],  "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,                "actor_id": driver["user_id"], "actor_role": "driver"},
-            {"status": ParcelStatus.OUT_FOR_DELIVERY.value,          "actor_id": driver["user_id"], "actor_role": "driver"},
-            {"status": ParcelStatus.DELIVERED.value,                 "actor_id": driver["user_id"], "actor_role": "driver", "note": "Livre, delivery_code confirme par le destinataire"},
-        ],
-    )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # H2H — HOME TO HOME
-    # Flow : CREATED -> OUT_FOR_DELIVERY (driver collecte + livre) -> DELIVERED
-    #
-    # Codes : pickup_code (expediteur -> driver) + delivery_code (destinataire -> driver)
-    # ══════════════════════════════════════════════════════════════════════════
-    print("\n--- H2H (Home to Home) ---")
-
-    p_h2h_created = await _make_parcel(
-        "H2H-1 | CREATED — express, 2 notes vocales, collecte + livraison domicile",
+    # ── H2H : Home to Home ──────────────────────────────────────────────
+    # Flow complet : CREATED → dispatch driver → driver collecte chez expediteur
+    #   (confirm-pickup + pickup_code) → IN_TRANSIT
+    #   → driver arrive domicile destinataire (arrive-at-destination) → OUT_FOR_DELIVERY
+    #   → destinataire donne delivery_code (confirm-delivery) → DELIVERED
+    p_h2h = await _make_parcel(
+        "H2H | Fatou envoie a Ibrahima : domicile Medina -> domicile Thies (express)",
         DeliveryMode.HOME_TO_HOME, fatou, ibra,
         origin_loc=loc_fatou, dest_addr=loc_ibra2,
         status=ParcelStatus.CREATED,
         is_express=True,
-        pickup_voice_note="uploads/voice/h2h_pickup.m4a",
-        delivery_voice_note="uploads/voice/h2h_livraison.m4a",
-        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "2 notes vocales enregistrees"}],
+        events=[{"status": ParcelStatus.CREATED.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": "Colis express cree — en attente dispatch driver"}],
     )
-    await _create_delivery_mission(p_h2h_created, ParcelStatus.CREATED)
-
-    await _make_parcel(
-        "H2H-2 | OUT_FOR_DELIVERY — driver a collecte, en route vers Ibrahima (express)",
-        DeliveryMode.HOME_TO_HOME, fatou, ibra,
-        origin_loc=loc_fatou, dest_addr=loc_ibra,
-        status=ParcelStatus.OUT_FOR_DELIVERY,
-        assigned_driver_id=driver["user_id"],
-        is_express=True,
-        events=[
-            {"status": ParcelStatus.CREATED.value,          "actor_id": fatou["user_id"],  "actor_role": "client"},
-            {"status": ParcelStatus.OUT_FOR_DELIVERY.value, "actor_id": driver["user_id"], "actor_role": "driver", "note": "Collecte chez Fatou (pickup_code valide)"},
-        ],
-    )
-
-    await _make_parcel(
-        "H2H-3 | DELIVERED — livre domicile a domicile",
-        DeliveryMode.HOME_TO_HOME, fatou, ibra,
-        origin_loc=loc_fatou, dest_addr=loc_ibra,
-        status=ParcelStatus.DELIVERED,
-        events=[
-            {"status": ParcelStatus.CREATED.value,          "actor_id": fatou["user_id"],  "actor_role": "client"},
-            {"status": ParcelStatus.OUT_FOR_DELIVERY.value, "actor_id": driver["user_id"], "actor_role": "driver"},
-            {"status": ParcelStatus.DELIVERED.value,        "actor_id": driver["user_id"], "actor_role": "driver", "note": "Livre, delivery_code confirme"},
-        ],
-    )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # CAS SPECIAUX
-    # ══════════════════════════════════════════════════════════════════════════
-    print("\n--- CAS SPECIAUX ---")
-
-    # Redirection apres echec livraison domicile
-    await _make_parcel(
-        "REDIRECT-1 | REDIRECTED_TO_RELAY — echec R2H, redirige vers Plateau",
-        DeliveryMode.RELAY_TO_HOME, fatou, ibra,
-        origin_relay_id=medina["relay_id"],
-        dest_addr=loc_ibra,
-        redirect_relay_id=plateau["relay_id"],
-        status=ParcelStatus.REDIRECTED_TO_RELAY,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                 "actor_id": fatou["user_id"],  "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value, "actor_id": agent_medina["user_id"], "actor_role": "relay_agent"},
-            {"status": ParcelStatus.IN_TRANSIT.value,              "actor_id": driver["user_id"], "actor_role": "driver"},
-            {"status": ParcelStatus.OUT_FOR_DELIVERY.value,        "actor_id": driver["user_id"], "actor_role": "driver"},
-            {"status": ParcelStatus.DELIVERY_FAILED.value,         "actor_id": driver["user_id"], "actor_role": "driver", "note": "Absent a l'adresse, 3 tentatives"},
-            {"status": ParcelStatus.REDIRECTED_TO_RELAY.value,     "actor_id": driver["user_id"], "actor_role": "driver", "note": "Redirige vers Relais Plateau (auto)"},
-        ],
-    )
-
-    # Express + destinataire paie
-    await _make_parcel(
-        "EXPRESS-1 | R2R express, destinataire paie",
-        DeliveryMode.RELAY_TO_RELAY, fatou, ibra,
-        origin_relay_id=plateau["relay_id"], dest_relay_id=escale["relay_id"],
-        status=ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
-        is_express=True,
-        who_pays="recipient",
-        quoted_price=910,
-        events=[
-            {"status": ParcelStatus.CREATED.value,                   "actor_id": fatou["user_id"],          "actor_role": "client"},
-            {"status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,   "actor_id": agent_plateau["user_id"],  "actor_role": "relay_agent", "note": "Depose au Relais Plateau, livraison express"},
-        ],
-    )
+    await _create_delivery_mission(p_h2h, ParcelStatus.CREATED)
 
     # ── 6. Resume ────────────────────────────────────────────────────────────
     total = await db.parcels.count_documents({"is_simulation": True})
     print(f"\n{'='*65}")
-    print(f"[OK] {total} colis de test crees.")
+    print(f"[OK] {total} colis de test crees (tous au statut CREATED).")
     print()
     print("CONNEXION APP (OTP fixe 123456, PIN 1234) :")
     print("  Admin     : +221770000000")
@@ -698,26 +492,40 @@ async def main(wipe=False):
     print("  Relais B  : +221770000005  (Plateau, Dakar)")
     print("  Relais C  : +221770000006  (Escale, Thies)")
     print()
-    print("FLOWS CORRIGES :")
-    print("  R2R: CREATED -> DROPPED -> IN_TRANSIT -> AT_DEST_RELAY -> AVAILABLE -> DELIVERED")
-    print("  R2H: CREATED -> DROPPED -> IN_TRANSIT -> OUT_FOR_DELIVERY -> DELIVERED")
-    print("  H2R: CREATED -> IN_TRANSIT -> AT_DEST_RELAY -> AVAILABLE -> DELIVERED")
-    print("  H2H: CREATED -> OUT_FOR_DELIVERY -> DELIVERED")
+    print("TEST END-TO-END — jouer chaque colis de bout en bout :")
+    print()
+    print("  R2R (Medina -> Escale Thies) :")
+    print("    1. Fatou depose au relais Medina           → Aminata scan_in")
+    print("    2. Moussa collecte au relais               → confirm-pickup (pickup_code)")
+    print("    3. Moussa livre au relais Escale            → Mareme scan_in → AVAILABLE")
+    print("    4. Ibrahima retire                          → Mareme scan_out (relay_pin)")
+    print()
+    print("  R2H (Medina -> domicile Ibrahima) :")
+    print("    1. Fatou depose au relais Medina           → Aminata scan_in")
+    print("    2. Moussa collecte au relais               → confirm-pickup (pickup_code)")
+    print("    3. Moussa arrive chez Ibrahima             → arrive-at-destination")
+    print("    4. Ibrahima donne le code                  → confirm-delivery (delivery_code)")
+    print()
+    print("  H2R (domicile Fatou -> Relais Plateau) :")
+    print("    1. Moussa va chez Fatou                    → mission assignee auto")
+    print("    2. Fatou donne le code                     → confirm-pickup (pickup_code)")
+    print("    3. Moussa livre au Relais Plateau          → Cheikh scan_in → AVAILABLE")
+    print("    4. Ibrahima retire                         → Cheikh scan_out (relay_pin)")
+    print()
+    print("  H2H express (domicile Fatou -> domicile Ibrahima, Thies) :")
+    print("    1. Moussa va chez Fatou                    → mission assignee auto")
+    print("    2. Fatou donne le code                     → confirm-pickup (pickup_code) → IN_TRANSIT")
+    print("    3. Moussa arrive chez Ibrahima             → arrive-at-destination → OUT_FOR_DELIVERY")
+    print("    4. Ibrahima donne le code                  → confirm-delivery (delivery_code) → DELIVERED")
     print()
     print("CODES :")
     print("  pickup_code (6ch) : toujours — agent relais ou expediteur -> driver")
-    print("  delivery_code (4ch) : *_to_home — destinataire -> driver")
-    print("  relay_pin (4ch) : *_to_relay — destinataire -> agent relais")
+    print("  delivery_code (6ch) : *_to_home — destinataire -> driver")
+    print("  relay_pin (6ch) : *_to_relay — destinataire -> agent relais")
     print()
-    print("CAS A TESTER :")
-    print("  Scan relais        -> R2R-2, R2R-4, R2R-5")
-    print("  Mission livreur    -> R2R-3 (in_progress), R2H-3 (in_progress)")
-    print("  Notes vocales      -> H2R-1, R2H-1, H2H-1")
-    print("  Adresse GPS live   -> R2H-3 (dest modifiable via PUT /delivery-address)")
-    print("  Retrait admin      -> wallet Moussa, payout 5000 XOF PENDING")
-    print("  Redirection        -> REDIRECT-1 (REDIRECTED_TO_RELAY vers Plateau)")
-    print("  EXPRESS            -> R2R-3, H2H-1, EXPRESS-1")
-    print("  Destinataire paie  -> H2R-2, EXPRESS-1")
+    print("TELEPHONE DESTINATAIRE :")
+    print("  *_to_relay : toujours masque (driver ne contacte pas le destinataire)")
+    print("  *_to_home  : masque → revele quand driver < 500m (approaching_notified)")
     print(f"{'='*65}")
 
 
@@ -725,5 +533,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--wipe", action="store_true", help="Purger les anciens scenarios avant de creer")
+    parser.add_argument("--wipe-only", action="store_true", help="Purger sans recreer")
     args = parser.parse_args()
-    asyncio.run(main(wipe=args.wipe))
+    asyncio.run(main(wipe=args.wipe, wipe_only=args.wipe_only))

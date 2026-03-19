@@ -3,6 +3,7 @@ Router webhooks : callback paiement Flutterwave.
 Flutterwave envoie un POST avec le tx_ref et le statut de la transaction.
 Docs : https://developer.flutterwave.com/docs/integration-guides/webhooks
 """
+import hmac
 import logging
 from datetime import datetime, timezone
 
@@ -27,7 +28,7 @@ async def flutterwave_webhook(
         logger.warning("Webhook Flutterwave ignoré: secret non configuré")
         return {"received": False, "ignored": "webhook_secret_missing"}
 
-    if verif_hash != settings.FLUTTERWAVE_WEBHOOK_SECRET:
+    if not hmac.compare_digest(verif_hash or "", settings.FLUTTERWAVE_WEBHOOK_SECRET):
         raise HTTPException(status_code=401, detail="Signature invalide")
 
     try:
@@ -35,7 +36,7 @@ async def flutterwave_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="JSON invalide")
 
-    logger.info(f"Flutterwave webhook reçu : {payload}")
+    logger.info("Flutterwave webhook reçu")
 
     event = payload.get("event")           # "charge.completed"
     data  = payload.get("data", {})
@@ -43,6 +44,13 @@ async def flutterwave_webhook(
     status  = data.get("status", "")       # "successful", "failed"
     amount  = data.get("amount")
     tx_id   = data.get("id")
+    logger.info(
+        "Flutterwave webhook details: event=%s tx_ref=%s status=%s amount=%s",
+        event,
+        tx_ref,
+        status,
+        amount,
+    )
 
     if not tx_ref:
         return {"received": True}
@@ -96,8 +104,8 @@ async def flutterwave_webhook(
                 )
                 raise HTTPException(status_code=400, detail="Montant transaction incohérent")
 
-        await db.parcels.update_one(
-            {"parcel_id": parcel["parcel_id"]},
+        update_result = await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"], "payment_status": {"$ne": "paid"}},
             {"$set": {
                 "payment_status": "paid",
                 "paid_price":     float(verified_amount) if verified_amount is not None else (float(amount) if amount else parcel.get("quoted_price")),
@@ -106,6 +114,8 @@ async def flutterwave_webhook(
                 "updated_at":     now,
             }},
         )
+        if update_result.modified_count == 0:
+            return {"received": True, "status": "already_processed"}
         await _record_event(
             parcel_id=parcel["parcel_id"],
             event_type="PAYMENT_RECEIVED",
@@ -116,16 +126,20 @@ async def flutterwave_webhook(
         logger.info(f"Paiement confirmé pour {parcel['parcel_id']}")
 
     elif status in ("failed", "cancelled"):
-        await db.parcels.update_one(
-            {"parcel_id": parcel["parcel_id"]},
+        update_result = await db.parcels.update_one(
+            {
+                "parcel_id": parcel["parcel_id"],
+                "payment_status": {"$nin": ["paid", "failed"]},
+            },
             {"$set": {"payment_status": "failed", "updated_at": now}},
         )
-        await _record_event(
-            parcel_id=parcel["parcel_id"],
-            event_type="PAYMENT_FAILED",
-            actor_role="system",
-            notes=f"Paiement échoué Flutterwave — tx_ref={tx_ref}",
-            metadata={"tx_ref": tx_ref, "status": status},
-        )
+        if update_result.modified_count:
+            await _record_event(
+                parcel_id=parcel["parcel_id"],
+                event_type="PAYMENT_FAILED",
+                actor_role="system",
+                notes=f"Paiement échoué Flutterwave — tx_ref={tx_ref}",
+                metadata={"tx_ref": tx_ref, "status": status},
+            )
 
     return {"received": True}

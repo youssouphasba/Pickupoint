@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
@@ -8,7 +9,8 @@ import '../../core/auth/auth_provider.dart';
 
 // ── Provider messages ──────────────────────────────────────────────────────
 
-final parcelMessagesProvider = FutureProvider.family<List<Map<String, dynamic>>, String>(
+final parcelMessagesProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
   (ref, parcelId) async {
     final api = ref.read(apiClientProvider);
     final res = await api.getParcelMessages(parcelId);
@@ -20,9 +22,10 @@ final parcelMessagesProvider = FutureProvider.family<List<Map<String, dynamic>>,
 // ── Widget principal ───────────────────────────────────────────────────────
 
 class ParcelChatWidget extends ConsumerStatefulWidget {
-  const ParcelChatWidget({super.key, required this.parcelId, required this.isClosed});
+  const ParcelChatWidget(
+      {super.key, required this.parcelId, required this.isClosed});
   final String parcelId;
-  final bool   isClosed; // true si statut terminal → messagerie en lecture seule
+  final bool isClosed; // true si statut terminal → messagerie en lecture seule
 
   @override
   ConsumerState<ParcelChatWidget> createState() => _ParcelChatWidgetState();
@@ -32,8 +35,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
   final _recorder = AudioRecorder();
-  bool _isSending    = false;
-  bool _isRecording  = false;
+  bool _isSending = false;
+  bool _isRecording = false;
   String? _recordingPath;
   Timer? _pollTimer;
 
@@ -100,7 +103,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
       return;
     }
     final dir = await getTemporaryDirectory();
-    _recordingPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    _recordingPath =
+        '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000),
       path: _recordingPath!,
@@ -121,7 +125,9 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur envoi audio : $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Erreur envoi audio : $e'),
+              backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -146,7 +152,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
       children: [
         const Padding(
           padding: EdgeInsets.only(bottom: 8),
-          child: Text('Messages', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          child: Text('Messages',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         ),
         Container(
           decoration: BoxDecoration(
@@ -160,25 +167,33 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
               SizedBox(
                 height: 240,
                 child: messagesAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                  error: (e, _) => Center(child: Text('Erreur: $e', style: const TextStyle(color: Colors.red))),
+                  loading: () => const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  error: (e, _) => Center(
+                      child: Text('Erreur: $e',
+                          style: const TextStyle(color: Colors.red))),
                   data: (messages) {
                     if (messages.isEmpty) {
                       return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.chat_bubble_outline, size: 36, color: Colors.grey.shade300),
+                            Icon(Icons.chat_bubble_outline,
+                                size: 36, color: Colors.grey.shade300),
                             const SizedBox(height: 8),
                             const Text(
                               'Discussion avec le livreur',
-                              style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'Envoyez un message texte ou une note vocale.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                              style: TextStyle(
+                                  color: Colors.grey.shade400, fontSize: 12),
                             ),
                           ],
                         ),
@@ -190,6 +205,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                       padding: const EdgeInsets.all(12),
                       itemCount: messages.length,
                       itemBuilder: (context, i) => _MessageBubble(
+                        parcelId: widget.parcelId,
                         message: messages[i],
                         isMe: messages[i]['sender_id'] == me?.id,
                       ),
@@ -228,7 +244,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
             const SizedBox(width: 8),
             const Expanded(
               child: Text('Enregistrement en cours…',
-                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.w500)),
+                  style: TextStyle(
+                      color: Colors.red, fontWeight: FontWeight.w500)),
             ),
             IconButton(
               icon: const Icon(Icons.close, color: Colors.grey),
@@ -261,7 +278,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 isDense: true,
               ),
               onSubmitted: (_) => _sendText(),
@@ -272,7 +290,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
           GestureDetector(
             onTap: _startRecording,
             child: Container(
-              width: 40, height: 40,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: Colors.orange.shade100,
                 shape: BoxShape.circle,
@@ -285,15 +304,19 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
           GestureDetector(
             onTap: _isSending ? null : _sendText,
             child: Container(
-              width: 40, height: 40,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: _isSending ? Colors.grey.shade300 : Theme.of(context).primaryColor,
+                color: _isSending
+                    ? Colors.grey.shade300
+                    : Theme.of(context).primaryColor,
                 shape: BoxShape.circle,
               ),
               child: _isSending
                   ? const Padding(
                       padding: EdgeInsets.all(10),
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
                     )
                   : const Icon(Icons.send, size: 18, color: Colors.white),
             ),
@@ -307,28 +330,34 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
 // ── Bulle de message ───────────────────────────────────────────────────────
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.isMe});
+  const _MessageBubble({
+    required this.parcelId,
+    required this.message,
+    required this.isMe,
+  });
+
+  final String parcelId;
   final Map<String, dynamic> message;
   final bool isMe;
 
   @override
   Widget build(BuildContext context) {
-    final role   = message['sender_role'] as String? ?? '';
-    final type   = message['type'] as String? ?? 'text';
-    final name   = message['sender_name'] as String? ?? role;
-    final time   = _formatTime(message['created_at']);
+    final role = message['sender_role'] as String? ?? '';
+    final type = message['type'] as String? ?? 'text';
+    final name = message['sender_name'] as String? ?? role;
+    final time = _formatTime(message['created_at']);
 
     final Color bubbleColor;
     final Color textColor;
     if (isMe) {
       bubbleColor = Theme.of(context).primaryColor;
-      textColor   = Colors.white;
+      textColor = Colors.white;
     } else if (role == 'driver') {
       bubbleColor = Colors.orange.shade100;
-      textColor   = Colors.orange.shade900;
+      textColor = Colors.orange.shade900;
     } else {
       bubbleColor = Colors.grey.shade200;
-      textColor   = Colors.black87;
+      textColor = Colors.black87;
     }
 
     return Align(
@@ -339,9 +368,9 @@ class _MessageBubble extends StatelessWidget {
         decoration: BoxDecoration(
           color: bubbleColor,
           borderRadius: BorderRadius.only(
-            topLeft:     const Radius.circular(14),
-            topRight:    const Radius.circular(14),
-            bottomLeft:  Radius.circular(isMe ? 14 : 2),
+            topLeft: const Radius.circular(14),
+            topRight: const Radius.circular(14),
+            bottomLeft: Radius.circular(isMe ? 14 : 2),
             bottomRight: Radius.circular(isMe ? 2 : 14),
           ),
         ),
@@ -359,7 +388,11 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ),
             if (type == 'voice')
-              _AudioPlayer(url: message['content']?.toString() ?? '', color: textColor)
+              _AudioPlayer(
+                parcelId: parcelId,
+                messageId: message['message_id']?.toString() ?? '',
+                color: textColor,
+              )
             else
               Text(
                 message['content']?.toString() ?? '',
@@ -368,7 +401,8 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               time,
-              style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6)),
+              style: TextStyle(
+                  fontSize: 10, color: textColor.withValues(alpha: 0.6)),
             ),
           ],
         ),
@@ -379,10 +413,10 @@ class _MessageBubble extends StatelessWidget {
   String _roleLabel(String role, String name) {
     if (name.isNotEmpty) return name;
     return switch (role) {
-      'sender'    => 'Expéditeur',
+      'sender' => 'Expéditeur',
       'recipient' => 'Destinataire',
-      'driver'    => 'Livreur',
-      _           => role,
+      'driver' => 'Livreur',
+      _ => role,
     };
   }
 
@@ -399,32 +433,88 @@ class _MessageBubble extends StatelessWidget {
 
 // ── Lecteur audio inline ───────────────────────────────────────────────────
 
-class _AudioPlayer extends StatefulWidget {
-  const _AudioPlayer({required this.url, required this.color});
-  final String url;
-  final Color  color;
+class _AudioPlayer extends ConsumerStatefulWidget {
+  const _AudioPlayer({
+    required this.parcelId,
+    required this.messageId,
+    required this.color,
+  });
+  final String parcelId;
+  final String messageId;
+  final Color color;
 
   @override
-  State<_AudioPlayer> createState() => _AudioPlayerState();
+  ConsumerState<_AudioPlayer> createState() => _AudioPlayerState();
 }
 
-class _AudioPlayerState extends State<_AudioPlayer> {
+class _AudioPlayerState extends ConsumerState<_AudioPlayer> {
   final _player = AudioPlayer();
   PlayerState _state = PlayerState.stopped;
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<void>? _completeSub;
+  Uint8List? _audioBytes;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _stateSub = _player.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() => _state = state);
+      }
+    });
+    _completeSub = _player.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() => _state = PlayerState.stopped);
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _stateSub?.cancel();
+    _completeSub?.cancel();
     _player.dispose();
     super.dispose();
   }
 
   Future<void> _toggle() async {
+    if (_loading || widget.messageId.isEmpty) {
+      return;
+    }
     if (_state == PlayerState.playing) {
       await _player.pause();
-    } else {
-      await _player.play(UrlSource(widget.url));
+      return;
     }
-    setState(() => _state = _player.state);
+    if (_state == PlayerState.paused) {
+      await _player.resume();
+      return;
+    }
+
+    if (_audioBytes == null) {
+      setState(() => _loading = true);
+      try {
+        _audioBytes = await ref
+            .read(apiClientProvider)
+            .downloadParcelVoice(widget.parcelId, widget.messageId);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur lecture audio : $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _loading = false);
+        }
+      }
+    }
+
+    await _player.play(BytesSource(_audioBytes!));
   }
 
   @override
@@ -436,7 +526,11 @@ class _AudioPlayerState extends State<_AudioPlayer> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            isPlaying ? Icons.pause_circle : Icons.play_circle,
+            _loading
+                ? Icons.downloading_rounded
+                : isPlaying
+                    ? Icons.pause_circle
+                    : Icons.play_circle,
             color: widget.color,
             size: 28,
           ),

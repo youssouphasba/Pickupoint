@@ -2,17 +2,31 @@
 Router parcels : CRUD colis + toutes les actions de transition de la machine d'états.
 """
 import logging
+import mimetypes
+import random
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 logger = logging.getLogger(__name__)
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from core.dependencies import get_current_user, get_current_user_optional, require_role
 from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
-from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts
+from core.limiter import limiter
+from core.utils import (
+    check_code_lockout,
+    clear_code_attempts,
+    mask_phone,
+    normalize_phone,
+    phone_suffix,
+    phones_match,
+    record_failed_attempt,
+)
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.parcel import (
@@ -40,9 +54,10 @@ from services.parcel_service import (
 from services.pricing_service import calculate_price, _haversine_km
 from services.notification_service import notify_relay_agent_parcel_arrived
 from services.wallet_service import credit_wallet, debit_wallet
-from config import settings
+from config import UPLOADS_DIR, settings
 
 router = APIRouter()
+PRIVATE_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
 
 
 def _is_admin(user: dict) -> bool:
@@ -117,6 +132,31 @@ def _home_mission_ready(parcel: dict) -> bool:
     if mode.startswith("home_to_") and not parcel.get("pickup_confirmed"):
         return False
     return bool(parcel.get("delivery_confirmed"))
+
+
+async def _find_nearest_active_relay(lat: float, lng: float) -> Optional[dict]:
+    relays = await db.relay_points.find(
+        {
+            "is_active": True,
+            "address.geopin.lat": {"$ne": None},
+            "address.geopin.lng": {"$ne": None},
+        },
+        {"_id": 0},
+    ).to_list(length=500)
+    ranked: list[tuple[float, dict]] = []
+    for relay in relays:
+        geopin = (relay.get("address") or {}).get("geopin") or {}
+        relay_lat = geopin.get("lat")
+        relay_lng = geopin.get("lng")
+        if relay_lat is None or relay_lng is None:
+            continue
+        if relay.get("current_load", 0) >= relay.get("max_capacity", 50):
+            continue
+        ranked.append((_haversine_km(lat, lng, relay_lat, relay_lng), relay))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0])
+    return ranked[0][1]
 
 
 @router.post("/quote", response_model=QuoteResponse, summary="Calculer un devis (sans créer)")
@@ -227,15 +267,25 @@ async def list_parcels(
     elif role == UserRole.RELAY_AGENT.value:
         relay_id = current_user.get("relay_point_id")
         query = {
-            "$or": [{"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}]
+            "$or": [
+                {"origin_relay_id": relay_id},
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+                {"transit_relay_id": relay_id},
+            ]
         } if relay_id else {"sender_user_id": current_user["user_id"]}
     else:
         # Client : voit ses colis ENVOYÉS et les colis qu'il reçoit (recipient_phone)
+        phone_candidates = [
+            candidate
+            for candidate in {current_user.get("phone"), normalize_phone(current_user.get("phone"))}
+            if candidate
+        ]
         query = {
             "$or": [
                 {"sender_user_id": current_user["user_id"]},
                 {"recipient_user_id": current_user["user_id"]},
-                {"recipient_phone": current_user.get("phone")},
+                {"recipient_phone": {"$in": phone_candidates}},
             ]
         }
 
@@ -253,13 +303,10 @@ async def list_parcels(
         for p in parcels:
             p["is_recipient"] = (
                 p.get("recipient_user_id") == uid
-                or (p.get("recipient_phone") and uphone and p["recipient_phone"].endswith(uphone[-9:]))
+                or phones_match(p.get("recipient_phone"), uphone)
             )
 
     return {"parcels": parcels, "total": total}
-
-
-from core.utils import mask_phone
 
 
 def _can_access_parcel(parcel: dict, current_user: dict) -> tuple[bool, bool, bool, bool]:
@@ -267,11 +314,7 @@ def _can_access_parcel(parcel: dict, current_user: dict) -> tuple[bool, bool, bo
     is_sender = parcel.get("sender_user_id") == current_user["user_id"]
     is_recipient = (
         parcel.get("recipient_user_id") == current_user["user_id"]
-        or (
-            parcel.get("recipient_phone")
-            and current_user.get("phone")
-            and parcel["recipient_phone"].endswith(current_user["phone"][-9:])
-        )
+        or phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
     )
     is_driver = (
         current_user["role"] == UserRole.DRIVER.value
@@ -279,6 +322,38 @@ def _can_access_parcel(parcel: dict, current_user: dict) -> tuple[bool, bool, bo
     )
     is_relay = current_user["role"] == UserRole.RELAY_AGENT.value and _relay_matches_parcel(parcel, current_user)
     return is_admin or is_sender or is_recipient or is_driver or is_relay, is_sender, is_recipient, is_driver
+
+
+@router.get("/lookup/tracking/{tracking_code}", summary="Lookup authentifie d'un colis par tracking code")
+async def lookup_parcel_by_tracking(tracking_code: str, current_user: dict = Depends(get_current_user)):
+    parcel = await db.parcels.find_one({"tracking_code": tracking_code}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    allowed, is_sender, is_recipient, _ = _can_access_parcel(parcel, current_user)
+    if not allowed:
+        raise forbidden_exception("Acces refuse a ce colis")
+
+    payload = {
+        "parcel_id": parcel.get("parcel_id"),
+        "tracking_code": parcel.get("tracking_code"),
+        "status": parcel.get("status"),
+        "delivery_mode": parcel.get("delivery_mode"),
+        "origin_relay_id": parcel.get("origin_relay_id"),
+        "destination_relay_id": parcel.get("destination_relay_id"),
+        "redirect_relay_id": parcel.get("redirect_relay_id"),
+        "recipient_name": parcel.get("recipient_name"),
+        "recipient_phone": parcel.get("recipient_phone"),
+        "created_at": parcel.get("created_at"),
+    }
+
+    if current_user["role"] not in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value, UserRole.RELAY_AGENT.value]:
+        if not is_recipient:
+            payload["recipient_phone"] = mask_phone(parcel.get("recipient_phone") or "")
+        if is_sender and not is_recipient:
+            payload["recipient_name"] = parcel.get("recipient_name")
+
+    return payload
 
 @router.get("/{parcel_id}/driver-location", summary="Position GPS du livreur actif pour ce colis")
 async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_current_user)):
@@ -341,6 +416,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
         {
             "_id": 0,
+            "driver_id": 1,
             "driver_location": 1,
             "eta_text": 1,
             "distance_text": 1,
@@ -363,6 +439,19 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         parcel["who_pays"] = active_mission.get("who_pays") or parcel.get("who_pays")
         parcel["pickup_voice_note"] = active_mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         parcel["delivery_voice_note"] = active_mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
+
+    driver_id = parcel.get("assigned_driver_id")
+    if not driver_id and active_mission:
+        driver_id = active_mission.get("driver_id")
+    if driver_id:
+        driver = await db.users.find_one(
+            {"user_id": driver_id},
+            {"_id": 0, "name": 1, "phone": 1, "profile_picture_url": 1},
+        )
+        if driver:
+            parcel["driver_name"] = driver.get("name")
+            parcel["driver_phone"] = driver.get("phone")
+            parcel["driver_photo_url"] = parcel.get("driver_photo_url") or driver.get("profile_picture_url")
 
     parcel["delivery_blocked_by_payment"] = (
         parcel.get("status") == ParcelStatus.OUT_FOR_DELIVERY.value
@@ -404,12 +493,16 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     if not recipient_uid and parcel.get("recipient_phone"):
         # Match exact ou par les 9 derniers chiffres
         phone = parcel["recipient_phone"]
-        recipient_user = await db.users.find_one({
-            "$or": [
-                {"phone": phone},
-                {"phone": {"$regex": f"{phone[-9:]}$"}}
-            ]
-        }, {"profile_picture_url": 1})
+        suffix = phone_suffix(phone)
+        phone_query = {"phone": phone}
+        if suffix:
+            phone_query = {
+                "$or": [
+                    {"phone": phone},
+                    {"phone": {"$regex": f"{re.escape(suffix)}$"}},
+                ]
+            }
+        recipient_user = await db.users.find_one(phone_query, {"profile_picture_url": 1})
         if recipient_user:
             parcel["recipient_photo_url"] = recipient_user.get("profile_picture_url")
     elif recipient_uid:
@@ -420,8 +513,9 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     # Driver
     driver_id = parcel.get("assigned_driver_id")
     if driver_id:
-        driver = await db.users.find_one({"user_id": driver_id}, {"profile_picture_url": 1})
+        driver = await db.users.find_one({"user_id": driver_id}, {"name": 1, "profile_picture_url": 1})
         if driver:
+            parcel["driver_name"] = parcel.get("driver_name") or driver.get("name")
             parcel["driver_photo_url"] = driver.get("profile_picture_url")
 
     return {"parcel": parcel, "timeline": timeline}
@@ -441,7 +535,7 @@ async def confirm_location_authenticated(
     # On compare par ID si lié, sinon par téléphone
     is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
     if not is_recipient and parcel.get("recipient_phone"):
-        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+        is_recipient = phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
 
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut confirmer la position de livraison")
@@ -597,7 +691,7 @@ async def update_delivery_address(
 
     is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
     if not is_recipient and parcel.get("recipient_phone"):
-        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+        is_recipient = phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut mettre à jour l'adresse de livraison")
 
@@ -671,7 +765,7 @@ async def change_delivery_mode(
     # Vérifier que c'est le destinataire (ou admin)
     is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
     if not is_recipient and parcel.get("recipient_phone"):
-        is_recipient = parcel["recipient_phone"].endswith(current_user["phone"][-9:])
+        is_recipient = phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
     if not is_recipient and not _is_admin(current_user):
         raise forbidden_exception("Seul le destinataire peut changer le mode de livraison")
 
@@ -691,16 +785,29 @@ async def change_delivery_mode(
     if body.new_mode == "relay":
         if current_mode.endswith("_to_relay"):
             raise bad_request_exception("Le colis est déjà en mode relais")
-        if not body.relay_id:
-            raise bad_request_exception("relay_id requis pour le retrait en relais")
-        relay = await db.relay_points.find_one({"relay_id": body.relay_id, "is_active": True}, {"_id": 0})
+        relay_id = body.relay_id
+        if not relay_id:
+            fallback_geopin = ((parcel.get("delivery_address") or {}).get("geopin") or {})
+            lookup_lat = body.lat if body.lat is not None else fallback_geopin.get("lat")
+            lookup_lng = body.lng if body.lng is not None else fallback_geopin.get("lng")
+            if lookup_lat is None or lookup_lng is None:
+                raise bad_request_exception("Coordonnées requises pour choisir un relais proche")
+            relay = await _find_nearest_active_relay(float(lookup_lat), float(lookup_lng))
+            if not relay:
+                raise not_found_exception("Relais")
+            relay_id = relay.get("relay_id")
+        else:
+            relay = await db.relay_points.find_one({"relay_id": relay_id, "is_active": True}, {"_id": 0})
         if not relay:
             raise not_found_exception("Relais")
         new_mode = f"{origin_part}_to_relay"
         updates["delivery_mode"] = new_mode
-        updates["destination_relay_id"] = body.relay_id
+        updates["destination_relay_id"] = relay_id
+        updates["redirect_relay_id"] = None
         # Supprimer delivery_code (pas nécessaire en relais), garder relay_pin
         updates["delivery_code"] = None
+        updates["relay_pin"] = f"{random.randint(100000, 999999)}"
+        updates["delivery_confirmed"] = False
 
     elif body.new_mode == "home":
         if current_mode.endswith("_to_home"):
@@ -710,6 +817,7 @@ async def change_delivery_mode(
         new_mode = f"{origin_part}_to_home"
         updates["delivery_mode"] = new_mode
         updates["destination_relay_id"] = None
+        updates["redirect_relay_id"] = None
         updates["delivery_address"] = {
             "geopin": {"lat": body.lat, "lng": body.lng},
             "source": "app_recipient_mode_change",
@@ -717,8 +825,8 @@ async def change_delivery_mode(
         }
         updates["delivery_confirmed"] = True
         # Générer un delivery_code pour la livraison à domicile
-        import random
-        updates["delivery_code"] = f"{random.randint(0,9999):04d}"
+        updates["delivery_code"] = f"{random.randint(100000, 999999)}"
+        updates["relay_pin"] = None
     else:
         raise bad_request_exception("new_mode doit être 'relay' ou 'home'")
 
@@ -735,7 +843,7 @@ async def change_delivery_mode(
     dest_addr = None
     dest_relay = None
     if body.new_mode == "relay":
-        dest_relay = body.relay_id
+        dest_relay = updates.get("destination_relay_id")
     elif body.lat and body.lng:
         dest_addr = Address(geopin=GeoPin(lat=body.lat, lng=body.lng))
 
@@ -929,9 +1037,11 @@ async def bulk_relay_action(
 
 
 @router.post("/{parcel_id}/handout", summary="Remise destinataire (scan + PIN)")
+@limiter.limit("10/minute")
 async def handout_parcel(
     parcel_id: str,
     proof: ProofOfDelivery,
+    request: Request,
     current_user: dict = Depends(require_role(
         UserRole.RELAY_AGENT, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -1010,8 +1120,8 @@ async def pickup_parcel(
 
 
 class ArriveAtDestinationRequest(BaseModel):
-    lat: float
-    lng: float
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
 
 @router.post("/{parcel_id}/arrive-at-destination", summary="Driver signale son arrivée au domicile destinataire")
 async def arrive_at_destination(
@@ -1050,9 +1160,11 @@ async def arrive_at_destination(
 
 
 @router.post("/{parcel_id}/deliver", summary="Marquer livré — code 6 chiffres obligatoire")
+@limiter.limit("10/minute")
 async def deliver_parcel(
     parcel_id: str,
     body: CodeDelivery,
+    request: Request,
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -1072,11 +1184,11 @@ async def deliver_parcel(
     await check_code_lockout(db, parcel_id, "delivery_code")
     if parcel.get("delivery_code", "") != body.delivery_code.strip():
         await record_failed_attempt(db, parcel_id, "delivery_code")
-        raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 4 chiffres.")
+        raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 6 chiffres.")
     await clear_code_attempts(db, parcel_id, "delivery_code")
 
     # ── Géofence : livreur doit être à moins de 500m ───────────────────
-    if parcel.get("is_simulation"):
+    if parcel.get("is_simulation") and settings.DEBUG:
         logger.info(f"Bypass geofence pour colis de simulation {parcel_id}")
     elif body.driver_lat is not None and body.driver_lng is not None:
         # Priorité : delivery_location (confirmé GPS) puis delivery_address.geopin (saisi texte)
@@ -1177,6 +1289,9 @@ async def get_parcel_codes(
     role    = current_user["role"]
     user_id = current_user["user_id"]
     is_admin = role in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
+    allowed, _, is_recipient, _ = _can_access_parcel(parcel, current_user)
+    if not allowed:
+        raise forbidden_exception("AccÃ¨s refusÃ© Ã  ce colis")
 
     # L'expéditeur ou le relais origine voient le pickup_code
     can_see_pickup = (
@@ -1187,8 +1302,8 @@ async def get_parcel_codes(
     )
 
     mode = parcel.get("delivery_mode", "")
-    show_delivery = mode.endswith("_to_home")
-    show_relay    = mode.endswith("_to_relay")
+    show_delivery = (is_admin or is_recipient) and mode.endswith("_to_home")
+    show_relay    = (is_admin or is_recipient) and mode.endswith("_to_relay")
 
     return {
         "pickup_code":   parcel.get("pickup_code")   if can_see_pickup else None,
@@ -1260,6 +1375,33 @@ async def rate_parcel(
 
 TERMINAL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
 
+
+def _serialize_parcel_message(message: dict) -> dict:
+    payload = {k: v for k, v in message.items() if k not in {"_id", "voice_path", "mime_type"}}
+    if payload.get("type") == "voice":
+        payload["content"] = None
+        payload["voice_url"] = (
+            f"{settings.BASE_URL}/api/parcels/{payload['parcel_id']}/messages/{payload['message_id']}/voice"
+        )
+    return payload
+
+
+def _resolve_voice_file(message: dict) -> Path:
+    voice_path = message.get("voice_path")
+    if voice_path:
+        candidate = Path(voice_path)
+        if candidate.exists():
+            return candidate
+
+    content = message.get("content")
+    if isinstance(content, str) and "/uploads/voice/" in content:
+        filename = content.rsplit("/", 1)[-1]
+        legacy_path = Path("uploads") / "voice" / filename
+        if legacy_path.exists():
+            return legacy_path
+
+    raise not_found_exception("Fichier audio")
+
 async def _check_parcel_access(parcel_id: str, user: dict) -> dict:
     """Vérifie que l'utilisateur est expéditeur, destinataire ou livreur assigné."""
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
@@ -1286,13 +1428,15 @@ async def get_parcel_messages(
         {"parcel_id": parcel_id}, {"_id": 0}
     ).sort("created_at", 1)
     messages = await cursor.to_list(length=200)
-    return {"messages": messages}
+    return {"messages": [_serialize_parcel_message(message) for message in messages]}
 
 
 @router.post("/{parcel_id}/messages", summary="Envoyer un message texte")
+@limiter.limit("20/minute")
 async def send_parcel_message(
     parcel_id: str,
     body: dict,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     parcel = await _check_parcel_access(parcel_id, current_user)
@@ -1325,15 +1469,36 @@ async def send_parcel_message(
         "created_at":  datetime.now(timezone.utc),
     }
     await db.parcel_messages.insert_one(msg)
-    return {k: v for k, v in msg.items() if k != "_id"}
+    return _serialize_parcel_message(msg)
 
 
-from fastapi import UploadFile, File
-import os, shutil
+@router.get("/{parcel_id}/messages/{message_id}/voice", summary="Lire une note vocale du colis")
+async def get_parcel_voice(
+    parcel_id: str,
+    message_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    await _check_parcel_access(parcel_id, current_user)
+    message = await db.parcel_messages.find_one(
+        {"parcel_id": parcel_id, "message_id": message_id, "type": "voice"},
+        {"_id": 0},
+    )
+    if not message:
+        raise not_found_exception("Message vocal")
+
+    audio_path = _resolve_voice_file(message)
+    media_type = (
+        message.get("mime_type")
+        or mimetypes.guess_type(str(audio_path))[0]
+        or "application/octet-stream"
+    )
+    return FileResponse(path=audio_path, media_type=media_type, filename=audio_path.name)
 
 @router.post("/{parcel_id}/messages/voice", summary="Envoyer une note vocale")
+@limiter.limit("10/minute")
 async def send_parcel_voice(
     parcel_id: str,
+    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1349,19 +1514,18 @@ async def send_parcel_voice(
     # Taille max 5 Mo
     MAX_SIZE = 5 * 1024 * 1024
     content = await file.read()
+    if not content:
+        raise bad_request_exception("Fichier audio vide")
     if len(content) > MAX_SIZE:
         raise bad_request_exception("Fichier trop volumineux (max 5 Mo)")
 
-    # Sauvegarde
+    # Sauvegarde en stockage prive pour eviter une URL publique permanente
     ext = file.filename.rsplit(".", 1)[-1] if "." in (file.filename or "") else "m4a"
-    filename = f"voice_{uuid.uuid4().hex[:10]}.{ext}"
-    os.makedirs("uploads/voice", exist_ok=True)
-    filepath = f"uploads/voice/{filename}"
+    filename = f"voice_{uuid.uuid4().hex}.{ext}"
+    PRIVATE_VOICE_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = PRIVATE_VOICE_DIR / filename
     with open(filepath, "wb") as f:
         f.write(content)
-
-    from config import settings as app_settings
-    audio_url = f"{app_settings.BASE_URL}/uploads/voice/{filename}"
 
     uid = current_user["user_id"]
     if parcel.get("sender_user_id") == uid:
@@ -1378,9 +1542,11 @@ async def send_parcel_voice(
         "sender_name": current_user.get("name", ""),
         "sender_role": sender_role,
         "type":        "voice",
-        "content":     audio_url,
+        "content":     None,
+        "voice_path":  str(filepath),
+        "mime_type":   file.content_type or "audio/m4a",
         "duration_s":  None,  # à enrichir côté client si besoin
         "created_at":  datetime.now(timezone.utc),
     }
     await db.parcel_messages.insert_one(msg)
-    return {k: v for k, v in msg.items() if k != "_id"}
+    return _serialize_parcel_message(msg)
