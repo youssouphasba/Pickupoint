@@ -15,6 +15,7 @@ from core.exceptions import bad_request_exception, not_found_exception
 from core.security import (
     create_access_token,
     create_refresh_token,
+    create_registration_token,
     verify_refresh_token,
 )
 from core.dependencies import get_current_user
@@ -79,8 +80,8 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
 
     # Nouvel utilisateur → renvoyer un registration_token
     if not user_doc:
-        temp_token = create_access_token(
-            {"sub": phone, "type": "registration_token"},
+        temp_token = create_registration_token(
+            phone,
             expires_delta=timedelta(hours=1),
         )
         return {"is_new_user": True, "registration_token": temp_token}
@@ -214,7 +215,10 @@ async def verify_otp_endpoint(body: OTPVerify, request: Request):
     # 1. Nouvel utilisateur
     if not user_doc:
         # Créer un JWT temporaire valable 1 heure pour finaliser l'inscription
-        temp_token = create_access_token({"sub": phone, "type": "registration_token"}, expires_delta=timedelta(hours=1))
+        temp_token = create_registration_token(
+            phone,
+            expires_delta=timedelta(hours=1),
+        )
         return OTPVerifyResponse(is_new_user=True, registration_token=temp_token)
         
     # 2. Utilisateur existant
@@ -265,9 +269,15 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     from core.security import decode_token
     try:
         payload = decode_token(body.registration_token)
-        if payload.get("type") != "registration_token":
-            raise bad_request_exception("Token d'inscription invalide.")
         phone = normalize_phone(payload.get("sub"))
+        token_type = payload.get("type")
+        is_legacy_registration_token = (
+            token_type == "access"
+            and not payload.get("role")
+            and bool(phone)
+        )
+        if token_type != "registration_token" and not is_legacy_registration_token:
+            raise bad_request_exception("Token d'inscription invalide.")
     except Exception:
         raise bad_request_exception("Token d'inscription expiré ou invalide.")
         

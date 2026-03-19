@@ -35,6 +35,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=ALGORITHM)
 
 
+def create_registration_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = {
+        "sub": subject,
+        "type": "registration_token",
+    }
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(hours=1)
+    )
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=ALGORITHM)
+
+
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
