@@ -82,6 +82,25 @@ def _notification_category_enabled(user_doc: dict | None, category: Optional[str
     return bool(prefs.get(pref_key, True))
 
 
+def _should_send_whatsapp_tracking(user_doc: dict | None, category: Optional[str]) -> bool:
+    if category != "parcel_updates":
+        return False
+    if not user_doc:
+        return False
+    if not _notification_category_enabled(user_doc, category):
+        return False
+
+    prefs = user_doc.get("notification_prefs") or {}
+    has_app = bool(user_doc.get("fcm_token"))
+
+    # Sans app active: on force le suivi externe.
+    if not has_app:
+        return True
+
+    # Avec app: WhatsApp reste optionnel.
+    return bool(prefs.get("whatsapp", True))
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
@@ -135,7 +154,7 @@ async def _store_and_send(
     """Stocke la notification en base et tente l'envoi."""
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"notification_prefs": 1},
+        {"notification_prefs": 1, "phone": 1, "fcm_token": 1},
     )
     if not _notification_category_enabled(user, category):
         return
@@ -157,6 +176,11 @@ async def _store_and_send(
         ref_id=ref_id,
         category=category,
     )
+
+    if _should_send_whatsapp_tracking(user, category):
+        phone = (user or {}).get("phone")
+        if phone:
+            await _send_whatsapp(phone, body)
 
 
 async def _store_notification(
