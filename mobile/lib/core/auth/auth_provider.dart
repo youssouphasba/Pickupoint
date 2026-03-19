@@ -154,6 +154,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     required void Function(fb.PhoneAuthCredential credential) onAutoVerified,
   }) async {
     state = const AsyncLoading();
+    await fb.FirebaseAuth.instance.setLanguageCode('fr');
     await fb.FirebaseAuth.instance.verifyPhoneNumber(
       phoneNumber: phone,
       timeout: const Duration(seconds: 60),
