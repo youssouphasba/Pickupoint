@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_PATH: Optional[str] = "firebase-service-account.json"
 
     # OTP (legacy — Firebase Auth gère l'OTP en prod)
-    OTP_PROVIDER: str = "mock"  # "mock" | "twilio" | "firebase"
+    OTP_PROVIDER: Optional[str] = None  # "mock" | "twilio" | "firebase"
     OTP_EXPIRE_MINUTES: int = 10
     OTP_LENGTH: int = 6
     OTP_MOCK_CODE: str = "123456"
@@ -74,6 +74,11 @@ class Settings(BaseSettings):
         is_prod = self.APP_ENV.lower() in {"production", "prod"}
         if is_prod and self.DEBUG:
             raise ValueError("DEBUG must be disabled in production")
+
+        provider = (self.OTP_PROVIDER or "").strip().lower()
+        if not provider:
+            provider = "firebase" if is_prod else "mock"
+        object.__setattr__(self, "OTP_PROVIDER", provider)
 
         weak_default_secret = "changeme_minimum_32_chars_here_please"
         if is_prod and (not self.JWT_SECRET or self.JWT_SECRET == weak_default_secret or len(self.JWT_SECRET) < 32):
