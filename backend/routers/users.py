@@ -1,6 +1,7 @@
 """
 Router users : gestion utilisateurs, enregistrement driver/agent relais.
 """
+from html import escape
 import mimetypes
 import os
 import uuid
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from config import UPLOADS_DIR, settings
 from core.dependencies import get_current_user, require_role
@@ -23,10 +24,29 @@ from services.parcel_service import _record_event
 from services.user_service import (
     build_referral_share_message,
     build_referral_url,
+    describe_referral_apply_rule,
+    describe_referral_reward_rule,
+    get_effective_referral_share_base_url,
+    get_referral_allowed_roles,
+    get_referral_apply_max_count,
+    get_referral_apply_metric,
     get_global_app_settings,
-    get_referral_bonus_xof,
+    get_referral_metric_count,
+    get_referral_metric_label,
+    get_referral_metric_options,
+    get_referral_referred_allowed_roles,
+    get_referral_referred_bonus_xof,
     get_referral_share_base_url,
+    get_referral_sponsor_allowed_roles,
+    get_referral_sponsor_bonus_xof,
+    get_referral_reward_count,
+    get_referral_reward_metric,
+    is_referral_role_allowed,
+    is_referral_referred_enabled_for_user,
+    is_referral_referred_role_allowed,
     is_referral_enabled_for_user,
+    is_referral_sponsor_enabled_for_user,
+    is_referral_sponsor_role_allowed,
 )
 
 router = APIRouter()
@@ -41,25 +61,63 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 async def _build_referral_payload(user_doc: dict) -> dict:
     settings_doc = await get_global_app_settings()
     code = user_doc.get("referral_code", "")
-    bonus_xof = get_referral_bonus_xof(settings_doc)
-    share_base_url = get_referral_share_base_url(settings_doc)
-    referral_url = build_referral_url(code, share_base_url)
-    enabled = is_referral_enabled_for_user(user_doc, settings_doc)
+    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
+    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
+    configured_share_base_url = get_referral_share_base_url(settings_doc)
+    effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
+    referral_url = build_referral_url(code, effective_share_base_url)
+    sponsor_enabled = is_referral_sponsor_enabled_for_user(user_doc, settings_doc)
+    referred_enabled = is_referral_referred_enabled_for_user(user_doc, settings_doc)
+    apply_metric = get_referral_apply_metric(settings_doc)
+    reward_metric = get_referral_reward_metric(settings_doc)
+    apply_current_count = await get_referral_metric_count(
+        user_doc.get("user_id", ""),
+        apply_metric,
+    )
+    apply_max_count = get_referral_apply_max_count(settings_doc)
+    can_apply_now = (
+        referred_enabled
+        and not user_doc.get("referred_by")
+        and apply_current_count <= apply_max_count
+    )
     return {
-        "enabled": enabled,
+        "enabled": sponsor_enabled,
         "enabled_override": user_doc.get("referral_enabled_override"),
         "referral_code": code,
-        "referral_bonus_xof": bonus_xof,
-        "share_base_url": share_base_url,
+        "referral_bonus_xof": referred_bonus_xof,
+        "referral_sponsor_bonus_xof": sponsor_bonus_xof,
+        "referral_referred_bonus_xof": referred_bonus_xof,
+        "share_base_url": configured_share_base_url,
+        "effective_share_base_url": effective_share_base_url,
+        "allowed_roles": get_referral_allowed_roles(settings_doc),
+        "sponsor_allowed_roles": get_referral_sponsor_allowed_roles(settings_doc),
+        "referred_allowed_roles": get_referral_referred_allowed_roles(settings_doc),
+        "role_allowed": is_referral_role_allowed(user_doc.get("role"), settings_doc),
+        "sponsor_role_allowed": is_referral_sponsor_role_allowed(user_doc.get("role"), settings_doc),
+        "referred_role_allowed": is_referral_referred_role_allowed(user_doc.get("role"), settings_doc),
+        "can_sponsor": sponsor_enabled,
+        "can_be_referred": referred_enabled,
         "referral_url": referral_url,
+        "apply_metric": apply_metric,
+        "apply_metric_label": get_referral_metric_label(apply_metric),
+        "apply_max_count": apply_max_count,
+        "apply_current_count": apply_current_count,
+        "can_apply_now": can_apply_now,
+        "apply_rule": describe_referral_apply_rule(settings_doc),
+        "reward_metric": reward_metric,
+        "reward_metric_label": get_referral_metric_label(reward_metric),
+        "reward_count": get_referral_reward_count(settings_doc),
+        "reward_rule": describe_referral_reward_rule(settings_doc),
+        "metric_options": get_referral_metric_options(),
         "share_message": build_referral_share_message(
             code=code,
             referral_url=referral_url,
-            bonus_xof=bonus_xof,
+            referred_bonus_xof=referred_bonus_xof,
+            reward_rule=describe_referral_reward_rule(settings_doc),
         ),
         "message": (
             "Le parrainage est disponible pour ce compte."
-            if enabled
+            if sponsor_enabled or referred_enabled
             else "Le parrainage est desactive pour ce compte."
         ),
     }
@@ -127,28 +185,16 @@ def _kyc_fields(doc_type: Literal["id_card", "license"]) -> tuple[str, str, str]
     return "kyc_license_url", "kyc_license_path", "kyc_license_content_type"
 
 
-def _legacy_public_kyc_path(doc_url: str | None) -> Path | None:
-    if not doc_url or "/uploads/kyc/" not in doc_url:
-        return None
-    filename = Path(doc_url).name
-    candidate = UPLOADS_DIR / "kyc" / filename
-    return candidate if candidate.is_file() else None
-
-
 def _resolve_kyc_file(
     user_doc: dict,
     doc_type: Literal["id_card", "license"],
 ) -> tuple[Path, str | None]:
-    url_field, path_field, content_type_field = _kyc_fields(doc_type)
+    _, path_field, content_type_field = _kyc_fields(doc_type)
     stored_path = user_doc.get(path_field)
     if stored_path:
         candidate = Path(stored_path)
         if candidate.is_file():
             return candidate, user_doc.get(content_type_field)
-
-    legacy_candidate = _legacy_public_kyc_path(user_doc.get(url_field))
-    if legacy_candidate:
-        return legacy_candidate, user_doc.get(content_type_field)
 
     raise not_found_exception("Document KYC")
 
@@ -535,6 +581,179 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
     }
 
 
+@router.get("/referral/{code}", response_class=HTMLResponse, include_in_schema=False)
+async def referral_landing(code: str):
+    referral_code = str(code or "").strip().upper()
+    if not referral_code:
+        raise not_found_exception("Code parrainage")
+
+    sponsor = await db.users.find_one({"referral_code": referral_code}, {"_id": 0})
+    if not sponsor:
+        raise not_found_exception("Code parrainage")
+
+    settings_doc = await get_global_app_settings()
+    if not is_referral_sponsor_enabled_for_user(sponsor, settings_doc):
+        raise not_found_exception("Code parrainage")
+
+    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
+    sponsor_name = escape(str(sponsor.get("name") or "Un utilisateur Denkma"))
+    safe_code = escape(referral_code)
+    app_link = f"denkma://app/referral/{quote_plus(referral_code)}"
+    safe_app_link = escape(app_link)
+    share_message = escape(
+        build_referral_share_message(
+            code=referral_code,
+            referral_url=build_referral_url(
+                referral_code,
+                get_effective_referral_share_base_url(settings_doc),
+            ),
+            referred_bonus_xof=referred_bonus_xof,
+            reward_rule=describe_referral_reward_rule(settings_doc),
+        )
+    )
+
+    html = f"""
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Parrainage Denkma</title>
+  <style>
+    body {{
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(180deg, #f5f8fc 0%, #ffffff 100%);
+      color: #17324d;
+    }}
+    .wrap {{
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }}
+    .card {{
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 18px 48px rgba(20, 52, 91, 0.12);
+      border: 1px solid #e4edf7;
+    }}
+    .badge {{
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #e9f2ff;
+      color: #0d5bd7;
+      font-weight: 700;
+      font-size: 13px;
+    }}
+    h1 {{
+      margin: 14px 0 10px;
+      font-size: 28px;
+      line-height: 1.15;
+    }}
+    p {{
+      line-height: 1.55;
+      color: #48627d;
+    }}
+    .code {{
+      margin: 18px 0 10px;
+      padding: 16px;
+      border-radius: 16px;
+      background: #0f2239;
+      color: #ffffff;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-align: center;
+    }}
+    .hint {{
+      font-size: 13px;
+      color: #6a8198;
+    }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }}
+    button {{
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }}
+    .primary {{
+      background: #0d5bd7;
+      color: #ffffff;
+    }}
+    .secondary {{
+      background: #eef4fb;
+      color: #17324d;
+    }}
+    .link-button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }}
+    .message {{
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 14px;
+      background: #f6f9fd;
+      border: 1px solid #e3ebf5;
+      font-size: 14px;
+      color: #36516c;
+      white-space: pre-wrap;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="badge">Parrainage Denkma</div>
+      <h1>{sponsor_name} vous invite sur Denkma</h1>
+      <p>
+        Utilisez ce code pendant votre inscription pour activer le parrainage.
+        {f"Un bonus filleul de {referred_bonus_xof} XOF est prevu. {escape(describe_referral_reward_rule(settings_doc))}" if referred_bonus_xof > 0 else escape(describe_referral_reward_rule(settings_doc))}
+      </p>
+      <div class="code" id="referral-code">{safe_code}</div>
+      <div class="hint">Conservez ce code et saisissez-le dans l'ecran d'inscription Denkma.</div>
+      <div class="actions">
+        <a class="primary link-button" href="{safe_app_link}">Ouvrir dans l'application</a>
+        <button class="primary" onclick="copyReferralCode()">Copier le code</button>
+        <button class="secondary" onclick="copyReferralMessage()">Copier le message complet</button>
+      </div>
+      <div class="hint" style="margin-top:10px;">
+        Si l'application est deja installee, le bouton ci-dessus ouvrira Denkma et pre-remplira le code.
+      </div>
+      <div class="message" id="share-message">{share_message}</div>
+    </div>
+  </div>
+  <script>
+    async function copyText(value) {{
+      try {{
+        await navigator.clipboard.writeText(value);
+        alert('Copie effectuee');
+      }} catch (error) {{
+        alert('Copie impossible sur cet appareil');
+      }}
+    }}
+    function copyReferralCode() {{
+      copyText(document.getElementById('referral-code').innerText.trim());
+    }}
+    function copyReferralMessage() {{
+      copyText(document.getElementById('share-message').innerText.trim());
+    }}
+  </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
+
+
 @router.post("/refer", summary="Code parrainage")
 async def get_referral_info(current_user: dict = Depends(get_current_user)):
     """Retourne le code parrainage, le lien et l'etat effectif du programme."""
@@ -554,6 +773,18 @@ async def apply_referral_code(
     if current_user.get("referred_by"):
         raise bad_request_exception("Vous avez deja un parrain")
 
+    settings_doc = await get_global_app_settings()
+    apply_metric = get_referral_apply_metric(settings_doc)
+    apply_max_count = get_referral_apply_max_count(settings_doc)
+    current_metric_count = await get_referral_metric_count(
+        current_user["user_id"],
+        apply_metric,
+    )
+    if current_metric_count > apply_max_count:
+        raise bad_request_exception(
+            "Le code parrainage ne peut plus etre applique pour ce compte"
+        )
+
     parrain = await db.users.find_one({"referral_code": code}, {"_id": 0})
     if not parrain:
         raise not_found_exception("Code parrainage invalide")
@@ -561,12 +792,38 @@ async def apply_referral_code(
     if parrain["user_id"] == current_user["user_id"]:
         raise bad_request_exception("Action impossible")
 
-    settings_doc = await get_global_app_settings()
-    if not is_referral_enabled_for_user(parrain, settings_doc):
+    if not is_referral_referred_enabled_for_user(current_user, settings_doc):
+        raise bad_request_exception("Le parrainage n'est pas disponible pour ce compte")
+    if not is_referral_sponsor_enabled_for_user(parrain, settings_doc):
         raise bad_request_exception("Ce code parrainage n'est pas actif")
 
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
-        {"$set": {"referred_by": parrain["user_id"], "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {
+            "referred_by": parrain["user_id"],
+            "referral_applied_at": datetime.now(timezone.utc),
+            "referral_source": "post_signup",
+            "updated_at": datetime.now(timezone.utc),
+        }},
     )
-    return {"message": "Parrainage applique ! Bonus credite apres votre 1ere livraison livree."}
+    await _record_event(
+        event_type="USER_REFERRAL_APPLIED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user.get("role") or "client",
+        notes=f"Code parrainage applique: {code}",
+        metadata={
+            "user_id": current_user["user_id"],
+            "sponsor_user_id": parrain["user_id"],
+            "referral_code": code,
+            "source": "post_signup",
+            "apply_metric": apply_metric,
+            "apply_max_count": apply_max_count,
+            "current_metric_count": current_metric_count,
+        },
+    )
+    return {
+        "message": (
+            "Parrainage applique ! "
+            f"{describe_referral_reward_rule(settings_doc)}"
+        )
+    }

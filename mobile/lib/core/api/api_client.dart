@@ -103,7 +103,8 @@ class ApiClient {
   Future<Response> addFavoriteAddress(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.favoriteAddresses, data: body);
 
-  Future<Response> updateFavoriteAddress(String name, Map<String, dynamic> body) =>
+  Future<Response> updateFavoriteAddress(
+          String name, Map<String, dynamic> body) =>
       _dio.put('${ApiEndpoints.favoriteAddresses}/$name', data: body);
 
   Future<Response> deleteFavoriteAddress(String name) =>
@@ -469,6 +470,9 @@ class ApiClient {
 
   Future<Response> setExpressEnabled(bool enabled) =>
       _dio.put(ApiEndpoints.adminSettingsExpress, data: {'enabled': enabled});
+
+  Future<Response> getReferralAdminStats() =>
+      _dio.get(ApiEndpoints.adminSettingsReferralStats);
 
   Future<Response> setReferralSettings(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.adminSettingsReferral, data: body);

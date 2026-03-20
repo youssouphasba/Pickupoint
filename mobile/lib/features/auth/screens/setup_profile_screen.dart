@@ -7,8 +7,13 @@ import '../../../shared/widgets/loading_button.dart';
 
 class SetupProfileScreen extends ConsumerStatefulWidget {
   final String registrationToken;
+  final String? initialReferralCode;
 
-  const SetupProfileScreen({super.key, required this.registrationToken});
+  const SetupProfileScreen({
+    super.key,
+    required this.registrationToken,
+    this.initialReferralCode,
+  });
 
   @override
   ConsumerState<SetupProfileScreen> createState() => _SetupProfileScreenState();
@@ -23,6 +28,16 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
   bool _isLoading = false;
   bool _acceptedLegal = false;
   bool _obscurePin = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialReferralCode =
+        widget.initialReferralCode?.trim().toUpperCase();
+    if (initialReferralCode != null && initialReferralCode.isNotEmpty) {
+      _referralController.text = initialReferralCode;
+    }
+  }
 
   Future<void> _submit() async {
     final name = _nameController.text.trim();
@@ -115,6 +130,13 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
                 border: OutlineInputBorder(),
               ),
             ),
+            if ((widget.initialReferralCode ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Le code de parrainage a été prérempli depuis votre lien d’invitation.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
             const SizedBox(height: 24),
             TextField(
               controller: _pinController,

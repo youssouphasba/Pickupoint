@@ -7,7 +7,9 @@ import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
-  const PhoneScreen({super.key});
+  const PhoneScreen({super.key, this.initialReferralCode});
+
+  final String? initialReferralCode;
 
   @override
   ConsumerState<PhoneScreen> createState() => _PhoneScreenState();
@@ -52,6 +54,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
             context.push('/auth/otp', extra: {
               'phone': phone,
               'verificationId': verificationId,
+              'referral_code': widget.initialReferralCode,
             });
           }
         },
@@ -71,6 +74,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
             if (mounted && regToken != null) {
               context.pushReplacement('/auth/setup', extra: {
                 'registration_token': regToken,
+                'referral_code': widget.initialReferralCode,
               });
             }
           } catch (e) {
@@ -111,6 +115,25 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               'Entrez votre numéro pour recevoir un code de vérification.',
               style: TextStyle(color: Colors.grey),
             ),
+            if ((widget.initialReferralCode ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.shade100),
+                ),
+                child: Text(
+                  'Code parrainage détecté : ${widget.initialReferralCode!.trim().toUpperCase()}',
+                  style: TextStyle(
+                    color: Colors.green.shade900,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
             TextField(
               controller: _phoneController,

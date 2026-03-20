@@ -131,6 +131,8 @@ class ApiEndpoints {
       '$_base/api/admin/users/$id/detail';
   static String adminBanUser(String id) => '$_base/api/admin/users/$id/ban';
   static String adminUnbanUser(String id) => '$_base/api/admin/users/$id/unban';
+  static String adminUserKyc(String id, String docType) =>
+      '$_base/api/users/$id/kyc/$docType';
   static String adminRelayDetail(String id) =>
       '$_base/api/admin/relay-points/$id/detail';
 
@@ -161,6 +163,8 @@ class ApiEndpoints {
   static const adminSettings = '$_base/api/admin/settings';
   static const adminSettingsExpress = '$_base/api/admin/settings/express';
   static const adminSettingsReferral = '$_base/api/admin/settings/referral';
+  static const adminSettingsReferralStats =
+      '$_base/api/admin/settings/referral/stats';
   static String adminUserReferralAccess(String id) =>
       '$_base/api/admin/users/$id/referral-access';
 }

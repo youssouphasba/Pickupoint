@@ -1,8 +1,16 @@
 import logging
 import uuid
 from datetime import datetime, timezone
+
 from database import db
-from services.user_service import get_global_app_settings, get_referral_bonus_xof
+from services.user_service import (
+    get_global_app_settings,
+    get_referral_metric_count,
+    get_referral_referred_bonus_xof,
+    get_referral_reward_count,
+    get_referral_reward_metric,
+    get_referral_sponsor_bonus_xof,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +20,11 @@ POINTS_PER_DELIVERY = 10
 # Tiers thresholds and discounts
 TIER_BRONZE = "bronze"
 TIER_SILVER = "silver"
-TIER_GOLD   = "gold"
+TIER_GOLD = "gold"
 
 THRESHOLD_SILVER = 200
-THRESHOLD_GOLD   = 500
+THRESHOLD_GOLD = 500
+
 
 def compute_tier(points: int) -> str:
     if points >= THRESHOLD_GOLD:
@@ -24,13 +33,15 @@ def compute_tier(points: int) -> str:
         return TIER_SILVER
     return TIER_BRONZE
 
+
 def get_tier_discount(tier: str) -> float:
     """Returns the discount coefficient (e.g., 0.90 for 10% off)."""
     return {
         TIER_BRONZE: 1.0,
-        TIER_SILVER: 0.90,  # -10% from text
-        TIER_GOLD:   0.80   # -20% from text
+        TIER_SILVER: 0.90,
+        TIER_GOLD: 0.80,
     }.get(tier, 1.0)
+
 
 async def credit_loyalty_points(user_id: str):
     """Credits points after a successful delivery and checks for tier up."""
@@ -38,69 +49,106 @@ async def credit_loyalty_points(user_id: str):
     if not user:
         return
 
+    now = datetime.now(timezone.utc)
     new_points = user.get("loyalty_points", 0) + POINTS_PER_DELIVERY
     new_tier = compute_tier(new_points)
-    
-    update_query = {
-        "$set": {
-            "loyalty_points": new_points,
-            "loyalty_tier":   new_tier,
-            "updated_at":     datetime.now(timezone.utc)
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "loyalty_points": new_points,
+                "loyalty_tier": new_tier,
+                "updated_at": now,
+            }
+        },
+    )
+
+    await db.loyalty_events.insert_one(
+        {
+            "event_id": f"loy_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": "delivery_completed",
+            "points": POINTS_PER_DELIVERY,
+            "balance": new_points,
+            "created_at": now,
         }
-    }
-    
-    await db.users.update_one({"user_id": user_id}, update_query)
-    
-    # Record event
-    await db.loyalty_events.insert_one({
-        "event_id":   f"loy_{uuid.uuid4().hex[:12]}",
-        "user_id":    user_id,
-        "type":       "delivery_completed",
-        "points":     POINTS_PER_DELIVERY,
-        "balance":    new_points,
-        "created_at": datetime.now(timezone.utc),
-    })
+    )
 
     if new_tier != user.get("loyalty_tier"):
-        logger.info(f"User {user_id} promoted to {new_tier} tier!")
+        logger.info("User %s promoted to %s tier", user_id, new_tier)
 
-    # Check for referral credit if it's the first delivery
     await _check_referral_bonus(user_id)
 
+
 async def _check_referral_bonus(user_id: str):
-    """Check if the user has a referrer and if this is their first delivery."""
+    """Credits referral rewards once the configured threshold is reached."""
     user = await db.users.find_one({"user_id": user_id})
     if not user or not user.get("referred_by") or user.get("referral_credited"):
         return
 
-    # Check if this is the first successful delivery
-    delivery_count = await db.parcels.count_documents({
-        "sender_user_id": user_id,
-        "status": "delivered"
-    })
-    
-    if delivery_count == 1:
-        parrain_id = user["referred_by"]
-        now = datetime.now(timezone.utc)
-        settings_doc = await get_global_app_settings()
-        bonus_xof = get_referral_bonus_xof(settings_doc)
-        if bonus_xof <= 0:
-            logger.info("Referral bonus disabled by settings for user %s", user_id)
-            return
-        REFERRAL_BONUS_XOF = bonus_xof
+    settings_doc = await get_global_app_settings()
+    reward_metric = get_referral_reward_metric(settings_doc)
+    reward_count = get_referral_reward_count(settings_doc)
+    current_count = await get_referral_metric_count(user_id, reward_metric)
+    if current_count < reward_count:
+        return
 
-        # Credit filleul
-        await _add_to_wallet(user_id, REFERRAL_BONUS_XOF, "referral_bonus", "Bonus parrainage — 1ère livraison", now)
-        
-        # Credit parrain
-        await _add_to_wallet(parrain_id, REFERRAL_BONUS_XOF, "referral_bonus", "Bonus parrainage — filleul livré", now)
-
-        # Mark as credited
+    now = datetime.now(timezone.utc)
+    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
+    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
+    if referred_bonus_xof <= 0 and sponsor_bonus_xof <= 0:
+        logger.info("Referral bonus disabled by settings for user %s", user_id)
         await db.users.update_one(
             {"user_id": user_id},
-            {"$set": {"referral_credited": True}}
+            {
+                "$set": {
+                    "referral_credited": True,
+                    "referral_rewarded_at": now,
+                    "updated_at": now,
+                }
+            },
         )
-        logger.info(f"Referral credits paid for user {user_id} and referrer {parrain_id}")
+        return
+
+    sponsor_user_id = user["referred_by"]
+
+    # Idempotent credits based on deterministic transaction ids.
+    if referred_bonus_xof > 0:
+        await _add_to_wallet_once(
+            user_id=user_id,
+            amount=referred_bonus_xof,
+            tx_type="referral_bonus",
+            description="Bonus parrainage - seuil atteint",
+            now=now,
+            tx_id=f"ref_bonus_self_{user_id}",
+        )
+    if sponsor_bonus_xof > 0:
+        await _add_to_wallet_once(
+            user_id=sponsor_user_id,
+            amount=sponsor_bonus_xof,
+            tx_type="referral_bonus",
+            description="Bonus parrainage - filleul qualifie",
+            now=now,
+            tx_id=f"ref_bonus_sponsor_{user_id}",
+        )
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "referral_credited": True,
+                "referral_rewarded_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    logger.info(
+        "Referral credits paid for user %s and referrer %s",
+        user_id,
+        sponsor_user_id,
+    )
+
 
 async def _add_to_wallet(user_id: str, amount: float, tx_type: str, description: str, now: datetime):
     await db.wallets.update_one(
@@ -108,11 +156,49 @@ async def _add_to_wallet(user_id: str, amount: float, tx_type: str, description:
         {"$inc": {"balance": amount}},
         upsert=True,
     )
-    await db.wallet_transactions.insert_one({
-        "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
-        "user_id": user_id,
-        "type": tx_type,
-        "amount": amount,
-        "description": description,
-        "created_at": now,
-    })
+    await db.wallet_transactions.insert_one(
+        {
+            "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
+            "user_id": user_id,
+            "type": tx_type,
+            "amount": amount,
+            "description": description,
+            "created_at": now,
+        }
+    )
+
+
+async def _add_to_wallet_once(
+    *,
+    user_id: str,
+    amount: float,
+    tx_type: str,
+    description: str,
+    now: datetime,
+    tx_id: str,
+):
+    result = await db.wallet_transactions.update_one(
+        {"tx_id": tx_id},
+        {
+            "$setOnInsert": {
+                "tx_id": tx_id,
+                "user_id": user_id,
+                "type": tx_type,
+                "amount": amount,
+                "description": description,
+                "created_at": now,
+            }
+        },
+        upsert=True,
+    )
+    if result.upserted_id is None:
+        return
+
+    await db.wallets.update_one(
+        {"user_id": user_id},
+        {
+            "$inc": {"balance": amount},
+            "$set": {"updated_at": now},
+        },
+        upsert=True,
+    )

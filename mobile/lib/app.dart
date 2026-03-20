@@ -10,7 +10,7 @@ class PickuPointApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
     return MaterialApp.router(
-      title: 'PickuPoint',
+      title: 'Denkma',
       theme: AppTheme.light,
       routerConfig: router,
       debugShowCheckedModeBanner: false,

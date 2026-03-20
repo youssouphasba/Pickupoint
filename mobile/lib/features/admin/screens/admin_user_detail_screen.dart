@@ -101,6 +101,63 @@ class AdminUserDetailScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: 'Actions admin',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _callPhone(context, user.phone),
+                            icon: const Icon(Icons.call_outlined),
+                            label: const Text('Appeler'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AdminUserHistoryScreen(
+                                  userId: user.id,
+                                  userName: user.name,
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.history_outlined),
+                            label: const Text('Historique'),
+                          ),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  user.isBanned ? Colors.green : Colors.red,
+                            ),
+                            onPressed: () => _toggleBan(
+                              context,
+                              ref,
+                              user,
+                            ),
+                            icon: Icon(
+                              user.isBanned
+                                  ? Icons.check_circle_outline
+                                  : Icons.block_outlined,
+                            ),
+                            label: Text(
+                              user.isBanned ? 'Debannir' : 'Bannir',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Changement de role et liaison relais : Admin > Utilisateurs > menu actions sur la liste.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
                 if (user.isDriver) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
@@ -271,14 +328,63 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             : 'Desactive',
                       ),
                       _InfoRow(
+                        'Peut parrainer',
+                        (referral['can_sponsor'] as bool? ?? false)
+                            ? 'Oui'
+                            : 'Non',
+                      ),
+                      _InfoRow(
+                        'Peut etre parraine',
+                        (referral['can_be_referred'] as bool? ?? false)
+                            ? 'Oui'
+                            : 'Non',
+                      ),
+                      _InfoRow(
+                        'Roles parrains',
+                        ((referral['sponsor_allowed_roles'] as List?) ??
+                                (referral['allowed_roles'] as List?) ??
+                                const [])
+                            .map((e) => e.toString())
+                            .join(', '),
+                      ),
+                      _InfoRow(
+                        'Roles filleuls',
+                        ((referral['referred_allowed_roles'] as List?) ??
+                                const [])
+                            .map((e) => e.toString())
+                            .join(', '),
+                      ),
+                      _InfoRow(
                         'Override',
                         _referralOverrideLabel(referral['enabled_override']),
                       ),
                       _InfoRow(
-                        'Bonus',
+                        'Bonus parrain',
                         formatXof(
-                          (referral['bonus_xof'] as num?)?.toDouble() ?? 0.0,
+                          (referral['sponsor_bonus_xof'] as num?)?.toDouble() ??
+                              0.0,
                         ),
+                      ),
+                      _InfoRow(
+                        'Bonus filleul',
+                        formatXof(
+                          (referral['referred_bonus_xof'] as num?)
+                                  ?.toDouble() ??
+                              (referral['bonus_xof'] as num?)?.toDouble() ??
+                              0.0,
+                        ),
+                      ),
+                      _InfoRow(
+                        'Regle saisie',
+                        _stringOrDash(referral['apply_rule']),
+                      ),
+                      _InfoRow(
+                        'Regle prime',
+                        _stringOrDash(referral['reward_rule']),
+                      ),
+                      _InfoRow(
+                        'Lien actif',
+                        _stringOrDash(referral['referral_url']),
                       ),
                       _InfoRow(
                         'Filleuls',
@@ -412,6 +518,125 @@ class AdminUserDetailScreen extends ConsumerWidget {
       return 'Herite du parametre global';
     }
     return (override as bool) ? 'Force actif' : 'Force inactif';
+  }
+
+  Future<void> _toggleBan(
+    BuildContext context,
+    WidgetRef ref,
+    User user,
+  ) async {
+    final reason = await _askAdminReason(
+      context: context,
+      title: user.isBanned
+          ? 'Confirmer le debannissement'
+          : 'Confirmer le bannissement',
+      helper: user.isBanned
+          ? 'Explique pourquoi tu leves la suspension de ${user.name}.'
+          : 'Explique pourquoi tu suspends le compte de ${user.name}.',
+      confirmLabel: user.isBanned ? 'Debannir' : 'Bannir',
+      confirmColor: user.isBanned ? Colors.green : Colors.red,
+    );
+
+    if (reason == null) {
+      return;
+    }
+
+    try {
+      final api = ref.read(apiClientProvider);
+      if (user.isBanned) {
+        await api.unbanUser(user.id, reason: reason);
+      } else {
+        await api.banUser(user.id, reason: reason);
+      }
+      ref.invalidate(adminUsersProvider);
+      ref.invalidate(adminUserDetailProvider(user.id));
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            user.isBanned
+                ? 'Utilisateur debanni avec succes.'
+                : 'Utilisateur banni avec succes.',
+          ),
+          backgroundColor: user.isBanned ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<String?> _askAdminReason({
+    required BuildContext context,
+    required String title,
+    required String helper,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) async {
+    final controller = TextEditingController();
+    String? errorText;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(helper),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                minLines: 2,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  labelText: 'Motif',
+                  hintText: 'Exemple: fraude, documents invalides, correction',
+                  errorText: errorText,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmColor,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.length < 3) {
+                  setDialogState(
+                    () =>
+                        errorText = 'Saisis un motif d au moins 3 caracteres.',
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: Text(confirmLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    controller.dispose();
+    return result;
   }
 }
 

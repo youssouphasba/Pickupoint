@@ -10,8 +10,14 @@ import '../../../shared/widgets/otp_input.dart';
 class OtpScreen extends ConsumerStatefulWidget {
   final String phone;
   final String? verificationId;
+  final String? referralCode;
 
-  const OtpScreen({super.key, required this.phone, this.verificationId});
+  const OtpScreen({
+    super.key,
+    required this.phone,
+    this.verificationId,
+    this.referralCode,
+  });
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -50,11 +56,13 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     setState(() => _isLoading = true);
     try {
       // Firebase OTP verification
-      final token = await ref.read(authProvider.notifier).verifyFirebaseOtp(otp);
+      final token =
+          await ref.read(authProvider.notifier).verifyFirebaseOtp(otp);
 
       if (token != null && mounted) {
         context.pushReplacement('/auth/setup', extra: {
           'registration_token': token,
+          'referral_code': widget.referralCode,
         });
       }
     } catch (e) {
@@ -96,6 +104,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
             if (mounted && regToken != null) {
               context.pushReplacement('/auth/setup', extra: {
                 'registration_token': regToken,
+                'referral_code': widget.referralCode,
               });
             }
           } catch (_) {}

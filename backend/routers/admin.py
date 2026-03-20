@@ -17,9 +17,27 @@ from services.parcel_service import _record_event, sync_active_mission_with_parc
 from services.notification_service import notify_payout_result
 from services.user_service import (
     build_referral_url,
-    get_referral_bonus_xof,
+    build_referral_share_message,
+    describe_referral_apply_rule,
+    describe_referral_reward_rule,
+    get_effective_referral_share_base_url,
+    get_referral_allowed_roles,
+    get_referral_apply_max_count,
+    get_referral_apply_metric,
+    get_referral_metric_options,
+    get_referral_referred_allowed_roles,
+    get_referral_referred_bonus_xof,
     get_referral_share_base_url,
+    get_referral_sponsor_allowed_roles,
+    get_referral_sponsor_bonus_xof,
+    get_referral_reward_count,
+    get_referral_reward_metric,
+    is_referral_role_allowed,
+    is_referral_referred_role_allowed,
+    is_referral_referred_enabled_for_user,
     is_referral_enabled_for_user,
+    is_referral_sponsor_enabled_for_user,
+    is_referral_sponsor_role_allowed,
     is_referral_globally_enabled,
 )
 from services.wallet_service import record_wallet_transaction
@@ -44,8 +62,17 @@ class MissionReassignRequest(BaseModel):
 
 class ReferralSettingsRequest(BaseModel):
     enabled: bool
-    bonus_xof: int = Field(500, ge=0, le=1000000)
+    bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
+    sponsor_bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
+    referred_bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
     share_base_url: Optional[str] = Field(default=None, max_length=500)
+    allowed_roles: list[str] = Field(default_factory=list)
+    sponsor_allowed_roles: list[str] = Field(default_factory=list)
+    referred_allowed_roles: list[str] = Field(default_factory=list)
+    apply_metric: str = Field("sent_parcels", min_length=3, max_length=64)
+    apply_max_count: int = Field(0, ge=0, le=100000)
+    reward_metric: str = Field("delivered_sender_parcels", min_length=3, max_length=64)
+    reward_count: int = Field(1, ge=1, le=100000)
 
 
 class UserReferralAccessRequest(BaseModel):
@@ -595,13 +622,30 @@ async def admin_user_detail(
             "referred_by_user": referred_by_user,
             "referral_credited": user.get("referral_credited", False),
             "enabled_override": user.get("referral_enabled_override"),
+            "allowed_roles": get_referral_allowed_roles(app_settings),
+            "sponsor_allowed_roles": get_referral_sponsor_allowed_roles(app_settings),
+            "referred_allowed_roles": get_referral_referred_allowed_roles(app_settings),
+            "role_allowed": is_referral_role_allowed(user.get("role"), app_settings),
+            "sponsor_role_allowed": is_referral_sponsor_role_allowed(user.get("role"), app_settings),
+            "referred_role_allowed": is_referral_referred_role_allowed(user.get("role"), app_settings),
             "effective_enabled": is_referral_enabled_for_user(user, app_settings),
+            "can_sponsor": is_referral_sponsor_enabled_for_user(user, app_settings),
+            "can_be_referred": is_referral_referred_enabled_for_user(user, app_settings),
             "share_base_url": get_referral_share_base_url(app_settings),
+            "effective_share_base_url": get_effective_referral_share_base_url(app_settings),
             "referral_url": build_referral_url(
                 user.get("referral_code", ""),
-                get_referral_share_base_url(app_settings),
+                get_effective_referral_share_base_url(app_settings),
             ),
-            "bonus_xof": get_referral_bonus_xof(app_settings),
+            "bonus_xof": get_referral_referred_bonus_xof(app_settings),
+            "sponsor_bonus_xof": get_referral_sponsor_bonus_xof(app_settings),
+            "referred_bonus_xof": get_referral_referred_bonus_xof(app_settings),
+            "apply_metric": get_referral_apply_metric(app_settings),
+            "apply_max_count": get_referral_apply_max_count(app_settings),
+            "apply_rule": describe_referral_apply_rule(app_settings),
+            "reward_metric": get_referral_reward_metric(app_settings),
+            "reward_count": get_referral_reward_count(app_settings),
+            "reward_rule": describe_referral_reward_rule(app_settings),
             "referrals_count": await db.users.count_documents({"referred_by": user_id}),
         },
     }
@@ -1698,8 +1742,128 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
         "referral_enabled": is_referral_globally_enabled(settings_doc),
-        "referral_bonus_xof": get_referral_bonus_xof(settings_doc),
+        "referral_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
+        "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(settings_doc),
+        "referral_referred_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
+        "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
+        "referral_allowed_roles": get_referral_allowed_roles(settings_doc),
+        "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(settings_doc),
+        "referral_referred_allowed_roles": get_referral_referred_allowed_roles(settings_doc),
+        "referral_apply_metric": get_referral_apply_metric(settings_doc),
+        "referral_apply_max_count": get_referral_apply_max_count(settings_doc),
+        "referral_apply_rule": describe_referral_apply_rule(settings_doc),
+        "referral_reward_metric": get_referral_reward_metric(settings_doc),
+        "referral_reward_count": get_referral_reward_count(settings_doc),
+        "referral_reward_rule": describe_referral_reward_rule(settings_doc),
+        "referral_metric_options": get_referral_metric_options(),
+    }
+
+
+@router.get("/settings/referral/stats", summary="Statistiques du programme de parrainage")
+async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    share_base_url = get_referral_share_base_url(settings_doc)
+    effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
+    sponsor_allowed_roles = get_referral_sponsor_allowed_roles(settings_doc)
+    referred_allowed_roles = get_referral_referred_allowed_roles(settings_doc)
+    users = await db.users.find(
+        {},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "role": 1,
+            "referral_code": 1,
+            "referral_enabled_override": 1,
+            "referred_by": 1,
+            "referral_credited": 1,
+        },
+    ).to_list(length=10000)
+
+    stats_by_role: dict[str, dict] = {}
+    total_with_code = 0
+    total_effective_enabled = 0
+    total_referred_users = 0
+    total_rewarded_users = 0
+    total_pending_rewards = 0
+    total_override_enabled = 0
+    total_override_disabled = 0
+
+    for user in users:
+        role = str(user.get("role") or "client")
+        role_stats = stats_by_role.setdefault(
+            role,
+            {
+                "total_users": 0,
+                "with_code": 0,
+                "effective_enabled": 0,
+                "forced_enabled": 0,
+                "forced_disabled": 0,
+                "referred_users": 0,
+                "rewarded_users": 0,
+            },
+        )
+        role_stats["total_users"] += 1
+
+        if user.get("referral_code"):
+            total_with_code += 1
+            role_stats["with_code"] += 1
+
+        if is_referral_enabled_for_user(user, settings_doc):
+            total_effective_enabled += 1
+            role_stats["effective_enabled"] += 1
+
+        if user.get("referral_enabled_override") is True:
+            total_override_enabled += 1
+            role_stats["forced_enabled"] += 1
+        elif user.get("referral_enabled_override") is False:
+            total_override_disabled += 1
+            role_stats["forced_disabled"] += 1
+
+        if user.get("referred_by"):
+            total_referred_users += 1
+            role_stats["referred_users"] += 1
+            if user.get("referral_credited"):
+                total_rewarded_users += 1
+                role_stats["rewarded_users"] += 1
+            else:
+                total_pending_rewards += 1
+
+    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
+    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
+    return {
+        "referral_enabled": is_referral_globally_enabled(settings_doc),
+        "referral_bonus_xof": referred_bonus_xof,
+        "referral_sponsor_bonus_xof": sponsor_bonus_xof,
+        "referral_referred_bonus_xof": referred_bonus_xof,
+        "referral_share_base_url": share_base_url,
+        "effective_referral_share_base_url": effective_share_base_url,
+        "referral_allowed_roles": sponsor_allowed_roles,
+        "referral_sponsor_allowed_roles": sponsor_allowed_roles,
+        "referral_referred_allowed_roles": referred_allowed_roles,
+        "referral_apply_metric": get_referral_apply_metric(settings_doc),
+        "referral_apply_max_count": get_referral_apply_max_count(settings_doc),
+        "referral_apply_rule": describe_referral_apply_rule(settings_doc),
+        "referral_reward_metric": get_referral_reward_metric(settings_doc),
+        "referral_reward_count": get_referral_reward_count(settings_doc),
+        "referral_reward_rule": describe_referral_reward_rule(settings_doc),
+        "referral_metric_options": get_referral_metric_options(),
+        "sample_referral_url": build_referral_url("DENKMA-DEMO", effective_share_base_url),
+        "sample_share_message": build_referral_share_message(
+            code="DENKMA-DEMO",
+            referral_url=build_referral_url("DENKMA-DEMO", effective_share_base_url),
+            referred_bonus_xof=referred_bonus_xof,
+            reward_rule=describe_referral_reward_rule(settings_doc),
+        ),
+        "total_users": len(users),
+        "users_with_code": total_with_code,
+        "effective_enabled_users": total_effective_enabled,
+        "override_enabled_users": total_override_enabled,
+        "override_disabled_users": total_override_disabled,
+        "referred_users": total_referred_users,
+        "rewarded_users": total_rewarded_users,
+        "pending_reward_users": total_pending_rewards,
+        "stats_by_role": stats_by_role,
     }
 
 
@@ -1721,14 +1885,50 @@ async def update_referral_settings(
     _admin=Depends(require_admin_dep),
 ):
     share_base_url = (body.share_base_url or "").strip() or None
+    sponsor_allowed_roles = []
+    referred_allowed_roles = []
+    raw_sponsor_roles = body.sponsor_allowed_roles or body.allowed_roles
+    raw_referred_roles = body.referred_allowed_roles or body.allowed_roles
+    for role in raw_sponsor_roles:
+        normalized_role = str(role or "").strip()
+        if normalized_role and normalized_role not in sponsor_allowed_roles:
+            sponsor_allowed_roles.append(normalized_role)
+    for role in raw_referred_roles:
+        normalized_role = str(role or "").strip()
+        if normalized_role and normalized_role not in referred_allowed_roles:
+            referred_allowed_roles.append(normalized_role)
+    if not sponsor_allowed_roles:
+        raise bad_request_exception("Au moins un role parrain doit etre autorise")
+    if not referred_allowed_roles:
+        raise bad_request_exception("Au moins un role filleul doit etre autorise")
+
+    sponsor_bonus_xof = (
+        body.sponsor_bonus_xof
+        if body.sponsor_bonus_xof is not None
+        else (body.bonus_xof if body.bonus_xof is not None else 500)
+    )
+    referred_bonus_xof = (
+        body.referred_bonus_xof
+        if body.referred_bonus_xof is not None
+        else (body.bonus_xof if body.bonus_xof is not None else 500)
+    )
     now = datetime.now(timezone.utc)
     before = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     await db.app_settings.update_one(
         {"key": "global"},
         {"$set": {
             "referral_enabled": body.enabled,
-            "referral_bonus_xof": body.bonus_xof,
+            "referral_bonus_xof": referred_bonus_xof,
+            "referral_sponsor_bonus_xof": sponsor_bonus_xof,
+            "referral_referred_bonus_xof": referred_bonus_xof,
             "referral_share_base_url": share_base_url,
+            "referral_allowed_roles": sponsor_allowed_roles,
+            "referral_sponsor_allowed_roles": sponsor_allowed_roles,
+            "referral_referred_allowed_roles": referred_allowed_roles,
+            "referral_apply_metric": body.apply_metric,
+            "referral_apply_max_count": body.apply_max_count,
+            "referral_reward_metric": body.reward_metric,
+            "referral_reward_count": body.reward_count,
             "updated_at": now,
         }},
         upsert=True,
@@ -1742,19 +1942,50 @@ async def update_referral_settings(
         metadata={
             "before": {
                 "referral_enabled": before.get("referral_enabled", True),
-                "referral_bonus_xof": before.get("referral_bonus_xof", 500),
+                "referral_bonus_xof": get_referral_referred_bonus_xof(before),
+                "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(before),
+                "referral_referred_bonus_xof": get_referral_referred_bonus_xof(before),
                 "referral_share_base_url": before.get("referral_share_base_url"),
+                "referral_allowed_roles": get_referral_allowed_roles(before),
+                "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(before),
+                "referral_referred_allowed_roles": get_referral_referred_allowed_roles(before),
+                "referral_apply_metric": get_referral_apply_metric(before),
+                "referral_apply_max_count": get_referral_apply_max_count(before),
+                "referral_reward_metric": get_referral_reward_metric(before),
+                "referral_reward_count": get_referral_reward_count(before),
             },
             "after": {
                 "referral_enabled": after.get("referral_enabled", True),
-                "referral_bonus_xof": after.get("referral_bonus_xof", 500),
+                "referral_bonus_xof": get_referral_referred_bonus_xof(after),
+                "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(after),
+                "referral_referred_bonus_xof": get_referral_referred_bonus_xof(after),
                 "referral_share_base_url": after.get("referral_share_base_url"),
+                "referral_allowed_roles": get_referral_allowed_roles(after),
+                "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(after),
+                "referral_referred_allowed_roles": get_referral_referred_allowed_roles(after),
+                "referral_apply_metric": get_referral_apply_metric(after),
+                "referral_apply_max_count": get_referral_apply_max_count(after),
+                "referral_reward_metric": get_referral_reward_metric(after),
+                "referral_reward_count": get_referral_reward_count(after),
             },
         },
     )
     return {
         "referral_enabled": is_referral_globally_enabled(after),
-        "referral_bonus_xof": get_referral_bonus_xof(after),
+        "referral_bonus_xof": get_referral_referred_bonus_xof(after),
+        "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(after),
+        "referral_referred_bonus_xof": get_referral_referred_bonus_xof(after),
         "referral_share_base_url": get_referral_share_base_url(after),
+        "effective_referral_share_base_url": get_effective_referral_share_base_url(after),
+        "referral_allowed_roles": get_referral_allowed_roles(after),
+        "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(after),
+        "referral_referred_allowed_roles": get_referral_referred_allowed_roles(after),
+        "referral_apply_metric": get_referral_apply_metric(after),
+        "referral_apply_max_count": get_referral_apply_max_count(after),
+        "referral_apply_rule": describe_referral_apply_rule(after),
+        "referral_reward_metric": get_referral_reward_metric(after),
+        "referral_reward_count": get_referral_reward_count(after),
+        "referral_reward_rule": describe_referral_reward_rule(after),
+        "referral_metric_options": get_referral_metric_options(),
         "message": "Configuration du parrainage mise a jour",
     }

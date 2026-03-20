@@ -73,6 +73,36 @@ class _GoRouterNotifier extends ChangeNotifier {
   final Ref _ref;
 }
 
+String? _extractReferralCode(Uri uri) {
+  final queryRef =
+      (uri.queryParameters['ref'] ?? uri.queryParameters['code'] ?? '')
+          .trim()
+          .toUpperCase();
+  if (queryRef.isNotEmpty) {
+    return queryRef;
+  }
+
+  final segments = uri.pathSegments
+      .map((segment) => segment.trim())
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  if (segments.length >= 4 &&
+      segments[0] == 'api' &&
+      segments[1] == 'users' &&
+      segments[2] == 'referral') {
+    return segments[3].toUpperCase();
+  }
+  if (segments.length >= 2 && segments[0] == 'referral') {
+    return segments[1].toUpperCase();
+  }
+  if (segments.length >= 3 &&
+      segments[0] == 'app' &&
+      segments[1] == 'referral') {
+    return segments[2].toUpperCase();
+  }
+  return null;
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   final notifier = _GoRouterNotifier(ref);
 
@@ -85,8 +115,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isAuthRoute = state.fullPath?.startsWith('/auth') ?? false;
       final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
+      final referralCode = _extractReferralCode(state.uri);
 
       if (isUnknown) return null; // attendre la résolution
+      if (referralCode != null) {
+        if (!isLoggedIn) {
+          final currentRef =
+              state.uri.queryParameters['ref']?.trim().toUpperCase();
+          if (state.matchedLocation != '/auth/phone' ||
+              currentRef != referralCode) {
+            return Uri(
+              path: '/auth/phone',
+              queryParameters: {'ref': referralCode},
+            ).toString();
+          }
+        } else {
+          return switch (auth!.effectiveRole) {
+            'relay_agent' => '/relay',
+            'driver' => '/driver',
+            'admin' => '/admin',
+            _ => '/client',
+          };
+        }
+      }
       if (isLegalRoute) {
         return null; // autoriser l'accès aux CGU/Privacy à tout moment
       }
@@ -108,9 +159,35 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           path: '/legal/:docType',
           builder: (_, s) =>
               LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+      GoRoute(
+        path: '/referral/:code',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: {'ref': s.pathParameters['code']!},
+        ).toString(),
+      ),
+      GoRoute(
+        path: '/app/referral/:code',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: {'ref': s.pathParameters['code']!},
+        ).toString(),
+      ),
+      GoRoute(
+        path: '/api/users/referral/:code',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: {'ref': s.pathParameters['code']!},
+        ).toString(),
+      ),
 
       // ── Auth ──────────────────────────────────────────────
-      GoRoute(path: '/auth/phone', builder: (_, __) => const PhoneScreen()),
+      GoRoute(
+        path: '/auth/phone',
+        builder: (_, state) => PhoneScreen(
+          initialReferralCode: state.uri.queryParameters['ref'],
+        ),
+      ),
       GoRoute(
           path: '/auth/pin',
           builder: (_, state) {
@@ -124,6 +201,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             return OtpScreen(
               phone: data['phone'] as String,
               verificationId: data['verificationId'] as String?,
+              referralCode: data['referral_code'] as String?,
             );
           }),
       GoRoute(
@@ -131,7 +209,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           builder: (_, state) {
             final data = state.extra as Map<String, dynamic>;
             return SetupProfileScreen(
-                registrationToken: data['registration_token'] as String);
+              registrationToken: data['registration_token'] as String,
+              initialReferralCode: data['referral_code'] as String?,
+            );
           }),
 
       // ── Client ────────────────────────────────────────────
@@ -300,6 +380,7 @@ class ClientShell extends StatelessWidget {
     return _ShellScaffold(
       currentIndex: _calculateSelectedIndex(location),
       tabs: _tabs,
+      currentLocation: location,
       body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _calculateSelectedIndex(location),
@@ -333,6 +414,7 @@ class RelayShell extends StatelessWidget {
     return _ShellScaffold(
       currentIndex: idx,
       tabs: _tabs,
+      currentLocation: location,
       body: child,
       bottomNavigationBar: BottomNavigationBar(
           currentIndex: idx,
@@ -371,6 +453,7 @@ class DriverShell extends StatelessWidget {
     return _ShellScaffold(
       currentIndex: idx,
       tabs: _tabs,
+      currentLocation: location,
       body: child,
       bottomNavigationBar: BottomNavigationBar(
           currentIndex: idx,
@@ -407,6 +490,7 @@ class AdminShell extends StatelessWidget {
     return _ShellScaffold(
       currentIndex: idx < 0 ? 0 : idx,
       tabs: _tabs,
+      currentLocation: location,
       body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: idx < 0 ? 0 : idx,
@@ -433,12 +517,14 @@ class _ShellScaffold extends StatefulWidget {
   const _ShellScaffold({
     required this.currentIndex,
     required this.tabs,
+    required this.currentLocation,
     required this.body,
     required this.bottomNavigationBar,
   });
 
   final int currentIndex;
   final List<String> tabs;
+  final String currentLocation;
   final Widget body;
   final Widget bottomNavigationBar;
 
@@ -453,6 +539,13 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
     final router = GoRouter.of(context);
     if (router.canPop()) {
       router.pop();
+      return;
+    }
+
+    final safeIndex = widget.currentIndex.clamp(0, widget.tabs.length - 1);
+    final currentTab = widget.tabs[safeIndex];
+    if (widget.currentLocation != currentTab) {
+      context.go(currentTab);
       return;
     }
 

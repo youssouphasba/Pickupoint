@@ -23,10 +23,12 @@ from core.utils import normalize_phone
 from database import db
 from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.otp_service import send_otp, verify_otp
+from services.parcel_service import _record_event
 from services.user_service import (
     generate_referral_code,
     get_global_app_settings,
-    is_referral_enabled_for_user,
+    is_referral_referred_enabled_for_user,
+    is_referral_sponsor_enabled_for_user,
 )
 
 router = APIRouter()
@@ -293,10 +295,15 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     referred_by = None
     if referral_code:
         app_settings = await get_global_app_settings()
+        pending_user = {"role": "client", "is_active": True, "is_banned": False}
+        if not is_referral_referred_enabled_for_user(pending_user, app_settings):
+            raise bad_request_exception(
+                "Le parrainage n'est pas disponible pour les nouveaux comptes clients"
+            )
         sponsor = await db.users.find_one({"referral_code": referral_code}, {"_id": 0})
         if not sponsor:
             raise bad_request_exception("Code parrainage invalide")
-        if not is_referral_enabled_for_user(sponsor, app_settings):
+        if not is_referral_sponsor_enabled_for_user(sponsor, app_settings):
             raise bad_request_exception("Ce code parrainage n'est pas actif")
         referred_by = sponsor["user_id"]
 
@@ -325,10 +332,26 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "loyalty_tier":      "bronze",
         "referral_code":     generate_referral_code(phone),
         "referred_by":       referred_by,
+        "referral_applied_at": now if referred_by else None,
+        "referral_source":   "signup" if referred_by else None,
         "created_at":        now,
         "updated_at":        now,
     }
     await db.users.insert_one(user_doc)
+
+    if referred_by:
+        await _record_event(
+            event_type="USER_REGISTERED_WITH_REFERRAL",
+            actor_id=user_doc["user_id"],
+            actor_role=user_doc["role"],
+            notes=f"Inscription avec code parrainage: {referral_code}",
+            metadata={
+                "user_id": user_doc["user_id"],
+                "sponsor_user_id": referred_by,
+                "referral_code": referral_code,
+                "source": "signup",
+            },
+        )
 
     token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token  = create_access_token(token_data)

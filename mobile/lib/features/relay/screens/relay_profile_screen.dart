@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/models/user.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/loading_button.dart';
@@ -98,6 +99,102 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     }
   }
 
+  Future<void> _editAgentAccount(User user) async {
+    final emailCtrl = TextEditingController(text: user.email ?? '');
+    final bioCtrl = TextEditingController(text: user.bio ?? '');
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Modifier le compte agent'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                initialValue: user.fullName ?? user.phone,
+                enabled: false,
+                decoration: const InputDecoration(
+                  labelText: 'Nom',
+                  helperText:
+                      'Le nom n est pas modifiable pour des raisons de securite.',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: user.phone,
+                enabled: false,
+                decoration: const InputDecoration(
+                  labelText: 'Telephone',
+                  helperText:
+                      'Le numero principal du compte agent reste verrouille.',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'E-mail',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: bioCtrl,
+                maxLines: 4,
+                maxLength: 160,
+                decoration: const InputDecoration(
+                  labelText: 'Bio agent',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                final body = <String, dynamic>{
+                  'bio': bioCtrl.text.trim(),
+                };
+                if (emailCtrl.text.trim().isNotEmpty) {
+                  body['email'] = emailCtrl.text.trim();
+                }
+                await ref.read(apiClientProvider).updateProfile(body);
+                await ref.read(authProvider.notifier).fetchMe();
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Compte agent mis a jour.'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Mise a jour impossible: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
@@ -108,7 +205,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _relay == null || user == null
-              ? const Center(child: Text('Aucun point relais associe a ce compte.'))
+              ? const Center(
+                  child: Text('Aucun point relais associe a ce compte.'))
               : RefreshIndicator(
                   onRefresh: _loadRelay,
                   child: ListView(
@@ -120,6 +218,10 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         title: 'Compte agent',
                         subtitle:
                             'Informations utiles pour vous identifier et pour le controle admin.',
+                        trailing: IconButton(
+                          onPressed: () => _editAgentAccount(user),
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
                         child: Column(
                           children: [
                             _infoRow('Nom', user.fullName ?? user.phone),
@@ -139,6 +241,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                   : (user.isActive ? 'Actif' : 'Inactif'),
                             ),
                             _infoRow('KYC', _kycLabel(user.kycStatus)),
+                            if ((user.bio ?? '').trim().isNotEmpty)
+                              _infoRow('Bio', user.bio!.trim()),
                           ],
                         ),
                       ),
@@ -157,9 +261,10 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                   labelText: 'Nom du relais',
                                   border: OutlineInputBorder(),
                                 ),
-                                validator: (value) => value == null || value.trim().isEmpty
-                                    ? 'Nom requis'
-                                    : null,
+                                validator: (value) =>
+                                    value == null || value.trim().isEmpty
+                                        ? 'Nom requis'
+                                        : null,
                               ),
                               const SizedBox(height: 12),
                               TextFormField(
@@ -185,7 +290,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                 maxLines: 3,
                                 decoration: const InputDecoration(
                                   labelText: 'Instructions ou acces',
-                                  hintText: 'Repere utile pour les clients et les livreurs',
+                                  hintText:
+                                      'Repere utile pour les clients et les livreurs',
                                   border: OutlineInputBorder(),
                                 ),
                               ),
@@ -240,7 +346,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                               children: [
                                 Expanded(
                                   child: OutlinedButton.icon(
-                                    onPressed: () => context.go('/relay/wallet'),
+                                    onPressed: () =>
+                                        context.go('/relay/wallet'),
                                     icon: const Icon(Icons.payments_outlined),
                                     label: const Text('Gains'),
                                   ),
@@ -249,7 +356,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                 Expanded(
                                   child: OutlinedButton.icon(
                                     onPressed: () => context.go('/relay'),
-                                    icon: const Icon(Icons.inventory_2_outlined),
+                                    icon:
+                                        const Icon(Icons.inventory_2_outlined),
                                     label: const Text('Stock'),
                                   ),
                                 ),
@@ -289,7 +397,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     );
   }
 
-  Widget _buildHeader(dynamic user, RelayPoint relay) {
+  Widget _buildHeader(User user, RelayPoint relay) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -305,10 +413,10 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
         children: [
           Row(
             children: [
-              CircleAvatar(
+              const CircleAvatar(
                 radius: 28,
                 backgroundColor: Colors.white24,
-                child: const Icon(Icons.store, color: Colors.white, size: 28),
+                child: Icon(Icons.store, color: Colors.white, size: 28),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -344,7 +452,9 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
               ),
               _StatusChip(
                 label: relay.isActive ? 'Actif' : 'Inactif',
-                color: relay.isActive ? Colors.green.shade700 : Colors.grey.shade300,
+                color: relay.isActive
+                    ? Colors.green.shade700
+                    : Colors.grey.shade300,
                 textColor: relay.isActive ? Colors.white : Colors.black87,
               ),
               _StatusChip(
@@ -402,11 +512,13 @@ class _SectionCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.child,
+    this.trailing,
   });
 
   final String title;
   final String subtitle;
   final Widget child;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -417,9 +529,19 @@ class _SectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
             ),
             const SizedBox(height: 4),
             Text(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/date_format.dart';
 
@@ -18,40 +19,53 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
     final historyAsync = ref.watch(clientLoyaltyHistoryProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Historique Points & Bonus')),
+      appBar: AppBar(title: const Text('Historique points et bonus')),
       body: historyAsync.when(
         data: (events) {
           if (events.isEmpty) {
-            return const Center(child: Text('Aucun événement fidélité enregistré.'));
+            return const Center(
+              child: Text('Aucun evenement de fidelite enregistre.'),
+            );
           }
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: events.length,
-            separatorBuilder: (_, __) => const Divider(),
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, i) {
-              final ev = events[i] as Map<String, dynamic>;
-              final date = ev['created_at'] != null ? formatDate(DateTime.parse(ev['created_at'])) : "---";
-              final type = ev['event_type'] ?? "UNKNOWN";
-              final points = ev['points_delta'] ?? 0;
+              final event = Map<String, dynamic>.from(
+                events[i] as Map<dynamic, dynamic>,
+              );
+              final type = event['type']?.toString() ?? 'unknown';
+              final points = _intValue(event['points']);
+              final balance = _intValue(event['balance']);
               final isPositive = points >= 0;
 
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: isPositive ? Colors.green.shade50 : Colors.red.shade50,
-                  child: Icon(
-                    isPositive ? Icons.add : Icons.remove,
-                    color: isPositive ? Colors.green : Colors.red,
-                    size: 18,
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        isPositive ? Colors.green.shade50 : Colors.red.shade50,
+                    child: Icon(
+                      isPositive ? Icons.add : Icons.remove,
+                      color: isPositive ? Colors.green : Colors.red,
+                      size: 18,
+                    ),
                   ),
-                ),
-                title: Text(_formatEventType(type)),
-                subtitle: Text(date),
-                trailing: Text(
-                  '${isPositive ? "+" : ""}$points pts',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: isPositive ? Colors.green.shade700 : Colors.red.shade700,
+                  title: Text(_formatEventType(type)),
+                  subtitle: Text(
+                    balance > 0
+                        ? '${_formatEventDate(event['created_at'])} - Solde: $balance pts'
+                        : _formatEventDate(event['created_at']),
+                  ),
+                  trailing: Text(
+                    '${isPositive ? "+" : ""}$points pts',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isPositive
+                          ? Colors.green.shade700
+                          : Colors.red.shade700,
+                    ),
                   ),
                 ),
               );
@@ -59,19 +73,46 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(
+          child: Text('Erreur de chargement: $e'),
+        ),
       ),
     );
   }
 
   String _formatEventType(String type) {
     switch (type) {
-      case 'PARCEL_CREATED': return 'Envoi de colis';
-      case 'PARCEL_DELIVERED': return 'Colis livré';
-      case 'REFERRAL_SUCCESS': return 'Parrainage réussi';
-      case 'WELCOME_BONUS': return 'Bonus de bienvenue';
-      case 'LEVEL_UP': return 'Montée de niveau';
-      default: return type.replaceAll('_', ' ');
+      case 'delivery_completed':
+        return 'Livraison effectuee';
+      case 'referral_bonus':
+        return 'Bonus de parrainage';
+      case 'welcome_bonus':
+        return 'Bonus de bienvenue';
+      case 'level_up':
+        return 'Montee de niveau';
+      default:
+        return type.replaceAll('_', ' ');
     }
+  }
+
+  String _formatEventDate(dynamic rawDate) {
+    if (rawDate == null) {
+      return 'Date inconnue';
+    }
+    final parsed = DateTime.tryParse(rawDate.toString());
+    if (parsed == null) {
+      return 'Date inconnue';
+    }
+    return formatDate(parsed);
+  }
+
+  int _intValue(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

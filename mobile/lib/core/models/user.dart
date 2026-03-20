@@ -21,6 +21,8 @@ class User {
     this.loyaltyPoints = 0,
     this.loyaltyTier = 'bronze',
     this.referralCode = '',
+    this.referredBy,
+    this.referralCredited = false,
     this.isBanned = false,
     this.acceptedLegal = false,
     this.acceptedLegalAt,
@@ -63,6 +65,8 @@ class User {
   final int loyaltyPoints;
   final String loyaltyTier;
   final String referralCode;
+  final String? referredBy;
+  final bool referralCredited;
   final bool isBanned;
   final bool acceptedLegal;
   final DateTime? acceptedLegalAt;
@@ -119,6 +123,8 @@ class User {
       loyaltyPoints: (json['loyalty_points'] as num?)?.toInt() ?? 0,
       loyaltyTier: json['loyalty_tier'] as String? ?? 'bronze',
       referralCode: json['referral_code'] as String? ?? '',
+      referredBy: json['referred_by'] as String?,
+      referralCredited: json['referral_credited'] as bool? ?? false,
       isBanned: json['is_banned'] as bool? ?? false,
       acceptedLegal: json['accepted_legal'] as bool? ?? false,
       acceptedLegalAt: json['accepted_legal_at'] != null
@@ -167,6 +173,8 @@ class User {
         'language': language,
         'currency': currency,
         'country_code': countryCode,
+        'referred_by': referredBy,
+        'referral_credited': referralCredited,
         'created_at': createdAt?.toIso8601String(),
         'updated_at': updatedAt?.toIso8601String(),
       };
@@ -199,6 +207,8 @@ class User {
     int? loyaltyPoints,
     String? loyaltyTier,
     String? referralCode,
+    String? referredBy,
+    bool? referralCredited,
     bool? isBanned,
     bool? acceptedLegal,
     DateTime? acceptedLegalAt,
@@ -238,6 +248,8 @@ class User {
         loyaltyPoints: loyaltyPoints ?? this.loyaltyPoints,
         loyaltyTier: loyaltyTier ?? this.loyaltyTier,
         referralCode: referralCode ?? this.referralCode,
+        referredBy: referredBy ?? this.referredBy,
+        referralCredited: referralCredited ?? this.referralCredited,
         isBanned: isBanned ?? this.isBanned,
         acceptedLegal: acceptedLegal ?? this.acceptedLegal,
         acceptedLegalAt: acceptedLegalAt ?? this.acceptedLegalAt,

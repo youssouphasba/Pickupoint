@@ -755,6 +755,10 @@ async def transition_status(
                     }}
                 )
                 logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
+            if mission.get("driver_id"):
+                from services.loyalty_service import _check_referral_bonus
+
+                await _check_referral_bonus(mission["driver_id"])
 
                 # --- Déclenchement Phase 2 Transit ---
                 p = await db.parcels.find_one({"parcel_id": parcel_id})
@@ -780,6 +784,10 @@ async def transition_status(
                 }}
             )
             logger.info(f"Mission {mission['mission_id']} complétée (colis livré) pour {parcel_id}")
+            if mission.get("driver_id"):
+                from services.loyalty_service import _check_referral_bonus
+
+                await _check_referral_bonus(mission["driver_id"])
 
     elif new_status == ParcelStatus.DELIVERY_FAILED:
         mission = await db.delivery_missions.find_one({

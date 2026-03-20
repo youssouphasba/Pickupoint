@@ -11,6 +11,13 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
 
+final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final res = await ref.watch(apiClientProvider).getReferralInfo();
+  return Map<String, dynamic>.from(
+    res.data as Map<String, dynamic>? ?? const {},
+  );
+});
+
 class ClientProfileScreen extends ConsumerWidget {
   const ClientProfileScreen({super.key});
 
@@ -18,6 +25,7 @@ class ClientProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider).valueOrNull;
     final statsAsync = ref.watch(userStatsProvider);
+    final referralAsync = ref.watch(_referralInfoProvider);
     final user = authState?.user;
 
     if (user == null) {
@@ -40,7 +48,7 @@ class ClientProfileScreen extends ConsumerWidget {
                     const SizedBox(height: 24),
                     _buildLoyaltyProgress(user, statsAsync),
                     const SizedBox(height: 24),
-                    _buildActionsList(context, ref),
+                    _buildActionsList(context, ref, user, referralAsync),
                     const SizedBox(height: 40),
                     _buildLogoutButton(ref),
                   ],
@@ -288,7 +296,21 @@ class ClientProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildActionsList(BuildContext context, WidgetRef ref) {
+  Widget _buildActionsList(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic user,
+    AsyncValue<Map<String, dynamic>> referralAsync,
+  ) {
+    final referralData = referralAsync.valueOrNull ?? const <String, dynamic>{};
+    final hasSponsor = (user.referredBy ?? '').toString().trim().isNotEmpty;
+    final referralCheckFailed = referralAsync.hasError;
+    final canApplyReferral = !hasSponsor &&
+        (referralCheckFailed ||
+            (referralData['can_apply_now'] as bool? ?? false));
+    final applyRule = referralData['apply_rule']?.toString() ??
+        'Les conditions du programme seront verifiees au moment de la saisie.';
+
     return Column(
       children: [
         _buildActionCard([
@@ -343,6 +365,39 @@ class ClientProfileScreen extends ConsumerWidget {
           ),
           const Divider(height: 1),
           ListTile(
+            leading: Icon(
+              hasSponsor
+                  ? Icons.verified_outlined
+                  : Icons.card_giftcard_outlined,
+            ),
+            title: Text(
+              hasSponsor
+                  ? 'Parrainage déjà activé'
+                  : 'J\'ai un code parrainage',
+            ),
+            subtitle: Text(
+              hasSponsor
+                  ? (user.referralCredited
+                      ? 'Le bonus de parrainage a déjà été crédité.'
+                      : 'Votre bonus sera crédite selon les regles du programme de parrainage.')
+                  : referralAsync.isLoading
+                      ? 'Verification des conditions du programme...'
+                      : referralCheckFailed
+                          ? 'Vous pouvez saisir un code. Le serveur verifiera les conditions.'
+                          : canApplyReferral
+                              ? applyRule
+                              : 'Le code ne peut plus etre applique. $applyRule',
+            ),
+            trailing: hasSponsor
+                ? const Icon(Icons.lock_outline)
+                : const Icon(Icons.chevron_right),
+            enabled: hasSponsor || canApplyReferral,
+            onTap: hasSponsor || !canApplyReferral
+                ? null
+                : () => _applyReferralCode(context, ref),
+          ),
+          const Divider(height: 1),
+          ListTile(
             leading: const Icon(Icons.share_outlined),
             title: const Text('Partager mon code parrainage'),
             trailing: const Icon(Icons.chevron_right),
@@ -376,6 +431,66 @@ class ClientProfileScreen extends ConsumerWidget {
       ),
       child: Column(children: children),
     );
+  }
+
+  Future<void> _applyReferralCode(BuildContext context, WidgetRef ref) async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ajouter un code parrainage'),
+        content: TextField(
+          controller: controller,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Code parrainage',
+            hintText: 'Ex: DENKMA-4F2K',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(controller.text.trim().toUpperCase()),
+            child: const Text('Appliquer'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (code == null || code.trim().isEmpty || !context.mounted) {
+      return;
+    }
+
+    try {
+      await ref.read(apiClientProvider).applyReferralCode(code.trim());
+      await ref.read(authProvider.notifier).fetchMe();
+      ref.invalidate(_referralInfoProvider);
+      ref.invalidate(userStatsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Code parrainage applique. Les primes seront debloquees selon les regles du programme.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _shareReferral(BuildContext context, WidgetRef ref) async {
