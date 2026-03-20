@@ -45,6 +45,11 @@ async def find_best_promo(
     best_disc = 0.0
 
     for p in promos:
+        # Ciblage par utilisateurs spécifiques
+        target_user_ids = p.get("target_user_ids")
+        if target_user_ids and user_id not in target_user_ids:
+            continue
+
         target = p.get("target", "all")
 
         # Vérifier la cible

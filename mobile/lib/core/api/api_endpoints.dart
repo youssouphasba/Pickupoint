@@ -81,6 +81,7 @@ class ApiEndpoints {
   static const adminPromotions = '$_base/api/admin/promotions';
   static String adminPromotion(String id) => '$_base/api/admin/promotions/$id';
   static const checkPromo = '$_base/api/parcels/check-promo';
+  static const resolvePhones = '$_base/api/admin/resolve-phones';
 
   // ─── Wallets ──────────────────────────────────────────────────────────────
   static const myWallet = '$_base/api/wallets/me';

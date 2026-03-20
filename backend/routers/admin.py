@@ -331,6 +331,28 @@ def _mission_route_summary(mission: dict, live_location: dict | None, trail: lis
     }
 
 
+@router.post("/resolve-phones", summary="Résoudre des numéros de téléphone en user_ids (Admin)")
+async def resolve_phones(
+    body: dict,
+    _admin=Depends(require_admin_dep),
+):
+    phones = body.get("phones", [])
+    if not phones or not isinstance(phones, list):
+        raise bad_request_exception("Liste de téléphones requise")
+
+    from core.utils import normalize_phone
+    user_ids = []
+    not_found = []
+    for phone in phones[:50]:  # max 50
+        normalized = normalize_phone(str(phone).strip())
+        user = await db.users.find_one({"phone": normalized}, {"user_id": 1})
+        if user:
+            user_ids.append(user["user_id"])
+        else:
+            not_found.append(str(phone).strip())
+    return {"user_ids": user_ids, "not_found": not_found}
+
+
 @router.get("/dashboard", summary="KPIs temps réel")
 async def dashboard(_admin=Depends(require_admin_dep)):
     now = datetime.now(timezone.utc)

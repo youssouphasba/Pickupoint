@@ -34,7 +34,10 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(adminHeatmapProvider),
+            onPressed: () {
+              _lastCameraKey = null;
+              ref.invalidate(adminHeatmapProvider);
+            },
           ),
         ],
       ),
@@ -169,6 +172,7 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
               onSelected: (_) {
                 setState(() {
                   _selectedFilter = filter.$1;
+                  _lastCameraKey = null;
                 });
               },
             ),
@@ -224,24 +228,45 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: cameraTarget, zoom: 12),
-        onMapCreated: (controller) {
-          _mapController = controller;
-          final points = hotspots
-              .map((hotspot) => _latLngFromHotspot(hotspot))
-              .whereType<LatLng>()
-              .toList();
-          _fitBoundsIfNeeded(points);
-        },
-        circles: circles,
-        markers: markers,
-        myLocationEnabled: true,
-        myLocationButtonEnabled: true,
-        zoomControlsEnabled: true,
-        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-          Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
-        },
+      child: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: cameraTarget, zoom: 12),
+            onMapCreated: (controller) {
+              _mapController = controller;
+              final points = hotspots
+                  .map((hotspot) => _latLngFromHotspot(hotspot))
+                  .whereType<LatLng>()
+                  .toList();
+              _fitBoundsIfNeeded(points);
+            },
+            circles: circles,
+            markers: markers,
+            myLocationEnabled: false,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: true,
+            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+              Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+            },
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: FloatingActionButton.small(
+              heroTag: 'heatmap_recenter',
+              backgroundColor: Colors.white,
+              onPressed: () {
+                _lastCameraKey = null;
+                final points = hotspots
+                    .map((hotspot) => _latLngFromHotspot(hotspot))
+                    .whereType<LatLng>()
+                    .toList();
+                _fitBoundsIfNeeded(points);
+              },
+              child: const Icon(Icons.center_focus_strong, color: Colors.black87),
+            ),
+          ),
+        ],
       ),
     );
   }

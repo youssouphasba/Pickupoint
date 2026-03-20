@@ -430,6 +430,9 @@ class ApiClient {
         'delivery_mode': mode,
       });
 
+  Future<Response> resolvePhonesToIds(List<String> phones) =>
+      _dio.post(ApiEndpoints.resolvePhones, data: {'phones': phones});
+
   // ─── Anomales ─────────────────────────────────────────────────────────────
   Future<Response> getAnomalies() => _dio.get(ApiEndpoints.adminAnomalyAlerts);
 

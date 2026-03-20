@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from uuid import uuid4
 
@@ -27,6 +27,7 @@ class PromotionCreate(BaseModel):
     value:              float = 0.0        # % (20.0 pour -20%) ou XOF (500)
     target:             PromoTarget = PromoTarget.ALL
     delivery_mode:      Optional[str] = None  # si target=DELIVERY_MODE
+    target_user_ids:    Optional[List[str]] = None  # ciblage utilisateurs spécifiques
     min_amount:         Optional[float] = None
     max_uses_total:     Optional[int]   = None  # None = illimité
     max_uses_per_user:  int = 1

@@ -478,10 +478,161 @@ async def main(wipe=False, wipe_only=False):
     )
     await _create_delivery_mission(p_h2h, ParcelStatus.CREATED)
 
+    # ── 5b. Colis supplementaires pour HEATMAP (statuts varies + GPS) ──────
+    print("\n--- HEATMAP DATA (12 colis avec GPS varies) ---")
+
+    EXTRA_LOCS = [
+        {"label": "Ouakam",        "city": "Dakar",   "geopin": {"lat": 14.7200, "lng": -17.4800}},
+        {"label": "Almadies",      "city": "Dakar",   "geopin": {"lat": 14.7450, "lng": -17.5200}},
+        {"label": "Parcelles",     "city": "Dakar",   "geopin": {"lat": 14.7650, "lng": -17.4100}},
+        {"label": "Grand Yoff",    "city": "Dakar",   "geopin": {"lat": 14.7400, "lng": -17.4400}},
+        {"label": "Fann",          "city": "Dakar",   "geopin": {"lat": 14.6950, "lng": -17.4650}},
+        {"label": "Colobane",      "city": "Dakar",   "geopin": {"lat": 14.6900, "lng": -17.4500}},
+        {"label": "Guediawaye",    "city": "Dakar",   "geopin": {"lat": 14.7800, "lng": -17.3950}},
+        {"label": "Pikine",        "city": "Dakar",   "geopin": {"lat": 14.7600, "lng": -17.3900}},
+        {"label": "Rufisque",      "city": "Dakar",   "geopin": {"lat": 14.7150, "lng": -17.2700}},
+        {"label": "Thiaroye",      "city": "Dakar",   "geopin": {"lat": 14.7500, "lng": -17.3500}},
+        {"label": "Keur Massar",   "city": "Dakar",   "geopin": {"lat": 14.7900, "lng": -17.3100}},
+        {"label": "Mbao",          "city": "Dakar",   "geopin": {"lat": 14.7350, "lng": -17.3300}},
+    ]
+
+    heatmap_statuses = [
+        ParcelStatus.CREATED,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
+        ParcelStatus.IN_TRANSIT,
+        ParcelStatus.IN_TRANSIT,
+        ParcelStatus.OUT_FOR_DELIVERY,
+        ParcelStatus.AVAILABLE_AT_RELAY,
+        ParcelStatus.DELIVERED,
+        ParcelStatus.DELIVERED,
+        ParcelStatus.DELIVERY_FAILED,
+        ParcelStatus.IN_TRANSIT,
+        ParcelStatus.CREATED,
+        ParcelStatus.OUT_FOR_DELIVERY,
+    ]
+    heatmap_modes = [
+        DeliveryMode.HOME_TO_HOME,
+        DeliveryMode.RELAY_TO_HOME,
+        DeliveryMode.HOME_TO_RELAY,
+        DeliveryMode.RELAY_TO_RELAY,
+        DeliveryMode.HOME_TO_HOME,
+        DeliveryMode.RELAY_TO_RELAY,
+        DeliveryMode.HOME_TO_HOME,
+        DeliveryMode.RELAY_TO_HOME,
+        DeliveryMode.HOME_TO_HOME,
+        DeliveryMode.HOME_TO_RELAY,
+        DeliveryMode.RELAY_TO_HOME,
+        DeliveryMode.HOME_TO_HOME,
+    ]
+
+    for i, loc in enumerate(EXTRA_LOCS):
+        st = heatmap_statuses[i]
+        mode = heatmap_modes[i]
+        dest_loc = EXTRA_LOCS[(i + 5) % len(EXTRA_LOCS)]
+
+        # Determine origin/dest based on mode
+        o_relay = medina["relay_id"] if mode.value.startswith("relay_to_") else None
+        d_relay = plateau["relay_id"] if mode.value.endswith("_to_relay") else None
+        o_loc = loc if mode.value.startswith("home_to_") else None
+        d_addr = dest_loc if mode.value.endswith("_to_home") else None
+
+        await _make_parcel(
+            f"HEATMAP-{i+1} | {loc['label']} -> {dest_loc['label']} ({mode.value})",
+            mode, fatou, ibra,
+            origin_relay_id=o_relay, dest_relay_id=d_relay,
+            origin_loc=o_loc, dest_addr=d_addr,
+            status=st,
+            assigned_driver_id=driver["user_id"] if st.value in ("IN_TRANSIT", "OUT_FOR_DELIVERY") else None,
+            events=[{"status": st.value, "actor_id": fatou["user_id"], "actor_role": "client", "note": f"Simulation heatmap {loc['label']}"}],
+        )
+
+    # ── 5c. Missions actives pour FLEET LIVE ─────────────────────────────────
+    print("\n--- FLEET LIVE DATA (3 missions actives) ---")
+
+    fleet_scenarios = [
+        {
+            "label": "FLEET-1 | Driver en route Ouakam -> Almadies",
+            "mode": DeliveryMode.HOME_TO_HOME,
+            "origin_loc": EXTRA_LOCS[0],  # Ouakam
+            "dest_loc": EXTRA_LOCS[1],    # Almadies
+            "driver_lat": 14.7320, "driver_lng": -17.4950,
+            "mission_status": "in_progress",
+            "parcel_status": ParcelStatus.IN_TRANSIT,
+        },
+        {
+            "label": "FLEET-2 | Driver collecte Grand Yoff -> relais Plateau",
+            "mode": DeliveryMode.HOME_TO_RELAY,
+            "origin_loc": EXTRA_LOCS[3],  # Grand Yoff
+            "dest_relay": plateau,
+            "driver_lat": 14.7380, "driver_lng": -17.4420,
+            "mission_status": "assigned",
+            "parcel_status": ParcelStatus.IN_TRANSIT,
+        },
+        {
+            "label": "FLEET-3 | Driver en livraison Parcelles -> Fann",
+            "mode": DeliveryMode.HOME_TO_HOME,
+            "origin_loc": EXTRA_LOCS[2],  # Parcelles
+            "dest_loc": EXTRA_LOCS[4],    # Fann
+            "driver_lat": 14.7100, "driver_lng": -17.4550,
+            "mission_status": "in_progress",
+            "parcel_status": ParcelStatus.OUT_FOR_DELIVERY,
+        },
+    ]
+
+    for sc in fleet_scenarios:
+        fp = await _make_parcel(
+            sc["label"], sc["mode"], fatou, ibra,
+            origin_loc=sc.get("origin_loc"),
+            dest_addr=sc.get("dest_loc"),
+            dest_relay_id=(sc.get("dest_relay") or {}).get("relay_id"),
+            status=sc["parcel_status"],
+            assigned_driver_id=driver["user_id"],
+            events=[{"status": sc["parcel_status"].value, "actor_id": driver["user_id"], "actor_role": "driver", "note": f"Simulation fleet live"}],
+        )
+
+        msn = await _make_mission(
+            fp, driver,
+            pickup_loc=sc.get("origin_loc"),
+            delivery_loc=sc.get("dest_loc"),
+            delivery_relay=sc.get("dest_relay"),
+            status=sc["mission_status"],
+            minutes_ago=random.randint(5, 30),
+        )
+
+        # Injecter la position GPS du driver sur la mission
+        now = datetime.now(timezone.utc)
+        trail = [
+            {"lat": sc["driver_lat"] + random.uniform(-0.003, 0.003),
+             "lng": sc["driver_lng"] + random.uniform(-0.003, 0.003),
+             "ts": (now - timedelta(minutes=random.randint(1, 10))).isoformat()}
+            for _ in range(5)
+        ]
+        await db.delivery_missions.update_one(
+            {"mission_id": msn["mission_id"]},
+            {"$set": {
+                "driver_location": {"lat": sc["driver_lat"], "lng": sc["driver_lng"]},
+                "gps_trail": trail,
+                "location_updated_at": now,
+            }}
+        )
+        print(f"  Mission {msn['mission_id']} [{sc['mission_status']}] driver@({sc['driver_lat']}, {sc['driver_lng']})")
+
+    # Mettre a jour la position du driver dans son profil
+    await db.users.update_one(
+        {"user_id": driver["user_id"]},
+        {"$set": {
+            "last_driver_location": {"lat": 14.7320, "lng": -17.4950},
+            "last_location_at": datetime.now(timezone.utc),
+            "is_available": True,
+        }}
+    )
+    print("  Driver last_driver_location mis a jour")
+
     # ── 6. Resume ────────────────────────────────────────────────────────────
     total = await db.parcels.count_documents({"is_simulation": True})
+    total_missions = await db.delivery_missions.count_documents({})
     print(f"\n{'='*65}")
-    print(f"[OK] {total} colis de test crees (tous au statut CREATED).")
+    print(f"[OK] {total} colis de test crees ({total_missions} missions actives).")
     print()
     print("CONNEXION APP (OTP fixe 123456, PIN 1234) :")
     print("  Admin     : +221770000000")

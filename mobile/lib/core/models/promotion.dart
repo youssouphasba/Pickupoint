@@ -15,6 +15,7 @@ class Promotion {
     this.minAmount,
     this.maxUsesTotal,
     this.maxUsesPerUser = 1,
+    this.targetUserIds,
   });
 
   final String   promoId;
@@ -32,6 +33,7 @@ class Promotion {
   final double?  minAmount;
   final int?     maxUsesTotal;
   final int      maxUsesPerUser;
+  final List<String>? targetUserIds;
 
   factory Promotion.fromJson(Map<String, dynamic> j) => Promotion(
         promoId:        j['promo_id'] as String,
@@ -49,6 +51,9 @@ class Promotion {
         minAmount:      (j['min_amount'] as num?)?.toDouble(),
         maxUsesTotal:   j['max_uses_total'] as int?,
         maxUsesPerUser: j['max_uses_per_user'] as int? ?? 1,
+        targetUserIds: (j['target_user_ids'] as List?)
+            ?.map((e) => e.toString())
+            .toList(),
       );
 
   String get typeLabel => switch (promoType) {

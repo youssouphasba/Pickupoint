@@ -17,7 +17,27 @@
       "Bash(cd /mnt/c/Users/Utilisateur/pickupoint/mobile && dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1)",
       "Bash(cd /mnt/c/Users/Utilisateur/pickupoint/mobile && /mnt/c/src/flutter/bin/dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1)",
       "Bash(bash --version 2>&1; echo \"shell: $SHELL\")",
-      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\Utilisateur\\\\pickupoint\\\\mobile'; dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1\" 2>&1)"
+      "Bash(powershell.exe -Command \"cd 'C:\\\\Users\\\\Utilisateur\\\\pickupoint\\\\mobile'; dart analyze lib/core/api/api_client.dart lib/core/auth/auth_provider.dart lib/core/notifications/notification_service.dart lib/features/auth/screens/phone_screen.dart lib/features/auth/screens/otp_screen.dart lib/main.dart test/widget_test.dart 2>&1\" 2>&1)",
+      "Bash(dart analyze:*)",
+      "Bash(cd:*)",
+      "Bash(bash -c 'flutter analyze lib/core/models/delivery_mission.dart 2>&1 | tail -20')",
+      "Bash(cmd.exe /c \"flutter analyze lib\\\\core\\\\models\\\\delivery_mission.dart lib\\\\core\\\\api\\\\api_endpoints.dart lib\\\\core\\\\api\\\\api_client.dart lib\\\\features\\\\driver\\\\screens\\\\mission_detail_screen.dart\" 2>&1 | tail -30)",
+      "Bash(git config:*)",
+      "Bash(which gh:*)",
+      "Read(//mnt/c/Windows/System32/**)",
+      "Read(//mnt/c/Users/Utilisateur/AppData/Local/Programs/**)",
+      "Bash(npm uninstall:*)",
+      "WebSearch",
+      "Bash(find:*)",
+      "Bash(xxd:*)",
+      "Bash(keytool:*)",
+      "Bash(\"/mnt/c/Program Files/Android/Android Studio1/jbr/bin/keytool.exe\" -list -v -keystore /mnt/c/Users/Utilisateur/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android)",
+      "Bash(grep -r \"fcm_token\\\\|fcm-token\" /mnt/c/Users/Utilisateur/pickupoint/backend --include=*.py)",
+      "Bash(git rm:*)",
+      "Bash(git log:*)",
+      "Bash(grep -n \"parcel_id\\\\|relay_pin\\\\|pinCode\\\\|deliveryCode\" /mnt/c/Users/Utilisateur/pickupoint/mobile/lib/features/relay/screens/*.dart)",
+      "Bash(/bin/bash -c 'dart analyze lib/features/admin/screens/admin_dashboard.dart 2>&1 | head -30')",
+      "Bash(dart --version)"
     ]
   }
 }

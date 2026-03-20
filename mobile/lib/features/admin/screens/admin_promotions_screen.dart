@@ -106,11 +106,18 @@ class _PromoCard extends ConsumerWidget {
                 style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
               ),
               const SizedBox(height: 12),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
                 children: [
                   _InfoChip(icon: Icons.tag, label: promo.promoCode ?? 'Automatique'),
-                  const SizedBox(width: 8),
                   _InfoChip(icon: Icons.card_giftcard, label: promo.typeLabel, color: Colors.blue),
+                  if (promo.targetUserIds != null && promo.targetUserIds!.isNotEmpty)
+                    _InfoChip(
+                      icon: Icons.person_pin,
+                      label: '${promo.targetUserIds!.length} cible(s)',
+                      color: Colors.purple,
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -233,6 +240,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
   double _value = 10;
   String _target = 'all';
   String? _code;
+  String _targetUsersText = '';
   final DateTime _start = DateTime.now();
   DateTime _end = DateTime.now().add(const Duration(days: 30));
   bool _loading = false;
@@ -258,7 +266,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                initialValue: _type,
+                value: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
                   DropdownMenuItem(value: 'percentage', child: Text('Pourcentage (%)')),
@@ -277,12 +285,14 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
                 ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                initialValue: _target,
+                value: _target,
                 decoration: const InputDecoration(labelText: 'Cible'),
                 items: const [
                   DropdownMenuItem(value: 'all', child: Text('Tous les utilisateurs')),
-                  DropdownMenuItem(value: 'first_delivery', child: Text('1ère livraison')),
-                  DropdownMenuItem(value: 'gold_only', child: Text('Membres GOLD')),
+                  DropdownMenuItem(value: 'first_delivery', child: Text('1ere livraison')),
+                  DropdownMenuItem(value: 'tier_gold', child: Text('Membres GOLD')),
+                  DropdownMenuItem(value: 'tier_silver', child: Text('Membres SILVER+')),
+                  DropdownMenuItem(value: 'delivery_mode', child: Text('Mode de livraison')),
                 ],
                 onChanged: (v) => setState(() => _target = v!),
               ),
@@ -291,6 +301,16 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
                 decoration: const InputDecoration(labelText: 'Code Promo (vide = AUTO)'),
                 textCapitalization: TextCapitalization.characters,
                 onChanged: (v) => _code = v,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                decoration: const InputDecoration(
+                  labelText: 'Cibler des utilisateurs (optionnel)',
+                  hintText: 'Telephones separes par des virgules',
+                  helperText: 'Vide = tous. Ex: +221770000001, +221770000003',
+                ),
+                maxLines: 2,
+                onChanged: (v) => _targetUsersText = v,
               ),
               const SizedBox(height: 16),
               ListTile(
@@ -324,7 +344,47 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
   void _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
-    
+
+    // Résoudre les téléphones ciblés en user_ids
+    List<String>? targetUserIds;
+    final phones = _targetUsersText
+        .split(RegExp(r'[,;\s]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (phones.isNotEmpty) {
+      try {
+        final container = ProviderScope.containerOf(context);
+        final res = await container.read(apiClientProvider).resolvePhonesToIds(phones);
+        final data = res.data as Map<String, dynamic>? ?? {};
+        final resolved = (data['user_ids'] as List?)?.cast<String>() ?? [];
+        final notFound = (data['not_found'] as List?)?.cast<String>() ?? [];
+        if (resolved.isEmpty) {
+          if (mounted) {
+            setState(() => _loading = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Aucun utilisateur trouve pour ces numeros.')),
+            );
+          }
+          return;
+        }
+        if (notFound.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Numeros non trouves: ${notFound.join(", ")}')),
+          );
+        }
+        targetUserIds = resolved;
+      } catch (e) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erreur resolution numeros: $e')),
+          );
+        }
+        return;
+      }
+    }
+
     final body = {
       'title': _title,
       'description': _desc,
@@ -335,6 +395,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
       'start_date': _start.toIso8601String(),
       'end_date': _end.toIso8601String(),
       'is_active': true,
+      if (targetUserIds != null) 'target_user_ids': targetUserIds,
     };
 
     try {

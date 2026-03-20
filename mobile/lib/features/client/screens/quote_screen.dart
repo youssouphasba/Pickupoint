@@ -19,6 +19,52 @@ class QuoteScreen extends ConsumerStatefulWidget {
 
 class _QuoteScreenState extends ConsumerState<QuoteScreen> {
   bool _isConfirming = false;
+  final _promoController = TextEditingController();
+  bool _promoLoading = false;
+  Map<String, dynamic>? _promoResult;
+  String? _promoError;
+
+  @override
+  void dispose() {
+    _promoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkPromoCode() async {
+    final code = _promoController.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+
+    setState(() {
+      _promoLoading = true;
+      _promoError = null;
+      _promoResult = null;
+    });
+
+    try {
+      final quote = widget.data['quote'] as Map<String, dynamic>? ?? {};
+      final breakdown = quote['breakdown'] as Map<String, dynamic>? ?? {};
+      final price = (quote['price'] as num?)?.toDouble() ?? 0;
+      final mode = breakdown['delivery_mode']?.toString() ??
+          (widget.data['formData'] as Map? ?? {})['delivery_mode']?.toString() ??
+          'relay_to_relay';
+
+      final res = await ref.read(apiClientProvider).checkPromoCode(code, price, mode);
+      final data = res.data as Map<String, dynamic>;
+      setState(() => _promoResult = data);
+    } catch (e) {
+      setState(() => _promoError = 'Code invalide ou non applicable');
+    } finally {
+      if (mounted) setState(() => _promoLoading = false);
+    }
+  }
+
+  void _removePromo() {
+    setState(() {
+      _promoResult = null;
+      _promoError = null;
+      _promoController.clear();
+    });
+  }
 
   Future<void> _confirmAndPay() async {
     setState(() => _isConfirming = true);
@@ -27,10 +73,14 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       final formData =
           Map<String, dynamic>.from(widget.data['formData'] as Map? ?? const {});
       final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
+      final promoCode = _promoResult != null
+          ? _promoController.text.trim().toUpperCase()
+          : null;
       final payload = {
         ...formData,
         'recipient_name': widget.data['recipient_name'],
         'recipient_phone': widget.data['recipient_phone'],
+        if (promoCode != null) 'promo_id': promoCode,
       };
 
       final res = await api.createParcel(payload);
@@ -151,8 +201,21 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  if (_promoResult != null) ...[
+                    Text(
+                      formatXof(total),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 18,
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                  ],
                   Text(
-                    formatXof(total),
+                    formatXof(_promoResult != null
+                        ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
+                        : total),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 36,
@@ -195,8 +258,17 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                 color: const Color(0xFFFF6B00),
               ),
             ],
+            const SizedBox(height: 20),
+            _buildPromoSection(),
             const Divider(height: 20),
-            _row('TOTAL', total, bold: true, large: true),
+            _row(
+              'TOTAL',
+              _promoResult != null
+                  ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
+                  : total,
+              bold: true,
+              large: true,
+            ),
             const SizedBox(height: 20),
             _sectionTitle('Informations pratiques'),
             const SizedBox(height: 8),
@@ -235,6 +307,97 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPromoSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Code promotionnel'),
+        const SizedBox(height: 8),
+        if (_promoResult != null)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _promoResult!['promo_title']?.toString() ?? 'Promotion',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                      Text(
+                        '-${formatXof((_promoResult!['discount_xof'] as num?)?.toDouble() ?? 0)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: _removePromo,
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'Retirer',
+                ),
+              ],
+            ),
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _promoController,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    hintText: 'Ex: DENKMA20',
+                    prefixIcon: const Icon(Icons.local_offer_outlined, size: 20),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    errorText: _promoError,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _promoLoading
+                  ? const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  : FilledButton(
+                      onPressed: _checkPromoCode,
+                      child: const Text('OK'),
+                    ),
+            ],
+          ),
+      ],
     );
   }
 

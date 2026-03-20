@@ -49,7 +49,10 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(adminFleetProvider),
+            onPressed: () {
+              _lastCameraKey = null;
+              ref.invalidate(adminFleetProvider);
+            },
           ),
         ],
       ),
@@ -109,6 +112,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                                     setState(() {
                                       _selectedMissionId =
                                           mission['mission_id'] as String?;
+                                      _lastCameraKey = null;
                                     });
                                   },
                                   onAudit: () {
@@ -250,6 +254,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           onTap: () {
             setState(() {
               _selectedMissionId = mission['mission_id'] as String?;
+              _lastCameraKey = null;
             });
           },
         ),
@@ -385,6 +390,19 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                 ),
               ),
             ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: FloatingActionButton.small(
+              heroTag: 'fleet_recenter',
+              backgroundColor: Colors.white,
+              onPressed: () {
+                _lastCameraKey = null;
+                _fitBoundsIfNeeded(_cameraSeedPoints(fleet, selectedMission));
+              },
+              child: const Icon(Icons.center_focus_strong, color: Colors.black87),
+            ),
+          ),
         ],
       ),
     );

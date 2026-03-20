@@ -53,8 +53,9 @@ async def update_promotion(
 ):
     # Only allow updating some fields
     allowed_fields = {
-        "title", "description", "is_active", "end_date", 
-        "max_uses_total", "max_uses_per_user", "value", "min_amount"
+        "title", "description", "is_active", "end_date",
+        "max_uses_total", "max_uses_per_user", "value", "min_amount",
+        "target_user_ids",
     }
     updates = {k: v for k, v in body.items() if k in allowed_fields}
     if not updates:
