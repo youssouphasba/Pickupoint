@@ -42,11 +42,20 @@ desktop.ini
 Thumbs.db
 
 # Firebase / credentials
-google-services.json
+google-services*.json
 GoogleService-Info.plist
 firebase-service-account.json
 *-adminsdk-*.json
 firebase-debug.log
+
+# Claude Code settings
+.claude/settings.local.json
+
+# Docs / tutorials (generated, not for repo)
+docs/generate_real_capture_tutorial.py
+docs/generate_scenario_tutorial.py
+docs/tutorial_video/
+docs/tutorial_video_real/
 
 # Secrets — ne jamais commit
 *.env
