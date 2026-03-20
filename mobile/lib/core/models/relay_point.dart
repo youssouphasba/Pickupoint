@@ -35,19 +35,28 @@ class RelayPoint {
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
     // address est un objet { label, city, district, geopin: {lat, lng} }
-    final addr = json['address'] as Map<String, dynamic>? ?? {};
-    final geopin = addr['geopin'] as Map<String, dynamic>?;
+    final rawAddress = json['address'];
+    final addr = rawAddress is Map<String, dynamic>
+        ? rawAddress
+        : <String, dynamic>{
+            if (rawAddress is String && rawAddress.trim().isNotEmpty)
+              'label': rawAddress.trim(),
+          };
+    final rawGeopin = addr['geopin'];
+    final geopin = rawGeopin is Map<String, dynamic> ? rawGeopin : null;
+    final rawOpeningHours = json['opening_hours'];
 
     return RelayPoint(
-      id: json['relay_id'] as String,
-      name: json['name'] as String,
+      id: json['relay_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? 'Point relais',
       phone: json['phone'] as String? ?? '',
       description: json['description'] as String?,
-      openingHours: json['opening_hours'] as Map<String, dynamic>?,
-      addressLabel: addr['label'] as String?
-          ?? addr['district'] as String?
-          ?? addr['city'] as String?
-          ?? '',
+      openingHours:
+          rawOpeningHours is Map<String, dynamic> ? rawOpeningHours : null,
+      addressLabel: addr['label'] as String? ??
+          addr['district'] as String? ??
+          addr['city'] as String? ??
+          '',
       city: addr['city'] as String? ?? 'Dakar',
       district: addr['district'] as String?,
       agentId: json['owner_user_id'] as String? ?? '',
@@ -64,7 +73,6 @@ class RelayPoint {
   bool get isFull => currentStock >= capacity;
 
   /// Affichage dans les dropdowns
-  String get displayName => district != null
-      ? '$name — $district, $city'
-      : '$name — $city';
+  String get displayName =>
+      district != null ? '$name — $district, $city' : '$name — $city';
 }

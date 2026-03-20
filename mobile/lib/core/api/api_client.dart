@@ -266,21 +266,48 @@ class ApiClient {
   Future<Response> getAdminParcels({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.adminParcels, queryParameters: params);
 
-  Future<Response> getLiveFleet() => _dio.get(ApiEndpoints.adminFleetLive);
+  Future<Response> getLiveFleet() async {
+    try {
+      return await _dio.get(ApiEndpoints.adminFleetLive);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return _dio.get(ApiEndpoints.adminFleetLiveLegacy);
+      }
+      rethrow;
+    }
+  }
 
   Future<Response> getStaleParcels() =>
       _dio.get(ApiEndpoints.adminStaleParcels);
 
   Future<Response> getAnomalyAlerts() =>
       _dio.get(ApiEndpoints.adminAnomalyAlerts);
-  Future<Response> getHeatmapData() => _dio.get(ApiEndpoints.adminHeatmap);
+  Future<Response> getHeatmapData() async {
+    try {
+      return await _dio.get(ApiEndpoints.adminHeatmap);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return _dio.get(ApiEndpoints.adminHeatmapLegacy);
+      }
+      rethrow;
+    }
+  }
+
   Future<Response> getCodMonitoring() =>
       _dio.get(ApiEndpoints.adminCodMonitoring);
   Future<Response> getFinanceReconciliation() =>
       _dio.get(ApiEndpoints.adminFinanceReconciliation);
 
-  Future<Response> getParcelAudit(String id) =>
-      _dio.get(ApiEndpoints.adminParcelAudit(id));
+  Future<Response> getParcelAudit(String id) async {
+    try {
+      return await _dio.get(ApiEndpoints.adminParcelAudit(id));
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return _dio.get(ApiEndpoints.adminParcelAuditLegacy(id));
+      }
+      rethrow;
+    }
+  }
 
   Future<Response> getAdminAuditLog({int limit = 100}) =>
       _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});

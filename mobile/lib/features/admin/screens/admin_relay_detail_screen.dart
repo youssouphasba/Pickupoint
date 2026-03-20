@@ -40,11 +40,18 @@ class AdminRelayDetailScreen extends ConsumerWidget {
           );
           final recentParcels = List<Map<String, dynamic>>.from(
               data['recent_parcels'] as List? ?? const []);
+          final rawAddress = relayData['address'];
           final address = Map<String, dynamic>.from(
-            relayData['address'] as Map<String, dynamic>? ?? const {},
+            rawAddress is Map<String, dynamic>
+                ? rawAddress
+                : <String, dynamic>{
+                    if (rawAddress is String && rawAddress.trim().isNotEmpty)
+                      'label': rawAddress.trim(),
+                  },
           );
+          final rawGeopin = address['geopin'];
           final geopin = Map<String, dynamic>.from(
-            address['geopin'] as Map<String, dynamic>? ?? const {},
+            rawGeopin is Map<String, dynamic> ? rawGeopin : const {},
           );
 
           return SingleChildScrollView(

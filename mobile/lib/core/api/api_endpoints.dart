@@ -105,14 +105,18 @@ class ApiEndpoints {
       '$_base/api/admin/parcels/$id/payment-override';
 
   // Control Max (Phase 9)
-  static const adminFleetLive = '$_base/api/admin/fleet/live';
+  static const adminFleetLive = '$_base/api/admin/fleet/live-rich';
+  static const adminFleetLiveLegacy = '$_base/api/admin/fleet/live';
   static const adminStaleParcels = '$_base/api/admin/analytics/stale-parcels';
   static const adminAnomalyAlerts = '$_base/api/admin/analytics/anomaly-alerts';
-  static const adminHeatmap = '$_base/api/admin/analytics/heatmap';
+  static const adminHeatmap = '$_base/api/admin/analytics/heatmap-rich';
+  static const adminHeatmapLegacy = '$_base/api/admin/analytics/heatmap';
   static const adminCodMonitoring = '$_base/api/admin/finance/cod-monitoring';
   static const adminFinanceReconciliation =
       '$_base/api/admin/finance/reconciliation';
   static String adminParcelAudit(String id) =>
+      '$_base/api/admin/parcels/$id/audit-rich';
+  static String adminParcelAuditLegacy(String id) =>
       '$_base/api/admin/parcels/$id/audit';
   static String adminReassignMission(String id) =>
       '$_base/api/admin/missions/$id/reassign';

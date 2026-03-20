@@ -6,10 +6,7 @@ from database import db
 from services.user_service import (
     get_global_app_settings,
     get_referral_metric_count,
-    get_referral_referred_bonus_xof,
-    get_referral_reward_count,
-    get_referral_reward_metric,
-    get_referral_sponsor_bonus_xof,
+    get_referral_role_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,44 +79,40 @@ async def credit_loyalty_points(user_id: str):
 
 
 async def _check_referral_bonus(user_id: str):
-    """Credits referral rewards once the configured threshold is reached."""
+    """Credits referral rewards using per-role config for the referred user."""
     user = await db.users.find_one({"user_id": user_id})
     if not user or not user.get("referred_by") or user.get("referral_credited"):
         return
 
     settings_doc = await get_global_app_settings()
-    reward_metric = get_referral_reward_metric(settings_doc)
-    reward_count = get_referral_reward_count(settings_doc)
+    user_role = str(user.get("role") or "client")
+    config = get_referral_role_config(settings_doc, user_role)
+
+    reward_metric = config["reward_metric"]
+    reward_count = config["reward_count"]
     current_count = await get_referral_metric_count(user_id, reward_metric)
     if current_count < reward_count:
         return
 
     now = datetime.now(timezone.utc)
-    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
-    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
+    referred_bonus_xof = config["referred_bonus_xof"]
+    sponsor_bonus_xof = config["sponsor_bonus_xof"]
     if referred_bonus_xof <= 0 and sponsor_bonus_xof <= 0:
-        logger.info("Referral bonus disabled by settings for user %s", user_id)
+        logger.info("Referral bonus disabled by settings for user %s (role=%s)", user_id, user_role)
         await db.users.update_one(
             {"user_id": user_id},
-            {
-                "$set": {
-                    "referral_credited": True,
-                    "referral_rewarded_at": now,
-                    "updated_at": now,
-                }
-            },
+            {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
         )
         return
 
     sponsor_user_id = user["referred_by"]
 
-    # Idempotent credits based on deterministic transaction ids.
     if referred_bonus_xof > 0:
         await _add_to_wallet_once(
             user_id=user_id,
             amount=referred_bonus_xof,
             tx_type="referral_bonus",
-            description="Bonus parrainage - seuil atteint",
+            description=f"Bonus parrainage ({user_role}) - seuil atteint",
             now=now,
             tx_id=f"ref_bonus_self_{user_id}",
         )
@@ -128,26 +121,16 @@ async def _check_referral_bonus(user_id: str):
             user_id=sponsor_user_id,
             amount=sponsor_bonus_xof,
             tx_type="referral_bonus",
-            description="Bonus parrainage - filleul qualifie",
+            description=f"Bonus parrainage ({user_role}) - filleul qualifie",
             now=now,
             tx_id=f"ref_bonus_sponsor_{user_id}",
         )
 
     await db.users.update_one(
         {"user_id": user_id},
-        {
-            "$set": {
-                "referral_credited": True,
-                "referral_rewarded_at": now,
-                "updated_at": now,
-            }
-        },
+        {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
     )
-    logger.info(
-        "Referral credits paid for user %s and referrer %s",
-        user_id,
-        sponsor_user_id,
-    )
+    logger.info("Referral credits paid for user %s (role=%s) and referrer %s", user_id, user_role, sponsor_user_id)
 
 
 async def _add_to_wallet(user_id: str, amount: float, tx_type: str, description: str, now: datetime):

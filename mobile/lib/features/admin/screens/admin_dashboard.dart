@@ -21,58 +21,9 @@ final _referralSettingsProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getReferralAdminStats();
-  final data = Map<String, dynamic>.from(
+  return Map<String, dynamic>.from(
     res.data as Map<String, dynamic>? ?? const {},
   );
-  return {
-    'referral_enabled': data['referral_enabled'] as bool? ?? true,
-    'referral_bonus_xof': data['referral_bonus_xof'] as num? ?? 500,
-    'referral_sponsor_bonus_xof':
-        data['referral_sponsor_bonus_xof'] as num? ?? 500,
-    'referral_referred_bonus_xof':
-        data['referral_referred_bonus_xof'] as num? ?? 500,
-    'referral_share_base_url':
-        data['referral_share_base_url']?.toString() ?? '',
-    'effective_referral_share_base_url':
-        data['effective_referral_share_base_url']?.toString() ??
-            data['referral_share_base_url']?.toString() ??
-            '',
-    'referral_allowed_roles': List<String>.from(
-      data['referral_allowed_roles'] as List? ?? const <String>[],
-    ),
-    'referral_sponsor_allowed_roles': List<String>.from(
-      data['referral_sponsor_allowed_roles'] as List? ??
-          data['referral_allowed_roles'] as List? ??
-          const <String>[],
-    ),
-    'referral_referred_allowed_roles': List<String>.from(
-      data['referral_referred_allowed_roles'] as List? ??
-          data['referral_allowed_roles'] as List? ??
-          const <String>[],
-    ),
-    'referral_apply_metric': data['referral_apply_metric']?.toString() ?? '',
-    'referral_apply_max_count': data['referral_apply_max_count'] as num? ?? 0,
-    'referral_apply_rule': data['referral_apply_rule']?.toString() ?? '',
-    'referral_reward_metric': data['referral_reward_metric']?.toString() ?? '',
-    'referral_reward_count': data['referral_reward_count'] as num? ?? 1,
-    'referral_reward_rule': data['referral_reward_rule']?.toString() ?? '',
-    'referral_metric_options': List<Map<String, dynamic>>.from(
-      (data['referral_metric_options'] as List? ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map)),
-    ),
-    'sample_referral_url': data['sample_referral_url']?.toString() ?? '',
-    'sample_share_message': data['sample_share_message']?.toString() ?? '',
-    'users_with_code': data['users_with_code'] as num? ?? 0,
-    'effective_enabled_users': data['effective_enabled_users'] as num? ?? 0,
-    'override_enabled_users': data['override_enabled_users'] as num? ?? 0,
-    'override_disabled_users': data['override_disabled_users'] as num? ?? 0,
-    'referred_users': data['referred_users'] as num? ?? 0,
-    'rewarded_users': data['rewarded_users'] as num? ?? 0,
-    'pending_reward_users': data['pending_reward_users'] as num? ?? 0,
-    'stats_by_role': Map<String, dynamic>.from(
-      data['stats_by_role'] as Map? ?? const {},
-    ),
-  };
 });
 
 class AdminDashboard extends ConsumerWidget {
@@ -889,59 +840,23 @@ class _ReferralSettingsTile extends ConsumerStatefulWidget {
 class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
   bool _loading = false;
 
-  Future<void> _setEnabled(
-    Map<String, dynamic> current,
-    bool enabled,
-  ) async {
-    await _saveSettings(
-      enabled: enabled,
-      sponsorBonusXof: _intValue(current['referral_sponsor_bonus_xof']),
-      referredBonusXof: _intValue(current['referral_referred_bonus_xof']),
-      shareBaseUrl: current['referral_share_base_url']?.toString() ?? '',
-      sponsorAllowedRoles: List<String>.from(
-        current['referral_sponsor_allowed_roles'] as List? ??
-            current['referral_allowed_roles'] as List? ??
-            const <String>[],
-      ),
-      referredAllowedRoles: List<String>.from(
-        current['referral_referred_allowed_roles'] as List? ??
-            current['referral_allowed_roles'] as List? ??
-            const <String>[],
-      ),
-      applyMetric:
-          current['referral_apply_metric']?.toString() ?? 'sent_parcels',
-      applyMaxCount: _intValue(current['referral_apply_max_count']),
-      rewardMetric: current['referral_reward_metric']?.toString() ??
-          'delivered_sender_parcels',
-      rewardCount: _intValue(current['referral_reward_count'], fallback: 1),
-    );
+  Map<String, dynamic> _roleConfig(Map<String, dynamic> data, String role) {
+    final roles = data['referral_roles'] as Map<String, dynamic>? ?? {};
+    return Map<String, dynamic>.from(roles[role] as Map? ?? const {});
   }
 
-  Future<void> _saveSettings({
-    required bool enabled,
-    required int sponsorBonusXof,
-    required int referredBonusXof,
-    required String shareBaseUrl,
-    required List<String> sponsorAllowedRoles,
-    required List<String> referredAllowedRoles,
-    required String applyMetric,
-    required int applyMaxCount,
-    required String rewardMetric,
-    required int rewardCount,
-  }) async {
+  Future<void> _saveAll(Map<String, dynamic> data,
+      {Map<String, dynamic>? clientOverride,
+      Map<String, dynamic>? driverOverride}) async {
     setState(() => _loading = true);
     try {
+      final client = {..._roleConfig(data, 'client'), ...?clientOverride};
+      final driver = {..._roleConfig(data, 'driver'), ...?driverOverride};
       await ref.read(apiClientProvider).setReferralSettings({
-        'enabled': enabled,
-        'sponsor_bonus_xof': sponsorBonusXof,
-        'referred_bonus_xof': referredBonusXof,
-        'share_base_url': shareBaseUrl.trim(),
-        'sponsor_allowed_roles': sponsorAllowedRoles,
-        'referred_allowed_roles': referredAllowedRoles,
-        'apply_metric': applyMetric,
-        'apply_max_count': applyMaxCount,
-        'reward_metric': rewardMetric,
-        'reward_count': rewardCount,
+        'client': client,
+        'driver': driver,
+        'share_base_url':
+            data['referral_share_base_url']?.toString().trim() ?? '',
       });
       ref.invalidate(_referralSettingsProvider);
       if (mounted) {
@@ -956,261 +871,146 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _loading = false);
-      }
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _editConfig(Map<String, dynamic> current) async {
-    final sponsorBonusController = TextEditingController(
-      text: _intValue(current['referral_sponsor_bonus_xof']).toString(),
-    );
-    final referredBonusController = TextEditingController(
-      text: _intValue(current['referral_referred_bonus_xof']).toString(),
-    );
-    final urlController = TextEditingController(
-      text: current['referral_share_base_url']?.toString() ?? '',
-    );
-    final enabled = current['referral_enabled'] as bool? ?? true;
-    final sponsorRoles = List<String>.from(
-      current['referral_sponsor_allowed_roles'] as List? ??
-          current['referral_allowed_roles'] as List? ??
-          const <String>['client', 'driver', 'relay_agent'],
-    );
-    final referredRoles = List<String>.from(
-      current['referral_referred_allowed_roles'] as List? ??
-          current['referral_allowed_roles'] as List? ??
-          const <String>['client', 'driver', 'relay_agent'],
-    );
-    final applyMaxCountController = TextEditingController(
-      text: _intValue(current['referral_apply_max_count']).toString(),
-    );
-    final rewardCountController = TextEditingController(
-      text: _intValue(current['referral_reward_count'], fallback: 1).toString(),
-    );
+  Future<void> _editRoleConfig(
+      Map<String, dynamic> data, String roleKey) async {
+    final config = _roleConfig(data, roleKey);
     final metricOptions = List<Map<String, dynamic>>.from(
-      current['referral_metric_options'] as List? ??
-          const <Map<String, dynamic>>[
-            {'value': 'sent_parcels', 'label': 'colis envoyes'},
-            {
-              'value': 'delivered_sender_parcels',
-              'label': 'colis livres',
-            },
+      config['metric_options'] as List? ??
+          const [
+            {'value': 'sent_parcels', 'label': '0 colis envoyes'},
+            {'value': 'delivered_sender_parcels', 'label': '0 colis livres'},
             {
               'value': 'completed_driver_deliveries',
-              'label': 'livraisons effectuees',
+              'label': '0 livraisons effectuees'
             },
           ],
     );
-    String applyMetric =
-        current['referral_apply_metric']?.toString() ?? 'sent_parcels';
-    String rewardMetric = current['referral_reward_metric']?.toString() ??
-        'delivered_sender_parcels';
-    if (!metricOptions.any((option) => option['value'] == applyMetric)) {
-      applyMetric = metricOptions.first['value']!.toString();
-    }
-    if (!metricOptions.any((option) => option['value'] == rewardMetric)) {
-      rewardMetric = metricOptions.first['value']!.toString();
-    }
+
+    final sponsorCtrl = TextEditingController(
+        text: _intValue(config['sponsor_bonus_xof']).toString());
+    final referredCtrl = TextEditingController(
+        text: _intValue(config['referred_bonus_xof']).toString());
+    final applyMaxCtrl = TextEditingController(
+        text: _intValue(config['apply_max_count']).toString());
+    final rewardCountCtrl = TextEditingController(
+        text: _intValue(config['reward_count'], fallback: 1).toString());
+    final maxRefCtrl = TextEditingController(
+        text: _intValue(config['max_referrals_per_sponsor']).toString());
+
+    String applyMetric = config['apply_metric']?.toString() ??
+        (roleKey == 'driver'
+            ? 'completed_driver_deliveries'
+            : 'sent_parcels');
+    String rewardMetric = config['reward_metric']?.toString() ??
+        (roleKey == 'driver'
+            ? 'completed_driver_deliveries'
+            : 'delivered_sender_parcels');
+
+    final roleLabel = roleKey == 'driver' ? 'Livreurs' : 'Clients';
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Configurer le parrainage'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDS) => AlertDialog(
+          title: Text('Parrainage $roleLabel'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 TextField(
-                  controller: sponsorBonusController,
+                  controller: sponsorCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Bonus parrain (XOF)',
-                  ),
+                  decoration:
+                      const InputDecoration(labelText: 'Bonus parrain (XOF)'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: referredBonusController,
+                  controller: referredCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Bonus filleul (XOF)',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: urlController,
-                  decoration: const InputDecoration(
-                    labelText: 'URL de partage',
-                    hintText: 'Laisser vide pour l\'URL Denkma automatique',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Optionnel. Si tu laisses vide, Denkma genere une page publique de parrainage automatiquement.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Qui peut parrainer',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _roleSelectorChip(
-                      label: 'Clients',
-                      role: 'client',
-                      selectedRoles: sponsorRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(sponsorRoles, 'client');
-                      }),
-                    ),
-                    _roleSelectorChip(
-                      label: 'Livreurs',
-                      role: 'driver',
-                      selectedRoles: sponsorRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(sponsorRoles, 'driver');
-                      }),
-                    ),
-                    _roleSelectorChip(
-                      label: 'Relais',
-                      role: 'relay_agent',
-                      selectedRoles: sponsorRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(sponsorRoles, 'relay_agent');
-                      }),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Qui peut etre parraine',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _roleSelectorChip(
-                      label: 'Clients',
-                      role: 'client',
-                      selectedRoles: referredRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(referredRoles, 'client');
-                      }),
-                    ),
-                    _roleSelectorChip(
-                      label: 'Livreurs',
-                      role: 'driver',
-                      selectedRoles: referredRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(referredRoles, 'driver');
-                      }),
-                    ),
-                    _roleSelectorChip(
-                      label: 'Relais',
-                      role: 'relay_agent',
-                      selectedRoles: referredRoles,
-                      onChanged: () => setDialogState(() {
-                        _toggleRoleSelection(referredRoles, 'relay_agent');
-                      }),
-                    ),
-                  ],
+                  decoration:
+                      const InputDecoration(labelText: 'Bonus filleul (XOF)'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: applyMetric,
+                  value: applyMetric,
                   decoration: const InputDecoration(
-                    labelText: 'Regle pour appliquer le code',
-                  ),
+                      labelText: 'Metrique pour appliquer le code'),
                   items: metricOptions
-                      .map(
-                        (option) => DropdownMenuItem<String>(
-                          value: option['value']!.toString(),
-                          child: Text(option['label']!.toString()),
-                        ),
-                      )
+                      .map((o) => DropdownMenuItem<String>(
+                            value: o['value']!.toString(),
+                            child: Text(o['label']!.toString()),
+                          ))
                       .toList(),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setDialogState(() => applyMetric = value);
+                  onChanged: (v) {
+                    if (v != null) setDS(() => applyMetric = v);
                   },
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: applyMaxCountController,
+                  controller: applyMaxCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: 'Nombre max avant saisie du code',
-                  ),
+                      labelText: 'Max avant blocage du code'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  initialValue: rewardMetric,
+                  value: rewardMetric,
                   decoration: const InputDecoration(
-                    labelText: 'Regle pour debloquer la prime',
-                  ),
+                      labelText: 'Metrique pour debloquer la prime'),
                   items: metricOptions
-                      .map(
-                        (option) => DropdownMenuItem<String>(
-                          value: option['value']!.toString(),
-                          child: Text(option['label']!.toString()),
-                        ),
-                      )
+                      .map((o) => DropdownMenuItem<String>(
+                            value: o['value']!.toString(),
+                            child: Text(o['label']!.toString()),
+                          ))
                       .toList(),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-                    setDialogState(() => rewardMetric = value);
+                  onChanged: (v) {
+                    if (v != null) setDS(() => rewardMetric = v);
                   },
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: rewardCountController,
+                  controller: rewardCountCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Seuil de declenchement de la prime',
-                  ),
+                  decoration:
+                      const InputDecoration(labelText: 'Seuil de la prime'),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'Les overrides utilisateur peuvent toujours forcer actif ou inactif depuis la fiche utilisateur.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                TextField(
+                  controller: maxRefCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Max filleuls par parrain',
+                    hintText: '0 = illimite',
+                  ),
                 ),
               ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Annuler'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop({
-                'enabled': enabled,
+              onPressed: () => Navigator.of(ctx).pop({
+                'enabled': config['enabled'] ?? true,
                 'sponsor_bonus_xof':
-                    int.tryParse(sponsorBonusController.text.trim()) ?? 0,
+                    int.tryParse(sponsorCtrl.text.trim()) ?? 500,
                 'referred_bonus_xof':
-                    int.tryParse(referredBonusController.text.trim()) ?? 0,
-                'share_base_url': urlController.text.trim(),
-                'sponsor_allowed_roles': sponsorRoles,
-                'referred_allowed_roles': referredRoles,
+                    int.tryParse(referredCtrl.text.trim()) ?? 500,
                 'apply_metric': applyMetric,
                 'apply_max_count':
-                    int.tryParse(applyMaxCountController.text.trim()) ?? 0,
+                    int.tryParse(applyMaxCtrl.text.trim()) ?? 0,
                 'reward_metric': rewardMetric,
                 'reward_count':
-                    int.tryParse(rewardCountController.text.trim()) ?? 1,
+                    int.tryParse(rewardCountCtrl.text.trim()) ?? 1,
+                'max_referrals_per_sponsor':
+                    int.tryParse(maxRefCtrl.text.trim()) ?? 0,
               }),
               child: const Text('Enregistrer'),
             ),
@@ -1218,31 +1018,19 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
         ),
       ),
     );
-    sponsorBonusController.dispose();
-    referredBonusController.dispose();
-    urlController.dispose();
-    applyMaxCountController.dispose();
-    rewardCountController.dispose();
-    if (result == null) {
-      return;
+    sponsorCtrl.dispose();
+    referredCtrl.dispose();
+    applyMaxCtrl.dispose();
+    rewardCountCtrl.dispose();
+    maxRefCtrl.dispose();
+
+    if (result == null) return;
+
+    if (roleKey == 'client') {
+      await _saveAll(data, clientOverride: result);
+    } else {
+      await _saveAll(data, driverOverride: result);
     }
-    await _saveSettings(
-      enabled: result['enabled'] as bool? ?? enabled,
-      sponsorBonusXof: result['sponsor_bonus_xof'] as int? ?? 0,
-      referredBonusXof: result['referred_bonus_xof'] as int? ?? 0,
-      shareBaseUrl: result['share_base_url']?.toString() ?? '',
-      sponsorAllowedRoles: List<String>.from(
-        result['sponsor_allowed_roles'] as List? ?? const <String>['client'],
-      ),
-      referredAllowedRoles: List<String>.from(
-        result['referred_allowed_roles'] as List? ?? const <String>['client'],
-      ),
-      applyMetric: result['apply_metric']?.toString() ?? 'sent_parcels',
-      applyMaxCount: result['apply_max_count'] as int? ?? 0,
-      rewardMetric:
-          result['reward_metric']?.toString() ?? 'delivered_sender_parcels',
-      rewardCount: result['reward_count'] as int? ?? 1,
-    );
   }
 
   @override
@@ -1250,23 +1038,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     final asyncVal = ref.watch(_referralSettingsProvider);
     return asyncVal.when(
       data: (data) {
-        final enabled = data['referral_enabled'] as bool? ?? true;
-        final sponsorBonusXof = _intValue(data['referral_sponsor_bonus_xof']);
-        final referredBonusXof = _intValue(data['referral_referred_bonus_xof']);
-        final configuredShareBaseUrl =
-            data['referral_share_base_url']?.toString().trim() ?? '';
-        final effectiveShareBaseUrl =
-            data['effective_referral_share_base_url']?.toString().trim() ?? '';
-        final sponsorRoles = List<String>.from(
-          data['referral_sponsor_allowed_roles'] as List? ??
-              data['referral_allowed_roles'] as List? ??
-              const <String>[],
-        );
-        final referredRoles = List<String>.from(
-          data['referral_referred_allowed_roles'] as List? ??
-              data['referral_allowed_roles'] as List? ??
-              const <String>[],
-        );
+        final anyEnabled = data['referral_enabled'] as bool? ?? false;
         final statsByRole = Map<String, dynamic>.from(
           data['stats_by_role'] as Map? ?? const {},
         );
@@ -1276,259 +1048,76 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Header
                 Row(
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Parrainage',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            enabled
-                                ? 'Programme actif. Parrain: ${formatXof(sponsorBonusXof.toDouble())} / filleul: ${formatXof(referredBonusXof.toDouble())}.'
-                                : 'Programme desactive globalement.',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Colors.blueGrey,
-                            ),
-                          ),
-                          if (effectiveShareBaseUrl.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              effectiveShareBaseUrl,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ],
+                    const Icon(Icons.card_giftcard_outlined, size: 20),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('Parrainage',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 16)),
+                    ),
+                    if (_loading)
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    ),
-                    Switch.adaptive(
-                      value: enabled,
-                      onChanged:
-                          _loading ? null : (value) => _setEnabled(data, value),
-                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  anyEnabled
+                      ? 'Programme actif'
+                      : 'Programme desactive',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: anyEnabled ? Colors.green : Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Stats chips
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _chip('Codes', _intValue(data['users_with_code'])),
+                    _chip('Filleuls', _intValue(data['referred_users'])),
+                    _chip('Primes', _intValue(data['rewarded_users'])),
+                    _chip('En attente', _intValue(data['pending_reward_users'])),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _referralMetricChip(
-                      'Codes',
-                      _intValue(data['users_with_code']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Eligibles',
-                      _intValue(data['effective_enabled_users']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Filleuls',
-                      _intValue(data['referred_users']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Primes payees',
-                      _intValue(data['rewarded_users']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Primes en attente',
-                      _intValue(data['pending_reward_users']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Overrides +',
-                      _intValue(data['override_enabled_users']).toString(),
-                    ),
-                    _referralMetricChip(
-                      'Overrides -',
-                      _intValue(data['override_disabled_users']).toString(),
-                    ),
-                  ],
-                ),
+
+                // Per-role cards
+                _buildRoleCard(data, statsByRole, 'client', 'Clients',
+                    Icons.person_outline),
                 const SizedBox(height: 8),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _referralLine(
-                        'Portee',
-                        enabled
-                            ? 'Globale active par defaut'
-                            : 'Globale inactive',
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'Parrains',
-                        sponsorRoles.isEmpty
-                            ? 'Aucun role autorise'
-                            : sponsorRoles.join(', '),
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'Filleuls',
-                        referredRoles.isEmpty
-                            ? 'Aucun role autorise'
-                            : referredRoles.join(', '),
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'Application',
-                        data['referral_apply_rule']?.toString() ??
-                            'Regle non disponible',
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'Prime',
-                        data['referral_reward_rule']?.toString() ??
-                            'Regle non disponible',
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'URL active',
-                        effectiveShareBaseUrl.isEmpty
-                            ? 'URL Denkma automatique indisponible'
-                            : effectiveShareBaseUrl,
-                      ),
-                      const SizedBox(height: 6),
-                      _referralLine(
-                        'Exceptions',
-                        'Par utilisateur depuis Admin > Utilisateurs > Fiche > Parrainage',
-                      ),
-                      if (configuredShareBaseUrl.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        _referralLine(
-                          'URL configuree',
-                          configuredShareBaseUrl,
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 6),
-                        _referralLine(
-                          'Mode URL',
-                          'Automatique via la page publique Denkma',
-                        ),
-                      ],
-                      if ((data['sample_referral_url']?.toString() ?? '')
-                          .isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        _referralLine(
-                          'Exemple',
-                          data['sample_referral_url']!.toString(),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (statsByRole.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Couverture par role',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: statsByRole.entries.map((entry) {
-                      final roleData = Map<String, dynamic>.from(
-                        entry.value as Map? ?? const {},
-                      );
-                      return Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _roleLabel(entry.key),
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Eligibles: ${_intValue(roleData['effective_enabled'])}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              'Codes: ${_intValue(roleData['with_code'])}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              'Overrides +: ${_intValue(roleData['forced_enabled'])}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              'Overrides -: ${_intValue(roleData['forced_disabled'])}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
+                _buildRoleCard(data, statsByRole, 'driver', 'Livreurs',
+                    Icons.delivery_dining_outlined),
+
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                // Actions
+                Row(
                   children: [
                     TextButton.icon(
-                      onPressed:
-                          _loading ? null : () => context.push('/admin/users'),
-                      icon: const Icon(Icons.group_outlined),
-                      label: const Text('Gerer les exceptions'),
-                    ),
-                    TextButton.icon(
-                      onPressed: _loading ? null : () => _editConfig(data),
-                      icon: _loading
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.tune),
-                      label: const Text('Configurer'),
+                      onPressed: _loading
+                          ? null
+                          : () => context.push('/admin/users'),
+                      icon: const Icon(Icons.group_outlined, size: 18),
+                      label: const Text('Exceptions'),
                     ),
                     TextButton.icon(
                       onPressed: _loading
                           ? null
                           : () => context.push('/admin/audit-log'),
-                      icon: const Icon(Icons.history_outlined),
-                      label: const Text('Voir audit'),
+                      icon: const Icon(Icons.history_outlined, size: 18),
+                      label: const Text('Audit'),
                     ),
                   ],
                 ),
-                if ((data['sample_share_message']?.toString() ?? '')
-                    .isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      data['sample_share_message']!.toString(),
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -1538,79 +1127,110 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
       error: (_, __) => const SizedBox.shrink(),
     );
   }
-}
 
-Widget _referralLine(String label, String value) {
-  return Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      SizedBox(
-        width: 72,
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-            fontWeight: FontWeight.w600,
+  Widget _buildRoleCard(Map<String, dynamic> data,
+      Map<String, dynamic> statsByRole, String roleKey, String label,
+      IconData icon) {
+    final config = _roleConfig(data, roleKey);
+    final enabled = config['enabled'] as bool? ?? false;
+    final sponsorBonus = _intValue(config['sponsor_bonus_xof']);
+    final referredBonus = _intValue(config['referred_bonus_xof']);
+    final rewardRule = config['reward_rule']?.toString() ?? '';
+    final maxRef = _intValue(config['max_referrals_per_sponsor']);
+    final roleStats = Map<String, dynamic>.from(
+      statsByRole[roleKey] as Map? ?? const {},
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: enabled
+            ? Colors.blue.withValues(alpha: 0.04)
+            : Colors.grey.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: enabled ? Colors.blue.shade200 : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18,
+                  color: enabled ? Colors.blue : Colors.grey),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(label,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+              Switch.adaptive(
+                value: enabled,
+                onChanged: _loading
+                    ? null
+                    : (val) {
+                        final override = {'enabled': val};
+                        if (roleKey == 'client') {
+                          _saveAll(data, clientOverride: override);
+                        } else {
+                          _saveAll(data, driverOverride: override);
+                        }
+                      },
+              ),
+            ],
           ),
-        ),
+          if (enabled) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Parrain: ${formatXof(sponsorBonus.toDouble())} · '
+              'Filleul: ${formatXof(referredBonus.toDouble())}',
+              style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+            ),
+            if (rewardRule.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(rewardRule,
+                  style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+            ],
+            if (maxRef > 0) ...[
+              const SizedBox(height: 2),
+              Text('Max $maxRef filleuls par parrain',
+                  style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+            ],
+            if (roleStats.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '${_intValue(roleStats['with_code'])} codes · '
+                '${_intValue(roleStats['referred_users'])} filleuls · '
+                '${_intValue(roleStats['rewarded_users'])} primes',
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed:
+                    _loading ? null : () => _editRoleConfig(data, roleKey),
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('Configurer'),
+              ),
+            ),
+          ],
+        ],
       ),
-      Expanded(
-        child: Text(
-          value,
-          style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
-        ),
-      ),
-    ],
-  );
-}
-
-Widget _referralMetricChip(String label, String value) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    decoration: BoxDecoration(
-      color: Colors.blueGrey.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      '$label: $value',
-      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-    ),
-  );
-}
-
-Widget _roleSelectorChip({
-  required String label,
-  required String role,
-  required List<String> selectedRoles,
-  required VoidCallback onChanged,
-}) {
-  return FilterChip(
-    label: Text(label),
-    selected: selectedRoles.contains(role),
-    onSelected: (_) => onChanged(),
-  );
-}
-
-void _toggleRoleSelection(List<String> roles, String role) {
-  if (roles.contains(role)) {
-    if (roles.length > 1) {
-      roles.remove(role);
-    }
-    return;
+    );
   }
-  roles.add(role);
-}
 
-String _roleLabel(String role) {
-  switch (role) {
-    case 'driver':
-      return 'Livreurs';
-    case 'relay_agent':
-      return 'Relais';
-    case 'admin':
-      return 'Admins';
-    default:
-      return 'Clients';
+  Widget _chip(String label, int value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text('$label: $value',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+    );
   }
 }

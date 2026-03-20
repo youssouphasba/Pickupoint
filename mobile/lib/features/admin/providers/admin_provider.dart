@@ -65,12 +65,10 @@ final adminUsersProvider = FutureProvider<List<User>>((ref) async {
 });
 
 /// Provider pour le suivi de la flotte live.
-final adminFleetProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final adminFleetProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getLiveFleet();
-  final data = res.data as Map<String, dynamic>;
-  return List<Map<String, dynamic>>.from(data['fleet'] as List? ?? []);
+  return res.data as Map<String, dynamic>;
 });
 
 /// Provider pour les colis stagnants.
@@ -100,12 +98,10 @@ final adminReconciliationProvider =
 });
 
 /// Provider pour les données de heatmap.
-final adminHeatmapProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final adminHeatmapProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getHeatmapData();
-  final data = res.data as Map<String, dynamic>;
-  return List<Map<String, dynamic>>.from(data['points'] as List? ?? []);
+  return res.data as Map<String, dynamic>;
 });
 
 /// Provider pour les anomalies signalées.

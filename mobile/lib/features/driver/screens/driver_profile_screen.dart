@@ -7,11 +7,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/driver_provider.dart';
+
+final _driverReferralInfoProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final res = await ref.watch(apiClientProvider).getReferralInfo();
+  return Map<String, dynamic>.from(
+    res.data as Map<String, dynamic>? ?? const {},
+  );
+});
 
 class DriverProfileScreen extends ConsumerStatefulWidget {
   const DriverProfileScreen({super.key});
@@ -29,6 +38,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
   Future<void> _refresh() async {
     await ref.read(authProvider.notifier).fetchMe();
     ref.invalidate(driverWalletProvider);
+    ref.invalidate(_driverReferralInfoProvider);
     await ref.read(driverWalletProvider.future);
   }
 
@@ -343,6 +353,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            _buildReferralSection(user),
+            const SizedBox(height: 16),
             _section(
               title: 'Conformite',
               subtitle:
@@ -479,6 +491,211 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildReferralSection(User user) {
+    final referralAsync = ref.watch(_driverReferralInfoProvider);
+    final referralData = referralAsync.valueOrNull ?? const <String, dynamic>{};
+    final hasSponsor = (user.referredBy ?? '').toString().trim().isNotEmpty;
+    final referralCheckFailed = referralAsync.hasError;
+    final canApplyReferral = !hasSponsor &&
+        (referralCheckFailed ||
+            (referralData['can_apply_now'] as bool? ?? false));
+    final applyRule = referralData['apply_rule']?.toString() ??
+        'Les conditions seront verifiees au moment de la saisie.';
+
+    return _section(
+      title: 'Parrainage',
+      subtitle: 'Invitez d\'autres livreurs et gagnez des bonus.',
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              hasSponsor
+                  ? Icons.verified_outlined
+                  : Icons.card_giftcard_outlined,
+            ),
+            title: Text(
+              hasSponsor
+                  ? 'Parrainage deja active'
+                  : 'J\'ai un code parrainage',
+            ),
+            subtitle: Text(
+              hasSponsor
+                  ? (user.referralCredited
+                      ? 'Le bonus de parrainage a deja ete credite.'
+                      : 'Votre bonus sera credite selon les regles du programme.')
+                  : referralAsync.isLoading
+                      ? 'Verification des conditions...'
+                      : referralCheckFailed
+                          ? 'Vous pouvez saisir un code. Le serveur verifiera les conditions.'
+                          : canApplyReferral
+                              ? applyRule
+                              : 'Le code ne peut plus etre applique. $applyRule',
+            ),
+            trailing: hasSponsor
+                ? const Icon(Icons.lock_outline)
+                : const Icon(Icons.chevron_right),
+            enabled: hasSponsor || canApplyReferral,
+            onTap: hasSponsor || !canApplyReferral
+                ? null
+                : () => _applyReferralCode(),
+          ),
+          const Divider(height: 24),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.share_outlined),
+            title: const Text('Partager mon code parrainage'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _shareReferral(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _applyReferralCode() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ajouter un code parrainage'),
+        content: TextField(
+          controller: controller,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Code parrainage',
+            hintText: 'Ex: DENKMA-4F2K',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(controller.text.trim().toUpperCase()),
+            child: const Text('Appliquer'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (code == null || code.trim().isEmpty || !mounted) return;
+
+    try {
+      await ref.read(apiClientProvider).applyReferralCode(code.trim());
+      await ref.read(authProvider.notifier).fetchMe();
+      ref.invalidate(_driverReferralInfoProvider);
+      _snack('Code parrainage applique. Les primes seront debloquees selon les regles du programme.');
+    } catch (e) {
+      _snack('Erreur: $e', error: true);
+    }
+  }
+
+  Future<void> _shareReferral() async {
+    try {
+      final response = await ref.read(apiClientProvider).getReferralInfo();
+      final data = Map<String, dynamic>.from(
+        response.data as Map<String, dynamic>? ?? const {},
+      );
+      final enabled = data['enabled'] as bool? ?? false;
+      if (!enabled) {
+        _snack(data['message']?.toString() ??
+            'Le parrainage n\'est pas actif pour ce compte.');
+        return;
+      }
+
+      final shareMessage = data['share_message']?.toString().trim() ?? '';
+      final referralCode =
+          data['referral_code']?.toString().trim().toUpperCase() ?? '';
+      final referralUrl = data['referral_url']?.toString().trim();
+      if (!mounted) return;
+
+      await showModalBottomSheet<void>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Parrainage Denkma',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  referralCode.isEmpty
+                      ? 'Votre code sera disponible apres l\'activation du parrainage.'
+                      : 'Code: $referralCode',
+                ),
+                if (referralUrl != null && referralUrl.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(referralUrl,
+                      style: const TextStyle(color: Colors.blueGrey)),
+                ],
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.copy_outlined),
+                  title: const Text('Copier le message'),
+                  subtitle: const Text('Code et lien de parrainage'),
+                  onTap: () async {
+                    await Clipboard.setData(
+                        ClipboardData(text: shareMessage));
+                    if (!sheetContext.mounted) return;
+                    Navigator.of(sheetContext).pop();
+                    _snack('Message de parrainage copie');
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.tag_outlined),
+                  title: const Text('Copier seulement le code'),
+                  onTap: referralCode.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(
+                              ClipboardData(text: referralCode));
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                          _snack('Code parrainage copie');
+                        },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.message_outlined,
+                      color: Colors.green),
+                  title: const Text('Partager sur WhatsApp'),
+                  onTap: () async {
+                    final whatsappUri = Uri.parse(
+                      'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
+                    );
+                    if (await canLaunchUrl(whatsappUri)) {
+                      await launchUrl(whatsappUri,
+                          mode: LaunchMode.externalApplication);
+                    }
+                    if (!sheetContext.mounted) return;
+                    Navigator.of(sheetContext).pop();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      _snack('Erreur: $e', error: true);
+    }
   }
 
   Widget _buildHeader(BuildContext context, User user, bool canSwitchToClient) {

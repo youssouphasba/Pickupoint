@@ -340,40 +340,35 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             : 'Non',
                       ),
                       _InfoRow(
-                        'Roles parrains',
-                        ((referral['sponsor_allowed_roles'] as List?) ??
-                                (referral['allowed_roles'] as List?) ??
-                                const [])
-                            .map((e) => e.toString())
-                            .join(', '),
-                      ),
-                      _InfoRow(
-                        'Roles filleuls',
-                        ((referral['referred_allowed_roles'] as List?) ??
-                                const [])
-                            .map((e) => e.toString())
-                            .join(', '),
-                      ),
-                      _InfoRow(
                         'Override',
                         _referralOverrideLabel(referral['enabled_override']),
                       ),
-                      _InfoRow(
-                        'Bonus parrain',
-                        formatXof(
-                          (referral['sponsor_bonus_xof'] as num?)?.toDouble() ??
-                              0.0,
-                        ),
-                      ),
-                      _InfoRow(
-                        'Bonus filleul',
-                        formatXof(
-                          (referral['referred_bonus_xof'] as num?)
-                                  ?.toDouble() ??
-                              (referral['bonus_xof'] as num?)?.toDouble() ??
-                              0.0,
-                        ),
-                      ),
+                      Builder(builder: (_) {
+                        final rc = Map<String, dynamic>.from(
+                          referral['role_config'] as Map? ?? const {},
+                        );
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _InfoRow(
+                              'Bonus parrain',
+                              formatXof(
+                                (rc['sponsor_bonus_xof'] as num?)
+                                        ?.toDouble() ??
+                                    0.0,
+                              ),
+                            ),
+                            _InfoRow(
+                              'Bonus filleul',
+                              formatXof(
+                                (rc['referred_bonus_xof'] as num?)
+                                        ?.toDouble() ??
+                                    0.0,
+                              ),
+                            ),
+                          ],
+                        );
+                      }),
                       _InfoRow(
                         'Regle saisie',
                         _stringOrDash(referral['apply_rule']),

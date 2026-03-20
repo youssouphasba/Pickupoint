@@ -25,7 +25,7 @@ from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, Pr
 from services.otp_service import send_otp, verify_otp
 from services.parcel_service import _record_event
 from services.user_service import (
-    generate_referral_code,
+    generate_unique_referral_code,
     get_global_app_settings,
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
@@ -330,7 +330,7 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "country_code":      "SN",
         "loyalty_points":    0,
         "loyalty_tier":      "bronze",
-        "referral_code":     generate_referral_code(phone),
+        "referral_code":     await generate_unique_referral_code(body.name),
         "referred_by":       referred_by,
         "referral_applied_at": now if referred_by else None,
         "referral_source":   "signup" if referred_by else None,

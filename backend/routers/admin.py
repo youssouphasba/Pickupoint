@@ -2,9 +2,9 @@
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from core.dependencies import require_role
@@ -16,29 +16,19 @@ from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
 from services.notification_service import notify_payout_result
 from services.user_service import (
+    REFERRAL_ELIGIBLE_ROLES,
     build_referral_url,
     build_referral_share_message,
     describe_referral_apply_rule,
     describe_referral_reward_rule,
     get_effective_referral_share_base_url,
-    get_referral_allowed_roles,
-    get_referral_apply_max_count,
-    get_referral_apply_metric,
     get_referral_metric_options,
-    get_referral_referred_allowed_roles,
-    get_referral_referred_bonus_xof,
+    get_referral_role_config,
     get_referral_share_base_url,
-    get_referral_sponsor_allowed_roles,
-    get_referral_sponsor_bonus_xof,
-    get_referral_reward_count,
-    get_referral_reward_metric,
-    is_referral_role_allowed,
-    is_referral_referred_role_allowed,
-    is_referral_referred_enabled_for_user,
     is_referral_enabled_for_user,
-    is_referral_sponsor_enabled_for_user,
-    is_referral_sponsor_role_allowed,
     is_referral_globally_enabled,
+    is_referral_referred_enabled_for_user,
+    is_referral_sponsor_enabled_for_user,
 )
 from services.wallet_service import record_wallet_transaction
 
@@ -60,19 +50,25 @@ class MissionReassignRequest(BaseModel):
     reason: str = Field("Reassignation admin", min_length=3, max_length=300)
 
 
-class ReferralSettingsRequest(BaseModel):
-    enabled: bool
-    bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
-    sponsor_bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
-    referred_bonus_xof: Optional[int] = Field(default=None, ge=0, le=1000000)
-    share_base_url: Optional[str] = Field(default=None, max_length=500)
-    allowed_roles: list[str] = Field(default_factory=list)
-    sponsor_allowed_roles: list[str] = Field(default_factory=list)
-    referred_allowed_roles: list[str] = Field(default_factory=list)
+class ReferralRoleConfig(BaseModel):
+    enabled: bool = True
+    sponsor_bonus_xof: int = Field(500, ge=0, le=1000000)
+    referred_bonus_xof: int = Field(500, ge=0, le=1000000)
     apply_metric: str = Field("sent_parcels", min_length=3, max_length=64)
     apply_max_count: int = Field(0, ge=0, le=100000)
     reward_metric: str = Field("delivered_sender_parcels", min_length=3, max_length=64)
     reward_count: int = Field(1, ge=1, le=100000)
+    max_referrals_per_sponsor: int = Field(0, ge=0, le=100000)
+
+
+class ReferralSettingsRequest(BaseModel):
+    client: ReferralRoleConfig = Field(default_factory=ReferralRoleConfig)
+    driver: ReferralRoleConfig = Field(default_factory=lambda: ReferralRoleConfig(
+        sponsor_bonus_xof=1000, referred_bonus_xof=1000,
+        apply_metric="completed_driver_deliveries",
+        reward_metric="completed_driver_deliveries", reward_count=5,
+    ))
+    share_base_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class UserReferralAccessRequest(BaseModel):
@@ -133,6 +129,205 @@ def _relay_identity_snapshot(relay: dict | None) -> dict | None:
         "external_ref": relay.get("external_ref"),
         "created_at": relay.get("created_at"),
         "updated_at": relay.get("updated_at"),
+    }
+
+
+def _normalize_geopin(value: dict | None) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    lat = value.get("lat")
+    lng = value.get("lng")
+    if lat is None or lng is None:
+        return None
+    try:
+        return {"lat": float(lat), "lng": float(lng)}
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_address_geopin(address: dict | None) -> dict | None:
+    if not isinstance(address, dict):
+        return None
+    return _normalize_geopin(address.get("geopin"))
+
+
+def _address_label(address: dict | None) -> str | None:
+    if not isinstance(address, dict):
+        return None
+    for key in ("label", "district", "city"):
+        value = address.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _relay_label(relay: dict | None) -> str | None:
+    if not relay:
+        return None
+    address = relay.get("address") or {}
+    district = address.get("district")
+    city = address.get("city")
+    suffix = ", ".join(
+        part for part in [district, city] if isinstance(part, str) and part.strip()
+    )
+    name = relay.get("name")
+    if isinstance(name, str) and name.strip():
+        return f"{name} - {suffix}" if suffix else name
+    return suffix or None
+
+
+def _relay_snapshot(relay: dict | None) -> dict | None:
+    geopin = _normalize_address_geopin((relay or {}).get("address"))
+    if not relay:
+        return None
+    return {
+        "relay_id": relay.get("relay_id"),
+        "name": relay.get("name"),
+        "phone": relay.get("phone"),
+        "opening_hours": relay.get("opening_hours"),
+        "address": relay.get("address"),
+        "label": _relay_label(relay),
+        "geopin": geopin,
+    }
+
+
+async def _load_relay_lookup(relay_ids: list[str]) -> dict[str, dict[str, Any]]:
+    unique_ids = sorted({relay_id for relay_id in relay_ids if relay_id})
+    if not unique_ids:
+        return {}
+    cursor = db.relay_points.find(
+        {"relay_id": {"$in": unique_ids}},
+        {
+            "_id": 0,
+            "relay_id": 1,
+            "name": 1,
+            "phone": 1,
+            "opening_hours": 1,
+            "address": 1,
+        },
+    )
+    relays = await cursor.to_list(length=len(unique_ids))
+    return {relay["relay_id"]: relay for relay in relays}
+
+
+def _build_location_snapshot(
+    *,
+    label: str | None,
+    geopin: dict | None,
+    source_type: str,
+    relay: dict | None = None,
+) -> dict | None:
+    if not geopin:
+        return None
+    snapshot = {
+        "label": label or "Point inconnu",
+        "geopin": geopin,
+        "source_type": source_type,
+    }
+    relay_data = _relay_snapshot(relay)
+    if relay_data:
+        snapshot["relay"] = relay_data
+    return snapshot
+
+
+def _resolve_mission_pickup(parcel: dict, mission: dict, relay_lookup: dict[str, dict[str, Any]]) -> dict | None:
+    pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+    pickup_label = mission.get("pickup_label")
+    pickup_relay_id = mission.get("pickup_relay_id") or parcel.get("origin_relay_id")
+    pickup_relay = relay_lookup.get(pickup_relay_id) if pickup_relay_id else None
+    if pickup_relay and not pickup_geopin:
+        pickup_geopin = _normalize_address_geopin(pickup_relay.get("address"))
+    if pickup_relay and not pickup_label:
+        pickup_label = _relay_label(pickup_relay)
+    if not pickup_geopin:
+        origin_address = parcel.get("origin_location")
+        pickup_geopin = _normalize_address_geopin(origin_address)
+        if not pickup_label:
+            pickup_label = _address_label(origin_address)
+    source_type = "relay" if pickup_relay else "home"
+    return _build_location_snapshot(
+        label=pickup_label,
+        geopin=pickup_geopin,
+        source_type=source_type,
+        relay=pickup_relay,
+    )
+
+
+def _resolve_mission_delivery(parcel: dict, mission: dict, relay_lookup: dict[str, dict[str, Any]]) -> dict | None:
+    delivery_geopin = _normalize_geopin(mission.get("delivery_geopin"))
+    delivery_label = mission.get("delivery_label")
+    delivery_relay_id = (
+        mission.get("delivery_relay_id")
+        or parcel.get("redirect_relay_id")
+        or parcel.get("destination_relay_id")
+    )
+    delivery_relay = relay_lookup.get(delivery_relay_id) if delivery_relay_id else None
+    if delivery_relay and not delivery_geopin:
+        delivery_geopin = _normalize_address_geopin(delivery_relay.get("address"))
+    if delivery_relay and not delivery_label:
+        delivery_label = _relay_label(delivery_relay)
+    if not delivery_geopin:
+        delivery_address = parcel.get("delivery_address") or mission.get("delivery_address")
+        delivery_geopin = _normalize_address_geopin(delivery_address)
+        if not delivery_label:
+            delivery_label = _address_label(delivery_address)
+    source_type = "relay" if delivery_relay else "home"
+    return _build_location_snapshot(
+        label=delivery_label,
+        geopin=delivery_geopin,
+        source_type=source_type,
+        relay=delivery_relay,
+    )
+
+
+def _normalize_trail(points: list[dict] | None) -> list[dict]:
+    trail: list[dict] = []
+    for point in points or []:
+        geopin = _normalize_geopin(point)
+        if not geopin:
+            continue
+        trail.append(
+            {
+                "lat": geopin["lat"],
+                "lng": geopin["lng"],
+                "accuracy": point.get("accuracy"),
+                "ts": point.get("ts"),
+            }
+        )
+    return trail
+
+
+def _seconds_between(start: datetime | None, end: datetime | None) -> int | None:
+    if not start or not end:
+        return None
+    return max(int((end - start).total_seconds()), 0)
+
+
+def _mission_duration_summary(mission: dict, *, now: datetime) -> dict[str, int | None]:
+    assigned_at = mission.get("assigned_at")
+    started_at = mission.get("started_at")
+    completed_at = mission.get("completed_at")
+    reference_end = completed_at or now
+    active_reference = completed_at or now
+    return {
+        "assigned_to_pickup_seconds": _seconds_between(assigned_at, started_at),
+        "pickup_to_completion_seconds": _seconds_between(started_at, completed_at),
+        "assigned_to_completion_seconds": _seconds_between(assigned_at, completed_at),
+        "active_elapsed_seconds": _seconds_between(assigned_at, active_reference),
+        "in_progress_elapsed_seconds": _seconds_between(started_at, active_reference),
+        "created_to_completion_seconds": _seconds_between(mission.get("created_at"), reference_end),
+    }
+
+
+def _mission_route_summary(mission: dict, live_location: dict | None, trail: list[dict]) -> dict[str, Any]:
+    return {
+        "gps_points_count": len(trail),
+        "has_live_location": live_location is not None,
+        "has_polyline": bool(mission.get("encoded_polyline")),
+        "last_seen_at": mission.get("location_updated_at"),
+        "eta_seconds": mission.get("eta_seconds"),
+        "eta_text": mission.get("eta_text"),
+        "distance_text": mission.get("distance_text"),
     }
 
 
@@ -622,12 +817,6 @@ async def admin_user_detail(
             "referred_by_user": referred_by_user,
             "referral_credited": user.get("referral_credited", False),
             "enabled_override": user.get("referral_enabled_override"),
-            "allowed_roles": get_referral_allowed_roles(app_settings),
-            "sponsor_allowed_roles": get_referral_sponsor_allowed_roles(app_settings),
-            "referred_allowed_roles": get_referral_referred_allowed_roles(app_settings),
-            "role_allowed": is_referral_role_allowed(user.get("role"), app_settings),
-            "sponsor_role_allowed": is_referral_sponsor_role_allowed(user.get("role"), app_settings),
-            "referred_role_allowed": is_referral_referred_role_allowed(user.get("role"), app_settings),
             "effective_enabled": is_referral_enabled_for_user(user, app_settings),
             "can_sponsor": is_referral_sponsor_enabled_for_user(user, app_settings),
             "can_be_referred": is_referral_referred_enabled_for_user(user, app_settings),
@@ -637,15 +826,9 @@ async def admin_user_detail(
                 user.get("referral_code", ""),
                 get_effective_referral_share_base_url(app_settings),
             ),
-            "bonus_xof": get_referral_referred_bonus_xof(app_settings),
-            "sponsor_bonus_xof": get_referral_sponsor_bonus_xof(app_settings),
-            "referred_bonus_xof": get_referral_referred_bonus_xof(app_settings),
-            "apply_metric": get_referral_apply_metric(app_settings),
-            "apply_max_count": get_referral_apply_max_count(app_settings),
-            "apply_rule": describe_referral_apply_rule(app_settings),
-            "reward_metric": get_referral_reward_metric(app_settings),
-            "reward_count": get_referral_reward_count(app_settings),
-            "reward_rule": describe_referral_reward_rule(app_settings),
+            "role_config": get_referral_role_config(app_settings, user.get("role", "client")),
+            "apply_rule": describe_referral_apply_rule(app_settings, user.get("role", "client")),
+            "reward_rule": describe_referral_reward_rule(app_settings, user.get("role", "client")),
             "referrals_count": await db.users.count_documents({"referred_by": user_id}),
         },
     }
@@ -1036,6 +1219,412 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
         },
         "timeline": timeline,
         "missions": missions
+    }
+
+
+@router.get("/fleet/live-rich", summary="Position GPS temps reel de la flotte (enrichi)")
+async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
+    """Retourne les missions actives avec positions, trajets et durees utiles."""
+    now = datetime.now(timezone.utc)
+    stale_cutoff = now - timedelta(minutes=20)
+    active_statuses = ["assigned", "in_progress", "incident_reported"]
+
+    cursor = db.delivery_missions.find(
+        {"status": {"$in": active_statuses}, "driver_id": {"$nin": [None, ""]}},
+        {
+            "_id": 0,
+            "mission_id": 1,
+            "parcel_id": 1,
+            "driver_id": 1,
+            "driver_location": 1,
+            "status": 1,
+            "location_updated_at": 1,
+            "gps_trail": 1,
+            "eta_seconds": 1,
+            "eta_text": 1,
+            "distance_text": 1,
+            "encoded_polyline": 1,
+            "pickup_geopin": 1,
+            "delivery_geopin": 1,
+            "pickup_label": 1,
+            "delivery_label": 1,
+            "pickup_relay_id": 1,
+            "delivery_relay_id": 1,
+            "tracking_code": 1,
+            "assigned_at": 1,
+            "started_at": 1,
+            "completed_at": 1,
+            "created_at": 1,
+        },
+    )
+    missions = await cursor.to_list(length=500)
+    if not missions:
+        return {
+            "fleet": [],
+            "summary": {
+                "total_active": 0,
+                "with_live_location": 0,
+                "stale_locations": 0,
+                "missing_locations": 0,
+                "in_progress": 0,
+                "assigned": 0,
+                "incident_reported": 0,
+            },
+        }
+
+    driver_ids = sorted({m.get("driver_id") for m in missions if m.get("driver_id")})
+    parcel_ids = sorted({m.get("parcel_id") for m in missions if m.get("parcel_id")})
+    drivers_cursor = db.users.find(
+        {"user_id": {"$in": driver_ids}},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "phone": 1,
+            "profile_picture_url": 1,
+            "last_driver_location": 1,
+            "last_driver_location_at": 1,
+        },
+    )
+    parcels_cursor = db.parcels.find(
+        {"parcel_id": {"$in": parcel_ids}},
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "tracking_code": 1,
+            "status": 1,
+            "delivery_mode": 1,
+            "origin_location": 1,
+            "delivery_address": 1,
+            "origin_relay_id": 1,
+            "destination_relay_id": 1,
+            "redirect_relay_id": 1,
+            "transit_relay_id": 1,
+            "recipient_name": 1,
+            "recipient_phone": 1,
+        },
+    )
+    drivers = await drivers_cursor.to_list(length=len(driver_ids) or 1)
+    parcels = await parcels_cursor.to_list(length=len(parcel_ids) or 1)
+    driver_lookup = {driver["user_id"]: driver for driver in drivers}
+    parcel_lookup = {parcel["parcel_id"]: parcel for parcel in parcels}
+
+    relay_ids: list[str] = []
+    for mission in missions:
+        parcel = parcel_lookup.get(mission.get("parcel_id"), {})
+        for relay_id in [
+            mission.get("pickup_relay_id"),
+            mission.get("delivery_relay_id"),
+            parcel.get("origin_relay_id"),
+            parcel.get("destination_relay_id"),
+            parcel.get("redirect_relay_id"),
+            parcel.get("transit_relay_id"),
+        ]:
+            if relay_id:
+                relay_ids.append(relay_id)
+    relay_lookup = await _load_relay_lookup(relay_ids)
+
+    fleet: list[dict[str, Any]] = []
+    with_live_location = 0
+    stale_locations = 0
+    missing_locations = 0
+
+    for mission in missions:
+        parcel = parcel_lookup.get(mission.get("parcel_id"), {})
+        driver = driver_lookup.get(mission.get("driver_id"), {})
+        live_location = _normalize_geopin(mission.get("driver_location"))
+        last_seen_at = mission.get("location_updated_at")
+        location_source = "mission"
+        if not live_location:
+            live_location = _normalize_geopin(driver.get("last_driver_location"))
+            last_seen_at = driver.get("last_driver_location_at")
+            if live_location:
+                location_source = "driver_profile"
+        if live_location:
+            with_live_location += 1
+        else:
+            missing_locations += 1
+        is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
+        if is_stale:
+            stale_locations += 1
+
+        trail = _normalize_trail(mission.get("gps_trail"))[-40:]
+        pickup = _resolve_mission_pickup(parcel, mission, relay_lookup)
+        delivery = _resolve_mission_delivery(parcel, mission, relay_lookup)
+        fleet.append(
+            {
+                "mission_id": mission.get("mission_id"),
+                "parcel_id": mission.get("parcel_id"),
+                "tracking_code": mission.get("tracking_code") or parcel.get("tracking_code"),
+                "status": mission.get("status"),
+                "parcel_status": parcel.get("status"),
+                "delivery_mode": parcel.get("delivery_mode"),
+                "driver_id": mission.get("driver_id"),
+                "driver_name": driver.get("name"),
+                "driver_phone": driver.get("phone"),
+                "driver_photo_url": driver.get("profile_picture_url"),
+                "driver_location": live_location,
+                "location_source": location_source if live_location else None,
+                "location_updated_at": last_seen_at,
+                "is_stale": is_stale,
+                "eta_seconds": mission.get("eta_seconds"),
+                "eta_text": mission.get("eta_text"),
+                "distance_text": mission.get("distance_text"),
+                "encoded_polyline": mission.get("encoded_polyline"),
+                "gps_trail": trail,
+                "pickup": pickup,
+                "delivery": delivery,
+                "recipient_name": parcel.get("recipient_name"),
+                "recipient_phone": parcel.get("recipient_phone"),
+                "duration_summary": _mission_duration_summary(mission, now=now),
+                "route_summary": _mission_route_summary(mission, live_location, trail),
+            }
+        )
+
+    return {
+        "fleet": fleet,
+        "summary": {
+            "total_active": len(fleet),
+            "with_live_location": with_live_location,
+            "stale_locations": stale_locations,
+            "missing_locations": missing_locations,
+            "in_progress": sum(1 for item in fleet if item["status"] == "in_progress"),
+            "assigned": sum(1 for item in fleet if item["status"] == "assigned"),
+            "incident_reported": sum(1 for item in fleet if item["status"] == "incident_reported"),
+        },
+    }
+
+
+@router.get("/analytics/heatmap-rich", summary="Donnees heatmap des demandes (enrichi)")
+async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
+    """Retourne les points GPS utiles, y compris les flux avec relais."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    parcels_cursor = db.parcels.find(
+        {"created_at": {"$gte": cutoff}},
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "tracking_code": 1,
+            "delivery_mode": 1,
+            "origin_location": 1,
+            "delivery_address": 1,
+            "origin_relay_id": 1,
+            "destination_relay_id": 1,
+            "redirect_relay_id": 1,
+            "transit_relay_id": 1,
+            "created_at": 1,
+        },
+    )
+    parcels = await parcels_cursor.to_list(length=3000)
+
+    relay_ids: list[str] = []
+    for parcel in parcels:
+        for relay_id in [
+            parcel.get("origin_relay_id"),
+            parcel.get("destination_relay_id"),
+            parcel.get("redirect_relay_id"),
+            parcel.get("transit_relay_id"),
+        ]:
+            if relay_id:
+                relay_ids.append(relay_id)
+    relay_lookup = await _load_relay_lookup(relay_ids)
+
+    points: list[dict[str, Any]] = []
+    hotspots: dict[tuple[float, float, str], dict[str, Any]] = {}
+    summary = {
+        "parcels_considered": len(parcels),
+        "total_points": 0,
+        "home_pickups": 0,
+        "home_deliveries": 0,
+        "relay_points": 0,
+        "redirect_points": 0,
+        "transit_points": 0,
+    }
+
+    def add_point(*, geopin: dict | None, label: str | None, point_type: str, source: str, parcel: dict, relay: dict | None = None):
+        if not geopin:
+            return
+        summary["total_points"] += 1
+        if point_type in summary:
+            summary[point_type] += 1
+        point = {
+            "lat": geopin["lat"],
+            "lng": geopin["lng"],
+            "label": label or "Point demande",
+            "point_type": point_type,
+            "source": source,
+            "parcel_id": parcel.get("parcel_id"),
+            "tracking_code": parcel.get("tracking_code"),
+            "delivery_mode": parcel.get("delivery_mode"),
+            "created_at": parcel.get("created_at"),
+        }
+        relay_data = _relay_snapshot(relay)
+        if relay_data:
+            point["relay"] = relay_data
+        points.append(point)
+
+        key = (round(geopin["lat"], 3), round(geopin["lng"], 3), point_type)
+        hotspot = hotspots.setdefault(
+            key,
+            {
+                "lat": geopin["lat"],
+                "lng": geopin["lng"],
+                "label": label or "Zone demande",
+                "point_type": point_type,
+                "count": 0,
+            },
+        )
+        hotspot["count"] += 1
+
+    for parcel in parcels:
+        origin_home = _normalize_address_geopin(parcel.get("origin_location"))
+        if origin_home:
+            add_point(
+                geopin=origin_home,
+                label=_address_label(parcel.get("origin_location")) or "Collecte domicile",
+                point_type="home_pickups",
+                source="origin_location",
+                parcel=parcel,
+            )
+
+        delivery_home = _normalize_address_geopin(parcel.get("delivery_address"))
+        if delivery_home:
+            add_point(
+                geopin=delivery_home,
+                label=_address_label(parcel.get("delivery_address")) or "Livraison domicile",
+                point_type="home_deliveries",
+                source="delivery_address",
+                parcel=parcel,
+            )
+
+        for relay_id, point_type, source in [
+            (parcel.get("origin_relay_id"), "relay_points", "origin_relay"),
+            (parcel.get("destination_relay_id"), "relay_points", "destination_relay"),
+            (parcel.get("redirect_relay_id"), "redirect_points", "redirect_relay"),
+            (parcel.get("transit_relay_id"), "transit_points", "transit_relay"),
+        ]:
+            relay = relay_lookup.get(relay_id) if relay_id else None
+            add_point(
+                geopin=_normalize_address_geopin((relay or {}).get("address")),
+                label=_relay_label(relay),
+                point_type=point_type,
+                source=source,
+                parcel=parcel,
+                relay=relay,
+            )
+
+    top_hotspots = sorted(
+        hotspots.values(),
+        key=lambda item: item["count"],
+        reverse=True,
+    )[:12]
+
+    return {"points": points, "summary": summary, "top_hotspots": top_hotspots}
+
+
+@router.get("/parcels/{parcel_id}/audit-rich", summary="Audit complet du colis (enrichi)")
+async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep)):
+    """Retourne l'historique complet avec trace, route et durees de mission."""
+    from services.parcel_service import get_parcel_timeline
+
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
+    if parcel.get("sender_user_id") and not parcel.get("sender_name"):
+        sender = await db.users.find_one({"user_id": parcel["sender_user_id"]}, {"_id": 0, "name": 1})
+        if sender:
+            parcel["sender_name"] = sender["name"]
+
+    timeline = await get_parcel_timeline(parcel_id)
+    for event in timeline:
+        event["timestamp"] = event.get("created_at")
+        if event.get("actor_id"):
+            actor = await db.users.find_one({"user_id": event["actor_id"]}, {"_id": 0, "name": 1})
+            if actor:
+                event["actor_name"] = actor["name"]
+
+    missions_cursor = db.delivery_missions.find({"parcel_id": parcel_id}, {"_id": 0})
+    missions = await missions_cursor.to_list(length=10)
+    relay_ids = [
+        parcel.get("origin_relay_id"),
+        parcel.get("destination_relay_id"),
+        parcel.get("redirect_relay_id"),
+        parcel.get("transit_relay_id"),
+    ]
+    for mission in missions:
+        for relay_id in [mission.get("pickup_relay_id"), mission.get("delivery_relay_id")]:
+            if relay_id:
+                relay_ids.append(relay_id)
+    relay_lookup = await _load_relay_lookup(relay_ids)
+
+    if parcel.get("origin_relay_id"):
+        relay = relay_lookup.get(parcel["origin_relay_id"])
+        if relay:
+            parcel["origin_relay_name"] = relay.get("name")
+            parcel["origin_relay"] = _relay_snapshot(relay)
+    if parcel.get("destination_relay_id"):
+        relay = relay_lookup.get(parcel["destination_relay_id"])
+        if relay:
+            parcel["destination_relay_name"] = relay.get("name")
+            parcel["destination_relay"] = _relay_snapshot(relay)
+    if parcel.get("redirect_relay_id"):
+        relay = relay_lookup.get(parcel["redirect_relay_id"])
+        if relay:
+            parcel["redirect_relay"] = _relay_snapshot(relay)
+    if parcel.get("transit_relay_id"):
+        relay = relay_lookup.get(parcel["transit_relay_id"])
+        if relay:
+            parcel["transit_relay"] = _relay_snapshot(relay)
+
+    now = datetime.now(timezone.utc)
+    completed_at = None
+    for mission in missions:
+        if mission.get("driver_id"):
+            driver = await db.users.find_one(
+                {"user_id": mission["driver_id"]},
+                {"_id": 0, "name": 1, "phone": 1, "profile_picture_url": 1},
+            )
+            if driver:
+                mission["driver_name"] = driver.get("name")
+                mission["driver_phone"] = driver.get("phone")
+                mission["driver_photo_url"] = driver.get("profile_picture_url")
+        mission["pickup"] = _resolve_mission_pickup(parcel, mission, relay_lookup)
+        mission["delivery"] = _resolve_mission_delivery(parcel, mission, relay_lookup)
+        mission["gps_trail"] = _normalize_trail(mission.get("gps_trail"))
+        mission["duration_summary"] = _mission_duration_summary(mission, now=now)
+        mission["route_summary"] = _mission_route_summary(
+            mission,
+            _normalize_geopin(mission.get("driver_location")),
+            mission["gps_trail"],
+        )
+        if mission.get("completed_at"):
+            completed_at = max(filter(None, [completed_at, mission.get("completed_at")]))
+
+    return {
+        "parcel": parcel,
+        "parcel_summary": {
+            "delivery_mode": parcel.get("delivery_mode"),
+            "created_at": parcel.get("created_at"),
+            "updated_at": parcel.get("updated_at"),
+            "completed_at": completed_at,
+            "total_delivery_seconds": _seconds_between(parcel.get("created_at"), completed_at),
+            "mission_count": len(missions),
+        },
+        "financial_summary": {
+            "who_pays": parcel.get("who_pays"),
+            "payment_status": parcel.get("payment_status"),
+            "payment_method": parcel.get("payment_method"),
+            "payment_override": parcel.get("payment_override"),
+            "payment_override_reason": parcel.get("payment_override_reason"),
+            "quoted_price": parcel.get("quoted_price"),
+            "payment_url": parcel.get("payment_url"),
+            "address_change_surcharge_xof": parcel.get("address_change_surcharge_xof", 0.0),
+            "driver_bonus_xof": parcel.get("driver_bonus_xof", 0.0),
+        },
+        "timeline": timeline,
+        "missions": missions,
     }
 
 
@@ -1742,20 +2331,12 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
         "referral_enabled": is_referral_globally_enabled(settings_doc),
-        "referral_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
-        "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(settings_doc),
-        "referral_referred_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
-        "referral_allowed_roles": get_referral_allowed_roles(settings_doc),
-        "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(settings_doc),
-        "referral_referred_allowed_roles": get_referral_referred_allowed_roles(settings_doc),
-        "referral_apply_metric": get_referral_apply_metric(settings_doc),
-        "referral_apply_max_count": get_referral_apply_max_count(settings_doc),
-        "referral_apply_rule": describe_referral_apply_rule(settings_doc),
-        "referral_reward_metric": get_referral_reward_metric(settings_doc),
-        "referral_reward_count": get_referral_reward_count(settings_doc),
-        "referral_reward_rule": describe_referral_reward_rule(settings_doc),
+        "referral_roles": {
+            role: get_referral_role_config(settings_doc, role)
+            for role in REFERRAL_ELIGIBLE_ROLES
+        },
         "referral_metric_options": get_referral_metric_options(),
     }
 
@@ -1763,106 +2344,85 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
 @router.get("/settings/referral/stats", summary="Statistiques du programme de parrainage")
 async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
-    share_base_url = get_referral_share_base_url(settings_doc)
     effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
-    sponsor_allowed_roles = get_referral_sponsor_allowed_roles(settings_doc)
-    referred_allowed_roles = get_referral_referred_allowed_roles(settings_doc)
-    users = await db.users.find(
-        {},
-        {
-            "_id": 0,
-            "user_id": 1,
-            "role": 1,
-            "referral_code": 1,
-            "referral_enabled_override": 1,
-            "referred_by": 1,
-            "referral_credited": 1,
-        },
-    ).to_list(length=10000)
 
-    stats_by_role: dict[str, dict] = {}
-    total_with_code = 0
-    total_effective_enabled = 0
-    total_referred_users = 0
-    total_rewarded_users = 0
-    total_pending_rewards = 0
-    total_override_enabled = 0
-    total_override_disabled = 0
+    # Aggregation pipeline — no full user scan
+    pipeline = [
+        {"$match": {"role": {"$in": REFERRAL_ELIGIBLE_ROLES}}},
+        {"$group": {
+            "_id": "$role",
+            "total_users": {"$sum": 1},
+            "with_code": {"$sum": {"$cond": [{"$and": [
+                {"$ne": ["$referral_code", None]},
+                {"$ne": ["$referral_code", ""]},
+            ]}, 1, 0]}},
+            "referred_users": {"$sum": {"$cond": [{"$ne": ["$referred_by", None]}, 1, 0]}},
+            "rewarded_users": {"$sum": {"$cond": [{"$eq": ["$referral_credited", True]}, 1, 0]}},
+            "override_enabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", True]}, 1, 0]}},
+            "override_disabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", False]}, 1, 0]}},
+        }},
+    ]
+    agg_results = await db.users.aggregate(pipeline).to_list(length=100)
 
-    for user in users:
-        role = str(user.get("role") or "client")
-        role_stats = stats_by_role.setdefault(
-            role,
-            {
-                "total_users": 0,
-                "with_code": 0,
-                "effective_enabled": 0,
-                "forced_enabled": 0,
-                "forced_disabled": 0,
-                "referred_users": 0,
-                "rewarded_users": 0,
-            },
-        )
-        role_stats["total_users"] += 1
+    stats_by_role = {}
+    totals = {"with_code": 0, "effective_enabled": 0, "referred": 0,
+              "rewarded": 0, "pending": 0, "override_on": 0, "override_off": 0}
 
-        if user.get("referral_code"):
-            total_with_code += 1
-            role_stats["with_code"] += 1
+    for row in agg_results:
+        role = row["_id"]
+        role_config = get_referral_role_config(settings_doc, role)
+        role_enabled = role_config.get("enabled", False)
+        effective_enabled = (
+            row["with_code"]
+            - row["override_disabled"]
+            + row["override_enabled"]
+        ) if role_enabled else row["override_enabled"]
 
-        if is_referral_enabled_for_user(user, settings_doc):
-            total_effective_enabled += 1
-            role_stats["effective_enabled"] += 1
+        stats_by_role[role] = {
+            "total_users": row["total_users"],
+            "with_code": row["with_code"],
+            "effective_enabled": max(effective_enabled, 0),
+            "forced_enabled": row["override_enabled"],
+            "forced_disabled": row["override_disabled"],
+            "referred_users": row["referred_users"],
+            "rewarded_users": row["rewarded_users"],
+            "pending_rewards": row["referred_users"] - row["rewarded_users"],
+        }
+        totals["with_code"] += row["with_code"]
+        totals["effective_enabled"] += max(effective_enabled, 0)
+        totals["referred"] += row["referred_users"]
+        totals["rewarded"] += row["rewarded_users"]
+        totals["pending"] += row["referred_users"] - row["rewarded_users"]
+        totals["override_on"] += row["override_enabled"]
+        totals["override_off"] += row["override_disabled"]
 
-        if user.get("referral_enabled_override") is True:
-            total_override_enabled += 1
-            role_stats["forced_enabled"] += 1
-        elif user.get("referral_enabled_override") is False:
-            total_override_disabled += 1
-            role_stats["forced_disabled"] += 1
-
-        if user.get("referred_by"):
-            total_referred_users += 1
-            role_stats["referred_users"] += 1
-            if user.get("referral_credited"):
-                total_rewarded_users += 1
-                role_stats["rewarded_users"] += 1
-            else:
-                total_pending_rewards += 1
-
-    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
-    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
     return {
         "referral_enabled": is_referral_globally_enabled(settings_doc),
-        "referral_bonus_xof": referred_bonus_xof,
-        "referral_sponsor_bonus_xof": sponsor_bonus_xof,
-        "referral_referred_bonus_xof": referred_bonus_xof,
-        "referral_share_base_url": share_base_url,
+        "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": effective_share_base_url,
-        "referral_allowed_roles": sponsor_allowed_roles,
-        "referral_sponsor_allowed_roles": sponsor_allowed_roles,
-        "referral_referred_allowed_roles": referred_allowed_roles,
-        "referral_apply_metric": get_referral_apply_metric(settings_doc),
-        "referral_apply_max_count": get_referral_apply_max_count(settings_doc),
-        "referral_apply_rule": describe_referral_apply_rule(settings_doc),
-        "referral_reward_metric": get_referral_reward_metric(settings_doc),
-        "referral_reward_count": get_referral_reward_count(settings_doc),
-        "referral_reward_rule": describe_referral_reward_rule(settings_doc),
-        "referral_metric_options": get_referral_metric_options(),
+        "referral_roles": {
+            role: {
+                **get_referral_role_config(settings_doc, role),
+                "apply_rule": describe_referral_apply_rule(settings_doc, role),
+                "reward_rule": describe_referral_reward_rule(settings_doc, role),
+                "metric_options": get_referral_metric_options(role),
+            }
+            for role in REFERRAL_ELIGIBLE_ROLES
+        },
         "sample_referral_url": build_referral_url("DENKMA-DEMO", effective_share_base_url),
         "sample_share_message": build_referral_share_message(
             code="DENKMA-DEMO",
             referral_url=build_referral_url("DENKMA-DEMO", effective_share_base_url),
-            referred_bonus_xof=referred_bonus_xof,
-            reward_rule=describe_referral_reward_rule(settings_doc),
+            referred_bonus_xof=get_referral_role_config(settings_doc, "client").get("referred_bonus_xof", 500),
+            reward_rule=describe_referral_reward_rule(settings_doc, "client"),
         ),
-        "total_users": len(users),
-        "users_with_code": total_with_code,
-        "effective_enabled_users": total_effective_enabled,
-        "override_enabled_users": total_override_enabled,
-        "override_disabled_users": total_override_disabled,
-        "referred_users": total_referred_users,
-        "rewarded_users": total_rewarded_users,
-        "pending_reward_users": total_pending_rewards,
+        "users_with_code": totals["with_code"],
+        "effective_enabled_users": totals["effective_enabled"],
+        "override_enabled_users": totals["override_on"],
+        "override_disabled_users": totals["override_off"],
+        "referred_users": totals["referred"],
+        "rewarded_users": totals["rewarded"],
+        "pending_reward_users": totals["pending"],
         "stats_by_role": stats_by_role,
     }
 
@@ -1885,107 +2445,46 @@ async def update_referral_settings(
     _admin=Depends(require_admin_dep),
 ):
     share_base_url = (body.share_base_url or "").strip() or None
-    sponsor_allowed_roles = []
-    referred_allowed_roles = []
-    raw_sponsor_roles = body.sponsor_allowed_roles or body.allowed_roles
-    raw_referred_roles = body.referred_allowed_roles or body.allowed_roles
-    for role in raw_sponsor_roles:
-        normalized_role = str(role or "").strip()
-        if normalized_role and normalized_role not in sponsor_allowed_roles:
-            sponsor_allowed_roles.append(normalized_role)
-    for role in raw_referred_roles:
-        normalized_role = str(role or "").strip()
-        if normalized_role and normalized_role not in referred_allowed_roles:
-            referred_allowed_roles.append(normalized_role)
-    if not sponsor_allowed_roles:
-        raise bad_request_exception("Au moins un role parrain doit etre autorise")
-    if not referred_allowed_roles:
-        raise bad_request_exception("Au moins un role filleul doit etre autorise")
-
-    sponsor_bonus_xof = (
-        body.sponsor_bonus_xof
-        if body.sponsor_bonus_xof is not None
-        else (body.bonus_xof if body.bonus_xof is not None else 500)
-    )
-    referred_bonus_xof = (
-        body.referred_bonus_xof
-        if body.referred_bonus_xof is not None
-        else (body.bonus_xof if body.bonus_xof is not None else 500)
-    )
     now = datetime.now(timezone.utc)
     before = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+
+    referral_roles = {
+        "client": body.client.model_dump(),
+        "driver": body.driver.model_dump(),
+    }
+
     await db.app_settings.update_one(
         {"key": "global"},
         {"$set": {
-            "referral_enabled": body.enabled,
-            "referral_bonus_xof": referred_bonus_xof,
-            "referral_sponsor_bonus_xof": sponsor_bonus_xof,
-            "referral_referred_bonus_xof": referred_bonus_xof,
+            "referral_roles": referral_roles,
             "referral_share_base_url": share_base_url,
-            "referral_allowed_roles": sponsor_allowed_roles,
-            "referral_sponsor_allowed_roles": sponsor_allowed_roles,
-            "referral_referred_allowed_roles": referred_allowed_roles,
-            "referral_apply_metric": body.apply_metric,
-            "referral_apply_max_count": body.apply_max_count,
-            "referral_reward_metric": body.reward_metric,
-            "referral_reward_count": body.reward_count,
             "updated_at": now,
         }},
         upsert=True,
     )
     after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+
     await _record_event(
         event_type="ADMIN_REFERRAL_SETTINGS_UPDATED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
         notes="Configuration du parrainage mise a jour",
         metadata={
-            "before": {
-                "referral_enabled": before.get("referral_enabled", True),
-                "referral_bonus_xof": get_referral_referred_bonus_xof(before),
-                "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(before),
-                "referral_referred_bonus_xof": get_referral_referred_bonus_xof(before),
-                "referral_share_base_url": before.get("referral_share_base_url"),
-                "referral_allowed_roles": get_referral_allowed_roles(before),
-                "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(before),
-                "referral_referred_allowed_roles": get_referral_referred_allowed_roles(before),
-                "referral_apply_metric": get_referral_apply_metric(before),
-                "referral_apply_max_count": get_referral_apply_max_count(before),
-                "referral_reward_metric": get_referral_reward_metric(before),
-                "referral_reward_count": get_referral_reward_count(before),
-            },
-            "after": {
-                "referral_enabled": after.get("referral_enabled", True),
-                "referral_bonus_xof": get_referral_referred_bonus_xof(after),
-                "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(after),
-                "referral_referred_bonus_xof": get_referral_referred_bonus_xof(after),
-                "referral_share_base_url": after.get("referral_share_base_url"),
-                "referral_allowed_roles": get_referral_allowed_roles(after),
-                "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(after),
-                "referral_referred_allowed_roles": get_referral_referred_allowed_roles(after),
-                "referral_apply_metric": get_referral_apply_metric(after),
-                "referral_apply_max_count": get_referral_apply_max_count(after),
-                "referral_reward_metric": get_referral_reward_metric(after),
-                "referral_reward_count": get_referral_reward_count(after),
-            },
+            "before": {r: get_referral_role_config(before, r) for r in REFERRAL_ELIGIBLE_ROLES},
+            "after": {r: get_referral_role_config(after, r) for r in REFERRAL_ELIGIBLE_ROLES},
         },
     )
     return {
         "referral_enabled": is_referral_globally_enabled(after),
-        "referral_bonus_xof": get_referral_referred_bonus_xof(after),
-        "referral_sponsor_bonus_xof": get_referral_sponsor_bonus_xof(after),
-        "referral_referred_bonus_xof": get_referral_referred_bonus_xof(after),
+        "referral_roles": {
+            r: {
+                **get_referral_role_config(after, r),
+                "apply_rule": describe_referral_apply_rule(after, r),
+                "reward_rule": describe_referral_reward_rule(after, r),
+            }
+            for r in REFERRAL_ELIGIBLE_ROLES
+        },
         "referral_share_base_url": get_referral_share_base_url(after),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(after),
-        "referral_allowed_roles": get_referral_allowed_roles(after),
-        "referral_sponsor_allowed_roles": get_referral_sponsor_allowed_roles(after),
-        "referral_referred_allowed_roles": get_referral_referred_allowed_roles(after),
-        "referral_apply_metric": get_referral_apply_metric(after),
-        "referral_apply_max_count": get_referral_apply_max_count(after),
-        "referral_apply_rule": describe_referral_apply_rule(after),
-        "referral_reward_metric": get_referral_reward_metric(after),
-        "referral_reward_count": get_referral_reward_count(after),
-        "referral_reward_rule": describe_referral_reward_rule(after),
-        "referral_metric_options": get_referral_metric_options(),
         "message": "Configuration du parrainage mise a jour",
     }

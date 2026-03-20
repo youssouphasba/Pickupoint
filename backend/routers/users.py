@@ -11,6 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel, Field
 
 from config import UPLOADS_DIR, settings
 from core.dependencies import get_current_user, require_role
@@ -24,29 +25,18 @@ from services.parcel_service import _record_event
 from services.user_service import (
     build_referral_share_message,
     build_referral_url,
+    check_sponsor_referral_limit,
     describe_referral_apply_rule,
     describe_referral_reward_rule,
     get_effective_referral_share_base_url,
-    get_referral_allowed_roles,
-    get_referral_apply_max_count,
-    get_referral_apply_metric,
     get_global_app_settings,
     get_referral_metric_count,
     get_referral_metric_label,
     get_referral_metric_options,
-    get_referral_referred_allowed_roles,
-    get_referral_referred_bonus_xof,
+    get_referral_role_config,
     get_referral_share_base_url,
-    get_referral_sponsor_allowed_roles,
-    get_referral_sponsor_bonus_xof,
-    get_referral_reward_count,
-    get_referral_reward_metric,
-    is_referral_role_allowed,
     is_referral_referred_enabled_for_user,
-    is_referral_referred_role_allowed,
-    is_referral_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
-    is_referral_sponsor_role_allowed,
 )
 
 router = APIRouter()
@@ -60,21 +50,17 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 async def _build_referral_payload(user_doc: dict) -> dict:
     settings_doc = await get_global_app_settings()
+    user_role = str(user_doc.get("role") or "client")
+    config = get_referral_role_config(settings_doc, user_role)
     code = user_doc.get("referral_code", "")
-    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc)
-    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
-    configured_share_base_url = get_referral_share_base_url(settings_doc)
     effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
     referral_url = build_referral_url(code, effective_share_base_url)
     sponsor_enabled = is_referral_sponsor_enabled_for_user(user_doc, settings_doc)
     referred_enabled = is_referral_referred_enabled_for_user(user_doc, settings_doc)
-    apply_metric = get_referral_apply_metric(settings_doc)
-    reward_metric = get_referral_reward_metric(settings_doc)
-    apply_current_count = await get_referral_metric_count(
-        user_doc.get("user_id", ""),
-        apply_metric,
-    )
-    apply_max_count = get_referral_apply_max_count(settings_doc)
+
+    apply_metric = config["apply_metric"]
+    apply_max_count = config["apply_max_count"]
+    apply_current_count = await get_referral_metric_count(user_doc.get("user_id", ""), apply_metric)
     can_apply_now = (
         referred_enabled
         and not user_doc.get("referred_by")
@@ -84,17 +70,11 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "enabled": sponsor_enabled,
         "enabled_override": user_doc.get("referral_enabled_override"),
         "referral_code": code,
-        "referral_bonus_xof": referred_bonus_xof,
-        "referral_sponsor_bonus_xof": sponsor_bonus_xof,
-        "referral_referred_bonus_xof": referred_bonus_xof,
-        "share_base_url": configured_share_base_url,
+        "referral_sponsor_bonus_xof": config["sponsor_bonus_xof"],
+        "referral_referred_bonus_xof": config["referred_bonus_xof"],
+        "referral_bonus_xof": config["referred_bonus_xof"],
+        "share_base_url": get_referral_share_base_url(settings_doc),
         "effective_share_base_url": effective_share_base_url,
-        "allowed_roles": get_referral_allowed_roles(settings_doc),
-        "sponsor_allowed_roles": get_referral_sponsor_allowed_roles(settings_doc),
-        "referred_allowed_roles": get_referral_referred_allowed_roles(settings_doc),
-        "role_allowed": is_referral_role_allowed(user_doc.get("role"), settings_doc),
-        "sponsor_role_allowed": is_referral_sponsor_role_allowed(user_doc.get("role"), settings_doc),
-        "referred_role_allowed": is_referral_referred_role_allowed(user_doc.get("role"), settings_doc),
         "can_sponsor": sponsor_enabled,
         "can_be_referred": referred_enabled,
         "referral_url": referral_url,
@@ -103,17 +83,17 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "apply_max_count": apply_max_count,
         "apply_current_count": apply_current_count,
         "can_apply_now": can_apply_now,
-        "apply_rule": describe_referral_apply_rule(settings_doc),
-        "reward_metric": reward_metric,
-        "reward_metric_label": get_referral_metric_label(reward_metric),
-        "reward_count": get_referral_reward_count(settings_doc),
-        "reward_rule": describe_referral_reward_rule(settings_doc),
-        "metric_options": get_referral_metric_options(),
+        "apply_rule": describe_referral_apply_rule(settings_doc, user_role),
+        "reward_metric": config["reward_metric"],
+        "reward_metric_label": get_referral_metric_label(config["reward_metric"]),
+        "reward_count": config["reward_count"],
+        "reward_rule": describe_referral_reward_rule(settings_doc, user_role),
+        "metric_options": get_referral_metric_options(user_role),
         "share_message": build_referral_share_message(
             code=code,
             referral_url=referral_url,
-            referred_bonus_xof=referred_bonus_xof,
-            reward_rule=describe_referral_reward_rule(settings_doc),
+            referred_bonus_xof=config["referred_bonus_xof"],
+            reward_rule=describe_referral_reward_rule(settings_doc, user_role),
         ),
         "message": (
             "Le parrainage est disponible pour ce compte."
@@ -760,30 +740,30 @@ async def get_referral_info(current_user: dict = Depends(get_current_user)):
     return await _build_referral_payload(current_user)
 
 
+class ApplyReferralRequest(BaseModel):
+    referral_code: str = Field(..., min_length=3, max_length=20)
+
+
 @router.post("/apply-referral", summary="Appliquer un parrain")
 async def apply_referral_code(
-    body: dict,
+    body: ApplyReferralRequest,
     current_user: dict = Depends(get_current_user),
 ):
     """Lie l'utilisateur courant a un parrain via son code."""
-    code = body.get("referral_code", "").upper().strip()
-    if not code:
-        raise bad_request_exception("Code parrainage manquant")
+    code = body.referral_code.upper().strip()
 
     if current_user.get("referred_by"):
         raise bad_request_exception("Vous avez deja un parrain")
 
     settings_doc = await get_global_app_settings()
-    apply_metric = get_referral_apply_metric(settings_doc)
-    apply_max_count = get_referral_apply_max_count(settings_doc)
-    current_metric_count = await get_referral_metric_count(
-        current_user["user_id"],
-        apply_metric,
-    )
+    user_role = str(current_user.get("role") or "client")
+    config = get_referral_role_config(settings_doc, user_role)
+
+    apply_metric = config["apply_metric"]
+    apply_max_count = config["apply_max_count"]
+    current_metric_count = await get_referral_metric_count(current_user["user_id"], apply_metric)
     if current_metric_count > apply_max_count:
-        raise bad_request_exception(
-            "Le code parrainage ne peut plus etre applique pour ce compte"
-        )
+        raise bad_request_exception("Le code parrainage ne peut plus etre applique pour ce compte")
 
     parrain = await db.users.find_one({"referral_code": code}, {"_id": 0})
     if not parrain:
@@ -797,19 +777,23 @@ async def apply_referral_code(
     if not is_referral_sponsor_enabled_for_user(parrain, settings_doc):
         raise bad_request_exception("Ce code parrainage n'est pas actif")
 
+    if not await check_sponsor_referral_limit(parrain["user_id"], user_role, settings_doc):
+        raise bad_request_exception("Ce parrain a atteint le nombre maximum de filleuls")
+
+    now = datetime.now(timezone.utc)
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {
             "referred_by": parrain["user_id"],
-            "referral_applied_at": datetime.now(timezone.utc),
+            "referral_applied_at": now,
             "referral_source": "post_signup",
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": now,
         }},
     )
     await _record_event(
         event_type="USER_REFERRAL_APPLIED",
         actor_id=current_user["user_id"],
-        actor_role=current_user.get("role") or "client",
+        actor_role=user_role,
         notes=f"Code parrainage applique: {code}",
         metadata={
             "user_id": current_user["user_id"],
@@ -824,6 +808,6 @@ async def apply_referral_code(
     return {
         "message": (
             "Parrainage applique ! "
-            f"{describe_referral_reward_rule(settings_doc)}"
+            f"{describe_referral_reward_rule(settings_doc, user_role)}"
         )
     }

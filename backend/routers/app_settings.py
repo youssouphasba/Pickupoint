@@ -6,8 +6,9 @@ from fastapi import APIRouter
 from config import settings as app_config
 from database import db
 from services.user_service import (
+    REFERRAL_ELIGIBLE_ROLES,
     describe_referral_reward_rule,
-    get_referral_referred_bonus_xof,
+    get_referral_role_config,
     get_referral_share_base_url,
     is_referral_globally_enabled,
 )
@@ -25,8 +26,13 @@ async def get_public_app_settings():
         "express_multiplier": app_config.EXPRESS_MULTIPLIER,
         "express_percent": express_percent,
         "referral_enabled": is_referral_globally_enabled(settings_doc),
-        "referral_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
-        "referral_referred_bonus_xof": get_referral_referred_bonus_xof(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
-        "referral_reward_rule": describe_referral_reward_rule(settings_doc),
+        "referral_roles": {
+            role: {
+                "enabled": get_referral_role_config(settings_doc, role).get("enabled", False),
+                "referred_bonus_xof": get_referral_role_config(settings_doc, role).get("referred_bonus_xof", 500),
+                "reward_rule": describe_referral_reward_rule(settings_doc, role),
+            }
+            for role in REFERRAL_ELIGIBLE_ROLES
+        },
     }
