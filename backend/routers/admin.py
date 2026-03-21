@@ -300,6 +300,10 @@ def _normalize_trail(points: list[dict] | None) -> list[dict]:
 def _seconds_between(start: datetime | None, end: datetime | None) -> int | None:
     if not start or not end:
         return None
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
     return max(int((end - start).total_seconds()), 0)
 
 
