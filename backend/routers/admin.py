@@ -1366,6 +1366,8 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
             with_live_location += 1
         else:
             missing_locations += 1
+        if last_seen_at and last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
         is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
         if is_stale:
             stale_locations += 1
