@@ -6,6 +6,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../providers/relay_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class RelayWalletScreen extends ConsumerStatefulWidget {
   const RelayWalletScreen({super.key});
@@ -90,7 +91,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
         ),
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, __) => Text('Erreur wallet: $e'),
+      error: (e, __) => Text(friendlyError(e)),
     );
   }
 
@@ -127,7 +128,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
         );
       },
       loading: () => const CircularProgressIndicator(),
-      error: (e, __) => Text('Erreur tx: $e'),
+      error: (e, __) => Text(friendlyError(e)),
     );
   }
 
@@ -213,7 +214,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
                     return;
                   }
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
+                    SnackBar(content: Text(friendlyError(e))),
                   );
                 }
               },

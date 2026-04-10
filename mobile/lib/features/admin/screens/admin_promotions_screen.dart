@@ -4,6 +4,7 @@ import '../providers/admin_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/promotion.dart';
 import 'package:intl/intl.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminPromotionsScreen extends ConsumerStatefulWidget {
   const AdminPromotionsScreen({super.key});
@@ -39,7 +40,7 @@ class _AdminPromotionsScreenState extends ConsumerState<AdminPromotionsScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCreatePromoDialog(context),
@@ -159,7 +160,7 @@ class _PromoCard extends ConsumerWidget {
                   ref.invalidate(adminPromotionsProvider);
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                   }
                 }
               },
@@ -186,7 +187,7 @@ class _PromoCard extends ConsumerWidget {
                     ref.invalidate(adminPromotionsProvider);
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                     }
                   }
                 }
@@ -378,7 +379,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
         if (mounted) {
           setState(() => _loading = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur resolution numeros: $e')),
+            SnackBar(content: Text(friendlyError(e))),
           );
         }
         return;
@@ -405,7 +406,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     }
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 import '../providers/relay_provider.dart';
 
 /// Deux étapes :
@@ -99,7 +100,7 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
         });
       }
     } catch (e) {
-      _showError('Erreur : $e');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) {
         setState(() {
@@ -132,7 +133,7 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
         Navigator.pop(context);
       }
     } catch (e) {
-      _showError('Erreur : $e');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminStaleParcelsScreen extends ConsumerWidget {
   const AdminStaleParcelsScreen({super.key});
@@ -57,7 +58,7 @@ class AdminStaleParcelsScreen extends ConsumerWidget {
           },
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -111,7 +112,7 @@ class AdminStaleParcelsScreen extends ConsumerWidget {
                   }
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                   }
                 }
               },

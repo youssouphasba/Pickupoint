@@ -19,6 +19,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({super.key, required this.id});
@@ -221,7 +222,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -336,7 +337,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -1301,7 +1302,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                      .showSnackBar(SnackBar(content: Text(friendlyError(e))));
                 }
               }
             },
@@ -1408,7 +1409,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                        content: Text('Erreur: $e'),
+                        content: Text(friendlyError(e)),
                         backgroundColor: Colors.red),
                   );
                 }
@@ -1470,7 +1471,7 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     } finally {

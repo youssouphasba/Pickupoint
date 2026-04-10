@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final res = await ref.watch(apiClientProvider).getReferralInfo();
@@ -485,7 +486,7 @@ class ClientProfileScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erreur: $e'),
+            content: Text(friendlyError(e)),
             backgroundColor: Colors.red,
           ),
         );
@@ -621,7 +622,7 @@ class ClientProfileScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }
@@ -653,7 +654,7 @@ class ClientProfileScreen extends ConsumerWidget {
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+              .showSnackBar(SnackBar(content: Text(friendlyError(e))));
         }
       }
     }
@@ -733,7 +734,7 @@ class ClientProfileScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                      .showSnackBar(SnackBar(content: Text(friendlyError(e))));
                 }
               }
             },
@@ -786,7 +787,7 @@ class ClientProfileScreen extends ConsumerWidget {
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                      .showSnackBar(SnackBar(content: Text(friendlyError(e))));
                 }
               }
             },

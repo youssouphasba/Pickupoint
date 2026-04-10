@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../providers/relay_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class ScanInScreen extends ConsumerStatefulWidget {
   const ScanInScreen({super.key});
@@ -104,7 +105,7 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
         }
       }
     } catch (e) {
-      _showError('Erreur : $e');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) {
         setState(() {
@@ -137,7 +138,7 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
         ref.invalidate(relayStockProvider);
       }
     } catch (e) {
-      _showError('Erreur lors de la validation : $e');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }

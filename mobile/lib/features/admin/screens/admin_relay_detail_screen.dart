@@ -8,6 +8,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../providers/admin_provider.dart';
 import 'admin_parcel_audit_screen.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminRelayDetailScreen extends ConsumerWidget {
   const AdminRelayDetailScreen({super.key, required this.relayId});
@@ -174,7 +175,7 @@ class AdminRelayDetailScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

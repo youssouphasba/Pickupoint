@@ -6,6 +6,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../core/models/wallet.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final driverTransactionsProvider =
     FutureProvider.family<List<WalletTransaction>, String?>(
@@ -121,7 +122,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
         ),
       ),
       loading: () => const CircularProgressIndicator(),
-      error: (e, __) => Text('Erreur: $e'),
+      error: (e, __) => Text(friendlyError(e)),
     );
   }
 
@@ -185,7 +186,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                   } catch (e) {
                     if (ctx.mounted) {
                       ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+                          .showSnackBar(SnackBar(content: Text(friendlyError(e))));
                     }
                   }
                 },
@@ -222,7 +223,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
         );
       },
       loading: () => const CircularProgressIndicator(),
-      error: (e, __) => Text('Erreur: $e'),
+      error: (e, __) => Text(friendlyError(e)),
     );
   }
 }

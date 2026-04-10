@@ -6,6 +6,7 @@ import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/auth/auth_provider.dart';
+import '../utils/error_utils.dart';
 
 // ── Provider messages ──────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -126,7 +127,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur envoi audio : $e'),
+              content: Text(friendlyError(e)),
               backgroundColor: Colors.red),
         );
       }
@@ -170,7 +171,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                   loading: () => const Center(
                       child: CircularProgressIndicator(strokeWidth: 2)),
                   error: (e, _) => Center(
-                      child: Text('Erreur: $e',
+                      child: Text(friendlyError(e),
                           style: const TextStyle(color: Colors.red))),
                   data: (messages) {
                     if (messages.isEmpty) {
@@ -501,7 +502,7 @@ class _AudioPlayerState extends ConsumerState<_AudioPlayer> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Erreur lecture audio : $e'),
+              content: Text(friendlyError(e)),
               backgroundColor: Colors.red,
             ),
           );

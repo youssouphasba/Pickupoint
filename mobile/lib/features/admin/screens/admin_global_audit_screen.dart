@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final adminAuditLogProvider = FutureProvider<List<dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -83,7 +84,7 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

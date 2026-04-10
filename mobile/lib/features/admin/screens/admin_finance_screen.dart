@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminFinanceScreen extends ConsumerWidget {
   const AdminFinanceScreen({super.key});
@@ -31,7 +32,7 @@ class AdminFinanceScreen extends ConsumerWidget {
                 child: ListTile(
                   leading: const Icon(Icons.error_outline, color: Colors.red),
                   title: const Text('Erreur de reconciliation'),
-                  subtitle: Text(e.toString()),
+                  subtitle: Text(friendlyError(e)),
                 ),
               ),
             ),
@@ -48,7 +49,7 @@ class AdminFinanceScreen extends ConsumerWidget {
                 child: ListTile(
                   leading: const Icon(Icons.error_outline, color: Colors.red),
                   title: const Text('Erreur de suivi COD'),
-                  subtitle: Text(e.toString()),
+                  subtitle: Text(friendlyError(e)),
                 ),
               ),
             ),
@@ -299,7 +300,7 @@ class AdminFinanceScreen extends ConsumerWidget {
               } catch (e) {
                 if (dialogContext.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erreur: $e')),
+                    SnackBar(content: Text(friendlyError(e))),
                   );
                 }
               }

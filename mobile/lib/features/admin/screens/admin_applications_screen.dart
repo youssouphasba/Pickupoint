@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/phone_utils.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final _applicationsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
@@ -118,7 +119,7 @@ class _ApplicationsList extends ConsumerWidget {
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, __) => Center(child: Text('Erreur: $e')),
+      error: (e, __) => Center(child: Text(friendlyError(e))),
     );
   }
 }
@@ -537,7 +538,7 @@ class _ApplicationCard extends ConsumerWidget {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     SnackBar(
-                      content: Text('Erreur: $e'),
+                      content: Text(friendlyError(e)),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -612,7 +613,7 @@ class _ApplicationCard extends ConsumerWidget {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     SnackBar(
-                      content: Text('Erreur: $e'),
+                      content: Text(friendlyError(e)),
                       backgroundColor: Colors.red,
                     ),
                   );

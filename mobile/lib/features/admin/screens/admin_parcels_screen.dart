@@ -8,6 +8,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminParcelsScreen extends ConsumerStatefulWidget {
   const AdminParcelsScreen({super.key});
@@ -113,7 +114,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -285,7 +286,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
                   return;
                 }
                 ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  SnackBar(content: Text('Erreur: $e')),
+                  SnackBar(content: Text(friendlyError(e))),
                 );
               }
             },

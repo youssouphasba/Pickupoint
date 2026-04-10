@@ -4,6 +4,7 @@ import '../providers/admin_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminPayoutsScreen extends ConsumerWidget {
   const AdminPayoutsScreen({super.key});
@@ -85,7 +86,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -116,7 +117,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+        ).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     }
   }
@@ -158,7 +159,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erreur: $e')));
+          .showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 

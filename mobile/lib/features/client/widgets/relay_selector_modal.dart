@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class RelaySelectorModal extends ConsumerStatefulWidget {
   const RelaySelectorModal({super.key});
@@ -81,7 +82,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
+      if (mounted) setState(() { _error = friendlyError(e); _isLoading = false; });
     }
   }
 

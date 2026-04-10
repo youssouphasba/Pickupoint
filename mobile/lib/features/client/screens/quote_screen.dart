@@ -7,6 +7,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../providers/client_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class QuoteScreen extends ConsumerStatefulWidget {
   const QuoteScreen({super.key, required this.data});
@@ -102,7 +103,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la creation : $e')),
+        SnackBar(content: Text(friendlyError(e))),
       );
     } finally {
       if (mounted) {

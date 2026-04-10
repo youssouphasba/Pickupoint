@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final _expressSettingsProvider = FutureProvider<bool>((ref) async {
   try {
@@ -52,7 +53,7 @@ class AdminDashboard extends ConsumerWidget {
         child: statsAsync.when(
           data: (stats) => _DashboardBody(stats: stats),
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, __) => Center(child: Text('Erreur: $e')),
+          error: (e, __) => Center(child: Text(friendlyError(e))),
         ),
       ),
     );
@@ -776,7 +777,7 @@ class _ExpressToggleTileState extends ConsumerState<_ExpressToggleTile> {
       setState(() => _optimistic = current);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -867,7 +868,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {

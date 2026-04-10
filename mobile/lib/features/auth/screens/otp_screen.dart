@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/otp_input.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
@@ -68,7 +69,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -92,7 +93,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         onError: (error) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Erreur: $error')),
+              SnackBar(content: Text(error), backgroundColor: Colors.red),
             );
           }
         },
@@ -113,7 +114,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }

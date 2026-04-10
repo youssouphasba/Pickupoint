@@ -13,6 +13,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/driver_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final _driverReferralInfoProvider =
     FutureProvider<Map<String, dynamic>>((ref) async {
@@ -593,7 +594,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       ref.invalidate(_driverReferralInfoProvider);
       _snack('Code parrainage applique. Les primes seront debloquees selon les regles du programme.');
     } catch (e) {
-      _snack('Erreur: $e', error: true);
+      _snack(friendlyError(e), error: true);
     }
   }
 
@@ -694,7 +695,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
         ),
       );
     } catch (e) {
-      _snack('Erreur: $e', error: true);
+      _snack(friendlyError(e), error: true);
     }
   }
 

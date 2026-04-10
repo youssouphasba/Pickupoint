@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 
 class PinLoginScreen extends ConsumerStatefulWidget {
@@ -33,7 +34,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
     } catch (e) {
       if (mounted) {
-        _showError(e.toString());
+        _showError(friendlyError(e));
       }
     } finally {
       if (mounted) {
@@ -57,7 +58,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
         },
         verificationFailed: (error) {
           if (!mounted) return;
-          _showError(error.message ?? 'Verification impossible.');
+          _showError(friendlyError(error));
         },
         codeSent: (verificationId, resendToken) {
           if (!mounted || _resetDialogOpen) return;
@@ -75,7 +76,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showError('Impossible de lancer la verification : $e');
+        _showError(friendlyError(e));
       }
     } finally {
       if (mounted) {
@@ -240,7 +241,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                         if (!dialogContext.mounted) return;
                         setDialogState(() {
                           isSubmitting = false;
-                          errorText = e.toString();
+                          errorText = friendlyError(e);
                         });
                       }
                     },

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final adminParcelAuditProvider =
     FutureProvider.family<Map<String, dynamic>, String>((ref, id) async {
@@ -218,7 +219,7 @@ class _AdminParcelAuditScreenState
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -280,7 +281,7 @@ class _AdminParcelAuditScreenState
               } catch (e) {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Erreur: $e')),
+                  SnackBar(content: Text(friendlyError(e))),
                 );
               }
             },

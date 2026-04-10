@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class SetupProfileScreen extends ConsumerStatefulWidget {
   final String registrationToken;
@@ -72,7 +73,7 @@ class _SetupProfileScreenState extends ConsumerState<SetupProfileScreen> {
           );
       // AuthProvider va mettre à jour l'état et GoRouter va rediriger automatiquement.
     } catch (e) {
-      if (mounted) _showError(e.toString());
+      if (mounted) _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

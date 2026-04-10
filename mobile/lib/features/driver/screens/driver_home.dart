@@ -9,6 +9,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../core/models/delivery_mission.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
@@ -68,7 +69,7 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -333,7 +334,7 @@ class _MissionsList extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

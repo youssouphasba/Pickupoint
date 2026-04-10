@@ -7,6 +7,7 @@ import '../../../core/models/relay_point.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../widgets/relay_selector_modal.dart';
+import '../../../shared/utils/error_utils.dart';
 
 // ── Enums locaux ───────────────────────────────────────────────────────────────
 enum _DestMode { home, relay }
@@ -246,7 +247,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         });
       }
     } catch (e) {
-      _showError('Erreur lors du calcul du devis : $e');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _isQuoteLoading = false);
     }

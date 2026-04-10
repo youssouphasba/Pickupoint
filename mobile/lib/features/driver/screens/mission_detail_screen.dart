@@ -16,6 +16,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'dart:convert';
+import '../../../shared/utils/error_utils.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({super.key, required this.id});
@@ -331,7 +332,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -420,7 +421,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur compression: $e'),
+              content: Text(friendlyError(e)),
               backgroundColor: Colors.red),
         );
       }
@@ -473,7 +474,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -521,7 +522,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -603,7 +604,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+            SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) {
@@ -766,7 +767,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           ]),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

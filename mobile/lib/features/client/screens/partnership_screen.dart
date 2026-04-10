@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/utils/error_utils.dart';
 
 /// Écran de candidature partenariat (devenir livreur ou point relais).
 class PartnershipScreen extends ConsumerStatefulWidget {
@@ -295,7 +296,7 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -585,7 +586,7 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {

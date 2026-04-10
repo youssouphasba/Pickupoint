@@ -6,6 +6,7 @@ import '../../../core/models/user.dart';
 import '../providers/admin_provider.dart';
 import 'admin_user_detail_screen.dart';
 import 'admin_user_history_screen.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminUsersScreen extends ConsumerStatefulWidget {
   const AdminUsersScreen({super.key});
@@ -117,7 +118,7 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -721,7 +722,7 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -843,7 +844,7 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -911,7 +912,7 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
         child: CircularProgressIndicator(strokeWidth: 2),
       ),
       error: (e, __) => Text(
-        'Erreur relais: $e',
+        friendlyError(e),
         style: const TextStyle(color: Colors.red, fontSize: 12),
       ),
     );
@@ -935,7 +936,7 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {

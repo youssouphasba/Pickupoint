@@ -8,6 +8,7 @@ import '../../../core/models/relay_point.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../providers/relay_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class RelayProfileScreen extends ConsumerStatefulWidget {
   const RelayProfileScreen({super.key});
@@ -61,7 +62,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur chargement relais: $e')),
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     } finally {
@@ -92,7 +93,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);

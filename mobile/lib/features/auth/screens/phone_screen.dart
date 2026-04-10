@@ -5,6 +5,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
   const PhoneScreen({super.key, this.initialReferralCode});
@@ -80,7 +81,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Erreur: $e')),
+                SnackBar(content: Text(friendlyError(e))),
               );
             }
           }
@@ -89,7 +90,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e')),
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     } finally {

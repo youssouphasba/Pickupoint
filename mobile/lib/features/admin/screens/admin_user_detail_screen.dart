@@ -11,6 +11,7 @@ import '../providers/admin_provider.dart';
 import 'admin_parcel_audit_screen.dart';
 import 'admin_relay_detail_screen.dart';
 import 'admin_user_history_screen.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminUserDetailScreen extends ConsumerWidget {
   const AdminUserDetailScreen({super.key, required this.userId});
@@ -453,7 +454,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -503,7 +504,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
       );
     }
   }
@@ -563,7 +564,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
       );
     }
   }

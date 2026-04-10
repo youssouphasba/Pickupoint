@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/utils/error_utils.dart';
 
 final clientLoyaltyHistoryProvider = FutureProvider<List<dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -74,7 +75,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, __) => Center(
-          child: Text('Erreur de chargement: $e'),
+          child: Text(friendlyError(e)),
         ),
       ),
     );

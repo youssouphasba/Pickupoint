@@ -11,6 +11,7 @@ import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../providers/relay_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class RelayHome extends ConsumerStatefulWidget {
   const RelayHome({super.key});
@@ -210,7 +211,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, __) => Center(child: Text('Erreur: $e')),
+          error: (e, __) => Center(child: Text(friendlyError(e))),
         ),
       ),
       floatingActionButton: Column(
@@ -875,7 +876,7 @@ class _RelayParcelDetailSheetState
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {

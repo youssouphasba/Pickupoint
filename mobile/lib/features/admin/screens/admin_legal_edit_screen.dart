@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/providers/legal_provider.dart';
 import '../providers/admin_legal_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminLegalEditScreen extends ConsumerStatefulWidget {
   final String docType;
@@ -64,7 +65,7 @@ class _AdminLegalEditScreenState extends ConsumerState<AdminLegalEditScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur : $e')),
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     }

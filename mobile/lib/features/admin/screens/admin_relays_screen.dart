@@ -5,6 +5,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
 import '../providers/admin_provider.dart';
 import 'admin_relay_detail_screen.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminRelaysScreen extends ConsumerStatefulWidget {
   const AdminRelaysScreen({super.key});
@@ -107,7 +108,7 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
@@ -168,7 +169,7 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
+        SnackBar(content: Text(friendlyError(e))),
       );
     }
   }

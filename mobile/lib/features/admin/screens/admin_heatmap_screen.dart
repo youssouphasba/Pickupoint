@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminHeatmapScreen extends ConsumerStatefulWidget {
   const AdminHeatmapScreen({super.key});
@@ -120,7 +121,7 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/admin_provider.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminUserHistoryScreen extends ConsumerWidget {
   final String userId;
@@ -56,7 +57,7 @@ class AdminUserHistoryScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }

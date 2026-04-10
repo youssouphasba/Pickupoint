@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../providers/admin_provider.dart';
+import '../../../shared/utils/error_utils.dart';
 
 class AdminFleetMapScreen extends ConsumerStatefulWidget {
   const AdminFleetMapScreen({super.key});
@@ -135,7 +136,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text('Erreur: $e')),
+        error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
     );
   }
