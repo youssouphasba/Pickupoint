@@ -42,15 +42,16 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     });
 
     try {
-      final quote = widget.data['quote'] as Map<String, dynamic>? ?? {};
-      final breakdown = quote['breakdown'] as Map<String, dynamic>? ?? {};
-      final price = (quote['price'] as num?)?.toDouble() ?? 0;
+      final quote = _asMap(widget.data['quote']);
+      final breakdown = _asMap(quote['breakdown']);
+      final formData = _asMap(widget.data['formData']);
+      final price = _num(quote['price']);
       final mode = breakdown['delivery_mode']?.toString() ??
-          (widget.data['formData'] as Map? ?? {})['delivery_mode']?.toString() ??
+          formData['delivery_mode']?.toString() ??
           'relay_to_relay';
 
       final res = await ref.read(apiClientProvider).checkPromoCode(code, price, mode);
-      final data = res.data as Map<String, dynamic>;
+      final data = _asMap(res.data);
       setState(() => _promoResult = data);
     } catch (e) {
       setState(() => _promoError = 'Code invalide ou non applicable');
@@ -155,12 +156,8 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final quote = Map<String, dynamic>.from(
-      widget.data['quote'] as Map<String, dynamic>? ?? const {},
-    );
-    final breakdown = Map<String, dynamic>.from(
-      quote['breakdown'] as Map<String, dynamic>? ?? const {},
-    );
+    final quote = _asMap(widget.data['quote']);
+    final breakdown = _asMap(quote['breakdown']);
     final total = _num(quote['price']);
     final base = _num(breakdown['base']);
     final distKm = _num(breakdown['distance_km']);
@@ -173,9 +170,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final isExpress = breakdown['is_express'] == true;
     final whoPays = breakdown['who_pays']?.toString() ?? 'sender';
     final estHours = breakdown['estimated_hours']?.toString() ?? '-';
-    final coeffFactors = Map<String, dynamic>.from(
-      breakdown['coeff_factors'] as Map<String, dynamic>? ?? const {},
-    );
+    final coeffFactors = _asMap(breakdown['coeff_factors']);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Votre devis')),
@@ -311,6 +306,18 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     );
   }
 
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map(
+        (key, item) => MapEntry(key.toString(), item),
+      );
+    }
+    return const <String, dynamic>{};
+  }
+
   Widget _buildPromoSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -403,16 +410,12 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
   }
 
   Widget _buildOrderSummary() {
-    final formData =
-        Map<String, dynamic>.from(widget.data['formData'] as Map? ?? const {});
+    final formData = _asMap(widget.data['formData']);
     final recipientName = widget.data['recipient_name']?.toString() ?? '-';
     final recipientPhone = widget.data['recipient_phone']?.toString() ?? '-';
     final weight =
-        (formData['weight_kg'] as num?)?.toDouble() ??
-            double.tryParse(formData['weight_kg']?.toString() ?? '') ??
-            0.0;
-    final declaredValue =
-        (formData['declared_value'] as num?)?.toDouble() ?? 0.0;
+        _num(formData['weight_kg']);
+    final declaredValue = _num(formData['declared_value']);
     final whoPays = formData['who_pays']?.toString() ?? 'sender';
     final initiatedBy = formData['initiated_by']?.toString() ?? 'sender';
     final isExpress = formData['is_express'] == true;
@@ -450,8 +453,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     ]);
   }
 
-  double _num(dynamic value, {double def = 0.0}) =>
-      value == null ? def : (value as num).toDouble();
+  double _num(dynamic value, {double def = 0.0}) {
+    if (value == null) return def;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? def;
+  }
 
   String _modeLabel(String? mode) {
     switch (mode) {

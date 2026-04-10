@@ -47,6 +47,7 @@ GoogleService-Info.plist
 firebase-service-account.json
 *-adminsdk-*.json
 firebase-debug.log
+!mobile/android/app/google-services.json
 
 # Claude Code settings
 .claude/settings.local.json
@@ -69,6 +70,7 @@ backend/__pycache__/
 backend/.venv
 ios_replacements.txt
 mobile/.dart_tool/
+mobile/.gradle-user-home/
 mobile/build/
 mobile/analysis*.txt
 mobile/analyze*.txt
@@ -79,6 +81,7 @@ mobile/error_*.log
 mobile/missing_imports.txt
 mobile/android/hs_err_pid*.log
 mobile/android/replay_pid*.log
+mobile/android/key.properties
 *.jpg
 *.png
 *.jpeg

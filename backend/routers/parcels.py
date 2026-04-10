@@ -122,7 +122,8 @@ async def _active_mission_for_parcel(parcel_id: str) -> Optional[dict]:
 
 
 def _delivery_is_blocked_by_payment(parcel: dict) -> bool:
-    return parcel.get("payment_status") != "paid" and not parcel.get("payment_override")
+    # Le paiement reste suivi, mais ne bloque plus le cycle de vie du colis.
+    return False
 
 
 def _home_mission_ready(parcel: dict) -> bool:
@@ -453,11 +454,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel["driver_phone"] = driver.get("phone")
             parcel["driver_photo_url"] = parcel.get("driver_photo_url") or driver.get("profile_picture_url")
 
-    parcel["delivery_blocked_by_payment"] = (
-        parcel.get("status") == ParcelStatus.OUT_FOR_DELIVERY.value
-        and parcel.get("payment_status") != "paid"
-        and not parcel.get("payment_override")
-    )
+    parcel["delivery_blocked_by_payment"] = False
 
     if not is_admin:
         # Masquer le téléphone

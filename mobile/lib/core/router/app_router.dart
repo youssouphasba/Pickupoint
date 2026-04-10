@@ -230,8 +230,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const CreateParcelScreen()),
           GoRoute(
               path: '/client/quote',
-              builder: (_, s) =>
-                  QuoteScreen(data: s.extra as Map<String, dynamic>)),
+              builder: (_, s) {
+                final extra = s.extra;
+                final data = extra is Map<String, dynamic>
+                    ? extra
+                    : extra is Map
+                        ? extra.map((key, value) => MapEntry(key.toString(), value))
+                        : const <String, dynamic>{};
+                return QuoteScreen(data: data);
+              }),
           GoRoute(
               path: '/client/parcel/:id',
               builder: (_, s) =>

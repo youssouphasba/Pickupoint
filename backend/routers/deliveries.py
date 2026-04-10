@@ -309,11 +309,7 @@ async def get_mission(
         mission["pickup_voice_note"] = mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         mission["delivery_voice_note"] = mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
         mission["driver_bonus_xof"] = float(parcel.get("driver_bonus_xof", 0.0))
-        mission["delivery_blocked_by_payment"] = (
-            mission.get("status") == MissionStatus.IN_PROGRESS.value
-            and parcel.get("payment_status") != "paid"
-            and not parcel.get("payment_override")
-        )
+        mission["delivery_blocked_by_payment"] = False
 
     # Enrichissement Photos
     # Driver
