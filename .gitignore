@@ -47,8 +47,6 @@ GoogleService-Info.plist
 firebase-service-account.json
 *-adminsdk-*.json
 firebase-debug.log
-!mobile/android/app/google-services.json
-!mobile/ios/Runner/GoogleService-Info.plist
 
 # Claude Code settings
 .claude/settings.local.json
