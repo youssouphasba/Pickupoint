@@ -1,0 +1,90 @@
+workflows:
+  android_release:
+    name: Android Release
+    max_build_duration: 120
+    environment:
+      flutter: stable
+      xcode: latest
+      groups:
+        - firebase_files
+      vars:
+        PROJECT_PATH: mobile
+    scripts:
+      - name: Prepare Firebase files
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
+          echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
+      - name: Install dependencies
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          flutter pub get
+      - name: Build Android App Bundle
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          flutter build appbundle --release
+      - name: Build Android APK
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          flutter build apk --release --no-tree-shake-icons
+    artifacts:
+      - mobile/build/app/outputs/bundle/release/*.aab
+      - mobile/build/app/outputs/flutter-apk/*.apk
+
+  ios_release:
+    name: iOS Release
+    max_build_duration: 120
+    integrations:
+      app_store_connect: Codemagic Denkma
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - firebase_files
+      vars:
+        PROJECT_PATH: mobile
+        XCODE_WORKSPACE: ios/Runner.xcworkspace
+        XCODE_SCHEME: Runner
+        BUNDLE_ID: com.denkma.app
+    scripts:
+      - name: Prepare Firebase files
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
+          echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
+      - name: Install dependencies
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          flutter pub get
+      - name: Set up iOS code signing
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          flutter build ipa --release
+    artifacts:
+      - mobile/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
