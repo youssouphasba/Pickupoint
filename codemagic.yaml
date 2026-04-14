@@ -7,16 +7,24 @@ workflows:
       xcode: latest
       groups:
         - firebase_files
+        - android_signing
       vars:
         PROJECT_PATH: mobile
     scripts:
-      - name: Prepare Firebase files
+      - name: Prepare Firebase and Android signing files
         script: |
           #!/usr/bin/env bash
           set -euo pipefail
 
           echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
           echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore"
+          printf '%s\n' \
+            "storeFile=$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore" \
+            "storePassword=$ANDROID_KEYSTORE_PASSWORD" \
+            "keyAlias=$ANDROID_KEY_ALIAS" \
+            "keyPassword=$ANDROID_KEY_PASSWORD" \
+            > "$CM_BUILD_DIR/$PROJECT_PATH/android/key.properties"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
       - name: Install dependencies
