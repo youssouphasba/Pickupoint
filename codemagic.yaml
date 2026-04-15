@@ -19,8 +19,15 @@ workflows:
           echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
           echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
           echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore"
+          if [ -n "${CM_KEYSTORE_PATH:-}" ]; then
+            mkdir -p "$(dirname "$CM_KEYSTORE_PATH")"
+            cp "$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore" "$CM_KEYSTORE_PATH"
+            KEYSTORE_PATH="$CM_KEYSTORE_PATH"
+          else
+            KEYSTORE_PATH="$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore"
+          fi
           printf '%s\n' \
-            "storeFile=$CM_BUILD_DIR/$PROJECT_PATH/android/codemagic.keystore" \
+            "storeFile=$KEYSTORE_PATH" \
             "storePassword=$ANDROID_KEYSTORE_PASSWORD" \
             "keyAlias=$ANDROID_KEY_ALIAS" \
             "keyPassword=$ANDROID_KEY_PASSWORD" \
