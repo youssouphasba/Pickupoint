@@ -143,6 +143,27 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         await _send_sms_or_whatsapp(recipient_phone, body)
 
 
+async def notify_quote_finalized(
+    user_id: str,
+    parcel_id: str,
+    tracking_code: str,
+    amount: float,
+    estimated_hours: str,
+):
+    body = (
+        f"Le montant de votre colis {tracking_code} est maintenant confirmé : "
+        f"{int(amount)} FCFA. Durée approximative : {estimated_hours}."
+    )
+    await _store_and_send(
+        user_id=user_id,
+        title="Montant confirmé",
+        body=body,
+        ref_type="parcel",
+        ref_id=parcel_id,
+        category="parcel_updates",
+    )
+
+
 async def _store_and_send(
     user_id: str,
     title: str,

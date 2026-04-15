@@ -337,7 +337,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -960,7 +961,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-          content: Text('Impossible dâ€™ouvrir lâ€™application tÃ©lÃ©phone')),
+          content: Text("Impossible d'ouvrir l'application téléphone")),
     );
   }
 
@@ -996,7 +997,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         _buildInfoRow(
             Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
         _buildInfoRow(
-            Icons.phone, 'TÃ©lÃ©phone', maskPhone(parcel.recipientPhone ?? '')),
+            Icons.phone, 'Téléphone', maskPhone(parcel.recipientPhone ?? '')),
         if (parcel.isRelayToHome)
           _buildInfoRow(
             Icons.location_on,
@@ -1007,8 +1008,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           const SizedBox(height: 8),
           _buildRelayInfoCard(
             relayId: originRelayId,
-            title: 'Relais de dÃ©part',
-            fallbackLabel: 'Relais de dÃ©part',
+            title: 'Relais de départ',
+            fallbackLabel: 'Relais de départ',
           ),
         ],
         if (destinationRelayId != null &&
@@ -1017,12 +1018,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           const SizedBox(height: 8),
           _buildRelayInfoCard(
             relayId: destinationRelayId,
-            title: parcel.isRelayPickup
-                ? 'Relais de retrait'
-                : 'Relais d\'arrivÃ©e',
-            fallbackLabel: parcel.isRelayPickup
-                ? 'Relais de retrait'
-                : 'Relais d\'arrivÃ©e',
+            title:
+                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
+            fallbackLabel:
+                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
           ),
         ],
       ],

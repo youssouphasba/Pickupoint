@@ -523,22 +523,23 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     payer_phone = sender_phone if data.who_pays == "sender" else data.recipient_phone
     payer_name  = sender_name_str if data.who_pays == "sender" else data.recipient_name
 
-    payment_res = await create_payment_link(
-        parcel_id=parcel_id,
-        tracking_code=tracking_code,
-        amount=quote.price,
-        customer_phone=payer_phone,
-        customer_name=payer_name,
-    )
-    if payment_res.get("success"):
-        payment_url = payment_res["payment_link"]
-        await db.parcels.update_one(
-            {"parcel_id": parcel_id},
-            {"$set": {
-                "payment_url": payment_url,
-                "payment_ref": payment_res.get("tx_ref")
-            }}
+    if quote.price is not None:
+        payment_res = await create_payment_link(
+            parcel_id=parcel_id,
+            tracking_code=tracking_code,
+            amount=quote.price,
+            customer_phone=payer_phone,
+            customer_name=payer_name,
         )
+        if payment_res.get("success"):
+            payment_url = payment_res["payment_link"]
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {
+                    "payment_url": payment_url,
+                    "payment_ref": payment_res.get("tx_ref")
+                }}
+            )
 
     # ── Envoyer le code de réception au destinataire par SMS/WhatsApp ──
     # *_to_relay → relay_pin | *_to_home → delivery_code

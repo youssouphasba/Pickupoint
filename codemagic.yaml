@@ -38,7 +38,7 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          flutter build appbundle --release
+          flutter build appbundle --release --no-tree-shake-icons
       - name: Build Android APK
         script: |
           #!/usr/bin/env bash

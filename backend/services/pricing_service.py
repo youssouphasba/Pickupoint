@@ -115,6 +115,62 @@ def _round_to_50(value: float) -> float:
     return math.ceil(value / 50) * 50
 
 
+def _has_delivery_geopin(quote: ParcelQuote) -> bool:
+    gp = (
+        quote.delivery_address.geopin
+        if quote.delivery_address and hasattr(quote.delivery_address, "geopin")
+        else None
+    )
+    return bool(gp and gp.lat is not None and gp.lng is not None)
+
+
+def _has_origin_geopin(quote: ParcelQuote) -> bool:
+    gp = (
+        quote.origin_location.geopin
+        if quote.origin_location and hasattr(quote.origin_location, "geopin")
+        else None
+    )
+    return bool(gp and gp.lat is not None and gp.lng is not None)
+
+
+def _quote_requirements_status(quote: ParcelQuote) -> dict:
+    missing_points: list[str] = []
+    waiting_for_sender = False
+    waiting_for_recipient = False
+
+    if not quote.origin_relay_id and not _has_origin_geopin(quote):
+        missing_points.append("origin")
+        waiting_for_sender = True
+
+    if not quote.destination_relay_id and not _has_delivery_geopin(quote):
+        missing_points.append("destination")
+        waiting_for_recipient = True
+
+    if not missing_points:
+        return {
+            "ready": True,
+            "missing_points": [],
+            "waiting_for_sender_confirmation": False,
+            "waiting_for_recipient_confirmation": False,
+            "status_label": None,
+        }
+
+    if waiting_for_sender and waiting_for_recipient:
+        status_label = "En attente de validation des positions"
+    elif waiting_for_sender:
+        status_label = "En attente de validation du point de collecte"
+    else:
+        status_label = "En attente de validation de la destination"
+
+    return {
+        "ready": False,
+        "missing_points": missing_points,
+        "waiting_for_sender_confirmation": waiting_for_sender,
+        "waiting_for_recipient_confirmation": waiting_for_recipient,
+        "status_label": status_label,
+    }
+
+
 # ── Point d'entrée principal ──────────────────────────────────────────────────
 
 async def calculate_price(
@@ -124,6 +180,25 @@ async def calculate_price(
     user_id: Optional[str] = None,
     is_first_delivery: bool = False,
 ) -> QuoteResponse:
+    requirements = _quote_requirements_status(quote)
+    if not requirements["ready"]:
+        return QuoteResponse(
+            price=None,
+            currency="XOF",
+            breakdown={
+                "delivery_mode": quote.delivery_mode.value,
+                "who_pays": quote.who_pays,
+                "is_express": quote.is_express,
+                "weight_kg": quote.weight_kg,
+                "price_available": False,
+                "duration_available": False,
+                "awaiting_recipient_confirmation": requirements["waiting_for_recipient_confirmation"],
+                "awaiting_sender_confirmation": requirements["waiting_for_sender_confirmation"],
+                "missing_points": requirements["missing_points"],
+                "status_label": requirements["status_label"],
+            },
+        )
+
     base       = _base_price(quote.delivery_mode)
     distance   = await estimate_distance_km(quote)
     dist_cost  = distance * settings.PRICE_PER_KM
@@ -202,6 +277,7 @@ async def calculate_price(
     )
 
     breakdown = {
+        "delivery_mode":  quote.delivery_mode.value,
         "base":           base,
         "distance_km":    distance,
         "distance_cost":  round(dist_cost),
@@ -220,6 +296,12 @@ async def calculate_price(
         "who_pays":       quote.who_pays,
         "estimated_hours": estimated_hours,
         "promo_code":     quote.promo_code,
+        "price_available": True,
+        "duration_available": True,
+        "awaiting_recipient_confirmation": False,
+        "awaiting_sender_confirmation": False,
+        "missing_points": [],
+        "status_label": "Disponible",
     }
 
     return QuoteResponse(

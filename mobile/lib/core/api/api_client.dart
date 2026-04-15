@@ -137,7 +137,7 @@ class ApiClient {
       _dio.get(ApiEndpoints.driverLocation(id));
 
   Future<Response> cancelParcel(String id) =>
-      _dio.post(ApiEndpoints.parcelEvent(id, 'cancel'));
+      _dio.put(ApiEndpoints.parcelEvent(id, 'cancel'));
 
   Future<Response> changeDeliveryMode(String id, Map<String, dynamic> body) =>
       _dio.put('${ApiEndpoints.parcels}/$id/change-delivery-mode', data: body);

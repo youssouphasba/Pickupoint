@@ -162,7 +162,7 @@ class ParcelQuote(BaseModel):
 
 
 class QuoteResponse(BaseModel):
-    price:          float
+    price:          Optional[float] = None
     currency:       str = "XOF"
     breakdown:      Dict[str, Any] = {}
     original_price: Optional[float] = None  # Si une promo est appliquée

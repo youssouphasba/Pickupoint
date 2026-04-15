@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -45,12 +44,16 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       final quote = _asMap(widget.data['quote']);
       final breakdown = _asMap(quote['breakdown']);
       final formData = _asMap(widget.data['formData']);
-      final price = _num(quote['price']);
+      final price = _numNullable(quote['price']);
+      if (price == null) {
+        throw Exception('Prix indisponible');
+      }
       final mode = breakdown['delivery_mode']?.toString() ??
           formData['delivery_mode']?.toString() ??
           'relay_to_relay';
 
-      final res = await ref.read(apiClientProvider).checkPromoCode(code, price, mode);
+      final res =
+          await ref.read(apiClientProvider).checkPromoCode(code, price, mode);
       final data = _asMap(res.data);
       setState(() => _promoResult = data);
     } catch (e) {
@@ -72,8 +75,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     setState(() => _isConfirming = true);
     try {
       final api = ref.read(apiClientProvider);
-      final formData =
-          Map<String, dynamic>.from(widget.data['formData'] as Map? ?? const {});
+      final formData = Map<String, dynamic>.from(
+        widget.data['formData'] as Map? ?? const {},
+      );
       final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
       final promoCode = _promoResult != null
           ? _promoController.text.trim().toUpperCase()
@@ -92,20 +96,23 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
           await api.sendParcelVoice(parcelId, pickupVoicePath);
         } catch (_) {}
       }
-      final paymentUrl = res.data['payment_url'] as String?;
-
       if (!mounted) return;
-      if (paymentUrl != null) {
-        _showPaymentWebView(paymentUrl);
+      ref.invalidate(parcelsProvider);
+      if (parcelId != null && parcelId.isNotEmpty) {
+        context.go('/client/parcel/$parcelId');
       } else {
         context.go('/client');
-        ref.invalidate(parcelsProvider);
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Demande confirmée. Le colis a été créé avec succès.'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyError(e))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     } finally {
       if (mounted) {
         setState(() => _isConfirming = false);
@@ -113,52 +120,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     }
   }
 
-  void _showPaymentWebView(String url) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => SizedBox(
-        height: MediaQuery.of(context).size.height * 0.9,
-        child: Column(
-          children: [
-            AppBar(
-              title: const Text('Paiement securise'),
-              leading: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-            Expanded(
-              child: InAppWebView(
-                initialUrlRequest: URLRequest(url: WebUri(url)),
-                onLoadStop: (controller, uri) {
-                  final current = uri.toString();
-                  if (current.contains('callback') ||
-                      current.contains('status=successful')) {
-                    Navigator.pop(context);
-                    this.context.go('/client');
-                    ref.invalidate(parcelsProvider);
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Paiement reussi. Colis cree.'),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final quote = _asMap(widget.data['quote']);
     final breakdown = _asMap(quote['breakdown']);
-    final total = _num(quote['price']);
+    final total = _numNullable(quote['price']);
     final base = _num(breakdown['base']);
     final distKm = _num(breakdown['distance_km']);
     final distCost = _num(breakdown['distance_cost']);
@@ -169,8 +135,21 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final expressCost = _num(breakdown['express_cost']);
     final isExpress = breakdown['is_express'] == true;
     final whoPays = breakdown['who_pays']?.toString() ?? 'sender';
-    final estHours = breakdown['estimated_hours']?.toString() ?? '-';
+    final estHours = breakdown['estimated_hours']?.toString();
     final coeffFactors = _asMap(breakdown['coeff_factors']);
+    final awaitingRecipientConfirmation =
+        breakdown['awaiting_recipient_confirmation'] == true;
+    final awaitingSenderConfirmation =
+        breakdown['awaiting_sender_confirmation'] == true;
+    final statusLabel = breakdown['status_label']?.toString();
+    final priceAvailable =
+        breakdown['price_available'] == true && total != null;
+    final durationAvailable = breakdown['duration_available'] == true &&
+        estHours != null &&
+        estHours.isNotEmpty;
+    final finalAmount = _promoResult != null
+        ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
+        : total;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Votre devis')),
@@ -186,119 +165,177 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                 color: Theme.of(context).primaryColor,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Column(
-                children: [
-                  const Text(
-                    'TOTAL A PAYER',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      letterSpacing: 1,
+              child: priceAvailable
+                  ? Column(
+                      children: [
+                        const Text(
+                          'MONTANT ESTIMÉ',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        if (_promoResult != null) ...[
+                          Text(
+                            formatXof(total),
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 18,
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                        ],
+                        Text(
+                          formatXof(finalAmount ?? 0),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        if (durationAvailable)
+                          Text(
+                            isExpress
+                                ? estHours
+                                : 'Durée approximative : $estHours',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                          ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        const Icon(
+                          Icons.pending_actions,
+                          color: Colors.white,
+                          size: 36,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Devis en attente',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          statusLabel != null && statusLabel.isNotEmpty
+                              ? '$statusLabel. Le montant et la durée seront calculés dès que toutes les informations nécessaires seront confirmées.'
+                              : awaitingRecipientConfirmation &&
+                                      awaitingSenderConfirmation
+                                  ? 'Le montant et la durée seront calculés après la validation des positions nécessaires.'
+                                  : awaitingRecipientConfirmation
+                                      ? 'Le montant et la durée seront calculés après la validation de la destination.'
+                                      : awaitingSenderConfirmation
+                                          ? 'Le montant et la durée seront calculés après la validation du point de collecte.'
+                                          : 'Le montant et la durée seront disponibles dès que toutes les informations nécessaires seront confirmées.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  if (_promoResult != null) ...[
-                    Text(
-                      formatXof(total),
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 18,
-                        decoration: TextDecoration.lineThrough,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                  ],
-                  Text(
-                    formatXof(_promoResult != null
-                        ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
-                        : total),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isExpress ? estHours : 'Estimation livraison : $estHours',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 20),
-            _sectionTitle('Resume de l envoi'),
+            _sectionTitle('Résumé de l’envoi'),
             const SizedBox(height: 8),
             _buildOrderSummary(),
-            const SizedBox(height: 20),
-            _sectionTitle('Detail du prix'),
-            const SizedBox(height: 8),
-            _row('Prix de base', base),
-            _row('Distance (${distKm.toStringAsFixed(1)} km)', distCost),
-            if (extraKg > 0)
-              _row(
-                'Supplement poids (${extraKg.toStringAsFixed(1)} kg)',
-                weightCost,
-              ),
-            const Divider(height: 20),
-            _row('Sous-total', sousTotal, bold: true),
-            if (coeff != 1.0) ...[
-              const SizedBox(height: 4),
-              _coeffRow(coeff, coeffFactors),
+            if (priceAvailable) ...[
+              const SizedBox(height: 20),
+              _sectionTitle('Détail du prix'),
+              const SizedBox(height: 8),
+              _row('Prix de base', base),
+              _row('Distance (${distKm.toStringAsFixed(1)} km)', distCost),
+              if (extraKg > 0)
+                _row(
+                  'Supplément poids (${extraKg.toStringAsFixed(1)} kg)',
+                  weightCost,
+                ),
+              const Divider(height: 20),
+              _row('Sous-total', sousTotal, bold: true),
+              if (coeff != 1.0) ...[
+                const SizedBox(height: 4),
+                _coeffRow(coeff, coeffFactors),
+              ],
+              if (isExpress && expressCost > 0) ...[
+                const SizedBox(height: 4),
+                _row(
+                  'Supplément express (+30 %)',
+                  expressCost,
+                  color: const Color(0xFFFF6B00),
+                ),
+              ],
+              const SizedBox(height: 20),
+              _buildPromoSection(),
+              const Divider(height: 20),
+              _row('TOTAL', finalAmount ?? 0, bold: true, large: true),
+            ] else ...[
+              const SizedBox(height: 20),
+              _infoCard([
+                _infoRow(
+                  Icons.info_outline,
+                  'Devis',
+                  'Le colis peut être créé maintenant. Le montant réel et la durée approximative seront envoyés dès que le destinataire aura confirmé sa position.',
+                ),
+              ]),
             ],
-            if (isExpress && expressCost > 0) ...[
-              const SizedBox(height: 4),
-              _row(
-                'Supplement express (+30 %)',
-                expressCost,
-                color: const Color(0xFFFF6B00),
-              ),
-            ],
-            const SizedBox(height: 20),
-            _buildPromoSection(),
-            const Divider(height: 20),
-            _row(
-              'TOTAL',
-              _promoResult != null
-                  ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
-                  : total,
-              bold: true,
-              large: true,
-            ),
             const SizedBox(height: 20),
             _sectionTitle('Informations pratiques'),
             const SizedBox(height: 8),
             _infoCard([
-              _infoRow(Icons.schedule, 'Delai estime', estHours),
+              _infoRow(
+                Icons.schedule,
+                'Durée approximative',
+                durationAvailable
+                    ? estHours
+                    : 'Disponible après validation du destinataire',
+              ),
               _infoRow(
                 Icons.payment,
                 'Paiement',
                 whoPays == 'sender'
-                    ? 'Regle par l expediteur'
-                    : 'Regle par le destinataire',
+                    ? 'Réglé par l’expéditeur'
+                    : 'Réglé par le destinataire',
               ),
               if (isExpress)
                 _infoRow(
                   Icons.bolt,
                   'Mode',
-                  'Express - priorite maximale',
+                  'Express - priorité maximale',
                   color: const Color(0xFFFF6B00),
                 ),
             ]),
             const SizedBox(height: 24),
             const Text(
-              'En confirmant, vous acceptez nos conditions generales de transport.',
+              'En confirmant, vous acceptez nos conditions générales de transport.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
             LoadingButton(
-              label: whoPays == 'recipient'
-                  ? 'Confirmer la commande'
-                  : 'Confirmer et payer',
+              label: 'Confirmer la demande',
               isLoading: _isConfirming,
               onPressed: _confirmAndPay,
             ),
+            if (!priceAvailable) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Le paiement apparaîtra dans le détail du colis dès que le montant final sera disponible.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
             const SizedBox(height: 24),
           ],
         ),
@@ -311,11 +348,15 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       return value;
     }
     if (value is Map) {
-      return value.map(
-        (key, item) => MapEntry(key.toString(), item),
-      );
+      return value.map((key, item) => MapEntry(key.toString(), item));
     }
     return const <String, dynamic>{};
+  }
+
+  double? _numNullable(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
   }
 
   Widget _buildPromoSection() {
@@ -334,7 +375,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             ),
             child: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.green.shade700, size: 20),
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.green.shade700,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -373,8 +418,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                   controller: _promoController,
                   textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
-                    hintText: 'Ex: DENKMA20',
-                    prefixIcon: const Icon(Icons.local_offer_outlined, size: 20),
+                    hintText: 'Ex. : DENKMA20',
+                    prefixIcon: const Icon(
+                      Icons.local_offer_outlined,
+                      size: 20,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -413,8 +461,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final formData = _asMap(widget.data['formData']);
     final recipientName = widget.data['recipient_name']?.toString() ?? '-';
     final recipientPhone = widget.data['recipient_phone']?.toString() ?? '-';
-    final weight =
-        _num(formData['weight_kg']);
+    final weight = _num(formData['weight_kg']);
     final declaredValue = _num(formData['declared_value']);
     final whoPays = formData['who_pays']?.toString() ?? 'sender';
     final initiatedBy = formData['initiated_by']?.toString() ?? 'sender';
@@ -427,11 +474,15 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         _modeLabel(formData['delivery_mode']?.toString()),
       ),
       _infoRow(Icons.person_outline, 'Destinataire', recipientName),
-      _infoRow(Icons.phone_outlined, 'Telephone', recipientPhone),
-      _infoRow(Icons.scale_outlined, 'Poids', '${weight.toStringAsFixed(1)} kg'),
+      _infoRow(Icons.phone_outlined, 'Téléphone', recipientPhone),
+      _infoRow(
+        Icons.scale_outlined,
+        'Poids',
+        '${weight.toStringAsFixed(1)} kg',
+      ),
       _infoRow(
         Icons.shield_outlined,
-        'Valeur declaree',
+        'Valeur déclarée',
         formatXof(declaredValue),
       ),
       _infoRow(
@@ -439,17 +490,16 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         'Paiement',
         whoPays == 'recipient'
             ? 'Pris en charge par le destinataire'
-            : 'Pris en charge par l expediteur',
+            : 'Pris en charge par l’expéditeur',
       ),
       _infoRow(
         Icons.swap_horiz,
         'Initiative',
         initiatedBy == 'recipient'
             ? 'Le destinataire initie la demande'
-            : 'L expediteur initie la demande',
+            : 'L’expéditeur initie la demande',
       ),
-      if (isExpress)
-        _infoRow(Icons.bolt_outlined, 'Express', 'Oui'),
+      if (isExpress) _infoRow(Icons.bolt_outlined, 'Express', 'Oui'),
     ]);
   }
 
@@ -510,7 +560,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final sign = isBoost ? '+' : '-';
     final label = isBoost
         ? 'Coefficient demande ($sign$pct %)'
-        : 'Remise creux ($sign$pct %)';
+        : 'Remise heure creuse ($sign$pct %)';
 
     final reasons = factors.entries
         .where((entry) => !entry.key.startsWith('_'))
@@ -521,7 +571,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             case 'rush_hour':
               return 'Heure de pointe';
             case 'lunch_rush':
-              return 'Heure du dejeuner';
+              return 'Heure du déjeuner';
             case 'night':
               return 'Tarif nuit';
             case 'sunday':
@@ -531,7 +581,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             case 'surge_medium':
               return 'Demande elevee';
             case 'low_demand':
-              return 'Faible activite';
+              return 'Faible activité';
             case 'loyalty_tier':
               return 'Avantage membre ${value.toString().toUpperCase()}';
             case 'is_frequent':

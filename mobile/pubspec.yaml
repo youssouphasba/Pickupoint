@@ -72,4 +72,6 @@ dev_dependencies:
   riverpod_generator: ^2.4.0
 
 flutter:
+  assets:
+    - shorebird.yaml
   uses-material-design: true

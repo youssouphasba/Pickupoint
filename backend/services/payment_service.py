@@ -1,10 +1,11 @@
 """
-Service paiement : intégration Flutterwave pour Wave, Orange Money, Mobile Money (XOF).
-Docs : https://developer.flutterwave.com/docs
+Service paiement : integration Flutterwave pour Wave, Orange Money et cartes.
 """
 import logging
-import httpx
 from typing import Optional
+
+import httpx
+
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,20 +25,24 @@ async def create_payment_link(
     tracking_code: str,
     amount: float,
     customer_phone: str,
-    customer_name: str = "Client PickuPoint",
-    customer_email: str = "client@pickupoint.sn",
+    customer_name: str = "Client Denkma",
+    customer_email: str = "client@denkma.app",
     redirect_url: str = "https://pickupoint.sn/payment/callback",
 ) -> dict:
     """
-    Crée un lien de paiement Flutterwave (Standard Payment Link).
-    Retourne l'URL de paiement à rediriger côté client.
+    Cree un lien de paiement Flutterwave.
+
+    Si Flutterwave n'est pas configure, aucun faux lien n'est genere :
+    le paiement reste simplement disponible plus tard.
     """
     if not settings.FLUTTERWAVE_SECRET_KEY:
-        logger.warning("Flutterwave non configuré — paiement simulé")
+        logger.warning(
+            "Flutterwave non configure - aucun lien de paiement genere"
+        )
         return {
-            "success": True,
-            "tx_ref": f"PKP-{parcel_id[:8]}",
-            "payment_link": f"https://pay.example.com/{tracking_code}",
+            "success": False,
+            "tx_ref": None,
+            "payment_link": None,
             "simulated": True,
         }
 
@@ -50,17 +55,17 @@ async def create_payment_link(
         "redirect_url": redirect_url,
         "payment_options": "mobilemoneyfranco,card",
         "customer": {
-            "email":       customer_email,
+            "email": customer_email,
             "phone_number": customer_phone,
-            "name":        customer_name,
+            "name": customer_name,
         },
         "customizations": {
-            "title":       "PickuPoint",
+            "title": "Denkma",
             "description": f"Paiement colis {tracking_code}",
-            "logo":        "https://pickupoint.sn/logo.png",
+            "logo": "https://pickupoint.sn/logo.png",
         },
         "meta": {
-            "parcel_id":     parcel_id,
+            "parcel_id": parcel_id,
             "tracking_code": tracking_code,
         },
     }
@@ -80,19 +85,15 @@ async def create_payment_link(
                     "tx_ref": tx_ref,
                     "payment_link": data["data"]["link"],
                 }
-            else:
-                logger.error(f"Flutterwave erreur : {data}")
-                return {"success": False, "error": data.get("message")}
-    except Exception as e:
-        logger.error(f"Erreur réseau Flutterwave : {e}")
-        return {"success": False, "error": str(e)}
+            logger.error("Flutterwave erreur : %s", data)
+            return {"success": False, "error": data.get("message")}
+    except Exception as exc:
+        logger.error("Erreur reseau Flutterwave : %s", exc)
+        return {"success": False, "error": str(exc)}
 
 
 async def verify_payment(transaction_id: str) -> dict:
-    """
-    Vérifie le statut d'une transaction Flutterwave via son ID.
-    À appeler après le redirect ou dans le webhook.
-    """
+    """Verifie le statut d'une transaction Flutterwave via son ID."""
     if not settings.FLUTTERWAVE_SECRET_KEY:
         return {"status": "successful", "simulated": True}
 
@@ -107,13 +108,13 @@ async def verify_payment(transaction_id: str) -> dict:
             if data.get("status") == "success":
                 return data.get("data", {})
             return {"status": "error", "message": data.get("message")}
-    except Exception as e:
-        logger.error(f"Erreur vérification Flutterwave : {e}")
-        return {"status": "error", "error": str(e)}
+    except Exception as exc:
+        logger.error("Erreur verification Flutterwave : %s", exc)
+        return {"status": "error", "error": str(exc)}
 
 
 async def verify_by_tx_ref(tx_ref: str) -> dict:
-    """Recherche une transaction par tx_ref (utile dans le webhook)."""
+    """Recherche une transaction par tx_ref."""
     if not settings.FLUTTERWAVE_SECRET_KEY:
         return {"status": "successful", "simulated": True}
 
@@ -130,6 +131,6 @@ async def verify_by_tx_ref(tx_ref: str) -> dict:
             if items:
                 return items[0]
             return {"status": "not_found"}
-    except Exception as e:
-        logger.error(f"Erreur recherche tx_ref : {e}")
-        return {"status": "error", "error": str(e)}
+    except Exception as exc:
+        logger.error("Erreur recherche tx_ref : %s", exc)
+        return {"status": "error", "error": str(exc)}

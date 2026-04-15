@@ -7,6 +7,7 @@ import html
 import json
 import secrets
 from datetime import datetime, timezone
+from datetime import timedelta
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -17,8 +18,85 @@ from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from database import db
 from services.otp_service import _send_via_twilio
+from models.parcel import ParcelQuote
+from services.pricing_service import calculate_price
+from services.payment_service import create_payment_link
 
 router = APIRouter()
+
+
+async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
+    sender_user_id = parcel.get("sender_user_id")
+    user = await db.users.find_one({"user_id": sender_user_id}) if sender_user_id else None
+    sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
+
+    month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    delivered_count = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered",
+        "created_at": {"$gte": month_ago},
+    })
+    total_delivered = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered",
+    })
+
+    quote_req = ParcelQuote(
+        delivery_mode=parcel["delivery_mode"],
+        origin_relay_id=parcel.get("origin_relay_id"),
+        destination_relay_id=parcel.get("destination_relay_id"),
+        origin_location=parcel.get("origin_location"),
+        delivery_address=parcel.get("delivery_address"),
+        weight_kg=float(parcel.get("weight_kg") or 0.5),
+        declared_value=parcel.get("declared_value"),
+        is_express=bool(parcel.get("is_express")),
+        who_pays=parcel.get("who_pays") or "sender",
+        promo_code=None,
+    )
+
+    quote = await calculate_price(
+        quote_req,
+        sender_tier=sender_tier,
+        is_frequent=delivered_count >= 10,
+        user_id=sender_user_id,
+        is_first_delivery=(total_delivered == 0),
+    )
+
+    payment_url = None
+    payment_ref = None
+    if quote.price is not None:
+        payer_phone = parcel.get("sender_phone") if parcel.get("who_pays") == "sender" else parcel.get("recipient_phone")
+        payer_name = parcel.get("sender_name") if parcel.get("who_pays") == "sender" else parcel.get("recipient_name")
+        payment_res = await create_payment_link(
+            parcel_id=parcel["parcel_id"],
+            tracking_code=parcel["tracking_code"],
+            amount=quote.price,
+            customer_phone=payer_phone or "",
+            customer_name=payer_name or "Client Denkma",
+        )
+        if payment_res.get("success"):
+            payment_url = payment_res.get("payment_link")
+            payment_ref = payment_res.get("tx_ref")
+
+    previous_price = parcel.get("quoted_price")
+    updates = {
+        "quoted_price": quote.price,
+        "quote_breakdown": quote.breakdown,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if payment_url:
+        updates["payment_url"] = payment_url
+    if payment_ref:
+        updates["payment_ref"] = payment_ref
+    if quote.price is None:
+        updates["payment_url"] = None
+        updates["payment_ref"] = None
+
+    await db.parcels.update_one({"parcel_id": parcel["parcel_id"]}, {"$set": updates})
+
+    refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+    quote_became_available = previous_price is None and quote.price is not None
+    return refreshed, quote_became_available
 
 
 class LocationPayload(BaseModel):
@@ -246,6 +324,26 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
 
         from services.parcel_service import _create_delivery_mission
         from models.common import ParcelStatus
+
+        if mode.startswith("home_to_") or mode.endswith("_to_home"):
+            updated_parcel, quote_became_available = await _refresh_quote_if_ready(updated_parcel)
+            quoted_price = updated_parcel.get("quoted_price")
+            estimated_hours = ((updated_parcel.get("quote_breakdown") or {}).get("estimated_hours"))
+            payer_user_id = (
+                updated_parcel.get("recipient_user_id")
+                if updated_parcel.get("who_pays") == "recipient"
+                else updated_parcel.get("sender_user_id")
+            )
+            if quote_became_available and payer_user_id and quoted_price is not None and estimated_hours:
+                from services.notification_service import notify_quote_finalized
+
+                await notify_quote_finalized(
+                    user_id=payer_user_id,
+                    parcel_id=updated_parcel["parcel_id"],
+                    tracking_code=updated_parcel.get("tracking_code", ""),
+                    amount=float(quoted_price),
+                    estimated_hours=str(estimated_hours),
+                )
 
         if is_recipient and mode.endswith("_to_home"):
             if status == ParcelStatus.CREATED.value and mode == "home_to_home":

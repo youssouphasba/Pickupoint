@@ -18,16 +18,17 @@ class ParcelEvent {
   final String? actorId;
 
   factory ParcelEvent.fromJson(Map<String, dynamic> json) => ParcelEvent(
-        id: json['event_id'] as String? ?? json['id'] as String? ?? '',
-        parcelId: json['parcel_id'] as String? ?? '',
-        eventType: json['event_type'] as String? ?? '',
-        // to_status contient le nouveau statut
-        status: (json['to_status'] ?? json['status'] ?? 'created').toString(),
-        createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
-            DateTime.now(),
-        note: json['notes']?.toString(),
-        actorId: json['actor_id']?.toString(),
-      );
+    id: json['event_id'] as String? ?? json['id'] as String? ?? '',
+    parcelId: json['parcel_id'] as String? ?? '',
+    eventType: json['event_type'] as String? ?? '',
+    // to_status contient le nouveau statut
+    status: (json['to_status'] ?? json['status'] ?? 'created').toString(),
+    createdAt:
+        DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+        DateTime.now(),
+    note: json['notes']?.toString(),
+    actorId: json['actor_id']?.toString(),
+  );
 }
 
 class Parcel {
@@ -81,6 +82,7 @@ class Parcel {
     this.etaSeconds,
     this.encodedPolyline,
     this.paymentMethod,
+    this.paymentUrl,
     this.whoPays,
     this.paymentOverride = false,
     this.deliveryBlockedByPayment = false,
@@ -120,11 +122,11 @@ class Parcel {
   final Map<String, dynamic>? deliveryLocation; // {lat, lng, accuracy}
   final Map<String, dynamic>? pickupLocation;
   final String?
-      deliveryCode; // code que le destinataire donne au livreur (domicile)
+  deliveryCode; // code que le destinataire donne au livreur (domicile)
   final String?
-      pinCode; // code que le destinataire donne au relais (retrait relais)
+  pinCode; // code que le destinataire donne au relais (retrait relais)
   final String?
-      pickupCode; // code que l'expéditeur donne au livreur (H2R / H2H)
+  pickupCode; // code que l'expéditeur donne au livreur (H2R / H2H)
   final double? deliveryLat;
   final double? deliveryLng;
   final int? rating;
@@ -146,6 +148,7 @@ class Parcel {
   final int? etaSeconds;
   final String? encodedPolyline;
   final String? paymentMethod;
+  final String? paymentUrl;
   final String? whoPays;
   final bool paymentOverride;
   final bool deliveryBlockedByPayment;
@@ -163,37 +166,44 @@ class Parcel {
     return Parcel(
       id: json['parcel_id'] as String? ?? json['id'] as String? ?? '',
       trackingCode: json['tracking_code'] as String? ?? '',
-      status: (json['status'] is String
-              ? json['status']
-              : (json['status'] as Map?)?['value'] ?? 'created')
-          .toString(),
-      deliveryMode: (json['delivery_mode'] is String
-              ? json['delivery_mode']
-              : (json['delivery_mode'] as Map?)?['value'] ?? 'relay_to_relay')
-          .toString(),
+      status:
+          (json['status'] is String
+                  ? json['status']
+                  : (json['status'] as Map?)?['value'] ?? 'created')
+              .toString(),
+      deliveryMode:
+          (json['delivery_mode'] is String
+                  ? json['delivery_mode']
+                  : (json['delivery_mode'] as Map?)?['value'] ??
+                        'relay_to_relay')
+              .toString(),
       senderId: json['sender_user_id']?.toString() ?? '',
       senderName: json['sender_name']?.toString(),
       originRelayId: json['origin_relay_id']?.toString(),
       destinationRelayId: json['destination_relay_id']?.toString(),
       recipientName: json['recipient_name']?.toString(),
       recipientPhone: json['recipient_phone']?.toString(),
-      destinationAddress: deliveryAddr?['label']?.toString() ??
+      destinationAddress:
+          deliveryAddr?['label']?.toString() ??
           deliveryAddr?['district']?.toString(),
       destinationLat: (geopin?['lat'] as num?)?.toDouble(),
       destinationLng: (geopin?['lng'] as num?)?.toDouble(),
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
       declaredValue: (json['declared_value'] as num?)?.toDouble(),
       hasInsurance: json['is_insured'] as bool? ?? false,
-      totalPrice: (json['quoted_price'] as num?)?.toDouble() ??
+      totalPrice:
+          (json['quoted_price'] as num?)?.toDouble() ??
           (json['paid_price'] as num?)?.toDouble(),
       paymentStatus: json['payment_status']?.toString(),
       externalRef: json['external_ref']?.toString(),
-      events: (json['events'] as List<dynamic>?)
+      events:
+          (json['events'] as List<dynamic>?)
               ?.map((e) => ParcelEvent.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
       assignedDriverId: json['assigned_driver_id']?.toString(),
-      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ??
+      createdAt:
+          DateTime.tryParse(json['created_at']?.toString() ?? '') ??
           DateTime.now(),
       initiatedBy: json['initiated_by']?.toString() ?? 'sender',
       deliveryConfirmed: json['delivery_confirmed'] as bool? ?? false,
@@ -205,14 +215,12 @@ class Parcel {
       pickupCode: json['pickup_code'] as String?,
       deliveryLat:
           (json['delivery_address'] as Map<String, dynamic>?)?['geopin'] != null
-              ? ((json['delivery_address']['geopin']['lat']) as num?)
-                  ?.toDouble()
-              : null,
+          ? ((json['delivery_address']['geopin']['lat']) as num?)?.toDouble()
+          : null,
       deliveryLng:
           (json['delivery_address'] as Map<String, dynamic>?)?['geopin'] != null
-              ? ((json['delivery_address']['geopin']['lng']) as num?)
-                  ?.toDouble()
-              : null,
+          ? ((json['delivery_address']['geopin']['lng']) as num?)?.toDouble()
+          : null,
       rating: json['rating'] as int?,
       ratingComment: json['rating_comment'] as String?,
       driverTip: (json['driver_tip'] as num?)?.toDouble() ?? 0.0,
@@ -230,6 +238,7 @@ class Parcel {
       etaSeconds: (json['eta_seconds'] as num?)?.toInt(),
       encodedPolyline: json['encoded_polyline'] as String?,
       paymentMethod: json['payment_method'] as String?,
+      paymentUrl: json['payment_url'] as String?,
       whoPays: json['who_pays'] as String?,
       paymentOverride: json['payment_override'] as bool? ?? false,
       deliveryBlockedByPayment:
@@ -259,7 +268,7 @@ class QuoteResponse {
     this.promoApplied,
   });
 
-  final double price;
+  final double? price;
   final String currency;
   final Map<String, dynamic> breakdown;
   final double? originalPrice;
@@ -267,16 +276,16 @@ class QuoteResponse {
   final Map<String, dynamic>? promoApplied;
 
   factory QuoteResponse.fromJson(Map<String, dynamic> json) => QuoteResponse(
-        // Backend retourne { price, currency, breakdown }
-        price: (json['price'] as num).toDouble(),
-        currency: json['currency'] as String? ?? 'XOF',
-        breakdown: json['breakdown'] as Map<String, dynamic>? ?? {},
-        originalPrice: (json['original_price'] as num?)?.toDouble(),
-        discountXof: (json['discount_xof'] as num?)?.toDouble() ?? 0.0,
-        promoApplied: json['promo_applied'] as Map<String, dynamic>?,
-      );
+    // Backend retourne { price, currency, breakdown }
+    price: (json['price'] as num?)?.toDouble(),
+    currency: json['currency'] as String? ?? 'XOF',
+    breakdown: json['breakdown'] as Map<String, dynamic>? ?? {},
+    originalPrice: (json['original_price'] as num?)?.toDouble(),
+    discountXof: (json['discount_xof'] as num?)?.toDouble() ?? 0.0,
+    promoApplied: json['promo_applied'] as Map<String, dynamic>?,
+  );
 
-  double get base => (breakdown['base'] as num?)?.toDouble() ?? price;
+  double get base => (breakdown['base'] as num?)?.toDouble() ?? (price ?? 0);
   double get weight => (breakdown['weight'] as num?)?.toDouble() ?? 0;
   double get insurance => (breakdown['insurance'] as num?)?.toDouble() ?? 0;
 }
