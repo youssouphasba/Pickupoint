@@ -24,8 +24,17 @@ from services.payment_service import create_payment_link
 
 router = APIRouter()
 
+TERMINAL_PARCEL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
+
+
+def _is_confirm_token_expired(parcel: dict) -> bool:
+    return (parcel.get("status") or "").lower() in TERMINAL_PARCEL_STATUSES
+
 
 async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
+    # Verrou atomique : seule la premiere confirmation qui rend le devis calculable
+    # recree le lien de paiement, les requetes paralleles trouvent quoted_price deja
+    # rempli et repartent sans toucher au lien existant.
     sender_user_id = parcel.get("sender_user_id")
     user = await db.users.find_one({"user_id": sender_user_id}) if sender_user_id else None
     sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
@@ -62,41 +71,70 @@ async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         is_first_delivery=(total_delivered == 0),
     )
 
-    payment_url = None
-    payment_ref = None
-    if quote.price is not None:
-        payer_phone = parcel.get("sender_phone") if parcel.get("who_pays") == "sender" else parcel.get("recipient_phone")
-        payer_name = parcel.get("sender_name") if parcel.get("who_pays") == "sender" else parcel.get("recipient_name")
-        payment_res = await create_payment_link(
-            parcel_id=parcel["parcel_id"],
-            tracking_code=parcel["tracking_code"],
-            amount=quote.price,
-            customer_phone=payer_phone or "",
-            customer_name=payer_name or "Client Denkma",
-        )
-        if payment_res.get("success"):
-            payment_url = payment_res.get("payment_link")
-            payment_ref = payment_res.get("tx_ref")
-
     previous_price = parcel.get("quoted_price")
-    updates = {
-        "quoted_price": quote.price,
-        "quote_breakdown": quote.breakdown,
-        "updated_at": datetime.now(timezone.utc),
-    }
-    if payment_url:
-        updates["payment_url"] = payment_url
-    if payment_ref:
-        updates["payment_ref"] = payment_ref
-    if quote.price is None:
-        updates["payment_url"] = None
-        updates["payment_ref"] = None
 
-    await db.parcels.update_one({"parcel_id": parcel["parcel_id"]}, {"$set": updates})
+    # Cas 1 : devis toujours pas calculable -> on ne touche ni au paiement ni au prix.
+    if quote.price is None:
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"]},
+            {"$set": {
+                "quote_breakdown": quote.breakdown,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    # Cas 2 : devis deja existant (autre confirmation parallele a deja cree le lien).
+    # On met juste a jour le breakdown et on sort sans recreer de lien de paiement.
+    if previous_price is not None:
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"]},
+            {"$set": {
+                "quoted_price": quote.price,
+                "quote_breakdown": quote.breakdown,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    # Cas 3 : premier calcul. On reserve le slot atomiquement avant d'appeler Flutterwave.
+    now = datetime.now(timezone.utc)
+    lock_result = await db.parcels.update_one(
+        {"parcel_id": parcel["parcel_id"], "quoted_price": None},
+        {"$set": {
+            "quoted_price": quote.price,
+            "quote_breakdown": quote.breakdown,
+            "updated_at": now,
+        }},
+    )
+    if lock_result.modified_count == 0:
+        # Une autre requete nous a devance entre le find et l'update : on abandonne sans rien refaire.
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    payer_phone = parcel.get("sender_phone") if parcel.get("who_pays") == "sender" else parcel.get("recipient_phone")
+    payer_name = parcel.get("sender_name") if parcel.get("who_pays") == "sender" else parcel.get("recipient_name")
+    payment_res = await create_payment_link(
+        parcel_id=parcel["parcel_id"],
+        tracking_code=parcel["tracking_code"],
+        amount=quote.price,
+        customer_phone=payer_phone or "",
+        customer_name=payer_name or "Client Denkma",
+    )
+    if payment_res.get("success"):
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"], "payment_ref": None},
+            {"$set": {
+                "payment_url": payment_res.get("payment_link"),
+                "payment_ref": payment_res.get("tx_ref"),
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
 
     refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
-    quote_became_available = previous_price is None and quote.price is not None
-    return refreshed, quote_became_available
+    return refreshed, True
 
 
 class LocationPayload(BaseModel):
@@ -264,6 +302,12 @@ async def confirmation_page(token: str, request: Request):
     if not parcel:
         return HTMLResponse("<h2>Lien invalide ou expiré.</h2>", status_code=404)
 
+    if _is_confirm_token_expired(parcel):
+        return HTMLResponse(
+            "<h2>Lien expiré — la livraison est déjà terminée.</h2>",
+            status_code=410,
+        )
+
     role = "recipient" if parcel.get("recipient_confirm_token") == token else "sender"
     name = parcel.get("recipient_name", "") if role == "recipient" else ""
     return HTMLResponse(_html_page(token, role, name))
@@ -281,6 +325,9 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     })
     if not parcel:
         raise not_found_exception("Token de confirmation")
+
+    if _is_confirm_token_expired(parcel):
+        raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
 
     is_recipient = parcel.get("recipient_confirm_token") == token
     field_prefix = "delivery" if is_recipient else "pickup"
@@ -372,6 +419,9 @@ async def save_voice_note(token: str, payload: dict, request: Request):
     if not parcel:
         raise not_found_exception("Token")
 
+    if _is_confirm_token_expired(parcel):
+        raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
+
     is_recipient = parcel.get("recipient_confirm_token") == token
     field = "delivery_voice_note" if is_recipient else "pickup_voice_note"
     await db.parcels.update_one(
@@ -383,4 +433,4 @@ async def save_voice_note(token: str, payload: dict, request: Request):
 
 def generate_confirm_tokens() -> tuple[str, str]:
     """Génère 2 tokens uniques (destinataire, expéditeur)."""
-    return secrets.token_urlsafe(12), secrets.token_urlsafe(12)
+    return secrets.token_urlsafe(32), secrets.token_urlsafe(32)

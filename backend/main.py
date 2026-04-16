@@ -311,6 +311,11 @@ async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
+    if not settings.DEBUG:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault(
@@ -331,7 +336,10 @@ async def add_security_headers(request: Request, call_next):
     )
     return response
 
-# Static files (uploads)
+# Les photos de profil sont désormais servies via l'endpoint authentifié
+# /api/users/photo/{filename}. StaticFiles reste monté en lecture seule pour
+# servir les URLs legacy déjà stockées en base — à retirer après migration
+# côté mobile (Dio + JWT sur le chargement d'image).
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 

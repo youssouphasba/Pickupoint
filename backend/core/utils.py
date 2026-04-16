@@ -50,19 +50,50 @@ async def clear_code_attempts(db, parcel_id: str, code_type: str):
     await db.code_attempts.delete_one({"_id": f"{parcel_id}:{code_type}"})
 
 
+SUPPORTED_COUNTRY_CODES = ("221", "33")  # Sénégal, France
+
+
 def normalize_phone(phone: str | None) -> str:
-    """Normalise un numero en supprimant les separateurs et en gerant le prefixe 00."""
+    """Normalise un numero en E.164 quand c'est possible (SN/FR).
+
+    Regles:
+      - "+221..." ou "+33..." : conserve l'indicatif.
+      - "00221..." / "00 33..." : convertit en "+...".
+      - "221..." / "33..." (sans +) : prefixe "+".
+      - 9 chiffres commencant par 7 ou 3 (format local senegalais) : prefixe "+221".
+      - 9 chiffres commencant par 6 ou 7 (format local francais sans 0) : prefixe "+33"
+        uniquement si l'indicatif est explicite ailleurs — sinon on ne devine pas.
+      - Sinon, retourne juste les chiffres.
+    """
     if not phone:
         return ""
 
-    raw = phone.strip()
+    raw = phone.strip().replace(" ", "").replace("-", "").replace(".", "")
     if raw.startswith("00"):
         raw = f"+{raw[2:]}"
 
     if raw.startswith("+"):
         return f"+{re.sub(r'\\D', '', raw[1:])}"
 
-    return re.sub(r"\D", "", raw)
+    digits = re.sub(r"\D", "", raw)
+    if not digits:
+        return ""
+
+    for code in SUPPORTED_COUNTRY_CODES:
+        if digits.startswith(code):
+            return f"+{digits}"
+
+    if len(digits) == 9 and digits[0] in {"7", "3"}:
+        return f"+221{digits}"
+
+    return digits
+
+
+def is_supported_phone(phone: str | None) -> bool:
+    normalized = normalize_phone(phone)
+    if not normalized.startswith("+"):
+        return False
+    return any(normalized.startswith(f"+{code}") for code in SUPPORTED_COUNTRY_CODES)
 
 
 def phones_match(left: str | None, right: str | None) -> bool:

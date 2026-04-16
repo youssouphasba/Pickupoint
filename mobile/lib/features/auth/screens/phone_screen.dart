@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
+import 'package:intl_phone_field/phone_number.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -17,19 +18,24 @@ class PhoneScreen extends ConsumerStatefulWidget {
 }
 
 class _PhoneScreenState extends ConsumerState<PhoneScreen> {
-  final _phoneController = TextEditingController(text: '+221');
+  String _rawNumber = '';
+  String _countryCode = '+221';
+  String _isoCode = 'SN';
+  bool _isValid = false;
   bool _isLoading = false;
 
+  String get _fullPhone => '$_countryCode$_rawNumber';
+
   Future<void> _submit() async {
-    final phone = normalizePhone(_phoneController.text.trim());
-    if (phone.isEmpty || phone.length < 10) {
+    if (!_isValid || _rawNumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Numéro invalide. Format attendu : +221 77 XXX XX XX'),
+          content: Text('Numéro invalide pour le pays sélectionné.'),
         ),
       );
       return;
     }
+    final phone = _fullPhone;
 
     setState(() => _isLoading = true);
 
@@ -136,15 +142,29 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
               ),
             ],
             const SizedBox(height: 32),
-            TextField(
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
+            IntlPhoneField(
               decoration: const InputDecoration(
                 labelText: 'Numéro de téléphone',
-                hintText: '+221 77 XXX XX XX',
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
               ),
+              initialCountryCode: 'SN',
+              countries: const ['SN', 'FR'],
+              invalidNumberMessage: 'Numéro invalide',
+              disableLengthCheck: false,
+              onChanged: (PhoneNumber phone) {
+                setState(() {
+                  _rawNumber = phone.number;
+                  _countryCode = phone.countryCode;
+                  _isoCode = phone.countryISOCode;
+                  _isValid = phone.isValidNumber();
+                });
+              },
+              onCountryChanged: (country) {
+                setState(() {
+                  _countryCode = '+${country.dialCode}';
+                  _isoCode = country.code;
+                });
+              },
             ),
             const SizedBox(height: 12),
             Row(
@@ -153,7 +173,7 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Astuce : vous pouvez saisir votre numéro local (77 XXX XX XX) ou international (+221…).',
+                    'Denkma est disponible au Sénégal (+221) et en France (+33).',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ),

@@ -66,6 +66,16 @@ STATUS_MESSAGES = {
     ParcelStatus.RETURNED:                "Votre colis a été retourné à l'expéditeur.",
 }
 
+# Mapping ParcelStatus -> template WhatsApp approuvé (notifs proactives).
+# Les templates qui ne figurent pas ici retombent sur le texte libre
+# (qui n'est livré que si l'user a écrit dans les 24 h).
+STATUS_TEMPLATES = {
+    ParcelStatus.CREATED:          "parcel_created",
+    ParcelStatus.OUT_FOR_DELIVERY: "parcel_assigned",
+    ParcelStatus.IN_TRANSIT:       "parcel_assigned",
+    ParcelStatus.DELIVERED:        "parcel_delivered",
+}
+
 
 def _category_pref_key(category: Optional[str]) -> str | None:
     return {
@@ -101,6 +111,16 @@ def _should_send_whatsapp_tracking(user_doc: dict | None, category: Optional[str
     return bool(prefs.get("whatsapp", True))
 
 
+def _first_name(full_name: Optional[str], fallback: str = "Client") -> str:
+    if not full_name:
+        return fallback
+    return full_name.strip().split(" ")[0] or fallback
+
+
+def _tracking_url(tracking_code: str) -> str:
+    return f"{settings.BASE_URL}/api/tracking/{tracking_code}"
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
@@ -108,9 +128,13 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     body = STATUS_MESSAGES.get(new_status, f"Statut mis à jour : {new_status.value}")
     body = body.format(tracking_code=tracking_code, relay_pin=relay_pin)
 
+    template_name = STATUS_TEMPLATES.get(new_status)
+    tracking_url = _tracking_url(tracking_code)
+
     # Notifier expéditeur
     sender_id = parcel.get("sender_user_id")
     if sender_id:
+        sender_first = _first_name(parcel.get("sender_name"))
         await _store_and_send(
             user_id=sender_id,
             title="Mise à jour colis",
@@ -118,6 +142,8 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
+            whatsapp_template=template_name,
+            whatsapp_variables=_template_vars(template_name, sender_first, tracking_code, tracking_url),
         )
 
     # Notifier destinataire
@@ -129,6 +155,9 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         if user:
             recipient_user_id = user["user_id"]
 
+    recipient_first = _first_name(parcel.get("recipient_name"))
+    template_vars_recipient = _template_vars(template_name, recipient_first, tracking_code, tracking_url)
+
     if recipient_user_id:
         await _store_and_send(
             user_id=recipient_user_id,
@@ -137,10 +166,27 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
+            whatsapp_template=template_name,
+            whatsapp_variables=template_vars_recipient,
         )
     elif recipient_phone:
-        # Si pas d'ID, on reste sur le SMS classique
-        await _send_sms_or_whatsapp(recipient_phone, body)
+        if template_name:
+            await _send_whatsapp_template(recipient_phone, template_name, template_vars_recipient)
+        else:
+            await _send_sms_or_whatsapp(recipient_phone, body)
+
+
+def _template_vars(
+    template_name: Optional[str],
+    first_name: str,
+    tracking_code: str,
+    tracking_url: str,
+) -> list[str]:
+    if template_name in ("parcel_created", "parcel_assigned"):
+        return [first_name, tracking_code, tracking_url]
+    if template_name == "parcel_delivered":
+        return [first_name, tracking_code]
+    return []
 
 
 async def notify_quote_finalized(
@@ -171,6 +217,8 @@ async def _store_and_send(
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
     category: Optional[str] = None,
+    whatsapp_template: Optional[str] = None,
+    whatsapp_variables: Optional[list[str]] = None,
 ):
     """Stocke la notification en base et tente l'envoi."""
     user = await db.users.find_one(
@@ -201,7 +249,10 @@ async def _store_and_send(
     if _should_send_whatsapp_tracking(user, category):
         phone = (user or {}).get("phone")
         if phone:
-            await _send_whatsapp(phone, body)
+            if whatsapp_template:
+                await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
+            else:
+                await _send_whatsapp(phone, body)
 
 
 async def _store_notification(
@@ -280,37 +331,69 @@ async def _send_sms(phone: str, body: str):
         logger.warning(f"SMS non envoyé à {phone} : {e}")
 
 
-async def _send_whatsapp(phone: str, body: str):
-    """Envoi WhatsApp via Meta Cloud API (best-effort)."""
+async def _whatsapp_post(payload: dict, phone: str) -> bool:
+    if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+        logger.debug("WhatsApp Cloud API non configuré, message ignoré")
+        return False
+    import httpx
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
     try:
-        if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
-            logger.debug("WhatsApp Cloud API non configuré, message ignoré")
-            return
-
-        import httpx
-
-        url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-        headers = {
-            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        # Formater le numéro (retirer le + pour l'API Meta)
-        to_number = phone.lstrip("+")
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to_number,
-            "type": "text",
-            "text": {"body": body},
-        }
-
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, headers=headers, timeout=10)
             if resp.status_code == 200:
                 logger.info("WhatsApp envoyé à %s via Cloud API", phone)
-            else:
-                logger.warning("WhatsApp Cloud API erreur %s: %s", resp.status_code, resp.text)
+                return True
+            logger.warning("WhatsApp Cloud API erreur %s: %s", resp.status_code, resp.text)
+            return False
     except Exception as e:
         logger.warning("WhatsApp non envoyé à %s : %s", phone, e)
+        return False
+
+
+async def _send_whatsapp_template(
+    phone: str,
+    template_name: str,
+    variables: list[str],
+    lang_code: str = "fr",
+) -> bool:
+    """Envoi WhatsApp via template approuvé (notification proactive).
+
+    Seule méthode fiable pour pousser un message en dehors de la fenêtre de
+    24 h (règle Meta). Les variables doivent être dans l'ordre {{1}}, {{2}}...
+    """
+    to_number = phone.lstrip("+")
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": lang_code},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": str(v)} for v in variables],
+                }
+            ],
+        },
+    }
+    return await _whatsapp_post(payload, phone)
+
+
+async def _send_whatsapp(phone: str, body: str):
+    """Envoi WhatsApp texte libre (fenêtre 24 h uniquement, best-effort)."""
+    to_number = phone.lstrip("+")
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": body},
+    }
+    await _whatsapp_post(payload, phone)
 
 
 async def _send_sms_or_whatsapp(phone: str, body: str):
@@ -398,6 +481,8 @@ async def send_location_confirmation_prompt(
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
     escalate_external: bool = False,
+    whatsapp_template: Optional[str] = None,
+    whatsapp_variables: Optional[list[str]] = None,
 ):
     """Relance de confirmation GPS avec escalade progressive."""
     if user_id:
@@ -407,13 +492,21 @@ async def send_location_confirmation_prompt(
             body=body,
             ref_type=ref_type,
             ref_id=ref_id,
+            whatsapp_template=whatsapp_template,
+            whatsapp_variables=whatsapp_variables,
         )
         if escalate_external and phone:
-            await _send_sms_or_whatsapp(phone, body)
+            if whatsapp_template:
+                await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
+            await _send_sms(phone, body)
         return
 
     if phone:
-        await _send_sms_or_whatsapp(phone, body)
+        if whatsapp_template:
+            await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
+        else:
+            await _send_whatsapp(phone, body)
+        await _send_sms(phone, body)
 
 
 async def notify_relay_agent_parcel_arrived(relay_id: str, parcel: dict):
@@ -496,10 +589,12 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
     """Demande ou relance de confirmation GPS pour expéditeur ou destinataire."""
     tracking_code = parcel.get("tracking_code", "")
     parcel_id = parcel.get("parcel_id")
+    sender_full = parcel.get("sender_name") or "Denkma"
 
     if actor == "sender":
         user_id = parcel.get("sender_user_id")
         phone = parcel.get("sender_phone") or parcel.get("sender_phone_e164")
+        target_name = _first_name(sender_full)
         title = "Confirmez le point de collecte"
         body = (
             f"Confirmez la position de collecte pour le colis {tracking_code}. "
@@ -508,17 +603,22 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
     else:
         user_id = parcel.get("recipient_user_id")
         phone = parcel.get("recipient_phone")
+        target_name = _first_name(parcel.get("recipient_name"))
         title = "Confirmez votre position de livraison"
         body = (
             f"Confirmez la position de livraison pour le colis {tracking_code}. "
             f"Ouvrez le lien: {confirm_url}"
         )
 
+    template_vars = [target_name, sender_full, tracking_code, confirm_url]
+
     await send_location_confirmation_prompt(
         title=title,
         body=body,
         user_id=user_id,
         phone=phone,
+        whatsapp_template="gps_confirmation",
+        whatsapp_variables=template_vars,
         ref_type="parcel",
         ref_id=parcel_id,
         escalate_external=escalate_external,

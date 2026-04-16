@@ -19,7 +19,7 @@ from core.security import (
     verify_refresh_token,
 )
 from core.dependencies import get_current_user
-from core.utils import normalize_phone
+from core.utils import normalize_phone, is_supported_phone
 from database import db
 from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.otp_service import send_otp, verify_otp
@@ -77,6 +77,8 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
     phone = normalize_phone(decoded.get("phone_number"))
     if not phone:
         raise bad_request_exception("Le token Firebase ne contient pas de numéro de téléphone")
+    if not is_supported_phone(phone):
+        raise bad_request_exception("Denkma est disponible au Sénégal et en France uniquement")
 
     user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
 
@@ -125,6 +127,8 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
 @limiter.limit("5/minute")
 async def request_otp(body: OTPRequest, request: Request):
     phone = normalize_phone(body.phone)
+    if not is_supported_phone(phone):
+        raise bad_request_exception("Denkma est disponible au Sénégal et en France uniquement")
     result = await send_otp(phone)
     if not result.get("sent"):
         raise bad_request_exception("Envoi OTP indisponible pour le moment. Réessayez plus tard.")

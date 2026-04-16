@@ -6,10 +6,31 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from database import db
+from pymongo.errors import OperationFailure
+
+from database import db, get_client
 from models.wallet import TransactionType
 
 logger = logging.getLogger(__name__)
+
+
+async def _run_in_transaction(op):
+    """Execute op(session) dans une transaction Mongo si disponible (replica set),
+    sinon execute sans session (meilleur effort). op est une coroutine acceptant
+    une session (ou None) et retournant le resultat final."""
+    client = get_client()
+    if client is None:
+        return await op(None)
+    try:
+        async with await client.start_session() as session:
+            async with session.start_transaction():
+                return await op(session)
+    except OperationFailure as exc:
+        # MongoDB standalone (pas de replica set) — fallback non atomique.
+        if "Transaction numbers are only allowed" in str(exc) or "replica set" in str(exc).lower():
+            logger.warning("MongoDB non replica-set, wallet en mode non atomique")
+            return await op(None)
+        raise
 
 
 def _wallet_id() -> str:
@@ -29,11 +50,13 @@ async def record_wallet_transaction(
     parcel_id: Optional[str] = None,
     reference: Optional[str] = None,
     ensure_unique: bool = False,
+    session=None,
 ) -> dict:
     if ensure_unique and reference:
         existing = await db.wallet_transactions.find_one(
             {"wallet_id": wallet_id, "reference": reference, "tx_type": tx_type},
             {"_id": 0},
+            session=session,
         )
         if existing:
             return existing
@@ -48,7 +71,7 @@ async def record_wallet_transaction(
         "reference": reference,
         "created_at": datetime.now(timezone.utc),
     }
-    await db.wallet_transactions.insert_one(tx)
+    await db.wallet_transactions.insert_one(tx, session=session)
     return {k: v for k, v in tx.items() if k != "_id"}
 
 
@@ -83,27 +106,30 @@ async def credit_wallet(
     reference: Optional[str] = None,
 ) -> dict:
     wallet = await get_or_create_wallet(owner_id, owner_type)
-    now = datetime.now(timezone.utc)
 
-    await db.wallets.update_one(
-        {"owner_id": owner_id},
-        {"$inc": {"balance": amount}, "$set": {"updated_at": now}},
-    )
+    async def _op(session):
+        now = datetime.now(timezone.utc)
+        await db.wallets.update_one(
+            {"owner_id": owner_id},
+            {"$inc": {"balance": amount}, "$set": {"updated_at": now}},
+            session=session,
+        )
+        await db.users.update_one(
+            {"user_id": owner_id},
+            {"$inc": {"total_earned": amount}},
+            session=session,
+        )
+        return await record_wallet_transaction(
+            wallet_id=wallet["wallet_id"],
+            amount=amount,
+            tx_type=TransactionType.CREDIT.value,
+            description=description,
+            parcel_id=parcel_id,
+            reference=reference,
+            session=session,
+        )
 
-    # Increment total_earned for the user (career stats)
-    await db.users.update_one(
-        {"user_id": owner_id},
-        {"$inc": {"total_earned": amount}}
-    )
-
-    tx = await record_wallet_transaction(
-        wallet_id=wallet["wallet_id"],
-        amount=amount,
-        tx_type=TransactionType.CREDIT.value,
-        description=description,
-        parcel_id=parcel_id,
-        reference=reference,
-    )
+    tx = await _run_in_transaction(_op)
     logger.info(f"Wallet crédité : owner={owner_id} montant={amount} XOF")
     return tx
 
@@ -114,23 +140,33 @@ async def debit_wallet(
     description: str,
     parcel_id: Optional[str] = None,
 ) -> dict:
-    wallet = await db.wallets.find_one({"owner_id": owner_id}, {"_id": 0})
-    if not wallet or wallet["balance"] < amount:
-        raise ValueError("Solde insuffisant")
+    async def _op(session):
+        wallet = await db.wallets.find_one(
+            {"owner_id": owner_id}, {"_id": 0}, session=session
+        )
+        if not wallet or wallet["balance"] < amount:
+            raise ValueError("Solde insuffisant")
 
-    now = datetime.now(timezone.utc)
-    await db.wallets.update_one(
-        {"owner_id": owner_id},
-        {"$inc": {"balance": -amount}, "$set": {"updated_at": now}},
-    )
+        now = datetime.now(timezone.utc)
+        # Filtre sur balance >= amount pour éviter un débit si concurrent a vidé entretemps
+        result = await db.wallets.update_one(
+            {"owner_id": owner_id, "balance": {"$gte": amount}},
+            {"$inc": {"balance": -amount}, "$set": {"updated_at": now}},
+            session=session,
+        )
+        if result.modified_count == 0:
+            raise ValueError("Solde insuffisant")
 
-    return await record_wallet_transaction(
-        wallet_id=wallet["wallet_id"],
-        amount=amount,
-        tx_type=TransactionType.DEBIT.value,
-        description=description,
-        parcel_id=parcel_id,
-    )
+        return await record_wallet_transaction(
+            wallet_id=wallet["wallet_id"],
+            amount=amount,
+            tx_type=TransactionType.DEBIT.value,
+            description=description,
+            parcel_id=parcel_id,
+            session=session,
+        )
+
+    return await _run_in_transaction(_op)
 
 
 async def distribute_delivery_revenue(parcel: dict):

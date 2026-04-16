@@ -307,7 +307,29 @@ async def list_parcels(
                 or phones_match(p.get("recipient_phone"), uphone)
             )
 
+    for p in parcels:
+        _mask_payment_fields(p, current_user)
+
     return {"parcels": parcels, "total": total}
+
+
+def _mask_payment_fields(parcel: dict, current_user: dict) -> None:
+    """Ne laisse payment_url/payment_ref visibles qu'au payeur (sender ou recipient selon who_pays) ou admin."""
+    if _is_admin(current_user):
+        return
+    who_pays = parcel.get("who_pays") or "sender"
+    payer_user_id = (
+        parcel.get("recipient_user_id") if who_pays == "recipient" else parcel.get("sender_user_id")
+    )
+    if payer_user_id and payer_user_id == current_user.get("user_id"):
+        return
+    # Fallback: si payer_user_id inconnu, autoriser si téléphones matchent
+    if not payer_user_id:
+        payer_phone = parcel.get("recipient_phone") if who_pays == "recipient" else parcel.get("sender_phone")
+        if payer_phone and phones_match(payer_phone, current_user.get("phone")):
+            return
+    parcel.pop("payment_url", None)
+    parcel.pop("payment_ref", None)
 
 
 def _can_access_parcel(parcel: dict, current_user: dict) -> tuple[bool, bool, bool, bool]:
@@ -514,6 +536,8 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         if driver:
             parcel["driver_name"] = parcel.get("driver_name") or driver.get("name")
             parcel["driver_photo_url"] = driver.get("profile_picture_url")
+
+    _mask_payment_fields(parcel, current_user)
 
     return {"parcel": parcel, "timeline": timeline}
 

@@ -81,6 +81,8 @@ mobile/missing_imports.txt
 mobile/android/hs_err_pid*.log
 mobile/android/replay_pid*.log
 mobile/android/key.properties
+*.jks
+*.keystore
 *.jpg
 *.png
 *.jpeg

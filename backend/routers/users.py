@@ -397,6 +397,23 @@ async def delete_favorite(
     return {"message": "Adresse supprimee"}
 
 
+@router.get("/photo/{filename}", summary="Photo de profil (authentifié)")
+async def get_profile_photo(
+    filename: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Sert une photo de profil uniquement aux utilisateurs authentifiés.
+    Le nom de fichier contient un UUID non énumérable ; l'accès plus fin
+    (parties prenantes d'une livraison active) peut être ajouté plus tard."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise bad_request_exception("Nom de fichier invalide")
+    file_path = UPLOADS_DIR / "profiles" / filename
+    if not file_path.is_file():
+        raise not_found_exception("Photo")
+    media_type, _ = mimetypes.guess_type(str(file_path))
+    return FileResponse(str(file_path), media_type=media_type or "application/octet-stream")
+
+
 @router.post("/me/avatar", summary="Uploader photo de profil")
 @limiter.limit("10/minute")
 async def upload_avatar(
@@ -414,7 +431,7 @@ async def upload_avatar(
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
     absolute_path.write_bytes(content)
 
-    profile_url = f"{settings.BASE_URL}/uploads/profiles/{filename}"
+    profile_url = f"{settings.BASE_URL}/api/users/photo/{filename}"
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {"profile_picture_url": profile_url, "updated_at": datetime.now(timezone.utc)}},

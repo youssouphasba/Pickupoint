@@ -33,6 +33,11 @@ def get_db():
     return _db_instance
 
 
+def get_client():
+    """Retourne le client Motor sous-jacent (pour les sessions / transactions)."""
+    return client
+
+
 async def connect_db():
     global client, _db_instance
     client = AsyncIOMotorClient(
