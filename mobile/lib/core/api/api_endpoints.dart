@@ -7,7 +7,7 @@ class ApiEndpoints {
   // Par défaut : URL Railway de production.
   static const String _base = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://pickupoint-production.up.railway.app',
+    defaultValue: 'https://api.denkma.com',
   );
 
   // ─── Auth ────────────────────────────────────────────────────────────────

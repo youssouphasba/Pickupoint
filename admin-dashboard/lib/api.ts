@@ -2,7 +2,7 @@ import axios from "axios";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://pickupoint-production.up.railway.app";
+  "https://api.denkma.com";
 
 const TOKEN_KEY = "denkma_admin_token";
 
