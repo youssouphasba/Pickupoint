@@ -199,7 +199,7 @@ export type AdminRelay = {
   relay_id: string;
   name: string;
   city?: string;
-  address?: string;
+  address?: string | { label?: string; city?: string; geopin?: { lat: number; lng: number } };
   latitude?: number;
   longitude?: number;
   is_active: boolean;

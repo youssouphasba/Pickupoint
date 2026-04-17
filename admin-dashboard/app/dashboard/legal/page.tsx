@@ -11,12 +11,12 @@ import { useToast } from "@/components/ui/toaster";
 import { Loader2, Pencil, Save, X } from "lucide-react";
 
 const DOC_TYPES = [
-  { key: "privacy", label: "Politique de confidentialité" },
-  { key: "terms", label: "Conditions générales" },
+  { key: "privacy_policy", label: "Politique de confidentialité" },
+  { key: "cgu", label: "Conditions générales" },
 ] as const;
 
 export default function LegalPage() {
-  const [activeTab, setActiveTab] = React.useState<string>("privacy");
+  const [activeTab, setActiveTab] = React.useState<string>("privacy_policy");
 
   return (
     <div className="space-y-5 p-8">

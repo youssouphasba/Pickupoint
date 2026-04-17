@@ -45,10 +45,11 @@ export default function RelaysPage() {
       {
         id: "address",
         header: "Adresse",
-        accessorKey: "address",
-        cell: ({ getValue }) => (
-          <span className="text-xs">{(getValue() as string) ?? "—"}</span>
-        ),
+        cell: ({ row }) => {
+          const addr = row.original.address;
+          const label = typeof addr === "string" ? addr : addr?.label ?? "—";
+          return <span className="text-xs">{label}</span>;
+        },
       },
       {
         id: "active",
@@ -146,7 +147,7 @@ export default function RelaysPage() {
           globalFilterFn={(r, q) =>
             (r.name ?? "").toLowerCase().includes(q) ||
             (r.city ?? "").toLowerCase().includes(q) ||
-            (r.address ?? "").toLowerCase().includes(q) ||
+            (typeof r.address === "string" ? r.address : r.address?.label ?? "").toLowerCase().includes(q) ||
             (r.relay_id ?? "").toLowerCase().includes(q)
           }
         />
