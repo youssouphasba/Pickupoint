@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl_phone_field/countries.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:intl_phone_field/phone_number.dart';
 import '../../../core/api/api_client.dart';
@@ -20,7 +21,6 @@ class PhoneScreen extends ConsumerStatefulWidget {
 class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   String _rawNumber = '';
   String _countryCode = '+221';
-  String _isoCode = 'SN';
   bool _isValid = false;
   bool _isLoading = false;
 
@@ -148,21 +148,21 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 border: OutlineInputBorder(),
               ),
               initialCountryCode: 'SN',
-              countries: const ['SN', 'FR'],
+              countries: countries
+                  .where((country) => const {'SN', 'FR'}.contains(country.code))
+                  .toList(),
               invalidNumberMessage: 'Numéro invalide',
               disableLengthCheck: false,
               onChanged: (PhoneNumber phone) {
                 setState(() {
                   _rawNumber = phone.number;
                   _countryCode = phone.countryCode;
-                  _isoCode = phone.countryISOCode;
                   _isValid = phone.isValidNumber();
                 });
               },
               onCountryChanged: (country) {
                 setState(() {
                   _countryCode = '+${country.dialCode}';
-                  _isoCode = country.code;
                 });
               },
             ),

@@ -43,11 +43,15 @@
                     android:pathPrefix="/api/users/referral/" />
                 <data
                     android:scheme="https"
-                    android:host="denkma.sn"
+                    android:host="api.denkma.com"
                     android:pathPrefix="/api/users/referral/" />
                 <data
                     android:scheme="https"
-                    android:host="www.denkma.sn"
+                    android:host="denkma.com"
+                    android:pathPrefix="/api/users/referral/" />
+                <data
+                    android:scheme="https"
+                    android:host="www.denkma.com"
                     android:pathPrefix="/api/users/referral/" />
             </intent-filter>
             <intent-filter>

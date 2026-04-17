@@ -1,4 +1,4 @@
-/// Toutes les URLs de l'API PickuPoint.
+/// Toutes les URLs de l'API Denkma.
 /// Changer [_base] selon l'environnement.
 class ApiEndpoints {
   ApiEndpoints._();

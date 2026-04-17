@@ -777,7 +777,8 @@ class _ExpressToggleTileState extends ConsumerState<_ExpressToggleTile> {
       setState(() => _optimistic = current);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -868,7 +869,8 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -903,9 +905,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
         text: _intValue(config['max_referrals_per_sponsor']).toString());
 
     String applyMetric = config['apply_metric']?.toString() ??
-        (roleKey == 'driver'
-            ? 'completed_driver_deliveries'
-            : 'sent_parcels');
+        (roleKey == 'driver' ? 'completed_driver_deliveries' : 'sent_parcels');
     String rewardMetric = config['reward_metric']?.toString() ??
         (roleKey == 'driver'
             ? 'completed_driver_deliveries'
@@ -938,7 +938,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: applyMetric,
+                  initialValue: applyMetric,
                   decoration: const InputDecoration(
                       labelText: 'Metrique pour appliquer le code'),
                   items: metricOptions
@@ -960,7 +960,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: rewardMetric,
+                  initialValue: rewardMetric,
                   decoration: const InputDecoration(
                       labelText: 'Metrique pour debloquer la prime'),
                   items: metricOptions
@@ -1005,11 +1005,9 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 'referred_bonus_xof':
                     int.tryParse(referredCtrl.text.trim()) ?? 500,
                 'apply_metric': applyMetric,
-                'apply_max_count':
-                    int.tryParse(applyMaxCtrl.text.trim()) ?? 0,
+                'apply_max_count': int.tryParse(applyMaxCtrl.text.trim()) ?? 0,
                 'reward_metric': rewardMetric,
-                'reward_count':
-                    int.tryParse(rewardCountCtrl.text.trim()) ?? 1,
+                'reward_count': int.tryParse(rewardCountCtrl.text.trim()) ?? 1,
                 'max_referrals_per_sponsor':
                     int.tryParse(maxRefCtrl.text.trim()) ?? 0,
               }),
@@ -1069,9 +1067,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  anyEnabled
-                      ? 'Programme actif'
-                      : 'Programme desactive',
+                  anyEnabled ? 'Programme actif' : 'Programme desactive',
                   style: TextStyle(
                     fontSize: 13,
                     color: anyEnabled ? Colors.green : Colors.grey,
@@ -1087,7 +1083,8 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                     _chip('Codes', _intValue(data['users_with_code'])),
                     _chip('Filleuls', _intValue(data['referred_users'])),
                     _chip('Primes', _intValue(data['rewarded_users'])),
-                    _chip('En attente', _intValue(data['pending_reward_users'])),
+                    _chip(
+                        'En attente', _intValue(data['pending_reward_users'])),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1104,9 +1101,8 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 Row(
                   children: [
                     TextButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => context.push('/admin/users'),
+                      onPressed:
+                          _loading ? null : () => context.push('/admin/users'),
                       icon: const Icon(Icons.group_outlined, size: 18),
                       label: const Text('Exceptions'),
                     ),
@@ -1129,8 +1125,11 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     );
   }
 
-  Widget _buildRoleCard(Map<String, dynamic> data,
-      Map<String, dynamic> statsByRole, String roleKey, String label,
+  Widget _buildRoleCard(
+      Map<String, dynamic> data,
+      Map<String, dynamic> statsByRole,
+      String roleKey,
+      String label,
       IconData icon) {
     final config = _roleConfig(data, roleKey);
     final enabled = config['enabled'] as bool? ?? false;
@@ -1159,8 +1158,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
         children: [
           Row(
             children: [
-              Icon(icon, size: 18,
-                  color: enabled ? Colors.blue : Colors.grey),
+              Icon(icon, size: 18, color: enabled ? Colors.blue : Colors.grey),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(label,

@@ -10,7 +10,8 @@ class AdminPromotionsScreen extends ConsumerStatefulWidget {
   const AdminPromotionsScreen({super.key});
 
   @override
-  ConsumerState<AdminPromotionsScreen> createState() => _AdminPromotionsScreenState();
+  ConsumerState<AdminPromotionsScreen> createState() =>
+      _AdminPromotionsScreenState();
 }
 
 class _AdminPromotionsScreenState extends ConsumerState<AdminPromotionsScreen> {
@@ -84,19 +85,26 @@ class _PromoCard extends ConsumerWidget {
                   Expanded(
                     child: Text(
                       promo.title,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: color.withValues(alpha: 0.5)),
                     ),
                     child: Text(
-                      promo.isActive ? (isExpired ? 'Expiré' : 'Actif') : 'Désactivé',
-                      style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                      promo.isActive
+                          ? (isExpired ? 'Expiré' : 'Actif')
+                          : 'Désactivé',
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -111,9 +119,14 @@ class _PromoCard extends ConsumerWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _InfoChip(icon: Icons.tag, label: promo.promoCode ?? 'Automatique'),
-                  _InfoChip(icon: Icons.card_giftcard, label: promo.typeLabel, color: Colors.blue),
-                  if (promo.targetUserIds != null && promo.targetUserIds!.isNotEmpty)
+                  _InfoChip(
+                      icon: Icons.tag, label: promo.promoCode ?? 'Automatique'),
+                  _InfoChip(
+                      icon: Icons.card_giftcard,
+                      label: promo.typeLabel,
+                      color: Colors.blue),
+                  if (promo.targetUserIds != null &&
+                      promo.targetUserIds!.isNotEmpty)
                     _InfoChip(
                       icon: Icons.person_pin,
                       label: '${promo.targetUserIds!.length} cible(s)',
@@ -131,7 +144,8 @@ class _PromoCard extends ConsumerWidget {
                   ),
                   Text(
                     'Utilisations: ${promo.usesCount}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -150,24 +164,27 @@ class _PromoCard extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: Icon(promo.isActive ? Icons.block : Icons.check_circle, 
+              leading: Icon(promo.isActive ? Icons.block : Icons.check_circle,
                   color: promo.isActive ? Colors.orange : Colors.green),
               title: Text(promo.isActive ? 'Désactiver' : 'Activer'),
               onTap: () async {
                 Navigator.pop(context);
                 try {
-                  await ref.read(apiClientProvider).updatePromotion(promo.promoId, {'is_active': !promo.isActive});
+                  await ref.read(apiClientProvider).updatePromotion(
+                      promo.promoId, {'is_active': !promo.isActive});
                   ref.invalidate(adminPromotionsProvider);
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(friendlyError(e))));
                   }
                 }
               },
             ),
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+              title:
+                  const Text('Supprimer', style: TextStyle(color: Colors.red)),
               onTap: () async {
                 Navigator.pop(context);
                 final confirm = await showDialog<bool>(
@@ -176,18 +193,26 @@ class _PromoCard extends ConsumerWidget {
                     title: const Text('Supprimer?'),
                     content: const Text('Cette action est irréversible.'),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
-                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Annuler')),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Supprimer',
+                              style: TextStyle(color: Colors.red))),
                     ],
                   ),
                 );
                 if (confirm == true) {
                   try {
-                    await ref.read(apiClientProvider).deletePromotion(promo.promoId);
+                    await ref
+                        .read(apiClientProvider)
+                        .deletePromotion(promo.promoId);
                     ref.invalidate(adminPromotionsProvider);
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(friendlyError(e))));
                     }
                   }
                 }
@@ -201,7 +226,8 @@ class _PromoCard extends ConsumerWidget {
 }
 
 class _InfoChip extends StatelessWidget {
-  const _InfoChip({required this.icon, required this.label, this.color = Colors.grey});
+  const _InfoChip(
+      {required this.icon, required this.label, this.color = Colors.grey});
   final IconData icon;
   final String label;
   final Color color;
@@ -219,7 +245,9 @@ class _InfoChip extends StatelessWidget {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500)),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -262,44 +290,59 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
                 validator: (v) => v?.isEmpty == true ? 'Requis' : null,
               ),
               TextFormField(
-                decoration: const InputDecoration(labelText: 'Description client'),
+                decoration:
+                    const InputDecoration(labelText: 'Description client'),
                 onChanged: (v) => _desc = v,
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
-                  DropdownMenuItem(value: 'percentage', child: Text('Pourcentage (%)')),
-                  DropdownMenuItem(value: 'fixed_amount', child: Text('Montant Fixe (XOF)')),
-                  DropdownMenuItem(value: 'free_delivery', child: Text('Livraison Gratuite')),
-                  DropdownMenuItem(value: 'express_upgrade', child: Text('Express Offert')),
+                  DropdownMenuItem(
+                      value: 'percentage', child: Text('Pourcentage (%)')),
+                  DropdownMenuItem(
+                      value: 'fixed_amount', child: Text('Montant Fixe (XOF)')),
+                  DropdownMenuItem(
+                      value: 'free_delivery',
+                      child: Text('Livraison Gratuite')),
+                  DropdownMenuItem(
+                      value: 'express_upgrade', child: Text('Express Offert')),
                 ],
                 onChanged: (v) => setState(() => _type = v!),
               ),
               if (_type == 'percentage' || _type == 'fixed_amount')
                 TextFormField(
-                  decoration: InputDecoration(labelText: _type == 'percentage' ? 'Valeur (%)' : 'Valeur (XOF)'),
+                  decoration: InputDecoration(
+                      labelText: _type == 'percentage'
+                          ? 'Valeur (%)'
+                          : 'Valeur (XOF)'),
                   keyboardType: TextInputType.number,
                   initialValue: '10',
                   onChanged: (v) => _value = double.tryParse(v) ?? 0,
                 ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _target,
+                initialValue: _target,
                 decoration: const InputDecoration(labelText: 'Cible'),
                 items: const [
-                  DropdownMenuItem(value: 'all', child: Text('Tous les utilisateurs')),
-                  DropdownMenuItem(value: 'first_delivery', child: Text('1ere livraison')),
-                  DropdownMenuItem(value: 'tier_gold', child: Text('Membres GOLD')),
-                  DropdownMenuItem(value: 'tier_silver', child: Text('Membres SILVER+')),
-                  DropdownMenuItem(value: 'delivery_mode', child: Text('Mode de livraison')),
+                  DropdownMenuItem(
+                      value: 'all', child: Text('Tous les utilisateurs')),
+                  DropdownMenuItem(
+                      value: 'first_delivery', child: Text('1ere livraison')),
+                  DropdownMenuItem(
+                      value: 'tier_gold', child: Text('Membres GOLD')),
+                  DropdownMenuItem(
+                      value: 'tier_silver', child: Text('Membres SILVER+')),
+                  DropdownMenuItem(
+                      value: 'delivery_mode', child: Text('Mode de livraison')),
                 ],
                 onChanged: (v) => setState(() => _target = v!),
               ),
               const SizedBox(height: 16),
               TextFormField(
-                decoration: const InputDecoration(labelText: 'Code Promo (vide = AUTO)'),
+                decoration: const InputDecoration(
+                    labelText: 'Code Promo (vide = AUTO)'),
                 textCapitalization: TextCapitalization.characters,
                 onChanged: (v) => _code = v,
               ),
@@ -320,11 +363,10 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
                 trailing: const Icon(Icons.calendar_today),
                 onTap: () async {
                   final pick = await showDatePicker(
-                    context: context, 
-                    initialDate: _end, 
-                    firstDate: DateTime.now(), 
-                    lastDate: DateTime.now().add(const Duration(days: 365))
-                  );
+                      context: context,
+                      initialDate: _end,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(const Duration(days: 365)));
                   if (pick != null) setState(() => _end = pick);
                 },
               ),
@@ -333,10 +375,17 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler')),
         ElevatedButton(
           onPressed: _loading ? null : _submit,
-          child: _loading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Créer'),
+          child: _loading
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Créer'),
         ),
       ],
     );
@@ -344,6 +393,7 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
 
   void _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final container = ProviderScope.containerOf(context);
     setState(() => _loading = true);
 
     // Résoudre les téléphones ciblés en user_ids
@@ -355,8 +405,8 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
         .toList();
     if (phones.isNotEmpty) {
       try {
-        final container = ProviderScope.containerOf(context);
-        final res = await container.read(apiClientProvider).resolvePhonesToIds(phones);
+        final res =
+            await container.read(apiClientProvider).resolvePhonesToIds(phones);
         final data = res.data as Map<String, dynamic>? ?? {};
         final resolved = (data['user_ids'] as List?)?.cast<String>() ?? [];
         final notFound = (data['not_found'] as List?)?.cast<String>() ?? [];
@@ -364,14 +414,16 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
           if (mounted) {
             setState(() => _loading = false);
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Aucun utilisateur trouve pour ces numeros.')),
+              const SnackBar(
+                  content: Text('Aucun utilisateur trouve pour ces numeros.')),
             );
           }
           return;
         }
         if (notFound.isNotEmpty && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Numeros non trouves: ${notFound.join(", ")}')),
+            SnackBar(
+                content: Text('Numeros non trouves: ${notFound.join(", ")}')),
           );
         }
         targetUserIds = resolved;
@@ -392,7 +444,9 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
       'promo_type': _type,
       'value': _value,
       'target': _target,
-      'promo_code': _code?.toUpperCase().trim().isEmpty == true ? null : _code?.toUpperCase().trim(),
+      'promo_code': _code?.toUpperCase().trim().isEmpty == true
+          ? null
+          : _code?.toUpperCase().trim(),
       'start_date': _start.toIso8601String(),
       'end_date': _end.toIso8601String(),
       'is_active': true,
@@ -400,13 +454,13 @@ class _CreatePromoDialogState extends State<_CreatePromoDialog> {
     };
 
     try {
-      final container = ProviderScope.containerOf(context);
       await container.read(apiClientProvider).createPromotion(body);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     }
   }

@@ -110,7 +110,7 @@ async def view_parcel_web(tracking_code: str, request: Request):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Suivi PickuPoint - {safe_tracking_code}</title>
+        <title>Suivi Denkma - {safe_tracking_code}</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
         <style>
             :root {{
@@ -236,7 +236,7 @@ async def view_parcel_web(tracking_code: str, request: Request):
     <body>
         <div class="container">
             <div class="header">
-                <div class="logo">PickuPoint</div>
+                <div class="logo">Denkma</div>
             </div>
             
             <div class="card">
@@ -254,13 +254,13 @@ async def view_parcel_web(tracking_code: str, request: Request):
             <div class="card" style="text-align:center;">
                 <div style="font-weight:600; margin-bottom:8px;">Besoin de plus de détails ?</div>
                 <div style="color: var(--text-muted); font-size: 14px;">
-                    Connectez-vous dans l'application PickuPoint pour voir la carte live,
+                    Connectez-vous dans l'application Denkma pour voir la carte live,
                     le paiement et les actions disponibles.
                 </div>
             </div>
 
             <div class="footer">
-                &copy; 2026 PickuPoint - Logistique Connectée
+                &copy; 2026 Denkma - Logistique Connectée
             </div>
         </div>
     </body>

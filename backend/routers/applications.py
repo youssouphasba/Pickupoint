@@ -69,7 +69,7 @@ async def apply_driver(
         "updated_at":      now,
     }
     await db.applications.insert_one(doc)
-    return {"message": "Candidature soumise. L'équipe PickuPoint vous contactera.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'équipe Denkma vous contactera.", "application_id": doc["application_id"]}
 
 
 @router.post("/relay", summary="Soumettre candidature point relais")
@@ -99,7 +99,7 @@ async def apply_relay(
         "updated_at":      now,
     }
     await db.applications.insert_one(doc)
-    return {"message": "Candidature soumise. L'équipe PickuPoint visitera votre point.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'équipe Denkma visitera votre point.", "application_id": doc["application_id"]}
 
 
 @router.get("/my", summary="Mes candidatures")

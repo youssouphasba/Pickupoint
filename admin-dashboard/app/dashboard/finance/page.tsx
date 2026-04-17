@@ -11,10 +11,23 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
 import { Banknote, Loader2 } from "lucide-react";
+import Link from "next/link";
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+const SUMMARY_LABELS: Record<string, string> = {
+  wallets_checked: "Wallets vérifiés",
+  payouts_checked: "Payouts vérifiés",
+  wallet_pending_mismatches: "Écarts pending",
+  negative_wallets: "Wallets négatifs",
+  payout_ledger_gaps: "Écarts payout/ledger",
+  mission_parcel_mismatches: "Écarts mission/colis",
+  delivered_unpaid: "Livrés non payés",
+  issues_total: "Problèmes total",
+};
 
 export default function FinancePage() {
   const qc = useQueryClient();
@@ -59,6 +72,9 @@ export default function FinancePage() {
       setSettleAmount("");
     },
   });
+
+  const summary = recon.data?.summary;
+  const codEntities = cod.data?.entities ?? [];
 
   return (
     <div className="space-y-6 p-8">
@@ -148,22 +164,94 @@ export default function FinancePage() {
         </div>
       )}
 
-      {recon.data && (
+      {/* Reconciliation summary */}
+      {summary && (
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Réconciliation
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(recon.data).map(([key, val]) => (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Object.entries(summary).map(([key, val]) => (
               <Card key={key}>
                 <CardContent className="p-5">
                   <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {key.replace(/_/g, " ")}
+                    {SUMMARY_LABELS[key] ?? key.replace(/_/g, " ")}
                   </div>
-                  <div className="mt-1 text-xl font-bold">
-                    {typeof val === "number"
-                      ? `${xof.format(Math.round(val as number))} XOF`
-                      : String(val)}
+                  <div className={`mt-1 text-xl font-bold ${key === "issues_total" && (val as number) > 0 ? "text-red-600" : ""}`}>
+                    {typeof val === "number" ? val : String(val)}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Issues detail */}
+          {recon.data && (() => {
+            const issues = [
+              { key: "wallet_pending_mismatches", label: "Écarts pending wallet" },
+              { key: "negative_wallets", label: "Wallets négatifs" },
+              { key: "payout_ledger_gaps", label: "Écarts payout/ledger" },
+              { key: "mission_parcel_mismatches", label: "Écarts mission/colis" },
+              { key: "delivered_unpaid", label: "Livrés non payés" },
+            ];
+            const hasIssues = issues.some((i) => (recon.data[i.key]?.length ?? 0) > 0);
+            if (!hasIssues) return null;
+            return (
+              <div className="mt-4 space-y-3">
+                {issues.map(({ key, label }) => {
+                  const items = recon.data[key] ?? [];
+                  if (items.length === 0) return null;
+                  return (
+                    <Card key={key}>
+                      <CardHeader>
+                        <CardTitle className="text-sm text-red-600">
+                          {label} ({items.length})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {items.slice(0, 10).map((item: any, i: number) => (
+                            <div key={i} className="rounded border p-2 text-xs font-mono">
+                              {JSON.stringify(item)}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
+      )}
+
+      {/* COD monitoring */}
+      {codEntities.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Cash on delivery (COD) — Soldes livreurs
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {codEntities.map((e: any) => (
+              <Card key={e.user_id}>
+                <CardContent className="flex items-center justify-between p-5">
+                  <div>
+                    <Link
+                      href={`/dashboard/users/${e.user_id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {e.name ?? e.user_id}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">{e.user_id}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-lg font-bold ${(e.cod_balance ?? 0) > 0 ? "text-amber-600" : ""}`}>
+                      {xof.format(e.cod_balance ?? 0)} XOF
+                    </div>
+                    {(e.cod_balance ?? 0) > 0 && (
+                      <Badge tone="warning">À encaisser</Badge>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -172,28 +260,12 @@ export default function FinancePage() {
         </section>
       )}
 
-      {cod.data && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Cash on delivery (COD)
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(cod.data).map(([key, val]) => (
-              <Card key={key}>
-                <CardContent className="p-5">
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {key.replace(/_/g, " ")}
-                  </div>
-                  <div className="mt-1 text-xl font-bold">
-                    {typeof val === "number"
-                      ? `${xof.format(Math.round(val as number))} XOF`
-                      : String(val)}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
+      {codEntities.length === 0 && !loading && cod.data && (
+        <Card>
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">
+            Aucun solde COD en cours.
+          </CardContent>
+        </Card>
       )}
     </div>
   );

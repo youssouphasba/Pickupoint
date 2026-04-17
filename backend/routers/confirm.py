@@ -161,7 +161,7 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>PickuPoint — Confirmer ma position</title>
+  <title>Denkma — Confirmer ma position</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -201,7 +201,7 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
 </head>
 <body>
   <div class="logo">📦</div>
-  <h1>{greeting}Votre colis PickuPoint</h1>
+  <h1>{greeting}Votre colis Denkma</h1>
   <p>Appuyez sur le bouton pour indiquer<br>votre position de <strong>{safe_role_label}</strong></p>
 
   <button class="btn" id="btn-locate" onclick="getLocation()">

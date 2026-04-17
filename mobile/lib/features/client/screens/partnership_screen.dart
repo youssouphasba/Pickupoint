@@ -43,7 +43,7 @@ class _PartnershipScreenState extends ConsumerState<PartnershipScreen>
           controller: _tabCtrl,
           tabs: const [
             Tab(icon: Icon(Icons.delivery_dining), text: 'Livreur'),
-            Tab(icon: Icon(Icons.store),           text: 'Point Relais'),
+            Tab(icon: Icon(Icons.store), text: 'Point Relais'),
           ],
         ),
       ),
@@ -63,19 +63,21 @@ class _DriverApplicationForm extends ConsumerStatefulWidget {
   const _DriverApplicationForm();
 
   @override
-  ConsumerState<_DriverApplicationForm> createState() => _DriverApplicationFormState();
+  ConsumerState<_DriverApplicationForm> createState() =>
+      _DriverApplicationFormState();
 }
 
-class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> {
-  final _formKey    = GlobalKey<FormState>();
-  final _nameCtrl   = TextEditingController();
-  final _cniCtrl    = TextEditingController();
-  final _licCtrl    = TextEditingController();
-  final _msgCtrl    = TextEditingController();
-  String _vehicle   = 'moto';
-  bool   _loading   = false;
-  File?  _idCardFile;
-  File?  _licenseFile;
+class _DriverApplicationFormState
+    extends ConsumerState<_DriverApplicationForm> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _cniCtrl = TextEditingController();
+  final _licCtrl = TextEditingController();
+  final _msgCtrl = TextEditingController();
+  String _vehicle = 'moto';
+  bool _loading = false;
+  File? _idCardFile;
+  File? _licenseFile;
   String? _idCardUrl;
   String? _licenseUrl;
 
@@ -83,8 +85,10 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
 
   @override
   void dispose() {
-    _nameCtrl.dispose(); _cniCtrl.dispose();
-    _licCtrl.dispose();  _msgCtrl.dispose();
+    _nameCtrl.dispose();
+    _cniCtrl.dispose();
+    _licCtrl.dispose();
+    _msgCtrl.dispose();
     super.dispose();
   }
 
@@ -94,7 +98,8 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
       padding: const EdgeInsets.all(24),
       child: Form(
         key: _formKey,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const SizedBox(height: 8),
           // Intro
           Container(
@@ -104,23 +109,29 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.blue.shade100),
             ),
-            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Devenez livreur PickuPoint',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
-              SizedBox(height: 6),
-              Text(
-                'Livrez des colis à votre rythme et gagnez de l\'argent. '
-                'Nous vérifierons votre permis et votre identité avant validation.',
-                style: TextStyle(fontSize: 13, color: Colors.blueGrey),
-              ),
-            ]),
+            child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Devenez livreur Denkma',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.blue)),
+                  SizedBox(height: 6),
+                  Text(
+                    'Livrez des colis à votre rythme et gagnez de l\'argent. '
+                    'Nous vérifierons votre permis et votre identité avant validation.',
+                    style: TextStyle(fontSize: 13, color: Colors.blueGrey),
+                  ),
+                ]),
           ),
           const SizedBox(height: 24),
-          _field(_nameCtrl, 'Nom complet *', Icons.person, validator: _required),
+          _field(_nameCtrl, 'Nom complet *', Icons.person,
+              validator: _required),
           const SizedBox(height: 16),
-          _field(_cniCtrl, 'Numéro CNI (carte d\'identité) *', Icons.badge, validator: _required),
+          _field(_cniCtrl, 'Numéro CNI (carte d\'identité) *', Icons.badge,
+              validator: _required),
           const SizedBox(height: 16),
-          _field(_licCtrl, 'Numéro de permis de conduire *', Icons.credit_card, validator: _required),
+          _field(_licCtrl, 'Numéro de permis de conduire *', Icons.credit_card,
+              validator: _required),
           const SizedBox(height: 16),
           // Type de véhicule
           DropdownButtonFormField<String>(
@@ -131,10 +142,11 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               prefixIcon: Icon(Icons.directions_car),
             ),
             items: const [
-              DropdownMenuItem(value: 'moto',     child: Text('Moto')),
-              DropdownMenuItem(value: 'car',      child: Text('Voiture')),
-              DropdownMenuItem(value: 'van',      child: Text('Camionnette')),
-              DropdownMenuItem(value: 'tricycle', child: Text('Tricycle / Jakarta')),
+              DropdownMenuItem(value: 'moto', child: Text('Moto')),
+              DropdownMenuItem(value: 'car', child: Text('Voiture')),
+              DropdownMenuItem(value: 'van', child: Text('Camionnette')),
+              DropdownMenuItem(
+                  value: 'tricycle', child: Text('Tricycle / Jakarta')),
             ],
             onChanged: (v) => setState(() => _vehicle = v!),
           ),
@@ -144,14 +156,16 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
             maxLines: 3,
             decoration: const InputDecoration(
               labelText: 'Message (optionnel)',
-              hintText: 'Parlez-nous de votre expérience, votre quartier de prédilection…',
+              hintText:
+                  'Parlez-nous de votre expérience, votre quartier de prédilection…',
               border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.message),
-            alignLabelWithHint: true,
+              prefixIcon: Icon(Icons.message),
+              alignLabelWithHint: true,
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-          const Text('Documents (KYC) *', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          const Text('Documents (KYC) *',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           _docPicker(
             label: 'Photo CNI (Recto/Verso)',
@@ -176,7 +190,8 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
     );
   }
 
-  Widget _docPicker({required String label, File? file, required VoidCallback onTap}) {
+  Widget _docPicker(
+      {required String label, File? file, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -184,7 +199,9 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
         decoration: BoxDecoration(
           color: file == null ? Colors.grey.shade50 : Colors.green.shade50,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: file == null ? Colors.grey.shade300 : Colors.green.shade300),
+          border: Border.all(
+              color:
+                  file == null ? Colors.grey.shade300 : Colors.green.shade300),
         ),
         child: Row(
           children: [
@@ -197,10 +214,17 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  Text(label,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.bold)),
                   Text(
-                    file == null ? 'Cliquer pour choisir' : 'Fichier sélectionné : ${file.path.split('/').last}',
-                    style: TextStyle(fontSize: 11, color: file == null ? Colors.grey : Colors.green.shade700),
+                    file == null
+                        ? 'Cliquer pour choisir'
+                        : 'Fichier sélectionné : ${file.path.split('/').last}',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color:
+                            file == null ? Colors.grey : Colors.green.shade700),
                   ),
                 ],
               ),
@@ -244,7 +268,9 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
     if (!_formKey.currentState!.validate()) return;
     if (_idCardFile == null || _licenseFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez uploader la CNI et le Permis'), backgroundColor: Colors.orange),
+        const SnackBar(
+            content: Text('Veuillez uploader la CNI et le Permis'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
@@ -252,23 +278,23 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
-      
+
       // 1. Upload des docs d'abord
       final idRes = await api.uploadKyc(_idCardFile!, 'id_card');
       _idCardUrl = idRes.data['doc_url'];
-      
+
       final licRes = await api.uploadKyc(_licenseFile!, 'license');
       _licenseUrl = licRes.data['doc_url'];
 
       // 2. Soumission candidature
       await api.applyDriver({
-        'full_name':      _nameCtrl.text.trim(),
+        'full_name': _nameCtrl.text.trim(),
         'id_card_number': _cniCtrl.text.trim(),
         'license_number': _licCtrl.text.trim(),
-        'vehicle_type':   _vehicle,
-        'id_card_url':    _idCardUrl,
-        'license_url':    _licenseUrl,
-        'message':        _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
+        'vehicle_type': _vehicle,
+        'id_card_url': _idCardUrl,
+        'license_url': _licenseUrl,
+        'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
       });
       if (mounted) {
         showDialog(
@@ -281,12 +307,15 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
               Text('Candidature envoyée'),
             ]),
             content: const Text(
-              'Votre dossier a été transmis à l\'équipe PickuPoint. '
+              'Votre dossier a été transmis à l\'équipe Denkma. '
               'Nous vous contacterons par téléphone dans les 48h pour vérifier vos pièces.',
             ),
             actions: [
               ElevatedButton(
-                onPressed: () { Navigator.pop(context); Navigator.pop(context); },
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -296,7 +325,8 @@ class _DriverApplicationFormState extends ConsumerState<_DriverApplicationForm> 
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -310,24 +340,29 @@ class _RelayApplicationForm extends ConsumerStatefulWidget {
   const _RelayApplicationForm();
 
   @override
-  ConsumerState<_RelayApplicationForm> createState() => _RelayApplicationFormState();
+  ConsumerState<_RelayApplicationForm> createState() =>
+      _RelayApplicationFormState();
 }
 
 class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
-  final _formKey     = GlobalKey<FormState>();
-  final _nameCtrl    = TextEditingController();
-  final _addrCtrl    = TextEditingController();
-  final _cityCtrl    = TextEditingController(text: 'Dakar');
-  final _regCtrl     = TextEditingController();
-  final _hoursCtrl   = TextEditingController(text: 'Lun-Sam 8h-20h');
-  final _msgCtrl     = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _addrCtrl = TextEditingController();
+  final _cityCtrl = TextEditingController(text: 'Dakar');
+  final _regCtrl = TextEditingController();
+  final _hoursCtrl = TextEditingController(text: 'Lun-Sam 8h-20h');
+  final _msgCtrl = TextEditingController();
   LatLng? _selectedLocation;
-  bool   _loading    = false;
+  bool _loading = false;
 
   @override
   void dispose() {
-    _nameCtrl.dispose(); _addrCtrl.dispose(); _cityCtrl.dispose();
-    _regCtrl.dispose();  _hoursCtrl.dispose(); _msgCtrl.dispose();
+    _nameCtrl.dispose();
+    _addrCtrl.dispose();
+    _cityCtrl.dispose();
+    _regCtrl.dispose();
+    _hoursCtrl.dispose();
+    _msgCtrl.dispose();
     super.dispose();
   }
 
@@ -337,7 +372,8 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
       padding: const EdgeInsets.all(24),
       child: Form(
         key: _formKey,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(14),
@@ -346,16 +382,19 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.orange.shade100),
             ),
-            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Ouvrez un Point Relais',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-              SizedBox(height: 6),
-              Text(
-                'Accueillez des colis dans votre boutique et gagnez une commission par colis. '
-                'Un agent PickuPoint visitera votre local avant validation.',
-                style: TextStyle(fontSize: 13, color: Colors.brown),
-              ),
-            ]),
+            child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ouvrez un Point Relais',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.orange)),
+                  SizedBox(height: 6),
+                  Text(
+                    'Accueillez des colis dans votre boutique et gagnez une commission par colis. '
+                    'Un agent Denkma visitera votre local avant validation.',
+                    style: TextStyle(fontSize: 13, color: Colors.brown),
+                  ),
+                ]),
           ),
           const SizedBox(height: 24),
           _field(_nameCtrl, 'Nom de la boutique / du local *', Icons.storefront,
@@ -364,9 +403,11 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
           _field(_addrCtrl, 'Adresse (quartier, rue…) *', Icons.location_on,
               validator: _required),
           const SizedBox(height: 16),
-          _field(_cityCtrl, 'Ville *', Icons.location_city, validator: _required),
+          _field(_cityCtrl, 'Ville *', Icons.location_city,
+              validator: _required),
           const SizedBox(height: 16),
-          _field(_regCtrl, 'Numéro Registre Commerce (optionnel)', Icons.business),
+          _field(
+              _regCtrl, 'Numéro Registre Commerce (optionnel)', Icons.business),
           const SizedBox(height: 16),
           _field(_hoursCtrl, 'Horaires d\'ouverture *', Icons.access_time,
               validator: _required),
@@ -389,15 +430,23 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: _selectedLocation == null ? Colors.grey.shade50 : Colors.green.shade50,
+                color: _selectedLocation == null
+                    ? Colors.grey.shade50
+                    : Colors.green.shade50,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _selectedLocation == null ? Colors.grey.shade300 : Colors.green.shade300),
+                border: Border.all(
+                    color: _selectedLocation == null
+                        ? Colors.grey.shade300
+                        : Colors.green.shade300),
               ),
               child: Row(
                 children: [
                   Icon(
-                    _selectedLocation == null ? Icons.add_location_alt : Icons.location_on,
-                    color: _selectedLocation == null ? Colors.grey : Colors.green,
+                    _selectedLocation == null
+                        ? Icons.add_location_alt
+                        : Icons.location_on,
+                    color:
+                        _selectedLocation == null ? Colors.grey : Colors.green,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -405,16 +454,21 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _selectedLocation == null ? 'Définir l\'emplacement sur la carte *' : 'Emplacement défini',
+                          _selectedLocation == null
+                              ? 'Définir l\'emplacement sur la carte *'
+                              : 'Emplacement défini',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: _selectedLocation == null ? Colors.black87 : Colors.green.shade700,
+                            color: _selectedLocation == null
+                                ? Colors.black87
+                                : Colors.green.shade700,
                           ),
                         ),
                         if (_selectedLocation != null)
                           Text(
                             'Lat: ${_selectedLocation!.latitude.toStringAsFixed(5)}, Lng: ${_selectedLocation!.longitude.toStringAsFixed(5)}',
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey),
                           ),
                       ],
                     ),
@@ -448,8 +502,11 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
           ElevatedButton.icon(
             onPressed: _loading ? null : _submit,
             icon: _loading
-                ? const SizedBox(width: 18, height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.send),
             label: Text(_loading ? 'Envoi…' : 'Envoyer ma candidature'),
             style: ElevatedButton.styleFrom(
@@ -465,7 +522,8 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
   Future<void> _pickLocation() async {
     LatLng initialPos = const LatLng(14.6928, -17.4467); // Dakar
     try {
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
       initialPos = LatLng(pos.latitude, pos.longitude);
     } catch (_) {}
 
@@ -485,25 +543,30 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
               child: Stack(
                 children: [
                   GoogleMap(
-                    initialCameraPosition: CameraPosition(target: initialPos, zoom: 15),
+                    initialCameraPosition:
+                        CameraPosition(target: initialPos, zoom: 15),
                     onCameraMove: (cam) => tempPos = cam.target,
                     myLocationEnabled: true,
                     myLocationButtonEnabled: true,
                     gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                      Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+                      Factory<OneSequenceGestureRecognizer>(
+                          () => EagerGestureRecognizer()),
                     },
                   ),
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.only(bottom: 35),
-                      child: Icon(Icons.location_on, color: Colors.red, size: 40),
+                      child:
+                          Icon(Icons.location_on, color: Colors.red, size: 40),
                     ),
                   ),
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Annuler')),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx, tempPos),
                 child: const Text('Confirmer cette position'),
@@ -540,21 +603,24 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez définir l\'emplacement sur la carte'), backgroundColor: Colors.orange),
+        const SnackBar(
+            content: Text('Veuillez définir l\'emplacement sur la carte'),
+            backgroundColor: Colors.orange),
       );
       return;
     }
-    
+
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
       await api.applyRelay({
-        'business_name':  _nameCtrl.text.trim(),
-        'address_label':  _addrCtrl.text.trim(),
-        'city':           _cityCtrl.text.trim(),
-        'business_reg':   _regCtrl.text.trim().isEmpty ? null : _regCtrl.text.trim(),
-        'opening_hours':  _hoursCtrl.text.trim(),
-        'message':        _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
+        'business_name': _nameCtrl.text.trim(),
+        'address_label': _addrCtrl.text.trim(),
+        'city': _cityCtrl.text.trim(),
+        'business_reg':
+            _regCtrl.text.trim().isEmpty ? null : _regCtrl.text.trim(),
+        'opening_hours': _hoursCtrl.text.trim(),
+        'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
         'geopin': {
           'lat': _selectedLocation!.latitude,
           'lng': _selectedLocation!.longitude,
@@ -571,12 +637,15 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
               Text('Candidature envoyée'),
             ]),
             content: const Text(
-              'Votre dossier a été transmis. Un agent PickuPoint visitera votre local '
+              'Votre dossier a été transmis. Un agent Denkma visitera votre local '
               'pour vérifier l\'emplacement et les conditions de stockage.',
             ),
             actions: [
               ElevatedButton(
-                onPressed: () { Navigator.pop(context); Navigator.pop(context); },
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -586,7 +655,8 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
