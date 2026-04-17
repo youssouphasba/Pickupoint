@@ -15,7 +15,7 @@ import getpass
 from datetime import datetime, timezone
 
 from core.security import hash_password
-from database import db
+from database import connect_db, db
 from models.common import UserRole
 
 
@@ -28,6 +28,8 @@ async def main() -> int:
     email = args[0].strip().lower()
     phone = args[1].strip()
     promote_super = "--superadmin" in args
+
+    await connect_db()
 
     user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user:
