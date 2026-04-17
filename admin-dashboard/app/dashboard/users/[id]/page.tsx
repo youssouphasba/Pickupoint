@@ -52,6 +52,16 @@ const ROLE_LABELS: Record<string, string> = {
 
 const ROLES = ["client", "driver", "relay_agent", "admin"] as const;
 
+type BadgeTone = NonNullable<React.ComponentProps<typeof Badge>["tone"]>;
+
+const ROLE_TONES: Record<string, BadgeTone> = {
+  client: "default",
+  driver: "info",
+  relay_agent: "warning",
+  admin: "success",
+  superadmin: "danger",
+};
+
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -179,15 +189,7 @@ export default function UserDetailPage() {
               {user.is_banned ? "Suspendu" : user.is_active ? "Actif" : "Inactif"}
             </Badge>
             <Badge
-              tone={
-                {
-                  client: "default" as const,
-                  driver: "info" as const,
-                  relay_agent: "warning" as const,
-                  admin: "success" as const,
-                  superadmin: "danger" as const,
-                }[user.role] ?? ("default" as const)
-              }
+              tone={ROLE_TONES[String(user.role)] ?? "default"}
             >
               {ROLE_LABELS[user.role] ?? user.role}
             </Badge>
