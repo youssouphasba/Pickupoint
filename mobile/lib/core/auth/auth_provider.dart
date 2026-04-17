@@ -119,29 +119,6 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     }
   }
 
-  /// Étape 1 — demande OTP
-  Future<String?> requestOtp(String phone) async {
-    state = const AsyncLoading();
-    try {
-      final client = ApiClient();
-      final res = await client.requestOtp({'phone': phone});
-      final data = res.data as Map<String, dynamic>;
-      if (data['sent'] != true) {
-        throw Exception(
-            data['detail'] ?? data['message'] ?? "Envoi OTP indisponible.");
-      }
-      // Revenir à unauthenticated pour afficher OtpScreen
-      state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
-      return data['test_code'] as String?;
-    } catch (e) {
-      state = AsyncData(AuthState(
-        status: AuthStatus.unauthenticated,
-        error: _extractError(e),
-      ));
-      rethrow;
-    }
-  }
-
   // ── Firebase Phone Auth ──────────────────────────────────────────────────
 
   String? _firebaseVerificationId;
@@ -228,34 +205,6 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         throw Exception("Session manquante dans la réponse API.");
       }
       await _handleTokenResponse(sessionData);
-      return null;
-    } catch (e) {
-      state = AsyncData(AuthState(
-        status: AuthStatus.unauthenticated,
-        error: _extractError(e),
-      ));
-      rethrow;
-    }
-  }
-
-  /// Étape 2 — vérification OTP (legacy, pour mode mock/twilio). Returns registration_token if new user, null if logged in.
-  Future<String?> verifyOtp(String phone, String otp) async {
-    state = const AsyncLoading();
-    try {
-      final client = ApiClient();
-      final res = await client.verifyOtp({'phone': phone, 'otp': otp});
-      final data = res.data as Map<String, dynamic>;
-
-      if (data['is_new_user'] == true) {
-        state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
-        return data['registration_token'] as String;
-      }
-
-      final sessionData = data['session'] as Map<String, dynamic>?;
-      if (sessionData == null) {
-        throw Exception("Session manquante dans la réponse API.");
-      }
-      _handleTokenResponse(sessionData);
       return null;
     } catch (e) {
       state = AsyncData(AuthState(

@@ -60,12 +60,6 @@ class ApiClient {
   }
 
   // --- Auth & Profile ---
-  Future<Response> requestOtp(Map<String, dynamic> body) =>
-      _dio.post(ApiEndpoints.requestOtp, data: body);
-
-  Future<Response> verifyOtp(Map<String, dynamic> body) =>
-      _dio.post(ApiEndpoints.verifyOtp, data: body);
-
   Future<Response> firebaseLogin(String idToken) =>
       _dio.post(ApiEndpoints.firebaseAuth, data: {'id_token': idToken});
 
@@ -77,9 +71,6 @@ class ApiClient {
 
   Future<Response> completeRegistration(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.completeReg, data: body);
-
-  Future<Response> resetPin(Map<String, dynamic> body) =>
-      _dio.post(ApiEndpoints.resetPin, data: body);
 
   Future<Response> resetPinWithFirebase(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.resetPinFirebase, data: body);

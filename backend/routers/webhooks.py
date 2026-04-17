@@ -1,13 +1,14 @@
 """
-Router webhooks : callback paiement Flutterwave.
+Router webhooks : callbacks paiement et WhatsApp.
+
 Flutterwave envoie un POST avec le tx_ref et le statut de la transaction.
-Docs : https://developer.flutterwave.com/docs/integration-guides/webhooks
+Meta valide WhatsApp avec un GET qui doit renvoyer exactement hub.challenge.
 """
 import hmac
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, HTTPException, Header, Query, Response
 from typing import Optional
 
 from config import settings
@@ -17,6 +18,62 @@ from services.payment_service import verify_payment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/whatsapp", summary="Validation webhook WhatsApp Cloud API")
+async def verify_whatsapp_webhook(
+    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
+    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
+):
+    """Endpoint appelé par Meta lors de la configuration du webhook WhatsApp."""
+    expected_token = settings.WHATSAPP_VERIFY_TOKEN
+    if not expected_token:
+        logger.warning("Webhook WhatsApp refusé: WHATSAPP_VERIFY_TOKEN non configuré")
+        raise HTTPException(status_code=503, detail="WhatsApp webhook verify token missing")
+
+    if hub_mode == "subscribe" and hub_challenge and hmac.compare_digest(hub_verify_token or "", expected_token):
+        return Response(content=hub_challenge, media_type="text/plain")
+
+    logger.warning("Webhook WhatsApp validation invalide: mode=%s", hub_mode)
+    raise HTTPException(status_code=403, detail="Invalid WhatsApp webhook verification token")
+
+
+@router.post("/whatsapp", summary="Réception webhook WhatsApp Cloud API")
+async def whatsapp_webhook(request: Request):
+    """Reçoit les statuts et messages WhatsApp.
+
+    Le traitement est volontairement tolérant : Meta attend un 200 rapide.
+    Les événements détaillés sont journalisés pour permettre l'audit sans
+    casser la réception si Meta change légèrement le payload.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="JSON invalide")
+
+    entries = payload.get("entry") or []
+    for entry in entries:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            for status in value.get("statuses") or []:
+                logger.info(
+                    "WhatsApp status: id=%s recipient=%s status=%s timestamp=%s",
+                    status.get("id"),
+                    status.get("recipient_id"),
+                    status.get("status"),
+                    status.get("timestamp"),
+                )
+            for message in value.get("messages") or []:
+                logger.info(
+                    "WhatsApp message reçu: from=%s id=%s type=%s timestamp=%s",
+                    message.get("from"),
+                    message.get("id"),
+                    message.get("type"),
+                    message.get("timestamp"),
+                )
+
+    return {"received": True}
 
 
 @router.post("/flutterwave", summary="Callback paiement Flutterwave")

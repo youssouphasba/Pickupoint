@@ -17,7 +17,6 @@ from typing import Optional
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from database import db
-from services.otp_service import _send_via_twilio
 from models.parcel import ParcelQuote
 from services.pricing_service import calculate_price
 from services.payment_service import create_payment_link
