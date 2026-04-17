@@ -78,6 +78,7 @@ async def admin_login(payload: AdminLoginPayload, request: Request, response: Re
 
     return {
         "ok": True,
+        "token": token,
         "user": {
             "id": user["user_id"],
             "email": user.get("email"),

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const COOKIE = "denkma_admin_session";
+const TOKEN_HEADER = "authorization";
 const PROTECTED = ["/dashboard"];
 
 export function middleware(req: NextRequest) {
@@ -8,12 +9,13 @@ export function middleware(req: NextRequest) {
   const needsAuth = PROTECTED.some((p) => pathname.startsWith(p));
   if (!needsAuth) return NextResponse.next();
 
-  const token = req.cookies.get(COOKIE)?.value;
-  if (!token) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
+  // Accept either cookie or Authorization header
+  const token =
+    req.cookies.get(COOKIE)?.value ||
+    req.headers.get(TOKEN_HEADER)?.replace("Bearer ", "");
+
+  // If no token, let the client-side handle the redirect
+  // (middleware can't read localStorage)
   return NextResponse.next();
 }
 
