@@ -40,6 +40,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+export const runtime = "edge";
+
 const xof = new Intl.NumberFormat("fr-FR");
 
 const ROLE_LABELS: Record<string, string> = {
