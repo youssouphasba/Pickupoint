@@ -36,6 +36,6 @@ void main() async {
 
   runApp(UncontrolledProviderScope(
     container: container,
-    child: const PickuPointApp(),
+    child: const DenkmaApp(),
   ));
 }

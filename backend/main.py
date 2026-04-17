@@ -299,7 +299,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3100", "http://localhost:8080", "http://localhost:8001"] if settings.DEBUG else ["https://pickupoint.sn", "https://denkma.sn", "https://admin.denkma.com", "https://denkma.com", "https://www.denkma.com", "http://localhost:3000", "http://localhost:3100"],
+    allow_origins=["http://localhost:3000", "http://localhost:3100", "http://localhost:8080", "http://localhost:8001"] if settings.DEBUG else ["https://denkma.com", "https://www.denkma.com", "https://admin.denkma.com", "https://api.denkma.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -366,4 +366,4 @@ app.include_router(applications.router, prefix="/api/applications", tags=["Appli
 
 @app.get("/health", tags=["Health"])
 async def health():
-    return {"status": "ok", "app": "pickupoint", "version": "1.0.0"}
+    return {"status": "ok", "app": "denkma", "version": "1.0.0"}

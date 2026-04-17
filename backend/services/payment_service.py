@@ -27,7 +27,7 @@ async def create_payment_link(
     customer_phone: str,
     customer_name: str = "Client Denkma",
     customer_email: str = "client@denkma.app",
-    redirect_url: str = "https://pickupoint.sn/payment/callback",
+    redirect_url: Optional[str] = None,
 ) -> dict:
     """
     Cree un lien de paiement Flutterwave.
@@ -47,6 +47,8 @@ async def create_payment_link(
         }
 
     tx_ref = f"PKP-{parcel_id}-{tracking_code}"
+    public_site_url = str(settings.PUBLIC_SITE_URL).rstrip("/")
+    redirect_url = redirect_url or f"{public_site_url}/payment/callback"
 
     payload = {
         "tx_ref": tx_ref,
@@ -62,7 +64,7 @@ async def create_payment_link(
         "customizations": {
             "title": "Denkma",
             "description": f"Paiement colis {tracking_code}",
-            "logo": "https://pickupoint.sn/logo.png",
+            "logo": f"{public_site_url}/assets/logo.png",
         },
         "meta": {
             "parcel_id": parcel_id,

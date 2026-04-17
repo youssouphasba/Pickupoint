@@ -1,5 +1,5 @@
 """
-Service de tarification PickuPoint.
+Service de tarification Denkma.
 
 Formule :
   sous_total = base_mode + (distance_km × PRICE_PER_KM)

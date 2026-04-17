@@ -282,7 +282,7 @@ export async function fetchSettings() {
 
 export async function toggleExpress(enabled: boolean) {
   const { data } = await api.put("/api/admin/settings/express", {
-    express_enabled: enabled,
+    enabled,
   });
   return data;
 }
@@ -291,6 +291,26 @@ export async function fetchReferralStats() {
   const { data } = await api.get("/api/admin/settings/referral/stats");
   return data;
 }
+
+export async function updateReferralSettings(body: {
+  client: ReferralRoleConfig;
+  driver: ReferralRoleConfig;
+  share_base_url?: string | null;
+}) {
+  const { data } = await api.put("/api/admin/settings/referral", body);
+  return data;
+}
+
+export type ReferralRoleConfig = {
+  enabled: boolean;
+  sponsor_bonus_xof: number;
+  referred_bonus_xof: number;
+  apply_metric: string;
+  apply_max_count: number;
+  reward_metric: string;
+  reward_count: number;
+  max_referrals_per_sponsor: number;
+};
 
 // ───────────────────────── Parcel actions ─────────────────────────
 
