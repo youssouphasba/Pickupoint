@@ -101,14 +101,15 @@ def _should_send_whatsapp_tracking(user_doc: dict | None, category: Optional[str
         return False
 
     prefs = user_doc.get("notification_prefs") or {}
+    if not prefs.get("whatsapp", True):
+        return False
+
     has_app = bool(user_doc.get("fcm_token"))
+    push_enabled = prefs.get("push", True)
 
-    # Sans app active: on force le suivi externe.
-    if not has_app:
-        return True
-
-    # Avec app: WhatsApp reste optionnel.
-    return bool(prefs.get("whatsapp", True))
+    # Push prioritaire : si l'app peut recevoir la notif, on ne double pas avec WhatsApp.
+    # WhatsApp reste le canal de secours pour les users sans app ou avec push désactivé.
+    return not (has_app and push_enabled)
 
 
 def _first_name(full_name: Optional[str], fallback: str = "Client") -> str:
@@ -173,7 +174,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         if template_name:
             await _send_whatsapp_template(recipient_phone, template_name, template_vars_recipient)
         else:
-            await _send_sms_or_whatsapp(recipient_phone, body)
+            await _send_whatsapp(recipient_phone, body)
 
 
 def _template_vars(
@@ -319,18 +320,6 @@ async def _send_push(
         logger.warning("Échec envoi Push FCM à %s: %s", user_id, e)
 
 
-async def _send_sms(phone: str, body: str):
-    """Envoi SMS via Twilio (best-effort, ne lève pas d'exception)."""
-    try:
-        if not settings.TWILIO_ACCOUNT_SID or not settings.TWILIO_SMS_NUMBER:
-            return
-        from twilio.rest import Client
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        client.messages.create(body=body, from_=settings.TWILIO_SMS_NUMBER, to=phone)
-    except Exception as e:
-        logger.warning(f"SMS non envoyé à {phone} : {e}")
-
-
 async def _whatsapp_post(payload: dict, phone: str) -> bool:
     if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
         logger.debug("WhatsApp Cloud API non configuré, message ignoré")
@@ -396,10 +385,6 @@ async def _send_whatsapp(phone: str, body: str):
     await _whatsapp_post(payload, phone)
 
 
-async def _send_sms_or_whatsapp(phone: str, body: str):
-    await _send_whatsapp(phone, body)
-    await _send_sms(phone, body)
-
 async def notify_delivery_code(
     phone: str,
     recipient_name: str,
@@ -422,7 +407,7 @@ async def notify_delivery_code(
         msg += f"Paiement requis ({payment_url})\n"
     msg += f"{instruction} Ne le partagez pas."
     try:
-        await _send_sms_or_whatsapp(phone, msg)
+        await _send_whatsapp(phone, msg)
     except Exception as e:
         logger.warning("Impossible d'envoyer le code réception: %s", e)
 
@@ -498,7 +483,8 @@ async def send_location_confirmation_prompt(
         if escalate_external and phone:
             if whatsapp_template:
                 await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
-            await _send_sms(phone, body)
+            else:
+                await _send_whatsapp(phone, body)
         return
 
     if phone:
@@ -506,7 +492,6 @@ async def send_location_confirmation_prompt(
             await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
         else:
             await _send_whatsapp(phone, body)
-        await _send_sms(phone, body)
 
 
 async def notify_relay_agent_parcel_arrived(relay_id: str, parcel: dict):
@@ -582,7 +567,7 @@ async def notify_parcel_expired(parcel: dict):
             category="parcel_updates",
         )
     elif recipient_phone:
-        await _send_sms_or_whatsapp(recipient_phone, body)
+        await _send_whatsapp(recipient_phone, body)
 
 
 async def notify_location_confirmation_request(parcel: dict, actor: str, confirm_url: str, escalate_external: bool = False):

@@ -109,12 +109,6 @@ class OTPRequest(BaseModel):
         return v
 
 
-class OTPVerify(BaseModel):
-    phone: str
-    otp:   str
-    accepted_legal: bool = False
-
-
 class TokenResponse(BaseModel):
     access_token:  str
     refresh_token: str

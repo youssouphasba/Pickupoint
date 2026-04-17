@@ -21,8 +21,7 @@ from core.security import (
 from core.dependencies import get_current_user
 from core.utils import normalize_phone, is_supported_phone
 from database import db
-from models.user import OTPRequest, OTPVerify, TokenResponse, RefreshRequest, ProfileUpdate, User
-from services.otp_service import send_otp, verify_otp
+from models.user import OTPRequest, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.parcel_service import _record_event
 from services.user_service import (
     generate_unique_referral_code,
@@ -123,22 +122,6 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
     }
 
 
-@router.post("/request-otp", summary="Envoyer OTP")
-@limiter.limit("5/minute")
-async def request_otp(body: OTPRequest, request: Request):
-    phone = normalize_phone(body.phone)
-    if not is_supported_phone(phone):
-        raise bad_request_exception("Denkma est disponible au Sénégal et en France uniquement")
-    result = await send_otp(phone)
-    if not result.get("sent"):
-        raise bad_request_exception("Envoi OTP indisponible pour le moment. Réessayez plus tard.")
-    return {
-        "sent": True,
-        "phone": phone,
-        "channel": result.get("channel"),
-    }
-
-
 @router.post("/check-phone", summary="Vérifier si un numéro est inscrit")
 @limiter.limit("10/minute")
 async def check_phone(body: OTPRequest, request: Request):
@@ -197,65 +180,6 @@ async def login_pin(body: PINLoginRequest, request: Request):
         access_token=access_token,
         refresh_token=refresh_token,
         user=User(**user_doc),
-    )
-
-
-class OTPVerifyResponse(BaseModel):
-    is_new_user: bool
-    # Si exists = true, retourne les tokens de session normaux
-    session: Optional[TokenResponse] = None
-    # Si exists = false, retourne un token temporaire pour /complete-registration
-    registration_token: Optional[str] = None
-
-
-@router.post("/verify-otp", response_model=OTPVerifyResponse, summary="Vérifier OTP")
-@limiter.limit("10/minute")
-async def verify_otp_endpoint(body: OTPVerify, request: Request):
-    phone = normalize_phone(body.phone)
-    valid = await verify_otp(phone, body.otp)
-    if not valid:
-        raise bad_request_exception("OTP invalide ou expiré")
-
-    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
-    
-    # 1. Nouvel utilisateur
-    if not user_doc:
-        # Créer un JWT temporaire valable 1 heure pour finaliser l'inscription
-        temp_token = create_registration_token(
-            phone,
-            expires_delta=timedelta(hours=1),
-        )
-        return OTPVerifyResponse(is_new_user=True, registration_token=temp_token)
-        
-    # 2. Utilisateur existant
-    if user_doc.get("is_banned"):
-        from core.exceptions import forbidden_exception
-        raise forbidden_exception("Votre compte a été suspendu par l'administration.")
-
-    await db.users.update_one(
-        {"phone": phone},
-        {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
-    )
-    user_doc["is_phone_verified"] = True
-
-    token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
-    access_token  = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
-
-    await db.user_sessions.insert_one({
-        "user_id":       user_doc["user_id"],
-        "refresh_token": refresh_token,
-        "created_at":    datetime.now(timezone.utc),
-        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    })
-
-    return OTPVerifyResponse(
-        is_new_user=False,
-        session=TokenResponse(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            user=User(**user_doc),
-        )
     )
 
 
@@ -375,41 +299,9 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     )
 
 
-class ResetPinRequest(BaseModel):
-    phone: str
-    otp: str
-    new_pin: str
-
-
 class FirebaseResetPinRequest(BaseModel):
     id_token: str
     new_pin: str
-
-
-@router.post("/reset-pin", summary="Réinitialiser le PIN via OTP")
-@limiter.limit("5/minute")
-async def reset_pin(body: ResetPinRequest, request: Request):
-    phone = normalize_phone(body.phone)
-    valid = await verify_otp(phone, body.otp)
-    if not valid:
-        raise bad_request_exception("OTP invalide ou expiré")
-        
-    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
-    if not user_doc:
-        raise bad_request_exception("Utilisateur introuvable")
-        
-    if len(body.new_pin) < 4:
-        raise bad_request_exception("Le code PIN doit contenir au moins 4 chiffres.")
-        
-    from core.security import hash_password
-    await db.users.update_one(
-        {"phone": phone},
-        {"$set": {
-            "pin_hash": hash_password(body.new_pin),
-            "updated_at": datetime.now(timezone.utc)
-        }}
-    )
-    return {"message": "Code PIN réinitialisé avec succès."}
 
 
 @router.post("/reset-pin-firebase", summary="Reinitialiser le PIN via Firebase")
