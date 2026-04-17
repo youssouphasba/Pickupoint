@@ -400,6 +400,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     has_origin_gps = bool(data.origin_location and data.origin_location.geopin)
     requires_sender_confirmation = data.delivery_mode.value.startswith("home_to_") and not has_origin_gps
     requires_recipient_gps = data.delivery_mode.value.endswith("_to_home")
+    requires_recipient_relay_choice = data.delivery_mode.value.endswith("_to_relay")
     delivery_confirmed = data.delivery_mode.value.endswith("_to_relay")
     pickup_confirmed = has_origin_gps if data.delivery_mode.value.startswith("home_to_") else False
 
@@ -484,13 +485,14 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     # ── Gestion des confirmations GPS expéditeur / destinataire ──
     recipient_token = None
     sender_token = None
-    if requires_sender_confirmation or requires_recipient_gps:
+    if requires_sender_confirmation or requires_recipient_gps or requires_recipient_relay_choice:
         from routers.confirm import generate_confirm_tokens
         generated_recipient_token, generated_sender_token = generate_confirm_tokens()
-        if requires_recipient_gps:
+        if requires_recipient_gps or requires_recipient_relay_choice:
             recipient_token = generated_recipient_token
             parcel_doc["recipient_confirm_token"] = recipient_token
-            parcel_doc["delivery_confirmed"] = False
+            if requires_recipient_gps:
+                parcel_doc["delivery_confirmed"] = False
         if requires_sender_confirmation:
             sender_token = generated_sender_token
             parcel_doc["sender_confirm_token"] = sender_token
@@ -591,6 +593,28 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             )
         except Exception as e:
             logger.warning(f"SMS de confirmation GPS non envoyé : {e}")
+
+    if requires_recipient_relay_choice and recipient_token:
+        relay_choice_url = f"{settings.BASE_URL}/confirm/{recipient_token}"
+        try:
+            from services.notification_service import notify_relay_choice_request
+
+            await notify_relay_choice_request(
+                parcel_doc,
+                confirm_url=relay_choice_url,
+            )
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {
+                    "gps_reminders.recipient.count": 1,
+                    "gps_reminders.recipient.last_sent_at": now,
+                    "gps_reminders.recipient.last_channel": (
+                        "in_app_push" if parcel_doc.get("recipient_user_id") else "sms_whatsapp"
+                    ),
+                }},
+            )
+        except Exception as e:
+            logger.warning(f"Lien de choix de relais non envoyé : {e}")
 
     sender_confirm_url = None
     if requires_sender_confirmation and sender_token:

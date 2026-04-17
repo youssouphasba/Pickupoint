@@ -623,3 +623,26 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
         ref_id=parcel_id,
         escalate_external=escalate_external,
     )
+
+
+async def notify_relay_choice_request(parcel: dict, confirm_url: str, escalate_external: bool = False):
+    """Invite le destinataire à choisir ou modifier son point relais de retrait."""
+    tracking_code = parcel.get("tracking_code", "")
+    parcel_id = parcel.get("parcel_id")
+    user_id = parcel.get("recipient_user_id")
+    phone = parcel.get("recipient_phone")
+    title = "Choisissez votre point relais"
+    body = (
+        f"Choisissez ou modifiez le point relais de retrait du colis {tracking_code}. "
+        f"Ouvrez le lien : {confirm_url}"
+    )
+
+    await send_location_confirmation_prompt(
+        title=title,
+        body=body,
+        user_id=user_id,
+        phone=phone,
+        ref_type="parcel",
+        ref_id=parcel_id,
+        escalate_external=escalate_external,
+    )

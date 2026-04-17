@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from core.security import verify_access_token
@@ -9,13 +9,28 @@ from models.common import UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
+ADMIN_COOKIE_NAME = "denkma_admin_session"
+
+
+def _extract_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> Optional[str]:
+    """Prend le token dans l'Authorization header (mobile) ou le cookie admin (web)."""
+    if credentials and credentials.credentials:
+        return credentials.credentials
+    cookie = request.cookies.get(ADMIN_COOKIE_NAME)
+    return cookie or None
+
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> dict:
-    if not credentials:
+    token = _extract_token(request, credentials)
+    if not token:
         raise credentials_exception()
-    payload = verify_access_token(credentials.credentials)
+    payload = verify_access_token(token)
     if not payload:
         raise credentials_exception()
 
@@ -37,13 +52,15 @@ async def get_current_user(
 
 
 async def get_current_user_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> Optional[dict]:
     """Version optionnelle de get_current_user (ne lève pas d'erreur si anonyme)."""
-    if not credentials:
+    token = _extract_token(request, credentials)
+    if not token:
         return None
     try:
-        payload = verify_access_token(credentials.credentials)
+        payload = verify_access_token(token)
         if not payload:
             return None
         user_id = payload.get("sub")

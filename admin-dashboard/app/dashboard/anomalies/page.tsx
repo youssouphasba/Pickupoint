@@ -1,0 +1,104 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { fetchAnomalies } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatDate } from "@/lib/utils";
+import { AlertTriangle, Loader2 } from "lucide-react";
+
+type Anomaly = {
+  type: string;
+  parcel_id?: string;
+  tracking_code?: string;
+  status?: string;
+  driver_name?: string;
+  relay_name?: string;
+  hours_since_update?: number;
+  message?: string;
+};
+
+const TYPE_LABELS: Record<string, string> = {
+  stalled_mission: "Mission bloquée",
+  signal_lost: "Signal GPS perdu",
+  long_transit: "Transit trop long",
+  capacity_overflow: "Relais plein",
+};
+
+export default function AnomaliesPage() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["anomalies"],
+    queryFn: fetchAnomalies,
+    refetchInterval: 60_000,
+  });
+
+  const alerts: Anomaly[] = data?.alerts ?? [];
+
+  return (
+    <div className="space-y-5 p-8">
+      <div>
+        <h1 className="text-2xl font-bold">Anomalies</h1>
+        <p className="text-sm text-muted-foreground">
+          Détection automatique : immobilité livreur, missions bloquées, relais
+          pleins.
+        </p>
+      </div>
+
+      {isLoading && (
+        <div className="flex h-40 items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {isError && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Erreur de chargement des anomalies.
+        </div>
+      )}
+
+      {alerts.length === 0 && !isLoading && (
+        <Card>
+          <CardContent className="p-10 text-center text-sm text-muted-foreground">
+            Aucune anomalie détectée. Tout est normal.
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-3">
+        {alerts.map((a, i) => (
+          <Card key={i}>
+            <CardContent className="flex items-start gap-4 p-5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {TYPE_LABELS[a.type] ?? a.type}
+                  </span>
+                  {a.tracking_code && (
+                    <Badge tone="info">
+                      <span className="font-mono">{a.tracking_code}</span>
+                    </Badge>
+                  )}
+                </div>
+                {a.message && (
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {a.message}
+                  </div>
+                )}
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  {a.driver_name && <span>Livreur: {a.driver_name}</span>}
+                  {a.relay_name && <span>Relais: {a.relay_name}</span>}
+                  {a.hours_since_update != null && (
+                    <span>{a.hours_since_update.toFixed(1)}h sans MAJ</span>
+                  )}
+                  {a.status && <span>Statut: {a.status}</span>}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

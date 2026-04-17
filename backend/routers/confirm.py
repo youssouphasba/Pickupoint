@@ -25,6 +25,7 @@ from services.payment_service import create_payment_link
 router = APIRouter()
 
 TERMINAL_PARCEL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
+RELAY_CHANGE_ALLOWED_STATUSES = {"created", "dropped_at_origin_relay"}
 
 
 def _is_confirm_token_expired(parcel: dict) -> bool:
@@ -142,6 +143,10 @@ class LocationPayload(BaseModel):
     lng:       float = Field(..., ge=-180, le=180)
     accuracy:  Optional[float] = Field(None, ge=0)
     voice_note: Optional[str]  = None  # base64 ou URL enregistrement vocal
+
+
+class RelayChoicePayload(BaseModel):
+    relay_id: str = Field(..., min_length=1)
 
 
 def _html_page(token: str, role: str, recipient_name: str = "") -> str:
@@ -287,6 +292,146 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
 </html>"""
 
 
+def _relay_picker_page(
+    token: str,
+    recipient_name: str,
+    tracking_code: str,
+    relays: list,
+    current_relay_id: str,
+    is_locked: bool,
+    current_relay_name: str,
+) -> str:
+    """Page HTML de choix / modification du point relais de retrait."""
+    safe_name = html.escape(recipient_name or "")
+    safe_tracking = html.escape(tracking_code or "")
+    safe_current_name = html.escape(current_relay_name or "")
+    greeting = f"Bonjour {safe_name} ! " if safe_name else ""
+    token_json = json.dumps(token)
+
+    if is_locked:
+        body_html = f"""
+      <div class=\"locked\">
+        Votre colis est déjà en route vers <strong>{safe_current_name or 'votre point relais'}</strong>.
+        Le choix du relais ne peut plus être modifié.
+      </div>
+    """
+    else:
+        options_html = ""
+        for r in relays:
+            rid = r.get("relay_id") or ""
+            rname = r.get("name") or "Point relais"
+            addr = r.get("address") or {}
+            district = addr.get("district") or ""
+            city = addr.get("city") or ""
+            sub = ", ".join(p for p in (district, city) if p)
+            checked = " checked" if rid == current_relay_id else ""
+            options_html += (
+                f'<label class="relay-option">'
+                f'<input type="radio" name="relay" value="{html.escape(rid)}"{checked}>'
+                f'<div><strong>{html.escape(rname)}</strong>'
+                f'<small>{html.escape(sub)}</small></div>'
+                f'</label>'
+            )
+        current_banner = (
+            f'<div class="current">Point relais actuel : <strong>{safe_current_name}</strong>. '
+            f'Vous pouvez le conserver ou en choisir un autre.</div>'
+            if safe_current_name else ""
+        )
+        body_html = f"""
+      {current_banner}
+      <form id=\"picker\">
+        <div class=\"relay-list\">{options_html}</div>
+        <button type=\"submit\" class=\"btn\" id=\"submit\">Confirmer ce point relais</button>
+      </form>
+      <div class=\"success\" id=\"success\">✅ Point relais enregistré. Vous recevrez un code PIN pour le retrait.</div>
+    """
+
+    return f"""<!DOCTYPE html>
+<html lang=\"fr\">
+<head>
+  <meta charset=\"UTF-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\">
+  <title>Denkma — Choisir mon point relais</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;
+      background: #F5F5F5; padding: 24px; min-height: 100vh; color: #1a1a1a;
+    }}
+    .wrap {{ max-width: 480px; margin: 0 auto; }}
+    h1 {{ font-size: 22px; margin-bottom: 6px; color: #0b8a5f; }}
+    .tracking {{ color: #757575; font-size: 14px; margin-bottom: 20px; }}
+    .current {{
+      background: #e6f5ef; border-radius: 12px; padding: 14px; margin-bottom: 20px;
+      font-size: 14px; color: #0b4a33;
+    }}
+    .locked {{
+      background: #fff3cd; border-radius: 12px; padding: 18px; color: #7a5d00; font-size: 15px;
+    }}
+    .relay-list {{ display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }}
+    .relay-option {{
+      display: flex; align-items: center; gap: 12px;
+      background: #fff; border: 2px solid #e5e5e5; border-radius: 14px;
+      padding: 14px; cursor: pointer;
+    }}
+    .relay-option input {{ transform: scale(1.3); margin: 0; }}
+    .relay-option strong {{ display: block; font-size: 15px; margin-bottom: 2px; }}
+    .relay-option small {{ color: #757575; font-size: 13px; }}
+    .btn {{
+      width: 100%; padding: 18px; background: #0b8a5f; color: #fff;
+      border: none; border-radius: 14px; font-size: 17px; font-weight: 700;
+      cursor: pointer;
+    }}
+    .btn:disabled {{ opacity: 0.6; cursor: wait; }}
+    .success {{
+      display: none; background: #e8f5e9; border-radius: 14px;
+      padding: 18px; color: #2e7d32; text-align: center; margin-top: 16px; font-weight: 600;
+    }}
+  </style>
+</head>
+<body>
+  <div class=\"wrap\">
+    <h1>{greeting}Choisissez votre point relais</h1>
+    <div class=\"tracking\">Colis {safe_tracking}</div>
+    {body_html}
+  </div>
+  <script>
+    const TOKEN = {token_json};
+    const form = document.getElementById('picker');
+    const btn = document.getElementById('submit');
+    const success = document.getElementById('success');
+    if (form) {{
+      form.addEventListener('submit', async (ev) => {{
+        ev.preventDefault();
+        const data = new FormData(form);
+        const relay_id = data.get('relay');
+        if (!relay_id) {{ alert('Sélectionnez un point relais.'); return; }}
+        btn.disabled = true;
+        btn.textContent = 'Enregistrement...';
+        try {{
+          const res = await fetch('/confirm/' + TOKEN + '/relay', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{ relay_id }}),
+          }});
+          if (!res.ok) {{
+            const msg = await res.text();
+            throw new Error(msg || 'Erreur');
+          }}
+          form.style.display = 'none';
+          success.style.display = 'block';
+        }} catch (e) {{
+          btn.disabled = false;
+          btn.textContent = 'Confirmer ce point relais';
+          alert('Impossible d\\'enregistrer votre choix. Réessayez.');
+        }}
+      }});
+    }}
+  </script>
+</body>
+</html>"""
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/{token}", response_class=HTMLResponse, include_in_schema=False)
@@ -309,6 +454,33 @@ async def confirmation_page(token: str, request: Request):
         )
 
     role = "recipient" if parcel.get("recipient_confirm_token") == token else "sender"
+    mode = parcel.get("delivery_mode", "") or ""
+    status = (parcel.get("status") or "").lower()
+
+    # Destinataire + livraison vers relais → page choix / modification de relais
+    if role == "recipient" and mode.endswith("_to_relay"):
+        relays_cursor = db.relay_points.find({"is_active": True}, {"_id": 0}).sort([("address.city", 1), ("name", 1)]).limit(100)
+        relays = await relays_cursor.to_list(length=100)
+        current_relay_id = parcel.get("destination_relay_id") or ""
+        current_relay_name = ""
+        if current_relay_id:
+            cur = next((r for r in relays if r.get("relay_id") == current_relay_id), None)
+            if not cur:
+                cur = await db.relay_points.find_one({"relay_id": current_relay_id}, {"_id": 0})
+            current_relay_name = (cur or {}).get("name", "")
+        is_locked = status not in RELAY_CHANGE_ALLOWED_STATUSES
+        return HTMLResponse(
+            _relay_picker_page(
+                token=token,
+                recipient_name=parcel.get("recipient_name", ""),
+                tracking_code=parcel.get("tracking_code", ""),
+                relays=relays,
+                current_relay_id=current_relay_id,
+                is_locked=is_locked,
+                current_relay_name=current_relay_name,
+            )
+        )
+
     name = parcel.get("recipient_name", "") if role == "recipient" else ""
     return HTMLResponse(_html_page(token, role, name))
 
@@ -404,6 +576,58 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
             await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
 
     return {"ok": True, "confirmed": field_prefix}
+
+
+@router.post("/{token}/relay")
+@limiter.limit("10/minute")
+async def choose_destination_relay(token: str, payload: RelayChoicePayload, request: Request):
+    """Laisse le destinataire choisir ou modifier son point relais de retrait."""
+    parcel = await db.parcels.find_one({"recipient_confirm_token": token})
+    if not parcel:
+        raise not_found_exception("Token de confirmation")
+
+    if _is_confirm_token_expired(parcel):
+        raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
+
+    mode = (parcel.get("delivery_mode") or "")
+    if not mode.endswith("_to_relay"):
+        raise bad_request_exception("Ce colis n'est pas en livraison vers un point relais")
+
+    status = (parcel.get("status") or "").lower()
+    if status not in RELAY_CHANGE_ALLOWED_STATUSES:
+        raise bad_request_exception("Le point relais ne peut plus être modifié — le colis est en route")
+
+    relay = await db.relay_points.find_one(
+        {"relay_id": payload.relay_id, "is_active": True},
+        {"_id": 0},
+    )
+    if not relay:
+        raise not_found_exception("Point relais")
+
+    if relay.get("current_load", 0) >= relay.get("max_capacity", 50):
+        raise bad_request_exception("Ce relais est plein, choisissez un autre point relais")
+
+    if relay.get("relay_id") == parcel.get("origin_relay_id"):
+        raise bad_request_exception("Le relais de retrait doit être différent du relais de dépôt")
+
+    now = datetime.now(timezone.utc)
+    await db.parcels.update_one(
+        {"parcel_id": parcel["parcel_id"]},
+        {"$set": {
+            "destination_relay_id": payload.relay_id,
+            "redirect_relay_id": None,
+            "updated_at": now,
+        }},
+    )
+
+    refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
+    if refreshed:
+        try:
+            await _refresh_quote_if_ready(refreshed)
+        except Exception:
+            pass
+
+    return {"ok": True, "relay_id": payload.relay_id}
 
 
 @router.post("/{token}/voice")

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Denkma — Livraison et points relais au Sénégal</title>
+  <meta name="description" content="Denkma simplifie l'envoi, le suivi et le retrait de colis au Sénégal grâce à la livraison à domicile, aux points relais, au paiement mobile et aux notifications en temps réel." />
+  <meta name="theme-color" content="#0b8a5f" />
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <meta property="og:title" content="Denkma — Livraison et points relais" />
+  <meta property="og:description" content="Envoyez, suivez et retirez vos colis plus simplement au Sénégal." />
+  <meta property="og:image" content="assets/logo.png" />
+  <meta property="og:type" content="website" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --primary: #0b8a5f;
+      --primary-dark: #076e4b;
+      --accent: #ffb703;
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --border: #e5e5e5;
+      --section-bg: #ffffff;
+      --soft: #f4faf7;
+    }
+    html, body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    img { max-width: 100%; height: auto; display: block; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 0;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px; color: var(--text); }
+    .logo img { width: 44px; height: 44px; object-fit: contain; }
+    .nav-links { display: flex; gap: 28px; }
+    .nav-links a { color: var(--text); font-weight: 500; font-size: 15px; }
+    .cta-btn {
+      display: inline-block;
+      background: var(--primary); color: #fff !important;
+      padding: 10px 20px; border-radius: 8px;
+      font-weight: 600; font-size: 14px;
+      transition: background 0.15s;
+    }
+    .cta-btn:hover { background: var(--primary-dark); text-decoration: none; }
+    @media (max-width: 640px) { .nav-links { display: none; } }
+
+    /* Hero */
+    .hero {
+      padding: 88px 0 70px;
+      background:
+        radial-gradient(circle at 80% 20%, rgba(11,138,95,0.10), transparent 30%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbf9 100%);
+    }
+    .hero-grid {
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 48px; align-items: center;
+    }
+    @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; text-align: center; } }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      line-height: 1.15; margin: 0 0 20px;
+      font-weight: 800; letter-spacing: -0.5px;
+    }
+    .hero h1 span { color: var(--primary); }
+    .hero p.lead {
+      font-size: 18px; color: var(--muted); margin: 0 0 32px; max-width: 520px;
+    }
+    @media (max-width: 860px) { .hero p.lead { margin-left: auto; margin-right: auto; } }
+    .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+    @media (max-width: 860px) { .hero-ctas { justify-content: center; } }
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 24px; border-radius: 10px;
+      font-weight: 600; font-size: 15px;
+      transition: transform 0.1s, box-shadow 0.15s;
+    }
+    .btn:hover { transform: translateY(-1px); text-decoration: none; }
+    .btn-primary {
+      background: var(--primary); color: #fff !important;
+      box-shadow: 0 4px 14px rgba(11,138,95,0.35);
+    }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-secondary {
+      background: #fff; color: var(--text) !important;
+      border: 1.5px solid var(--border);
+    }
+    .hero-visual {
+      display: flex; justify-content: center; align-items: center;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 44px;
+      box-shadow: 0 26px 70px rgba(11, 138, 95, 0.10);
+    }
+    .hero-visual img { max-width: 300px; filter: drop-shadow(0 20px 40px rgba(0,0,0,0.08)); }
+    .hero-points {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin: 0 0 28px; padding: 0; list-style: none;
+      color: #31443c; font-size: 14px; font-weight: 600;
+    }
+    .hero-points li {
+      background: #e8f6f0; color: var(--primary-dark);
+      padding: 8px 12px; border-radius: 999px;
+    }
+    @media (max-width: 860px) { .hero-points { justify-content: center; } }
+
+    /* Sections */
+    section { padding: 80px 0; }
+    .section-title {
+      text-align: center;
+      font-size: clamp(26px, 3.5vw, 36px);
+      margin: 0 0 16px; font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+    .section-sub {
+      text-align: center; color: var(--muted);
+      max-width: 640px; margin: 0 auto 56px; font-size: 17px;
+    }
+
+    /* Features */
+    .features { background: var(--section-bg); }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px;
+    }
+    @media (max-width: 860px) { .features-grid { grid-template-columns: 1fr; } }
+    .feature {
+      background: #fff; padding: 32px 24px; border-radius: 16px;
+      border: 1px solid var(--border);
+      transition: box-shadow 0.15s, transform 0.1s;
+    }
+    .feature:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.06); transform: translateY(-2px); }
+
+    /* Delivery modes */
+    .modes { background: #fafbfa; }
+    .modes-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+    }
+    @media (max-width: 960px) { .modes-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .modes-grid { grid-template-columns: 1fr; } }
+    .mode-card {
+      background: #fff; border-radius: 16px; padding: 28px 22px;
+      border: 1px solid var(--border);
+      transition: transform 0.1s, box-shadow 0.15s, border-color 0.15s;
+      position: relative;
+    }
+    .mode-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 14px 30px rgba(11,138,95,0.1);
+      border-color: var(--primary);
+    }
+    .mode-flow {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 18px; color: var(--primary);
+    }
+    .mode-flow svg { width: 32px; height: 32px; stroke: var(--primary); fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+    .mode-flow .arrow svg { width: 20px; height: 20px; }
+    .mode-card h4 {
+      margin: 0 0 8px; font-size: 17px; font-weight: 700;
+    }
+    .mode-card p {
+      margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.5;
+    }
+    .mode-price {
+      display: inline-block;
+      background: #e6f5ef; color: var(--primary-dark);
+      font-weight: 700; font-size: 13px;
+      padding: 6px 12px; border-radius: 999px;
+    }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      background: #e6f5ef; color: var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+    }
+    .feature-icon svg {
+      width: 24px; height: 24px; stroke: var(--primary);
+      fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .feature h3 { margin: 0 0 8px; font-size: 19px; font-weight: 700; }
+    .feature p { margin: 0; color: var(--muted); font-size: 15px; }
+
+    /* How it works */
+    .how-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px;
+    }
+    @media (max-width: 860px) { .how-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 540px) { .how-grid { grid-template-columns: 1fr; } }
+    .step { text-align: center; padding: 20px; }
+    .step-num {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--primary); color: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 18px;
+      margin-bottom: 16px;
+    }
+    .step h4 { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
+    .step p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    /* Download */
+    .download {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: #fff; text-align: center; padding: 72px 0;
+    }
+    .download h2 { color: #fff; margin: 0 0 12px; font-size: clamp(26px, 3.5vw, 34px); }
+    .download p { color: rgba(255,255,255,0.92); margin: 0 0 32px; font-size: 17px; }
+    .store-badges { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .store-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: #000; color: #fff !important;
+      padding: 12px 22px; border-radius: 10px;
+      font-size: 14px; font-weight: 600;
+      transition: transform 0.1s;
+    }
+    .store-badge:hover { text-decoration: none; transform: translateY(-2px); }
+    .store-badge small { display: block; font-size: 11px; opacity: 0.85; font-weight: 400; }
+    .store-badge svg { width: 26px; height: 26px; flex-shrink: 0; fill: #fff; }
+
+    /* Audience */
+    .audience { background: var(--soft); }
+    .audience-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    }
+    @media (max-width: 860px) { .audience-grid { grid-template-columns: 1fr; } }
+    .audience-card {
+      background: #fff; border: 1px solid var(--border); border-radius: 18px;
+      padding: 28px; min-height: 190px;
+    }
+    .audience-card h3 { margin: 0 0 10px; font-size: 20px; }
+    .audience-card p { margin: 0; color: var(--muted); font-size: 15px; }
+    .gain-list {
+      list-style: none; padding: 0; margin: 18px 0 0;
+      display: grid; gap: 10px;
+    }
+    .gain-list li {
+      display: flex; gap: 10px; align-items: flex-start;
+      color: #263b33; font-size: 14px;
+    }
+    .gain-list li::before {
+      content: "✓";
+      flex: 0 0 auto;
+      color: var(--primary);
+      font-weight: 800;
+    }
+
+    /* Footer */
+    footer {
+      background: #0f1b17; color: #c8d2cd;
+      padding: 56px 0 32px;
+    }
+    .footer-grid {
+      display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 760px) { .footer-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { .footer-grid { grid-template-columns: 1fr; } }
+    footer h5 { color: #fff; margin: 0 0 14px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+    footer ul { list-style: none; padding: 0; margin: 0; }
+    footer ul li { margin-bottom: 8px; font-size: 14px; }
+    footer a { color: #c8d2cd; }
+    footer a:hover { color: #fff; }
+    .footer-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .footer-brand img { width: 40px; height: 40px; }
+    .footer-brand strong { color: #fff; font-size: 18px; }
+    .footer-brand + p { font-size: 14px; max-width: 340px; }
+    .footer-bottom {
+      border-top: 1px solid #1e2f28;
+      padding-top: 24px; font-size: 13px; color: #8a9a92;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="container nav">
+    <a href="/" class="logo">
+      <img src="assets/logo.png" alt="Denkma" />
+      <span>Denkma</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#modes">Modes de livraison</a>
+      <a href="#features">Fonctionnalités</a>
+      <a href="#how">Comment ça marche</a>
+      <a href="#partners">Partenaires</a>
+    </nav>
+    <a href="#download" class="cta-btn">Télécharger</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <h1>Envoyez vos colis au Sénégal<br/><span>sans casse-tête</span></h1>
+      <p class="lead">
+        Denkma relie expéditeurs, destinataires, livreurs et points relais pour simplifier chaque étape : création, paiement, suivi, livraison et retrait.
+      </p>
+      <ul class="hero-points">
+        <li>Domicile ou relais</li>
+        <li>Suivi en temps réel</li>
+        <li>Codes de retrait sécurisés</li>
+      </ul>
+      <div class="hero-ctas">
+        <a href="#download" class="btn btn-primary">Télécharger l'app</a>
+        <a href="#how" class="btn btn-secondary">Comment ça marche</a>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <img src="assets/logo.png" alt="Application Denkma" />
+    </div>
+  </div>
+</section>
+
+<section class="audience" id="partners">
+  <div class="container">
+    <h2 class="section-title">Ce que Denkma change pour vous</h2>
+    <p class="section-sub">Une solution utile pour envoyer, livrer et retirer des colis plus simplement, avec plus de liberté et plus de visibilité.</p>
+    <div class="audience-grid">
+      <div class="audience-card">
+        <h3>Clients</h3>
+        <p>Envoyez et recevez vos colis avec plus de liberté, sans perdre du temps ni dépendre d'un rendez-vous compliqué.</p>
+        <ul class="gain-list">
+          <li>Vous gagnez du temps grâce aux options domicile et point relais.</li>
+          <li>Vous n'avez pas besoin de connaître précisément l'adresse du destinataire au moment de créer le colis.</li>
+          <li>Vous n'êtes pas bloqué à attendre un colis : le relais permet d'envoyer ou de recevoir quand c'est plus pratique.</li>
+        </ul>
+      </div>
+      <div class="audience-card">
+        <h3>Livreurs</h3>
+        <p>Recevez des missions autour de votre zone et suivez clairement chaque étape de prise en charge ou de livraison.</p>
+        <ul class="gain-list">
+          <li>Des revenus à chaque mission validée.</li>
+          <li>Un suivi de performance et de portefeuille.</li>
+          <li>Des preuves terrain pour éviter les contestations.</li>
+        </ul>
+      </div>
+      <div class="audience-card">
+        <h3>Points relais</h3>
+        <p>Transformez votre commerce en point de dépôt et de retrait pour attirer plus de passage et générer des commissions.</p>
+        <ul class="gain-list">
+          <li>Des commissions sur les dépôts et retraits éligibles.</li>
+          <li>Plus de fréquentation dans votre point de vente.</li>
+          <li>Un suivi clair du stock, des retraits et des paiements.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="modes" id="modes">
+  <div class="container">
+    <h2 class="section-title">4 modes de livraison, selon votre besoin</h2>
+    <p class="section-sub">Domicile ou point relais : vous choisissez le point de départ, le point d'arrivée et le niveau de flexibilité souhaité.</p>
+    <div class="modes-grid">
+      <div class="mode-card">
+        <div class="mode-flow">
+          <svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+          <svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <h4>Domicile → Domicile</h4>
+        <p>Le livreur récupère le colis chez l'expéditeur et le remet directement au destinataire. Le destinataire peut confirmer sa position grâce à un lien sécurisé.</p>
+      </div>
+      <div class="mode-card">
+        <div class="mode-flow">
+          <svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+          <svg viewBox="0 0 24 24"><path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h4>Domicile → Relais</h4>
+        <p>Le livreur récupère le colis à domicile et le dépose dans un point relais. Le destinataire le retire quand il est disponible, avec son code de retrait.</p>
+      </div>
+      <div class="mode-card">
+        <div class="mode-flow">
+          <svg viewBox="0 0 24 24"><path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+          <svg viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <h4>Relais → Domicile</h4>
+        <p>L'expéditeur dépose le colis dans un relais. Un livreur le récupère ensuite pour le livrer directement au domicile du destinataire.</p>
+      </div>
+      <div class="mode-card">
+        <div class="mode-flow">
+          <svg viewBox="0 0 24 24"><path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+          <svg viewBox="0 0 24 24"><path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h4>Relais → Relais</h4>
+        <p>L'expéditeur dépose le colis dans un relais et le destinataire le retire dans un autre relais. C'est le mode le plus flexible et le plus économique.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="container">
+    <h2 class="section-title">Un service pensé pour le contrôle et la confiance</h2>
+    <p class="section-sub">Denkma combine suivi en temps réel, paiement mobile, notifications, preuves de remise et points relais pour sécuriser chaque colis.</p>
+    <div class="features-grid">
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg></div>
+        <h3>Livraison rapide</h3>
+        <p>Les livreurs prennent en charge les colis selon leur zone et leur disponibilité. Vous suivez l'avancement depuis l'application.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M20 10c0 7-8 13-8 13s-8-6-8-13a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+        <h3>Points relais</h3>
+        <p>Déposez ou récupérez vos colis dans un relais proche de chez vous, sans rendez-vous compliqué.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg></div>
+        <h3>Paiement mobile</h3>
+        <p>Paiement mobile, paiement en ligne ou paiement à la livraison selon les options disponibles.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></div>
+        <h3>Notifications temps réel</h3>
+        <p>Recevez les informations importantes dans l'application et, selon votre choix, par WhatsApp.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></div>
+        <h3>Preuve de livraison</h3>
+        <p>Codes de retrait, photos et événements de suivi permettent de mieux vérifier chaque étape.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>Traçabilité</h3>
+        <p>Chaque action importante laisse une trace : création du colis, prise en charge, dépôt, retrait ou livraison.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="container">
+    <h2 class="section-title">Comment ça marche</h2>
+    <p class="section-sub">Un parcours clair, de la création du colis jusqu'à la confirmation finale.</p>
+    <div class="how-grid">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h4>Créez votre colis</h4>
+        <p>Choisissez le mode de livraison, renseignez les informations utiles et vérifiez le prix.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h4>Confirmez l'envoi</h4>
+        <p>Validez le paiement ou choisissez le mode de règlement disponible pour votre colis.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h4>Suivez l'avancement</h4>
+        <p>Le colis passe par les étapes prévues : relais, livreur, transit, livraison ou retrait.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <h4>Retrait ou livraison</h4>
+        <p>Le destinataire reçoit le colis à domicile ou le retire en relais avec un code sécurisé.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="download" id="download">
+  <div class="container">
+    <h2>Téléchargez Denkma</h2>
+    <p>L'application arrive sur Android et iOS. En attendant, suivez les annonces officielles sur denkma.com.</p>
+    <div class="store-badges">
+      <a href="#" class="store-badge" aria-label="Bientôt sur Google Play">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.609 1.814 13.792 12 3.61 22.186a1.5 1.5 0 0 1-.61-1.213V3.027a1.5 1.5 0 0 1 .609-1.213zM14.898 13.106l2.494 2.494-12.04 6.808zM17.393 8.4l3.202 1.81a1.5 1.5 0 0 1 0 2.58l-3.203 1.81L14.898 12zM5.352 1.692l12.041 6.808-2.495 2.494z"/></svg>
+        <span><small>Bientôt sur</small>Google Play</span>
+      </a>
+      <a href="#" class="store-badge" aria-label="Bientôt sur l'App Store">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
+        <span><small>Bientôt sur</small>App Store</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">
+          <img src="assets/logo.png" alt="Denkma" />
+          <strong>Denkma</strong>
+        </div>
+        <p>Livraison, suivi et points relais pour envoyer et recevoir des colis plus simplement au Sénégal.</p>
+      </div>
+      <div>
+        <h5>Produit</h5>
+        <ul>
+          <li><a href="#modes">Modes de livraison</a></li>
+          <li><a href="#features">Fonctionnalités</a></li>
+          <li><a href="#how">Comment ça marche</a></li>
+          <li><a href="#download">Télécharger</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Légal</h5>
+        <ul>
+          <li><a href="/privacy">Confidentialité</a></li>
+          <li><a href="/terms">Conditions d'utilisation</a></li>
+        </ul>
+      </div>
+      <div>
+        <h5>Contact</h5>
+        <ul>
+          <li><a href="mailto:contact@denkma.com">contact@denkma.com</a></li>
+          <li>Dakar, Sénégal</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      © <span id="y"></span> Denkma. Tous droits réservés.
+    </div>
+  </div>
+</footer>
+
+<script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+
+</body>
+</html>

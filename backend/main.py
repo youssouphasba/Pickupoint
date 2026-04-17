@@ -16,7 +16,7 @@ from database import connect_db, close_db, db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, webhooks, confirm, applications, promotions, legal, app_settings
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_auth, webhooks, confirm, applications, promotions, legal, app_settings
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -299,7 +299,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8080", "http://localhost:8001"] if settings.DEBUG else ["https://pickupoint.sn", "https://denkma.sn"],
+    allow_origins=["http://localhost:3000", "http://localhost:8080", "http://localhost:8001"] if settings.DEBUG else ["https://pickupoint.sn", "https://denkma.sn", "https://admin.denkma.com", "https://denkma.com", "https://www.denkma.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -358,6 +358,7 @@ app.include_router(parcels.router, prefix="/api/parcels", tags=["Parcels"])
 app.include_router(deliveries.router, prefix="/api/deliveries", tags=["Deliveries"])
 app.include_router(pricing.router, prefix="/api/pricing", tags=["Pricing"])
 app.include_router(wallets.router, prefix="/api/wallets", tags=["Wallets"])
+app.include_router(admin_auth.router, prefix="/api/admin/auth", tags=["Admin Auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(promotions.router, prefix="/api/admin", tags=["Promotions Admin"])
 app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
