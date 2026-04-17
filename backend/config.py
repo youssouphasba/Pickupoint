@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     DEBUG: bool = False
-    BASE_URL: str = "https://pickupoint-production.up.railway.app"
+    BASE_URL: str = "https://api.denkma.com"
     PUBLIC_SITE_URL: str = "https://denkma.com"
     GOOGLE_DIRECTIONS_API_KEY: Optional[str] = None
 
