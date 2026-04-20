@@ -9,6 +9,7 @@ import uuid
 from typing import Optional
 
 from config import settings
+from core.utils import normalize_phone
 from database import db
 from models.notification import NotificationChannel, NotificationStatus
 from models.common import ParcelStatus
@@ -136,7 +137,7 @@ def _app_url(parcel: dict) -> str:
 
 
 def _whatsapp_to(phone: str | None) -> str:
-    return re.sub(r"\D", "", phone or "")
+    return re.sub(r"\D", "", normalize_phone(phone))
 
 
 def _display_phone(phone: str | None) -> str:
@@ -402,8 +403,34 @@ async def _send_push(
 
 
 async def _whatsapp_post(payload: dict, phone: str) -> bool:
+    now = datetime.now(timezone.utc)
+    to_number = payload.get("to") or _whatsapp_to(phone)
+    template = (
+        (payload.get("template") or {}).get("name")
+        if isinstance(payload.get("template"), dict)
+        else None
+    )
+    log_doc = {
+        "attempt_id": f"wa_{uuid.uuid4().hex[:16]}",
+        "phone_input": phone,
+        "to": to_number,
+        "message_type": payload.get("type"),
+        "template": template,
+        "status": "pending",
+        "status_code": None,
+        "meta_message_id": None,
+        "meta_error": None,
+        "created_at": now,
+        "updated_at": now,
+    }
     if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
         logger.debug("WhatsApp Cloud API non configuré, message ignoré")
+        log_doc.update({
+            "status": "skipped",
+            "meta_error": "missing_whatsapp_configuration",
+            "updated_at": datetime.now(timezone.utc),
+        })
+        await db.whatsapp_delivery_logs.insert_one(log_doc)
         return False
     import httpx
     url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
@@ -414,12 +441,34 @@ async def _whatsapp_post(payload: dict, phone: str) -> bool:
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, headers=headers, timeout=10)
+            log_doc["status_code"] = resp.status_code
             if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    messages = data.get("messages") or []
+                    if messages:
+                        log_doc["meta_message_id"] = messages[0].get("id")
+                except Exception:
+                    pass
+                log_doc.update({"status": "sent", "updated_at": datetime.now(timezone.utc)})
+                await db.whatsapp_delivery_logs.insert_one(log_doc)
                 logger.info("WhatsApp envoyé à %s via Cloud API", phone)
                 return True
+            try:
+                log_doc["meta_error"] = resp.json()
+            except Exception:
+                log_doc["meta_error"] = resp.text[:2000]
+            log_doc.update({"status": "failed", "updated_at": datetime.now(timezone.utc)})
+            await db.whatsapp_delivery_logs.insert_one(log_doc)
             logger.warning("WhatsApp Cloud API erreur %s: %s", resp.status_code, resp.text)
             return False
     except Exception as e:
+        log_doc.update({
+            "status": "error",
+            "meta_error": str(e),
+            "updated_at": datetime.now(timezone.utc),
+        })
+        await db.whatsapp_delivery_logs.insert_one(log_doc)
         logger.warning("WhatsApp non envoyé à %s : %s", phone, e)
         return False
 
