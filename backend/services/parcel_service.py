@@ -13,7 +13,7 @@ from core.exceptions import bad_request_exception
 from core.utils import normalize_phone
 from core.security import generate_tracking_code
 from models.common import ParcelStatus, DeliveryMode
-from models.parcel import ParcelCreate, ParcelEvent, QuoteResponse
+from models.parcel import ParcelCreate, ParcelEvent, ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import distribute_delivery_revenue
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
@@ -251,6 +251,105 @@ async def sync_active_mission_with_parcel(
         {"mission_id": mission["mission_id"]},
         {"$set": update_doc},
     )
+
+
+async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
+    """Recalcule le devis dès que les adresses GPS nécessaires sont disponibles."""
+    sender_user_id = parcel.get("sender_user_id")
+    user = await db.users.find_one({"user_id": sender_user_id}) if sender_user_id else None
+    sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
+
+    month_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    delivered_count = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered",
+        "created_at": {"$gte": month_ago},
+    })
+    total_delivered = await db.parcels.count_documents({
+        "sender_user_id": sender_user_id,
+        "status": "delivered",
+    })
+
+    quote_req = ParcelQuote(
+        delivery_mode=parcel["delivery_mode"],
+        origin_relay_id=parcel.get("origin_relay_id"),
+        destination_relay_id=parcel.get("destination_relay_id"),
+        origin_location=parcel.get("origin_location"),
+        delivery_address=parcel.get("delivery_address"),
+        weight_kg=float(parcel.get("weight_kg") or 0.5),
+        declared_value=parcel.get("declared_value"),
+        is_express=bool(parcel.get("is_express")),
+        who_pays=parcel.get("who_pays") or "sender",
+        promo_code=None,
+    )
+
+    quote = await calculate_price(
+        quote_req,
+        sender_tier=sender_tier,
+        is_frequent=delivered_count >= 10,
+        user_id=sender_user_id,
+        is_first_delivery=(total_delivered == 0),
+    )
+
+    previous_price = parcel.get("quoted_price")
+
+    if quote.price is None:
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"]},
+            {"$set": {
+                "quote_breakdown": quote.breakdown,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    if previous_price is not None:
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"]},
+            {"$set": {
+                "quoted_price": quote.price,
+                "quote_breakdown": quote.breakdown,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    now = datetime.now(timezone.utc)
+    lock_result = await db.parcels.update_one(
+        {"parcel_id": parcel["parcel_id"], "quoted_price": None},
+        {"$set": {
+            "quoted_price": quote.price,
+            "quote_breakdown": quote.breakdown,
+            "updated_at": now,
+        }},
+    )
+    if lock_result.modified_count == 0:
+        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+        return refreshed, False
+
+    payer_phone = parcel.get("sender_phone") if parcel.get("who_pays") == "sender" else parcel.get("recipient_phone")
+    payer_name = parcel.get("sender_name") if parcel.get("who_pays") == "sender" else parcel.get("recipient_name")
+    payment_res = await create_payment_link(
+        parcel_id=parcel["parcel_id"],
+        tracking_code=parcel["tracking_code"],
+        amount=quote.price,
+        customer_phone=payer_phone or "",
+        customer_name=payer_name or "Client Denkma",
+    )
+    if payment_res.get("success"):
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"], "payment_ref": None},
+            {"$set": {
+                "payment_url": payment_res.get("payment_link"),
+                "payment_ref": payment_res.get("tx_ref"),
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+
+    refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
+    return refreshed, True
 
 
 async def preview_address_change(parcel: dict, lat: float, lng: float, accuracy: Optional[float] = None) -> dict:

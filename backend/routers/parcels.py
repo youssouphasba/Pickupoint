@@ -49,10 +49,11 @@ from services.parcel_service import (
     _create_delivery_mission,
     _record_event,
     preview_address_change,
+    refresh_quote_if_ready,
     sync_active_mission_with_parcel,
 )
 from services.pricing_service import calculate_price, _haversine_km
-from services.notification_service import notify_relay_agent_parcel_arrived
+from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived
 from services.wallet_service import credit_wallet, debit_wallet
 from config import UPLOADS_DIR, settings
 
@@ -133,6 +134,48 @@ def _home_mission_ready(parcel: dict) -> bool:
     if mode.startswith("home_to_") and not parcel.get("pickup_confirmed"):
         return False
     return bool(parcel.get("delivery_confirmed"))
+
+
+async def _refresh_quote_sync_and_create_home_mission(
+    parcel: dict,
+    *,
+    earn_amount: Optional[float] = None,
+) -> dict:
+    mode = parcel.get("delivery_mode", "")
+    refreshed = parcel
+    quote_became_available = False
+    if mode.startswith("home_to_") or mode.endswith("_to_home"):
+        refreshed, quote_became_available = await refresh_quote_if_ready(parcel)
+
+    await sync_active_mission_with_parcel(refreshed, earn_amount=earn_amount)
+
+    if quote_became_available:
+        payer_user_id = (
+            refreshed.get("sender_user_id")
+            if refreshed.get("who_pays") == "sender"
+            else refreshed.get("recipient_user_id")
+        )
+        quoted_price = refreshed.get("quoted_price")
+        estimated_hours = (refreshed.get("quote_breakdown") or {}).get("estimated_hours")
+        if payer_user_id and quoted_price is not None and estimated_hours:
+            await notify_quote_finalized(
+                user_id=payer_user_id,
+                parcel_id=refreshed["parcel_id"],
+                tracking_code=refreshed.get("tracking_code", ""),
+                amount=float(quoted_price),
+                estimated_hours=str(estimated_hours),
+            )
+
+    status = refreshed.get("status", "")
+    if _home_mission_ready(refreshed):
+        if status == ParcelStatus.CREATED.value:
+            await _create_delivery_mission(refreshed, ParcelStatus.CREATED)
+        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
+            await _create_delivery_mission(refreshed, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
+        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
+            await _create_delivery_mission(refreshed, ParcelStatus.AT_DESTINATION_RELAY)
+
+    return await db.parcels.find_one({"parcel_id": refreshed["parcel_id"]}, {"_id": 0}) or refreshed
 
 
 async def _find_nearest_active_relay(lat: float, lng: float) -> Optional[dict]:
@@ -575,7 +618,7 @@ async def confirm_location_authenticated(
     
     # Recharger pour avoir les champs à jour pour la mission
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
-    await sync_active_mission_with_parcel(updated_parcel)
+    updated_parcel = await _refresh_quote_sync_and_create_home_mission(updated_parcel)
     await _record_event(
         parcel_id=parcel_id,
         event_type="RECIPIENT_LOCATION_CONFIRMED",
@@ -584,15 +627,6 @@ async def confirm_location_authenticated(
         notes="Position de livraison confirmée via application",
     )
     
-    status = updated_parcel.get("status", "")
-    if _home_mission_ready(updated_parcel):
-        if status == ParcelStatus.CREATED.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
-        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
-
     return {"ok": True, "message": "Position de livraison confirmée"}
 
 
@@ -665,7 +699,10 @@ async def apply_delivery_address_change(
     earn_amount = None
     if active_mission and preview["requires_acceptance"]:
         earn_amount = float(active_mission.get("earn_amount", 0.0)) + float(preview.get("surcharge_xof", 0.0))
-    await sync_active_mission_with_parcel(updated_parcel, earn_amount=earn_amount)
+    updated_parcel = await _refresh_quote_sync_and_create_home_mission(
+        updated_parcel,
+        earn_amount=earn_amount,
+    )
     await _record_event(
         parcel_id=parcel_id,
         event_type="DELIVERY_ADDRESS_UPDATED",
@@ -678,15 +715,6 @@ async def apply_delivery_address_change(
             "surcharge_accepted": bool(preview["requires_acceptance"]),
         },
     )
-
-    status = updated_parcel.get("status", "")
-    if _home_mission_ready(updated_parcel):
-        if status == ParcelStatus.CREATED.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
-        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
 
     return {
         "ok": True,
@@ -741,7 +769,7 @@ async def update_delivery_address(
 
     # Déclencher une mission si les conditions sont réunies (premier appel)
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
-    await sync_active_mission_with_parcel(updated_parcel)
+    updated_parcel = await _refresh_quote_sync_and_create_home_mission(updated_parcel)
     await _record_event(
         parcel_id=parcel_id,
         event_type="DELIVERY_ADDRESS_UPDATED",
@@ -750,15 +778,6 @@ async def update_delivery_address(
         notes="Adresse de livraison mise à jour par le destinataire",
         metadata={"distance_delta_km": preview.get("distance_delta_km", 0.0)},
     )
-    status = updated_parcel.get("status", "")
-    if _home_mission_ready(updated_parcel):
-        if status == ParcelStatus.CREATED.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
-        elif status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.DROPPED_AT_ORIGIN_RELAY)
-        elif status == ParcelStatus.AT_DESTINATION_RELAY.value:
-            await _create_delivery_mission(updated_parcel, ParcelStatus.AT_DESTINATION_RELAY)
-
     return {"ok": True, "message": "Adresse de livraison mise à jour"}
 
 

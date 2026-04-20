@@ -76,6 +76,7 @@ class _DriverApplicationFormState
   final _msgCtrl = TextEditingController();
   String _vehicle = 'moto';
   bool _loading = false;
+  File? _profilePhotoFile;
   File? _idCardFile;
   File? _licenseFile;
   String? _idCardUrl;
@@ -122,6 +123,22 @@ class _DriverApplicationFormState
                     style: TextStyle(fontSize: 13, color: Colors.blueGrey),
                   ),
                 ]),
+          ),
+          const SizedBox(height: 24),
+          const Text('Photo de profil *',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text(
+            'Cette photo sera visible par les clients et vérifiée par l’administration avant activation des missions.',
+            style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+          ),
+          const SizedBox(height: 12),
+          _docPicker(
+            label: _hasProfilePhoto
+                ? 'Photo de profil déjà ajoutée'
+                : 'Ajouter une photo de profil',
+            file: _profilePhotoFile,
+            onTap: () => _pickDoc('profile_photo'),
           ),
           const SizedBox(height: 24),
           _field(_nameCtrl, 'Nom complet *', Icons.person,
@@ -239,7 +256,9 @@ class _DriverApplicationFormState
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
-        if (type == 'id_card') {
+        if (type == 'profile_photo') {
+          _profilePhotoFile = File(pickedFile.path);
+        } else if (type == 'id_card') {
           _idCardFile = File(pickedFile.path);
         } else {
           _licenseFile = File(pickedFile.path);
@@ -264,8 +283,21 @@ class _DriverApplicationFormState
   String? _required(String? v) =>
       (v == null || v.trim().isEmpty) ? 'Champ obligatoire' : null;
 
+  bool get _hasProfilePhoto {
+    final url = ref.read(authProvider).valueOrNull?.user?.profilePictureUrl;
+    return url != null && url.trim().isNotEmpty;
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_hasProfilePhoto && _profilePhotoFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Veuillez ajouter une photo de profil'),
+            backgroundColor: Colors.orange),
+      );
+      return;
+    }
     if (_idCardFile == null || _licenseFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -278,6 +310,11 @@ class _DriverApplicationFormState
     setState(() => _loading = true);
     try {
       final api = ref.read(apiClientProvider);
+
+      if (_profilePhotoFile != null) {
+        await api.uploadAvatar(_profilePhotoFile!);
+        await ref.read(authProvider.notifier).fetchMe();
+      }
 
       // 1. Upload des docs d'abord
       final idRes = await api.uploadKyc(_idCardFile!, 'id_card');
