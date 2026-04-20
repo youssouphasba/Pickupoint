@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # WhatsApp Cloud API (Meta)
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_BUSINESS_ACCOUNT_ID: Optional[str] = None
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None

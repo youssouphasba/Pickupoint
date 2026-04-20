@@ -31,6 +31,11 @@ class User(BaseModel):
     name:              str
     email:             Optional[str] = None
     profile_picture_url: Optional[str] = None
+    profile_picture_status: Optional[str] = None
+    profile_picture_rejected_reason: Optional[str] = None
+    profile_picture_reviewed_by: Optional[str] = None
+    profile_picture_reviewed_at: Optional[datetime] = None
+    profile_picture_approved_at: Optional[datetime] = None
     role:              UserRole   = UserRole.CLIENT
     user_type:         Optional[UserType] = None
     is_active:         bool       = True

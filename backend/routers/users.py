@@ -277,6 +277,15 @@ async def toggle_availability(
     """Permet au livreur de se mettre disponible ou hors-ligne."""
     current = current_user.get("is_available", False)
     new_val = not current
+    if (
+        new_val
+        and current_user.get("role") == UserRole.DRIVER.value
+        and (
+            not (current_user.get("profile_picture_url") or "").strip()
+            or current_user.get("profile_picture_status") != "approved"
+        )
+    ):
+        raise bad_request_exception("Votre photo de profil doit être ajoutée puis approuvée avant de vous mettre disponible.")
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {"is_available": new_val, "updated_at": datetime.now(timezone.utc)}},
@@ -434,9 +443,16 @@ async def upload_avatar(
     profile_url = f"{settings.BASE_URL}/api/users/photo/{filename}"
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
-        {"$set": {"profile_picture_url": profile_url, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {
+            "profile_picture_url": profile_url,
+            "profile_picture_status": "pending",
+            "profile_picture_rejected_reason": None,
+            "profile_picture_reviewed_by": None,
+            "profile_picture_reviewed_at": None,
+            "updated_at": datetime.now(timezone.utc),
+        }},
     )
-    return {"profile_picture_url": profile_url}
+    return {"profile_picture_url": profile_url, "profile_picture_status": "pending"}
 
 
 @router.post("/me/kyc", summary="Uploader piece d'identite (KYC)")

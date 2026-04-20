@@ -308,6 +308,8 @@ async def list_parcels(
             )
 
     for p in parcels:
+        if role == UserRole.DRIVER.value and p.get("recipient_phone"):
+            p["recipient_phone"] = mask_phone(p["recipient_phone"])
         _mask_payment_fields(p, current_user)
 
     return {"parcels": parcels, "total": total}
@@ -370,11 +372,8 @@ async def lookup_parcel_by_tracking(tracking_code: str, current_user: dict = Dep
         "created_at": parcel.get("created_at"),
     }
 
-    if current_user["role"] not in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value, UserRole.RELAY_AGENT.value]:
-        if not is_recipient:
-            payload["recipient_phone"] = mask_phone(parcel.get("recipient_phone") or "")
-        if is_sender and not is_recipient:
-            payload["recipient_name"] = parcel.get("recipient_name")
+    if current_user["role"] == UserRole.DRIVER.value and payload.get("recipient_phone"):
+        payload["recipient_phone"] = mask_phone(parcel.get("recipient_phone") or "")
 
     return payload
 
@@ -479,10 +478,6 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     parcel["delivery_blocked_by_payment"] = False
 
     if not is_admin:
-        # Masquer le téléphone
-        if "recipient_phone" in parcel:
-            parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
-
         # Sécurité des codes :
         # L'expéditeur ne doit pas voir le delivery_code/relay_pin (PIN du destinataire)
         # Le destinataire ne doit pas voir le pickup_code (PIN de collecte)
@@ -536,6 +531,9 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         if driver:
             parcel["driver_name"] = parcel.get("driver_name") or driver.get("name")
             parcel["driver_photo_url"] = driver.get("profile_picture_url")
+
+    if not is_admin and is_driver and parcel.get("recipient_phone"):
+        parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
 
     _mask_payment_fields(parcel, current_user)
 

@@ -5,12 +5,106 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Denkma — Livraison et points relais au Sénégal</title>
   <meta name="description" content="Denkma simplifie l'envoi, le suivi et le retrait de colis au Sénégal grâce à la livraison à domicile, aux points relais, au paiement mobile et aux notifications en temps réel." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="author" content="Denkma" />
   <meta name="theme-color" content="#0b8a5f" />
+  <link rel="canonical" href="https://denkma.com/" />
+  <link rel="alternate" href="https://denkma.com/" hreflang="fr-SN" />
+  <link rel="alternate" href="https://denkma.com/" hreflang="fr" />
+  <link rel="alternate" href="https://denkma.com/" hreflang="x-default" />
   <link rel="icon" type="image/png" href="assets/logo.png" />
-  <meta property="og:title" content="Denkma — Livraison et points relais" />
+  <meta property="og:locale" content="fr_SN" />
+  <meta property="og:site_name" content="Denkma" />
+  <meta property="og:title" content="Denkma — Livraison et points relais au Sénégal" />
   <meta property="og:description" content="Envoyez, suivez et retirez vos colis plus simplement au Sénégal." />
-  <meta property="og:image" content="assets/logo.png" />
+  <meta property="og:url" content="https://denkma.com/" />
+  <meta property="og:image" content="https://denkma.com/assets/logo.png" />
+  <meta property="og:image:alt" content="Logo Denkma, service de livraison et points relais au Sénégal" />
   <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Denkma — Livraison et points relais au Sénégal" />
+  <meta name="twitter:description" content="Envoyez, suivez et retirez vos colis plus simplement au Sénégal." />
+  <meta name="twitter:image" content="https://denkma.com/assets/logo.png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://denkma.com/#organization",
+        "name": "Denkma",
+        "url": "https://denkma.com/",
+        "logo": "https://denkma.com/assets/logo.png",
+        "email": "contact@denkma.com",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Dakar",
+          "addressCountry": "SN"
+        },
+        "areaServed": {
+          "@type": "Country",
+          "name": "Sénégal"
+        }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://denkma.com/#website",
+        "url": "https://denkma.com/",
+        "name": "Denkma",
+        "publisher": {
+          "@id": "https://denkma.com/#organization"
+        },
+        "inLanguage": "fr-SN"
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://denkma.com/#app",
+        "name": "Denkma",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Android, iOS",
+        "description": "Application de livraison, suivi de colis et points relais au Sénégal.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "XOF"
+        },
+        "publisher": {
+          "@id": "https://denkma.com/#organization"
+        }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://denkma.com/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Comment envoyer un colis avec Denkma ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Vous créez un colis dans l'application, choisissez le mode de livraison, vérifiez le prix, puis suivez chaque étape jusqu'à la livraison ou au retrait."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Denkma propose-t-il des points relais ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Les points relais permettent de déposer ou retirer un colis plus facilement, sans bloquer l'expéditeur ou le destinataire à une adresse précise."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Les colis sont-ils suivis ?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Oui. Denkma trace les étapes importantes du colis : création, prise en charge, transit, dépôt en relais, livraison ou retrait."
+            }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     :root {
@@ -284,6 +378,30 @@
       padding-top: 24px; font-size: 13px; color: #8a9a92;
       text-align: center;
     }
+    .faq { background: var(--soft); }
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    @media (max-width: 860px) { .faq-grid { grid-template-columns: 1fr; } }
+    .faq-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 12px 30px rgba(11, 138, 95, 0.06);
+    }
+    .faq-card h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+    .faq-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
   </style>
 </head>
 <body>
@@ -298,6 +416,7 @@
       <a href="#modes">Modes de livraison</a>
       <a href="#features">Fonctionnalités</a>
       <a href="#how">Comment ça marche</a>
+      <a href="#faq">FAQ</a>
       <a href="#partners">Partenaires</a>
     </nav>
     <a href="#download" class="cta-btn">Télécharger</a>
@@ -476,16 +595,37 @@
   </div>
 </section>
 
+<section class="faq" id="faq">
+  <div class="container">
+    <h2 class="section-title">Questions fréquentes sur Denkma</h2>
+    <p class="section-sub">Les réponses essentielles pour comprendre l'envoi, le suivi, la livraison et le retrait de colis avec Denkma.</p>
+    <div class="faq-grid">
+      <article class="faq-card">
+        <h3>Comment envoyer un colis avec Denkma ?</h3>
+        <p>Vous créez votre colis dans l'application, choisissez le mode de livraison, vérifiez le prix, puis suivez chaque étape jusqu'à la remise finale.</p>
+      </article>
+      <article class="faq-card">
+        <h3>À quoi servent les points relais ?</h3>
+        <p>Les relais permettent de déposer ou retirer un colis plus facilement, sans dépendre d'un rendez-vous précis à domicile.</p>
+      </article>
+      <article class="faq-card">
+        <h3>Le colis est-il traçable ?</h3>
+        <p>Oui. Denkma trace les actions importantes : création, prise en charge, transit, dépôt en relais, retrait ou livraison.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
 <section class="download" id="download">
   <div class="container">
     <h2>Téléchargez Denkma</h2>
     <p>L'application arrive sur Android et iOS. En attendant, suivez les annonces officielles sur denkma.com.</p>
     <div class="store-badges">
-      <a href="#" class="store-badge" aria-label="Bientôt sur Google Play">
+      <a href="mailto:contact@denkma.com?subject=Je%20veux%20%C3%AAtre%20inform%C3%A9%20du%20lancement%20Denkma%20sur%20Google%20Play" class="store-badge" aria-label="Bientôt sur Google Play">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.609 1.814 13.792 12 3.61 22.186a1.5 1.5 0 0 1-.61-1.213V3.027a1.5 1.5 0 0 1 .609-1.213zM14.898 13.106l2.494 2.494-12.04 6.808zM17.393 8.4l3.202 1.81a1.5 1.5 0 0 1 0 2.58l-3.203 1.81L14.898 12zM5.352 1.692l12.041 6.808-2.495 2.494z"/></svg>
         <span><small>Bientôt sur</small>Google Play</span>
       </a>
-      <a href="#" class="store-badge" aria-label="Bientôt sur l'App Store">
+      <a href="mailto:contact@denkma.com?subject=Je%20veux%20%C3%AAtre%20inform%C3%A9%20du%20lancement%20Denkma%20sur%20l%27App%20Store" class="store-badge" aria-label="Bientôt sur l'App Store">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>
         <span><small>Bientôt sur</small>App Store</span>
       </a>

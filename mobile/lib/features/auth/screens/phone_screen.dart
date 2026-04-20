@@ -10,9 +10,16 @@ import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class PhoneScreen extends ConsumerStatefulWidget {
-  const PhoneScreen({super.key, this.initialReferralCode});
+  const PhoneScreen({
+    super.key,
+    this.initialReferralCode,
+    this.initialPhone,
+    this.initialTrackingCode,
+  });
 
   final String? initialReferralCode;
+  final String? initialPhone;
+  final String? initialTrackingCode;
 
   @override
   ConsumerState<PhoneScreen> createState() => _PhoneScreenState();
@@ -21,10 +28,41 @@ class PhoneScreen extends ConsumerStatefulWidget {
 class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   String _rawNumber = '';
   String _countryCode = '+221';
+  String _initialCountryIso = 'SN';
   bool _isValid = false;
   bool _isLoading = false;
 
   String get _fullPhone => '$_countryCode$_rawNumber';
+
+  @override
+  void initState() {
+    super.initState();
+    _applyInitialPhone();
+  }
+
+  void _applyInitialPhone() {
+    final digits = (widget.initialPhone ?? '').replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return;
+
+    if (digits.startsWith('221') && digits.length > 3) {
+      _countryCode = '+221';
+      _initialCountryIso = 'SN';
+      _rawNumber = digits.substring(3);
+    } else if (digits.startsWith('33') && digits.length > 2) {
+      _countryCode = '+33';
+      _initialCountryIso = 'FR';
+      _rawNumber = digits.substring(2);
+    } else if (digits.startsWith('0') && digits.length == 10) {
+      _countryCode = '+33';
+      _initialCountryIso = 'FR';
+      _rawNumber = digits.substring(1);
+    } else {
+      _countryCode = '+221';
+      _initialCountryIso = 'SN';
+      _rawNumber = digits;
+    }
+    _isValid = _rawNumber.length >= 8;
+  }
 
   Future<void> _submit() async {
     if (!_isValid || _rawNumber.isEmpty) {
@@ -141,13 +179,39 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 ),
               ),
             ],
+            if ((widget.initialPhone ?? '').trim().isNotEmpty ||
+                (widget.initialTrackingCode ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade100),
+                ),
+                child: Text(
+                  [
+                    'Numéro destinataire détecté.',
+                    if ((widget.initialTrackingCode ?? '').trim().isNotEmpty)
+                      'Suivi : ${widget.initialTrackingCode!.trim().toUpperCase()}.',
+                    'Après connexion, les colis liés à ce numéro seront visibles dans votre compte.',
+                  ].join(' '),
+                  style: TextStyle(
+                    color: Colors.blue.shade900,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 32),
             IntlPhoneField(
               decoration: const InputDecoration(
                 labelText: 'Numéro de téléphone',
                 border: OutlineInputBorder(),
               ),
-              initialCountryCode: 'SN',
+              initialCountryCode: _initialCountryIso,
+              initialValue: _rawNumber,
               countries: countries
                   .where((country) => const {'SN', 'FR'}.contains(country.code))
                   .toList(),

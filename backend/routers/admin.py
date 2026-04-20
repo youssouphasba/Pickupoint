@@ -1,10 +1,13 @@
 """
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
+import mimetypes
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from core.dependencies import require_role
@@ -15,6 +18,12 @@ from models.common import UserRole, ParcelStatus
 from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
 from services.notification_service import notify_payout_result
+from services.whatsapp_support_service import (
+    MAX_WHATSAPP_MEDIA_BYTES,
+    send_support_audio_reply,
+    send_support_text_reply,
+    serialize_support_doc,
+)
 from services.user_service import (
     REFERRAL_ELIGIBLE_ROLES,
     build_referral_url,
@@ -75,10 +84,146 @@ class UserReferralAccessRequest(BaseModel):
     enabled_override: Optional[bool] = None
 
 
+class SupportConversationStatusRequest(BaseModel):
+    status: str = Field(..., pattern="^(open|pending|resolved)$")
+
+
+class SupportTextReplyRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+class ProfilePhotoModerationRequest(BaseModel):
+    status: str = Field(..., pattern="^(approved|rejected|pending)$")
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+WHATSAPP_MEDIA_DIR = Path(__file__).resolve().parents[1] / "private_uploads" / "whatsapp"
+
+
 def _pick_snapshot(doc: dict | None, fields: list[str]) -> dict:
     if not doc:
         return {}
     return {field: doc.get(field) for field in fields}
+
+
+@router.get("/support/whatsapp/conversations", summary="Conversations support WhatsApp")
+async def list_whatsapp_support_conversations(
+    status: Optional[str] = Query(None, pattern="^(open|pending|resolved)$"),
+    q: Optional[str] = Query(None, max_length=80),
+    limit: int = Query(50, ge=1, le=100),
+    _admin=Depends(require_admin_dep),
+):
+    query: dict[str, Any] = {}
+    if status:
+        query["status"] = status
+    if q:
+        clean_q = q.strip()
+        query["$or"] = [
+            {"phone": {"$regex": clean_q, "$options": "i"}},
+            {"last_message_text": {"$regex": clean_q, "$options": "i"}},
+            {"matched_parcel.tracking_code": {"$regex": clean_q, "$options": "i"}},
+            {"matched_user.name": {"$regex": clean_q, "$options": "i"}},
+        ]
+
+    cursor = db.whatsapp_support_conversations.find(query, {"_id": 0}).sort("last_message_at", -1).limit(limit)
+    conversations = await cursor.to_list(length=limit)
+    return {"conversations": conversations}
+
+
+@router.get("/support/whatsapp/conversations/{conversation_id}", summary="Détail conversation support WhatsApp")
+async def get_whatsapp_support_conversation(
+    conversation_id: str,
+    _admin=Depends(require_admin_dep),
+):
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp introuvable")
+
+    cursor = db.whatsapp_support_messages.find(
+        {"conversation_id": conversation_id},
+        {"_id": 0, "raw_message": 0},
+    ).sort("created_at", 1).limit(200)
+    messages = await cursor.to_list(length=200)
+    return {"conversation": conversation, "messages": messages}
+
+
+@router.patch("/support/whatsapp/conversations/{conversation_id}/status", summary="Statut conversation support WhatsApp")
+async def update_whatsapp_support_conversation_status(
+    conversation_id: str,
+    payload: SupportConversationStatusRequest,
+    _admin=Depends(require_admin_dep),
+):
+    result = await db.whatsapp_support_conversations.update_one(
+        {"conversation_id": conversation_id},
+        {"$set": {"status": payload.status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    if result.matched_count == 0:
+        raise not_found_exception("Conversation WhatsApp introuvable")
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    return {"conversation": serialize_support_doc(conversation)}
+
+
+@router.get("/support/whatsapp/media/{filename}", summary="Média WhatsApp support")
+async def get_whatsapp_support_media(
+    filename: str,
+    _admin=Depends(require_admin_dep),
+):
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise not_found_exception("Média WhatsApp")
+    path = (WHATSAPP_MEDIA_DIR / filename).resolve()
+    base = WHATSAPP_MEDIA_DIR.resolve()
+    if base not in path.parents or not path.is_file():
+        raise not_found_exception("Média WhatsApp")
+
+    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    return FileResponse(path=path, media_type=media_type, filename=filename)
+
+
+@router.post("/support/whatsapp/conversations/{conversation_id}/reply", summary="Réponse texte WhatsApp")
+async def reply_whatsapp_support_conversation(
+    conversation_id: str,
+    payload: SupportTextReplyRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp introuvable")
+    try:
+        message = await send_support_text_reply(conversation, payload.text, admin_user)
+    except Exception as exc:
+        raise bad_request_exception(str(exc))
+    return {"message": serialize_support_doc(message)}
+
+
+@router.post("/support/whatsapp/conversations/{conversation_id}/voice", summary="Réponse vocale WhatsApp")
+async def reply_whatsapp_support_conversation_voice(
+    conversation_id: str,
+    file: UploadFile = File(...),
+    admin_user=Depends(require_admin_dep),
+):
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp introuvable")
+
+    content_type = file.content_type or "application/octet-stream"
+    if not content_type.startswith("audio/"):
+        raise bad_request_exception("Le fichier doit être un audio")
+
+    content = await file.read(MAX_WHATSAPP_MEDIA_BYTES + 1)
+    if len(content) > MAX_WHATSAPP_MEDIA_BYTES:
+        raise bad_request_exception("Note vocale trop volumineuse")
+
+    try:
+        message = await send_support_audio_reply(
+            conversation,
+            content=content,
+            filename=file.filename or "note-vocale.webm",
+            mime_type=content_type,
+            admin_user=admin_user,
+        )
+    except Exception as exc:
+        raise bad_request_exception(str(exc))
+    return {"message": serialize_support_doc(message)}
 
 
 def _user_identity_snapshot(user: dict | None) -> dict | None:
@@ -91,6 +236,8 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "email": user.get("email"),
         "role": user.get("role"),
         "profile_picture_url": user.get("profile_picture_url"),
+        "profile_picture_status": _profile_picture_status(user),
+        "profile_picture_rejected_reason": user.get("profile_picture_rejected_reason"),
         "is_active": user.get("is_active", True),
         "is_banned": user.get("is_banned", False),
         "is_available": user.get("is_available", False),
@@ -104,6 +251,12 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "last_driver_location": user.get("last_driver_location"),
         "last_driver_location_at": user.get("last_driver_location_at"),
     }
+
+
+def _profile_picture_status(user: dict | None) -> str:
+    if not user or not user.get("profile_picture_url"):
+        return "missing"
+    return user.get("profile_picture_status") or "pending"
 
 
 def _relay_identity_snapshot(relay: dict | None) -> dict | None:
@@ -727,9 +880,58 @@ async def admin_list_users(
     
     cursor = db.users.find(query, {"_id": 0}).skip(skip).limit(limit).sort("created_at", -1)
     users = await cursor.to_list(length=limit)
+    for user in users:
+        user["profile_picture_status"] = _profile_picture_status(user)
     total = await db.users.count_documents(query)
     
     return {"users": users, "total": total}
+
+
+@router.patch("/users/{user_id}/profile-photo", summary="Moderer la photo de profil d'un utilisateur")
+async def admin_moderate_profile_photo(
+    user_id: str,
+    body: ProfilePhotoModerationRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise not_found_exception("Utilisateur")
+    if not user.get("profile_picture_url"):
+        raise bad_request_exception("Cet utilisateur n'a pas encore de photo de profil")
+    if body.status == "rejected" and not (body.reason or "").strip():
+        raise bad_request_exception("Indiquez un motif de refus")
+
+    now = datetime.now(timezone.utc)
+    updates: dict[str, Any] = {
+        "profile_picture_status": body.status,
+        "profile_picture_reviewed_by": admin_user.get("user_id"),
+        "profile_picture_reviewed_at": now,
+        "updated_at": now,
+    }
+    if body.status == "approved":
+        updates["profile_picture_approved_at"] = now
+        updates["profile_picture_rejected_reason"] = None
+    elif body.status == "rejected":
+        updates["profile_picture_rejected_reason"] = body.reason.strip()
+        updates["is_available"] = False
+    else:
+        updates["profile_picture_rejected_reason"] = None
+
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    await _record_event(
+        event_type=f"PROFILE_PHOTO_{body.status.upper()}",
+        actor_id=admin_user.get("user_id"),
+        actor_role=admin_user.get("role"),
+        notes=body.reason,
+        metadata={
+            "target_user_id": user_id,
+            "profile_picture_url": user.get("profile_picture_url"),
+        },
+    )
+
+    updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    updated_user["profile_picture_status"] = _profile_picture_status(updated_user)
+    return {"user": updated_user}
 
 
 @router.get("/users/{user_id}/detail", summary="Fiche detaillee d'un utilisateur")
@@ -740,6 +942,7 @@ async def admin_user_detail(
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise not_found_exception("Utilisateur")
+    user["profile_picture_status"] = _profile_picture_status(user)
 
     phone_candidates = [candidate for candidate in {user.get("phone")} if candidate]
     received_query = {"recipient_user_id": user_id}
@@ -2004,10 +2207,12 @@ async def admin_reassign_mission(
             "role": UserRole.DRIVER.value,
             "is_active": True,
         },
-        {"_id": 0, "name": 1, "is_available": 1},
+        {"_id": 0, "name": 1, "is_available": 1, "profile_picture_url": 1, "profile_picture_status": 1},
     )
     if not driver:
         raise bad_request_exception("Livreur cible introuvable ou inactif")
+    if not (driver.get("profile_picture_url") or "").strip() or driver.get("profile_picture_status") != "approved":
+        raise bad_request_exception("Le livreur cible doit avoir une photo de profil approuvée avant d'être assigné")
     if driver.get("is_available") is False:
         raise bad_request_exception("Le livreur cible est actuellement indisponible")
 

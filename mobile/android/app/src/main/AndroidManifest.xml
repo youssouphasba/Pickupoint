@@ -53,6 +53,14 @@
                     android:scheme="https"
                     android:host="www.denkma.com"
                     android:pathPrefix="/api/users/referral/" />
+                <data
+                    android:scheme="https"
+                    android:host="denkma.com"
+                    android:pathPrefix="/app" />
+                <data
+                    android:scheme="https"
+                    android:host="www.denkma.com"
+                    android:pathPrefix="/app" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
@@ -62,6 +70,15 @@
                     android:scheme="denkma"
                     android:host="app"
                     android:pathPrefix="/referral/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="denkma"
+                    android:host="app"
+                    android:pathPrefix="/parcel" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

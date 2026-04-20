@@ -10,6 +10,7 @@ import {
   fetchRelays,
   fetchUserDetail,
   fetchUserHistory,
+  moderateProfilePhoto,
   setReferralAccess,
   unbanUser,
 } from "@/lib/api";
@@ -17,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
+import { SecureProfileImage } from "@/components/secure-profile-image";
 import {
   Select,
   SelectContent,
@@ -64,6 +66,20 @@ const ROLE_TONES: Record<string, BadgeTone> = {
   superadmin: "danger",
 };
 
+const PROFILE_PHOTO_TONES: Record<string, BadgeTone> = {
+  approved: "success",
+  pending: "warning",
+  rejected: "danger",
+  missing: "default",
+};
+
+const PROFILE_PHOTO_LABELS: Record<string, string> = {
+  approved: "Approuvée",
+  pending: "À vérifier",
+  rejected: "Refusée",
+  missing: "Absente",
+};
+
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -96,6 +112,8 @@ export default function UserDetailPage() {
   const [banOpen, setBanOpen] = React.useState(false);
   const [unbanOpen, setUnbanOpen] = React.useState(false);
   const [roleOpen, setRoleOpen] = React.useState(false);
+  const [approvePhotoOpen, setApprovePhotoOpen] = React.useState(false);
+  const [rejectPhotoOpen, setRejectPhotoOpen] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState("");
 
   const banMut = useMutation({
@@ -135,6 +153,20 @@ export default function UserDetailPage() {
     onSuccess: () => {
       invalidate();
       toast("Accès parrainage mis à jour.");
+    },
+  });
+
+  const photoModerationMut = useMutation({
+    mutationFn: ({
+      status,
+      reason,
+    }: {
+      status: "approved" | "rejected" | "pending";
+      reason?: string;
+    }) => moderateProfilePhoto(id, status, reason),
+    onSuccess: () => {
+      invalidate();
+      toast("Photo de profil mise à jour.");
     },
   });
 
@@ -231,6 +263,52 @@ export default function UserDetailPage() {
           </Button>
         )}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Photo de profil</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5 md:flex-row md:items-start">
+          <SecureProfileImage
+            src={user.profile_picture_url}
+            alt={`Photo de ${user.name ?? user.phone}`}
+            className="h-36 w-36 shrink-0 rounded-2xl"
+            fallbackClassName="rounded-2xl"
+          />
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={PROFILE_PHOTO_TONES[user.profile_picture_status ?? "missing"] ?? "default"}>
+                {PROFILE_PHOTO_LABELS[user.profile_picture_status ?? "missing"] ?? user.profile_picture_status}
+              </Badge>
+              {user.profile_picture_rejected_reason && (
+                <span className="text-sm text-red-600">
+                  Motif : {user.profile_picture_rejected_reason}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Cette photo est visible par les clients sur les colis et missions. Un livreur ne peut être disponible ou assigné que si sa photo est approuvée.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={!user.profile_picture_url || photoModerationMut.isPending}
+                onClick={() => setApprovePhotoOpen(true)}
+              >
+                Approuver
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={!user.profile_picture_url || photoModerationMut.isPending}
+                onClick={() => setRejectPhotoOpen(true)}
+              >
+                Désapprouver
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Summary KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -536,6 +614,32 @@ export default function UserDetailPage() {
         confirmLabel="Débannir"
         onConfirm={async (reason) => {
           await unbanMut.mutateAsync(reason);
+        }}
+      />
+
+      <ConfirmModal
+        open={approvePhotoOpen}
+        onOpenChange={setApprovePhotoOpen}
+        title="Approuver la photo de profil"
+        description="La photo pourra être affichée aux clients et le livreur pourra être assigné aux missions."
+        confirmLabel="Approuver"
+        onConfirm={async () => {
+          await photoModerationMut.mutateAsync({ status: "approved" });
+        }}
+      />
+
+      <ActionModal
+        open={rejectPhotoOpen}
+        onOpenChange={setRejectPhotoOpen}
+        title="Désapprouver la photo de profil"
+        description="Le livreur devra envoyer une nouvelle photo avant de pouvoir être disponible ou assigné."
+        inputLabel="Motif du refus"
+        inputPlaceholder="Ex: visage non visible, photo floue, document à la place..."
+        inputType="textarea"
+        confirmLabel="Désapprouver"
+        confirmVariant="destructive"
+        onConfirm={async (reason) => {
+          await photoModerationMut.mutateAsync({ status: "rejected", reason });
         }}
       />
 
