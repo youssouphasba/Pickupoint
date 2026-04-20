@@ -40,6 +40,25 @@ const STATUS_TONES: Record<string, "danger" | "warning" | "success" | "default">
   resolved: "success",
 };
 
+const AUDIO_MIME_PREFERENCES = [
+  "audio/ogg;codecs=opus",
+  "audio/webm;codecs=opus",
+  "audio/webm",
+];
+
+function supportErrorMessage(error: unknown) {
+  if (error && typeof error === "object" && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: string; message?: string; error?: string } } }).response;
+    return (
+      response?.data?.detail ||
+      response?.data?.message ||
+      response?.data?.error ||
+      "La réponse WhatsApp n'a pas pu être envoyée."
+    );
+  }
+  return error instanceof Error ? error.message : "La réponse WhatsApp n'a pas pu être envoyée.";
+}
+
 function conversationLabel(conversation?: WhatsAppSupportConversation | null) {
   return conversation?.matched_user?.name || conversation?.phone || "Conversation";
 }
@@ -60,6 +79,7 @@ export default function WhatsAppSupportPage() {
   const [status, setStatus] = React.useState("open");
   const [replyText, setReplyText] = React.useState("");
   const [recording, setRecording] = React.useState(false);
+  const [supportError, setSupportError] = React.useState<string | null>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
 
@@ -98,13 +118,19 @@ export default function WhatsAppSupportPage() {
     mutationFn: () => sendWhatsappSupportTextReply(activeId as string, replyText),
     onSuccess: () => {
       setReplyText("");
+      setSupportError(null);
       refreshActive();
     },
+    onError: (error) => setSupportError(supportErrorMessage(error)),
   });
 
   const voiceReplyMutation = useMutation({
     mutationFn: (blob: Blob) => sendWhatsappSupportVoiceReply(activeId as string, blob),
-    onSuccess: refreshActive,
+    onSuccess: () => {
+      setSupportError(null);
+      refreshActive();
+    },
+    onError: (error) => setSupportError(supportErrorMessage(error)),
   });
 
   const activeConversation = detailQuery.data?.conversation;
@@ -112,28 +138,50 @@ export default function WhatsAppSupportPage() {
 
   async function startRecording() {
     if (!activeId || recording) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    chunksRef.current = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
-    recorder.onstop = () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const blob = new Blob(chunksRef.current, {
-        type: recorder.mimeType || "audio/webm",
-      });
-      if (blob.size > 0) voiceReplyMutation.mutate(blob);
-    };
-    recorderRef.current = recorder;
-    recorder.start();
-    setRecording(true);
+    setSupportError(null);
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setSupportError("L'enregistrement vocal n'est pas disponible dans ce navigateur.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = AUDIO_MIME_PREFERENCES.find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        setSupportError("L'enregistrement audio a échoué. Vérifiez l'accès au micro.");
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setRecording(false);
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm",
+        });
+        if (blob.size > 0) {
+          voiceReplyMutation.mutate(blob);
+        } else {
+          setSupportError("Aucun audio n'a été enregistré.");
+        }
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch (error) {
+      setRecording(false);
+      setSupportError(supportErrorMessage(error));
+    }
   }
 
   function stopRecording() {
     recorderRef.current?.stop();
     recorderRef.current = null;
-    setRecording(false);
   }
 
   return (
@@ -395,9 +443,15 @@ export default function WhatsAppSupportPage() {
                     {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                   </Button>
                 </div>
+                {supportError && (
+                  <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {supportError}
+                  </div>
+                )}
                 <div className="mt-2 text-xs text-muted-foreground">
                   Les réponses libres fonctionnent dans la fenêtre WhatsApp de 24h après le dernier message utilisateur.
                   {recording && " Enregistrement en cours..."}
+                  {voiceReplyMutation.isPending && " Envoi de la note vocale..."}
                 </div>
               </div>
             </CardContent>

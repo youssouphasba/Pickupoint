@@ -1,3 +1,4 @@
+import json
 import logging
 import mimetypes
 import os
@@ -18,6 +19,13 @@ logger = logging.getLogger(__name__)
 TRACKING_CODE_RE = re.compile(r"\b(?:PKP|DMK|DENKMA)[-_]?[A-Z0-9][A-Z0-9\-_]{4,}\b", re.IGNORECASE)
 PRIVATE_WHATSAPP_DIR = UPLOADS_DIR.parent / "private_uploads" / "whatsapp"
 MAX_WHATSAPP_MEDIA_BYTES = 16 * 1024 * 1024
+SUPPORTED_OUTBOUND_AUDIO_MIME_TYPES = {
+    "audio/aac",
+    "audio/amr",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/ogg",
+}
 
 ACTIVE_STATUSES = {
     ParcelStatus.CREATED.value,
@@ -67,7 +75,79 @@ def _safe_media_extension(mime_type: str | None) -> str:
     return guessed if guessed in {".ogg", ".mp3", ".aac", ".m4a", ".opus", ".wav"} else ".bin"
 
 
-async def _post_whatsapp_message(payload: dict) -> dict:
+def _base_mime_type(mime_type: str | None) -> str:
+    return (mime_type or "").split(";", 1)[0].strip().lower()
+
+
+def _outbound_audio_mime_type(mime_type: str | None) -> str:
+    clean_mime = _base_mime_type(mime_type)
+    if clean_mime not in SUPPORTED_OUTBOUND_AUDIO_MIME_TYPES:
+        raise ValueError(
+            "Format audio non supporté par WhatsApp Cloud API. "
+            "Essayez Firefox pour enregistrer en audio/ogg, ou envoyez une réponse texte."
+        )
+    return clean_mime
+
+
+def _whatsapp_error_message(status_code: int, body: str) -> str:
+    try:
+        meta_error = (json.loads(body).get("error") or {})
+        message = meta_error.get("message") or body
+        code = str(meta_error.get("code") or "")
+    except Exception:
+        message = body
+        code = ""
+
+    lower_message = message.lower()
+    if code == "131047" or "24 hour" in lower_message or "24-hour" in lower_message:
+        return (
+            "Meta a refusé l'envoi : la fenêtre WhatsApp de 24 h est fermée. "
+            "Le client doit d'abord renvoyer un message, ou il faut utiliser un modèle approuvé."
+        )
+    return f"Meta a refusé l'envoi WhatsApp ({status_code}) : {message}"
+
+
+async def _log_whatsapp_support_attempt(
+    *,
+    payload: dict,
+    status: str,
+    status_code: Optional[int] = None,
+    response_body: Optional[str] = None,
+    meta_message_id: Optional[str] = None,
+    conversation: Optional[dict] = None,
+    admin_user: Optional[dict] = None,
+    error: Optional[str] = None,
+) -> None:
+    try:
+        now = _now()
+        await db.whatsapp_delivery_logs.insert_one(
+            {
+                "attempt_id": f"wa_support_{uuid.uuid4().hex[:16]}",
+                "source": "admin_support",
+                "conversation_id": conversation.get("conversation_id") if conversation else None,
+                "admin_user_id": admin_user.get("user_id") if admin_user else None,
+                "phone_input": conversation.get("phone") if conversation else payload.get("to"),
+                "to": payload.get("to"),
+                "message_type": payload.get("type"),
+                "template": None,
+                "status": status,
+                "status_code": status_code,
+                "meta_message_id": meta_message_id,
+                "meta_error": response_body or error,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    except Exception as exc:
+        logger.warning("Failed to audit WhatsApp support attempt: %s", exc)
+
+
+async def _post_whatsapp_message(
+    payload: dict,
+    *,
+    conversation: Optional[dict] = None,
+    admin_user: Optional[dict] = None,
+) -> dict:
     if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
         raise RuntimeError("WhatsApp Cloud API non configurée")
 
@@ -79,11 +159,42 @@ async def _post_whatsapp_message(payload: dict) -> dict:
         f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
         f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
     )
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, headers=headers, json=payload)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, headers=headers, json=payload)
+    except Exception as exc:
+        await _log_whatsapp_support_attempt(
+            payload=payload,
+            status="failed",
+            conversation=conversation,
+            admin_user=admin_user,
+            error=str(exc),
+        )
+        raise RuntimeError(f"Impossible de contacter Meta WhatsApp : {exc}") from exc
+
     if response.status_code != 200:
-        raise RuntimeError(f"WhatsApp API error {response.status_code}: {response.text}")
-    return response.json()
+        await _log_whatsapp_support_attempt(
+            payload=payload,
+            status="failed",
+            status_code=response.status_code,
+            response_body=response.text,
+            conversation=conversation,
+            admin_user=admin_user,
+        )
+        raise RuntimeError(_whatsapp_error_message(response.status_code, response.text))
+
+    data = response.json()
+    whatsapp_message_id = ((data.get("messages") or [{}])[0]).get("id")
+    await _log_whatsapp_support_attempt(
+        payload=payload,
+        status="sent",
+        status_code=response.status_code,
+        response_body=response.text,
+        meta_message_id=whatsapp_message_id,
+        conversation=conversation,
+        admin_user=admin_user,
+    )
+    return data
 
 
 async def _upload_whatsapp_media(content: bytes, filename: str, mime_type: str) -> str:
@@ -92,6 +203,7 @@ async def _upload_whatsapp_media(content: bytes, filename: str, mime_type: str) 
     if not content or len(content) > MAX_WHATSAPP_MEDIA_BYTES:
         raise ValueError("Audio WhatsApp invalide ou trop volumineux")
 
+    clean_mime_type = _outbound_audio_mime_type(mime_type)
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
     url = (
         f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
@@ -101,8 +213,8 @@ async def _upload_whatsapp_media(content: bytes, filename: str, mime_type: str) 
         response = await client.post(
             url,
             headers=headers,
-            data={"messaging_product": "whatsapp", "type": mime_type},
-            files={"file": (filename, content, mime_type)},
+            data={"messaging_product": "whatsapp", "type": clean_mime_type},
+            files={"file": (filename, content, clean_mime_type)},
         )
     if response.status_code != 200:
         raise RuntimeError(f"WhatsApp media upload error {response.status_code}: {response.text}")
@@ -358,7 +470,7 @@ async def send_support_text_reply(conversation: dict, text: str, admin_user: dic
         "type": "text",
         "text": {"body": clean_text},
     }
-    response = await _post_whatsapp_message(payload)
+    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
     whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
     return await _store_outbound_message(
         conversation,
@@ -377,25 +489,26 @@ async def send_support_audio_reply(
     mime_type: str,
     admin_user: dict,
 ) -> dict:
-    media_id = await _upload_whatsapp_media(content, filename, mime_type)
+    clean_mime_type = _outbound_audio_mime_type(mime_type)
+    media_id = await _upload_whatsapp_media(content, filename, clean_mime_type)
     payload = {
         "messaging_product": "whatsapp",
         "to": conversation["phone"].lstrip("+"),
         "type": "audio",
         "audio": {"id": media_id},
     }
-    response = await _post_whatsapp_message(payload)
+    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
     whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
 
     PRIVATE_WHATSAPP_DIR.mkdir(parents=True, exist_ok=True)
-    ext = _safe_media_extension(mime_type)
+    ext = _safe_media_extension(clean_mime_type)
     stored_filename = f"out_{media_id}_{uuid.uuid4().hex[:10]}{ext}"
     path = PRIVATE_WHATSAPP_DIR / stored_filename
     path.write_bytes(content)
 
     media = {
         "media_id": media_id,
-        "mime_type": mime_type,
+        "mime_type": clean_mime_type,
         "file_size": len(content),
         "storage_path": str(path),
         "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{stored_filename}",
