@@ -61,8 +61,7 @@ def normalize_phone(phone: str | None) -> str:
       - "00221..." / "00 33..." : convertit en "+...".
       - "221..." / "33..." (sans +) : prefixe "+".
       - 9 chiffres commencant par 7 ou 3 (format local senegalais) : prefixe "+221".
-      - 9 chiffres commencant par 6 ou 7 (format local francais sans 0) : prefixe "+33"
-        uniquement si l'indicatif est explicite ailleurs — sinon on ne devine pas.
+      - 10 chiffres commencant par 06 ou 07 (format local francais) : prefixe "+33"
       - Sinon, retourne juste les chiffres.
     """
     if not phone:
@@ -85,6 +84,9 @@ def normalize_phone(phone: str | None) -> str:
 
     if len(digits) == 9 and digits[0] in {"7", "3"}:
         return f"+221{digits}"
+
+    if len(digits) == 10 and digits.startswith(("06", "07")):
+        return f"+33{digits[1:]}"
 
     return digits
 
