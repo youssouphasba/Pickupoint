@@ -47,6 +47,13 @@ async def apply_driver(
     current_user: dict = Depends(get_current_user),
 ):
     # Vérifier pas déjà candidat en attente
+    profile_photo_url = (current_user.get("profile_picture_url") or "").strip()
+    profile_photo_status = current_user.get("profile_picture_status")
+    if not profile_photo_url or profile_photo_status == "rejected":
+        raise bad_request_exception(
+            "Ajoutez une photo de profil valide avant de soumettre votre candidature livreur."
+        )
+
     existing = await db.applications.find_one({
         "user_id": current_user["user_id"],
         "type": "driver",
@@ -156,6 +163,12 @@ async def approve_application(
 
     if app["type"] == "driver":
         data = app["data"]
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if not user or not (user.get("profile_picture_url") or "").strip():
+            raise bad_request_exception("Le livreur doit ajouter une photo de profil avant validation")
+        if user.get("profile_picture_status") != "approved":
+            raise bad_request_exception("La photo de profil du livreur doit être approuvée avant validation")
+
         await db.users.update_one(
             {"user_id": user_id},
             {"$set": {

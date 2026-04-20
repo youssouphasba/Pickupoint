@@ -9,10 +9,16 @@ typedef DriverLocation = ({double? lat, double? lng});
 
 /// Provider pour les missions disponibles, filtrées par proximité si GPS fourni.
 final availableMissionsProvider =
-    FutureProvider.family<List<DeliveryMission>, DriverLocation>((ref, loc) async {
+    FutureProvider.family<List<DeliveryMission>, DriverLocation>(
+        (ref, loc) async {
   final api = ref.watch(apiClientProvider);
-  final res  = await api.getAvailableMissions(lat: loc.lat, lng: loc.lng);
+  final res = await api.getAvailableMissions(lat: loc.lat, lng: loc.lng);
   final data = res.data as Map<String, dynamic>;
+  if (data['profile_photo_required'] == true) {
+    throw Exception(
+      'Votre photo de profil doit être ajoutée et approuvée avant de recevoir des missions.',
+    );
+  }
   return (data['missions'] as List? ?? [])
       .map((e) => DeliveryMission.fromJson(e as Map<String, dynamic>))
       .toList();
@@ -23,11 +29,14 @@ final myMissionsProvider = FutureProvider<List<DeliveryMission>>((ref) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getMyMissions();
   final data = res.data as Map<String, dynamic>;
-  return (data['missions'] as List? ?? []).map((e) => DeliveryMission.fromJson(e as Map<String, dynamic>)).toList();
+  return (data['missions'] as List? ?? [])
+      .map((e) => DeliveryMission.fromJson(e as Map<String, dynamic>))
+      .toList();
 });
 
 /// Provider pour une mission spécifique.
-final missionProvider = FutureProvider.family<DeliveryMission, String>((ref, id) async {
+final missionProvider =
+    FutureProvider.family<DeliveryMission, String>((ref, id) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getMission(id);
   return DeliveryMission.fromJson(res.data as Map<String, dynamic>);
