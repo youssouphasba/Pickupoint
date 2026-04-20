@@ -60,13 +60,16 @@ dependencies:
   record: ^5.1.0
   audioplayers: ^6.0.0
   path_provider: ^2.1.0
-  flutter_webrtc: ^0.11.6+hotfix.1
+  flutter_webrtc: ^1.4.1
 
   # Téléphone international (détection SIM + dropdown pays SN/FR)
   intl_phone_field: ^3.2.0
 
 dependency_overrides:
   record_linux: ^1.3.0
+  # Requis par flutter_webrtc >= 1.x avec Flutter/Shorebird récents.
+  # À retirer quand Firebase sera migré vers une gamme compatible web ^1.x.
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
