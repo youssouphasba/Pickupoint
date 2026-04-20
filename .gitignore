@@ -86,3 +86,11 @@ mobile/android/key.properties
 *.jpg
 *.png
 *.jpeg
+
+# Assets versionnés (nécessaires au build CI)
+!mobile/assets/**/*.png
+!mobile/assets/**/*.jpg
+!mobile/android/app/src/main/res/**/*.png
+!mobile/ios/Runner/Assets.xcassets/**/*.png
+!landing/assets/**/*.png
+!landing/assets/**/*.jpg
