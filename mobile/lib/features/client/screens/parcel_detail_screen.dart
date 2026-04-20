@@ -14,7 +14,6 @@ import '../../../shared/widgets/timeline_widget.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
-import '../../../shared/utils/phone_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
@@ -996,8 +995,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       children: [
         _buildInfoRow(
             Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
-        _buildInfoRow(
-            Icons.phone, 'Téléphone', maskPhone(parcel.recipientPhone ?? '')),
+        _buildInfoRow(Icons.phone, 'Téléphone', parcel.recipientPhone ?? ''),
         if (parcel.isRelayToHome)
           _buildInfoRow(
             Icons.location_on,
@@ -1202,8 +1200,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       children: [
         _buildInfoRow(
             Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
-        _buildInfoRow(
-            Icons.phone, 'Téléphone', maskPhone(parcel.recipientPhone ?? '')),
+        _buildInfoRow(Icons.phone, 'Téléphone', parcel.recipientPhone ?? ''),
         _buildInfoRow(
           Icons.location_on,
           parcel.isRelayToHome ? 'Adresse' : 'Point Relais',

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="index,follow" />
+  <title>Ouvrir Denkma</title>
+  <meta name="description" content="Ouvrez Denkma pour retrouver les colis liés à votre numéro et suivre leur livraison en direct." />
+  <link rel="canonical" href="https://denkma.com/app/" />
+  <link rel="icon" type="image/png" href="/assets/logo.png" />
+  <style>
+    :root {
+      --primary: #087f4f;
+      --ink: #17211b;
+      --muted: #607268;
+      --line: #dce8df;
+      --soft: #eaf7ef;
+      --bg: #f7faf6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      font-family: Verdana, Geneva, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 80% 10%, #dff3e8, transparent 36%),
+        linear-gradient(135deg, #ffffff, var(--bg));
+    }
+    main {
+      width: min(100%, 620px);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: clamp(24px, 5vw, 42px);
+      box-shadow: 0 24px 70px rgba(20, 73, 45, 0.12);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      font-weight: 900;
+      font-size: 22px;
+      color: var(--primary);
+    }
+    .brand img {
+      width: 42px;
+      height: 42px;
+      object-fit: contain;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 8vw, 52px);
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+    p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 16px;
+    }
+    .notice {
+      background: var(--soft);
+      border: 1px solid #ccebd8;
+      border-radius: 18px;
+      padding: 14px;
+      color: #0a5f3d;
+      font-weight: 700;
+      margin-bottom: 22px;
+    }
+    .actions {
+      display: grid;
+      gap: 12px;
+    }
+    a {
+      color: inherit;
+    }
+    .button {
+      display: block;
+      text-align: center;
+      text-decoration: none;
+      border-radius: 18px;
+      padding: 16px;
+      font-weight: 900;
+      border: 1px solid var(--line);
+    }
+    .button.primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+      box-shadow: 0 16px 34px rgba(8, 127, 79, 0.22);
+    }
+    .button.secondary {
+      background: #fff;
+      color: var(--ink);
+    }
+    .small {
+      margin-top: 18px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">
+      <img src="/assets/logo.png" alt="" />
+      <span>Denkma</span>
+    </div>
+    <h1>Retrouvez votre colis dans l'application</h1>
+    <p>
+      Connectez-vous avec le même numéro que celui utilisé pour recevoir le colis.
+      Les colis déjà liés à ce numéro apparaîtront automatiquement dans votre compte,
+      avec les détails et le suivi en direct quand la livraison est active.
+    </p>
+    <div class="notice" id="context">Lien de suivi détecté.</div>
+    <div class="actions">
+      <a class="button primary" id="openApp" href="denkma://app/parcel">Ouvrir l'application</a>
+      <a class="button secondary" href="https://play.google.com/store/apps/details?id=com.denkma.app">Télécharger sur Android</a>
+      <a class="button secondary" href="mailto:contact@denkma.com?subject=Installation%20Denkma%20iPhone">Être informé pour iPhone</a>
+    </div>
+    <p class="small">
+      Si l'application ne s'ouvre pas, installez Denkma puis reconnectez-vous avec le numéro destinataire.
+    </p>
+  </main>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const phone = params.get('phone') || '';
+    const tracking = params.get('tracking') || params.get('tracking_code') || '';
+    const deeplink = new URL('denkma://app/parcel');
+
+    if (phone) deeplink.searchParams.set('phone', phone);
+    if (tracking) deeplink.searchParams.set('tracking', tracking);
+
+    document.getElementById('openApp').href = deeplink.toString();
+    document.getElementById('context').textContent = tracking
+      ? `Suivi ${tracking} détecté.`
+      : 'Votre numéro permettra de retrouver vos colis reçus.';
+
+    window.setTimeout(() => {
+      window.location.href = deeplink.toString();
+    }, 900);
+  </script>
+</body>
+</html>

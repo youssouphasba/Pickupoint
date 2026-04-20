@@ -129,6 +129,21 @@ async def create_indexes():
             IndexModel([("user_id", 1)]),
             IndexModel([("created_at", 1)]),
         ],
+        "whatsapp_support_conversations": [
+            IndexModel([("conversation_id", 1)], unique=True),
+            IndexModel([("phone", 1)]),
+            IndexModel([("matched_user_id", 1)]),
+            IndexModel([("matched_parcel_id", 1)]),
+            IndexModel([("status", 1)]),
+            IndexModel([("last_message_at", -1)]),
+        ],
+        "whatsapp_support_messages": [
+            IndexModel([("message_id", 1)], unique=True),
+            IndexModel([("whatsapp_message_id", 1)], unique=True, sparse=True),
+            IndexModel([("conversation_id", 1), ("created_at", 1)]),
+            IndexModel([("matched_user_id", 1)]),
+            IndexModel([("matched_parcel_id", 1)]),
+        ],
         "legal_contents": [
             IndexModel([("document_type", 1)], unique=True),
         ],

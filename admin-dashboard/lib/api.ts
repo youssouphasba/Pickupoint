@@ -78,6 +78,7 @@ export async function logout() {
 export type AdminUser = {
   user_id: string;
   phone: string;
+  name?: string | null;
   email?: string | null;
   full_name?: string | null;
   role: string;
@@ -87,6 +88,8 @@ export type AdminUser = {
   kyc_status?: string | null;
   relay_point_id?: string | null;
   profile_picture_url?: string | null;
+  profile_picture_status?: string | null;
+  profile_picture_rejected_reason?: string | null;
   created_at?: string;
   deliveries_completed?: number;
   average_rating?: number;
@@ -121,6 +124,18 @@ export async function banUser(userId: string, reason: string) {
 
 export async function unbanUser(userId: string, reason: string) {
   const { data } = await api.post(`/api/admin/users/${userId}/unban`, {
+    reason,
+  });
+  return data;
+}
+
+export async function moderateProfilePhoto(
+  userId: string,
+  status: "approved" | "rejected" | "pending",
+  reason?: string
+) {
+  const { data } = await api.patch(`/api/admin/users/${userId}/profile-photo`, {
+    status,
     reason,
   });
   return data;
@@ -189,6 +204,125 @@ export async function rejectPayout(payoutId: string, reason: string) {
   const { data } = await api.put(
     `/api/admin/wallets/payouts/${payoutId}/reject`,
     { reason }
+  );
+  return data;
+}
+
+// ------------------------- WhatsApp support -------------------------
+
+export type WhatsAppSupportParcel = {
+  parcel_id: string;
+  tracking_code: string;
+  status: string;
+  recipient_name?: string | null;
+  recipient_phone?: string | null;
+  sender_user_id?: string | null;
+  assigned_driver_id?: string | null;
+  payment_status?: string | null;
+  updated_at?: string | null;
+};
+
+export type WhatsAppSupportUser = {
+  user_id: string;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  role?: string | null;
+  profile_picture_url?: string | null;
+  is_active?: boolean;
+  is_banned?: boolean;
+  kyc_status?: string | null;
+};
+
+export type WhatsAppSupportConversation = {
+  conversation_id: string;
+  phone: string;
+  source: "whatsapp";
+  status: "open" | "pending" | "resolved";
+  matched_user_id?: string | null;
+  matched_user?: WhatsAppSupportUser | null;
+  matched_parcel_id?: string | null;
+  matched_parcel?: WhatsAppSupportParcel | null;
+  related_parcels?: WhatsAppSupportParcel[];
+  last_message_text?: string | null;
+  last_message_at?: string | null;
+  last_inbound_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type WhatsAppSupportMessage = {
+  message_id: string;
+  conversation_id: string;
+  whatsapp_message_id?: string | null;
+  direction: "inbound" | "outbound";
+  phone: string;
+  message_type: string;
+  text?: string | null;
+  media?: {
+    media_id?: string | null;
+    mime_type?: string | null;
+    file_size?: number | null;
+    download_url?: string | null;
+  } | null;
+  matched_user_id?: string | null;
+  matched_parcel_id?: string | null;
+  matched_tracking_code?: string | null;
+  created_at?: string | null;
+};
+
+export async function fetchWhatsappSupportConversations(params?: {
+  status?: string;
+  q?: string;
+  limit?: number;
+}) {
+  const { data } = await api.get<{ conversations: WhatsAppSupportConversation[] }>(
+    "/api/admin/support/whatsapp/conversations",
+    { params }
+  );
+  return data;
+}
+
+export async function fetchWhatsappSupportConversation(conversationId: string) {
+  const { data } = await api.get<{
+    conversation: WhatsAppSupportConversation;
+    messages: WhatsAppSupportMessage[];
+  }>(`/api/admin/support/whatsapp/conversations/${conversationId}`);
+  return data;
+}
+
+export async function updateWhatsappSupportConversationStatus(
+  conversationId: string,
+  status: "open" | "pending" | "resolved"
+) {
+  const { data } = await api.patch(
+    `/api/admin/support/whatsapp/conversations/${conversationId}/status`,
+    { status }
+  );
+  return data;
+}
+
+export async function sendWhatsappSupportTextReply(
+  conversationId: string,
+  text: string
+) {
+  const { data } = await api.post(
+    `/api/admin/support/whatsapp/conversations/${conversationId}/reply`,
+    { text }
+  );
+  return data;
+}
+
+export async function sendWhatsappSupportVoiceReply(
+  conversationId: string,
+  blob: Blob
+) {
+  const formData = new FormData();
+  formData.append("file", blob, "note-vocale.webm");
+  const { data } = await api.post(
+    `/api/admin/support/whatsapp/conversations/${conversationId}/voice`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
   );
   return data;
 }

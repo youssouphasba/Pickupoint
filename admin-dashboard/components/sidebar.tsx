@@ -19,6 +19,7 @@ import {
   History,
   Scale,
   LogOut,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/lib/api";
@@ -35,6 +36,7 @@ const items = [
   { href: "/dashboard/promotions", label: "Promotions", Icon: Tag },
   { href: "/dashboard/finance", label: "Finance", Icon: Banknote },
   { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle },
+  { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle },
   { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock },
   { href: "/dashboard/heatmap", label: "Heatmap", Icon: Flame },
   { href: "/dashboard/audit-log", label: "Audit log", Icon: History },

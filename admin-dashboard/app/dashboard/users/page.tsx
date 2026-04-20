@@ -6,14 +6,14 @@ import { ColumnDef } from "@tanstack/react-table";
 import {
   AdminUser,
   banUser,
-  changeUserRole,
   fetchUsers,
   unbanUser,
 } from "@/lib/api";
+import { ActionModal } from "@/components/action-modal";
 import { DataTable } from "@/components/data-table";
+import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ActionModal } from "@/components/action-modal";
 import { useToast } from "@/components/ui/toaster";
 import { formatDate } from "@/lib/utils";
 import { Eye, Loader2, ShieldBan, ShieldCheck } from "lucide-react";
@@ -35,6 +35,20 @@ const ROLE_TONES: Record<string, "default" | "info" | "warning" | "success" | "d
   superadmin: "danger",
 };
 
+const PROFILE_PHOTO_TONES: Record<string, "default" | "info" | "warning" | "success" | "danger"> = {
+  approved: "success",
+  pending: "warning",
+  rejected: "danger",
+  missing: "default",
+};
+
+const PROFILE_PHOTO_LABELS: Record<string, string> = {
+  approved: "Photo approuvée",
+  pending: "Photo à vérifier",
+  rejected: "Photo refusée",
+  missing: "Photo absente",
+};
+
 const FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "Tous" },
   { value: "client", label: "Clients" },
@@ -43,12 +57,14 @@ const FILTERS: { value: string; label: string }[] = [
   { value: "admin", label: "Admins" },
 ];
 
+function userDisplayName(user: AdminUser) {
+  return user.name ?? user.full_name ?? "—";
+}
+
 export default function UsersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [role, setRole] = React.useState("all");
-
-  // Modal state
   const [banTarget, setBanTarget] = React.useState<AdminUser | null>(null);
   const [unbanTarget, setUnbanTarget] = React.useState<AdminUser | null>(null);
 
@@ -64,13 +80,19 @@ export default function UsersPage() {
   const banMut = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       banUser(id, reason),
-    onSuccess: () => { invalidate(); toast("Utilisateur banni."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Utilisateur banni.");
+    },
   });
 
   const unbanMut = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       unbanUser(id, reason),
-    onSuccess: () => { invalidate(); toast("Utilisateur débanni."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Utilisateur débanni.");
+    },
   });
 
   const columns = React.useMemo<ColumnDef<AdminUser, any>[]>(
@@ -78,21 +100,31 @@ export default function UsersPage() {
       {
         id: "name",
         header: "Utilisateur",
-        accessorFn: (u) => u.full_name ?? "—",
+        accessorFn: userDisplayName,
         cell: ({ row }) => {
-          const u = row.original;
+          const user = row.original;
+          const displayName = userDisplayName(user);
           return (
             <Link
-              href={`/dashboard/users/${u.user_id}`}
-              className="group flex flex-col"
+              href={`/dashboard/users/${user.user_id}`}
+              className="group flex items-center gap-3"
             >
-              <span className="font-medium group-hover:text-primary group-hover:underline">
-                {u.full_name ?? "—"}
+              <SecureProfileImage
+                src={user.profile_picture_url}
+                alt={`Photo de ${displayName}`}
+                className="h-10 w-10 shrink-0"
+              />
+              <span className="flex min-w-0 flex-col">
+                <span className="font-medium group-hover:text-primary group-hover:underline">
+                  {displayName}
+                </span>
+                <span className="text-xs text-muted-foreground">{user.phone}</span>
+                {user.email && (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {user.email}
+                  </span>
+                )}
               </span>
-              <span className="text-xs text-muted-foreground">{u.phone}</span>
-              {u.email && (
-                <span className="text-xs text-muted-foreground">{u.email}</span>
-              )}
             </Link>
           );
         },
@@ -102,10 +134,10 @@ export default function UsersPage() {
         header: "Rôle",
         accessorKey: "role",
         cell: ({ getValue }) => {
-          const r = (getValue() as string) ?? "client";
+          const roleValue = (getValue() as string) ?? "client";
           return (
-            <Badge tone={ROLE_TONES[r] ?? "default"}>
-              {ROLE_LABELS[r] ?? r}
+            <Badge tone={ROLE_TONES[roleValue] ?? "default"}>
+              {ROLE_LABELS[roleValue] ?? roleValue}
             </Badge>
           );
         },
@@ -113,25 +145,38 @@ export default function UsersPage() {
       {
         id: "status",
         header: "Statut",
-        accessorFn: (u) =>
-          u.is_banned ? "banned" : u.is_active ? "active" : "inactive",
+        accessorFn: (user) =>
+          user.is_banned ? "banned" : user.is_active ? "active" : "inactive",
         cell: ({ row }) => {
-          const u = row.original;
-          if (u.is_banned) return <Badge tone="danger">Suspendu</Badge>;
-          if (!u.is_active) return <Badge tone="default">Inactif</Badge>;
+          const user = row.original;
+          if (user.is_banned) return <Badge tone="danger">Suspendu</Badge>;
+          if (!user.is_active) return <Badge tone="default">Inactif</Badge>;
           return <Badge tone="success">Actif</Badge>;
         },
       },
       {
         id: "kyc",
         header: "KYC",
-        accessorFn: (u) => u.kyc_status ?? "unknown",
+        accessorFn: (user) => user.kyc_status ?? "unknown",
         cell: ({ getValue }) => {
-          const s = getValue() as string;
-          if (s === "verified") return <Badge tone="success">Vérifié</Badge>;
-          if (s === "pending") return <Badge tone="warning">En attente</Badge>;
-          if (s === "rejected") return <Badge tone="danger">Rejeté</Badge>;
+          const status = getValue() as string;
+          if (status === "verified") return <Badge tone="success">Vérifié</Badge>;
+          if (status === "pending") return <Badge tone="warning">En attente</Badge>;
+          if (status === "rejected") return <Badge tone="danger">Rejeté</Badge>;
           return <Badge tone="default">—</Badge>;
+        },
+      },
+      {
+        id: "profile_picture_status",
+        header: "Photo",
+        accessorFn: (user) => user.profile_picture_status ?? "missing",
+        cell: ({ getValue }) => {
+          const status = (getValue() as string) || "missing";
+          return (
+            <Badge tone={PROFILE_PHOTO_TONES[status] ?? "default"}>
+              {PROFILE_PHOTO_LABELS[status] ?? status}
+            </Badge>
+          );
         },
       },
       {
@@ -149,20 +194,20 @@ export default function UsersPage() {
         header: "Actions",
         enableSorting: false,
         cell: ({ row }) => {
-          const u = row.original;
+          const user = row.original;
           return (
             <div className="flex flex-wrap gap-2">
-              <Link href={`/dashboard/users/${u.user_id}`}>
+              <Link href={`/dashboard/users/${user.user_id}`}>
                 <Button size="sm" variant="outline">
                   <Eye className="h-3.5 w-3.5" />
                   Fiche
                 </Button>
               </Link>
-              {u.is_banned ? (
+              {user.is_banned ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setUnbanTarget(u)}
+                  onClick={() => setUnbanTarget(user)}
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
                   Débannir
@@ -171,7 +216,7 @@ export default function UsersPage() {
                 <Button
                   size="sm"
                   variant="destructive"
-                  onClick={() => setBanTarget(u)}
+                  onClick={() => setBanTarget(user)}
                 >
                   <ShieldBan className="h-3.5 w-3.5" />
                   Bannir
@@ -191,7 +236,7 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold">Utilisateurs</h1>
           <p className="text-sm text-muted-foreground">
-            Gérer les rôles, suspensions et KYC des comptes Denkma.
+            Gérer les rôles, suspensions, KYC et photos de profil des comptes Denkma.
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
@@ -200,17 +245,17 @@ export default function UsersPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
+        {FILTERS.map((filter) => (
           <button
-            key={f.value}
-            onClick={() => setRole(f.value)}
+            key={filter.value}
+            onClick={() => setRole(filter.value)}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-              role === f.value
+              role === filter.value
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input bg-background hover:bg-accent"
             }`}
           >
-            {f.label}
+            {filter.label}
           </button>
         ))}
       </div>
@@ -229,24 +274,23 @@ export default function UsersPage() {
         <DataTable
           columns={columns}
           data={data.users}
-          searchPlaceholder="Nom, téléphone, e-mail, ID…"
-          globalFilterFn={(u, q) =>
-            (u.full_name ?? "").toLowerCase().includes(q) ||
-            (u.phone ?? "").toLowerCase().includes(q) ||
-            (u.email ?? "").toLowerCase().includes(q) ||
-            (u.user_id ?? "").toLowerCase().includes(q)
+          searchPlaceholder="Nom, téléphone, e-mail, ID..."
+          globalFilterFn={(user, query) =>
+            userDisplayName(user).toLowerCase().includes(query) ||
+            (user.phone ?? "").toLowerCase().includes(query) ||
+            (user.email ?? "").toLowerCase().includes(query) ||
+            (user.user_id ?? "").toLowerCase().includes(query)
           }
         />
       )}
 
-      {/* Ban modal */}
       <ActionModal
         open={!!banTarget}
         onOpenChange={(open) => !open && setBanTarget(null)}
-        title={`Bannir ${banTarget?.full_name ?? banTarget?.phone ?? ""}`}
+        title={`Bannir ${banTarget ? userDisplayName(banTarget) : ""}`}
         description="L'utilisateur ne pourra plus se connecter."
         inputLabel="Motif du bannissement"
-        inputPlaceholder="Ex: fraude, documents invalides…"
+        inputPlaceholder="Ex: fraude, documents invalides..."
         inputType="textarea"
         confirmLabel="Bannir"
         confirmVariant="destructive"
@@ -257,14 +301,13 @@ export default function UsersPage() {
         }}
       />
 
-      {/* Unban modal */}
       <ActionModal
         open={!!unbanTarget}
         onOpenChange={(open) => !open && setUnbanTarget(null)}
-        title={`Débannir ${unbanTarget?.full_name ?? unbanTarget?.phone ?? ""}`}
+        title={`Débannir ${unbanTarget ? userDisplayName(unbanTarget) : ""}`}
         description="L'utilisateur pourra de nouveau se connecter."
         inputLabel="Motif du débannissement"
-        inputPlaceholder="Ex: erreur, correction…"
+        inputPlaceholder="Ex: erreur, correction..."
         inputType="textarea"
         confirmLabel="Débannir"
         onConfirm={async (reason) => {

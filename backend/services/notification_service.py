@@ -2,7 +2,9 @@
 Service notification : envoi de notifications push, SMS, WhatsApp aux utilisateurs.
 """
 import logging
+import re
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 import uuid
 from typing import Optional
 
@@ -76,6 +78,9 @@ STATUS_TEMPLATES = {
     ParcelStatus.DELIVERED:        "parcel_delivered",
 }
 
+DELIVERY_CODE_TEMPLATE = "parcel_reception_auth_code"
+RECIPIENT_CREATED_TEMPLATE = "parcel_created_recipient_links_v1"
+
 
 def _category_pref_key(category: Optional[str]) -> str | None:
     return {
@@ -119,7 +124,23 @@ def _first_name(full_name: Optional[str], fallback: str = "Client") -> str:
 
 
 def _tracking_url(tracking_code: str) -> str:
-    return f"{settings.BASE_URL}/api/tracking/{tracking_code}"
+    return f"{settings.BASE_URL.rstrip('/')}/api/tracking/view/{tracking_code}"
+
+
+def _app_url(parcel: dict) -> str:
+    params = {
+        "tracking": parcel.get("tracking_code") or "",
+        "phone": parcel.get("recipient_phone") or "",
+    }
+    return f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app?{urlencode(params)}"
+
+
+def _whatsapp_to(phone: str | None) -> str:
+    return re.sub(r"\D", "", phone or "")
+
+
+def _display_phone(phone: str | None) -> str:
+    return (phone or "").strip() or "non renseigné"
 
 
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
@@ -131,6 +152,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
 
     template_name = STATUS_TEMPLATES.get(new_status)
     tracking_url = _tracking_url(tracking_code)
+    app_url = _app_url(parcel)
 
     # Notifier expéditeur
     sender_id = parcel.get("sender_user_id")
@@ -157,7 +179,19 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             recipient_user_id = user["user_id"]
 
     recipient_first = _first_name(parcel.get("recipient_name"))
+    recipient_template = template_name
     template_vars_recipient = _template_vars(template_name, recipient_first, tracking_code, tracking_url)
+    if new_status == ParcelStatus.CREATED:
+        parcel_code = parcel.get("relay_pin") or parcel.get("delivery_code")
+        recipient_template = RECIPIENT_CREATED_TEMPLATE
+        template_vars_recipient = [
+            recipient_first,
+            parcel.get("sender_name") or "l'expéditeur",
+            tracking_code,
+            _display_phone(parcel.get("sender_phone")),
+            str(parcel_code or "à confirmer"),
+        ]
+        template_vars_recipient.extend([tracking_url, app_url])
 
     if recipient_user_id:
         await _store_and_send(
@@ -167,12 +201,22 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
-            whatsapp_template=template_name,
+            whatsapp_template=recipient_template,
             whatsapp_variables=template_vars_recipient,
         )
     elif recipient_phone:
-        if template_name:
-            await _send_whatsapp_template(recipient_phone, template_name, template_vars_recipient)
+        if recipient_template:
+            sent = await _send_whatsapp_template(
+                recipient_phone,
+                recipient_template,
+                template_vars_recipient,
+            )
+            if not sent and recipient_template != template_name and template_name:
+                await _send_whatsapp_template(
+                    recipient_phone,
+                    template_name,
+                    _template_vars(template_name, recipient_first, tracking_code, tracking_url),
+                )
         else:
             await _send_whatsapp(recipient_phone, body)
 
@@ -220,6 +264,7 @@ async def _store_and_send(
     category: Optional[str] = None,
     whatsapp_template: Optional[str] = None,
     whatsapp_variables: Optional[list[str]] = None,
+    whatsapp_button_variables: Optional[list[str]] = None,
 ):
     """Stocke la notification en base et tente l'envoi."""
     user = await db.users.find_one(
@@ -251,7 +296,12 @@ async def _store_and_send(
         phone = (user or {}).get("phone")
         if phone:
             if whatsapp_template:
-                await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
+                await _send_whatsapp_template(
+                    phone,
+                    whatsapp_template,
+                    whatsapp_variables or [],
+                    button_variables=whatsapp_button_variables,
+                )
             else:
                 await _send_whatsapp(phone, body)
 
@@ -347,6 +397,7 @@ async def _send_whatsapp_template(
     phone: str,
     template_name: str,
     variables: list[str],
+    button_variables: Optional[list[str]] = None,
     lang_code: str = "fr",
 ) -> bool:
     """Envoi WhatsApp via template approuvé (notification proactive).
@@ -354,7 +405,26 @@ async def _send_whatsapp_template(
     Seule méthode fiable pour pousser un message en dehors de la fenêtre de
     24 h (règle Meta). Les variables doivent être dans l'ordre {{1}}, {{2}}...
     """
-    to_number = phone.lstrip("+")
+    to_number = _whatsapp_to(phone)
+    if not to_number:
+        logger.warning("WhatsApp template %s ignoré: numéro invalide", template_name)
+        return False
+    components = [
+        {
+            "type": "body",
+            "parameters": [{"type": "text", "text": str(v)} for v in variables],
+        }
+    ]
+    for index, value in enumerate(button_variables or []):
+        components.append(
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": str(index),
+                "parameters": [{"type": "text", "text": str(value)}],
+            }
+        )
+
     payload = {
         "messaging_product": "whatsapp",
         "to": to_number,
@@ -362,11 +432,37 @@ async def _send_whatsapp_template(
         "template": {
             "name": template_name,
             "language": {"code": lang_code},
+            "components": components,
+        },
+    }
+    return await _whatsapp_post(payload, phone)
+
+
+async def _send_whatsapp_auth_code(phone: str, code: str, lang_code: str = "fr") -> bool:
+    """Envoie un code WhatsApp via template d'authentification approuvé."""
+    to_number = _whatsapp_to(phone)
+    if not to_number:
+        logger.warning("WhatsApp code ignoré: numéro invalide")
+        return False
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "template",
+        "template": {
+            "name": DELIVERY_CODE_TEMPLATE,
+            "language": {"code": lang_code},
             "components": [
                 {
                     "type": "body",
-                    "parameters": [{"type": "text", "text": str(v)} for v in variables],
-                }
+                    "parameters": [{"type": "text", "text": str(code)}],
+                },
+                {
+                    "type": "button",
+                    "sub_type": "url",
+                    "index": "0",
+                    "parameters": [{"type": "text", "text": str(code)}],
+                },
             ],
         },
     }
@@ -375,7 +471,10 @@ async def _send_whatsapp_template(
 
 async def _send_whatsapp(phone: str, body: str):
     """Envoi WhatsApp texte libre (fenêtre 24 h uniquement, best-effort)."""
-    to_number = phone.lstrip("+")
+    to_number = _whatsapp_to(phone)
+    if not to_number:
+        logger.warning("WhatsApp texte ignoré: numéro invalide")
+        return
     payload = {
         "messaging_product": "whatsapp",
         "to": to_number,
@@ -407,6 +506,9 @@ async def notify_delivery_code(
         msg += f"Paiement requis ({payment_url})\n"
     msg += f"{instruction} Ne le partagez pas."
     try:
+        template_sent = await _send_whatsapp_auth_code(phone, delivery_code)
+        if template_sent:
+            return
         await _send_whatsapp(phone, msg)
     except Exception as e:
         logger.warning("Impossible d'envoyer le code réception: %s", e)

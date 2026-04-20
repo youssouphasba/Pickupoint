@@ -520,6 +520,11 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         actor_role="client",
     )
 
+    try:
+        await notify_parcel_status_change(parcel_doc, ParcelStatus.CREATED)
+    except Exception as exc:
+        logger.warning("Notification WhatsApp de création non envoyée pour %s: %s", parcel_id, exc)
+
     # ── Générer le lien de paiement Flutterwave (pour le payeur désigné) ──
     payment_url = None
     payer_phone = sender_phone if data.who_pays == "sender" else data.recipient_phone
@@ -543,19 +548,9 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
                 }}
             )
 
-    # ── Envoyer le code de réception au destinataire par SMS/WhatsApp ──
-    # *_to_relay → relay_pin | *_to_home → delivery_code
-    recipient_code = parcel_doc.get("relay_pin") or parcel_doc.get("delivery_code")
-    if recipient_code:
-        is_relay_pickup = data.delivery_mode.value.endswith("_to_relay")
-        await notify_delivery_code(
-            phone=data.recipient_phone,
-            recipient_name=data.recipient_name,
-            tracking_code=tracking_code,
-            delivery_code=recipient_code,
-            is_relay_pickup=is_relay_pickup,
-            payment_url=payment_url if data.who_pays == "recipient" else None,
-        )
+    # Le code de retrait/remise est intégré dans le template WhatsApp de création
+    # destiné au bénéficiaire. On évite ainsi un message "code de vérification"
+    # ambigu côté destinataire.
 
     # ── Envoyer le lien de confirmation GPS (SMS / WhatsApp) ──
     recipient_confirm_url = None

@@ -15,6 +15,7 @@ from config import settings
 from database import db
 from services.parcel_service import _record_event
 from services.payment_service import verify_payment
+from services.whatsapp_support_service import record_whatsapp_inbound_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -65,12 +66,38 @@ async def whatsapp_webhook(request: Request):
                     status.get("timestamp"),
                 )
             for message in value.get("messages") or []:
+                try:
+                    await record_whatsapp_inbound_message(value, message)
+                except Exception as exc:
+                    logger.warning("WhatsApp message non associé au support: %s", exc)
                 logger.info(
                     "WhatsApp message reçu: from=%s id=%s type=%s timestamp=%s",
                     message.get("from"),
                     message.get("id"),
                     message.get("type"),
                     message.get("timestamp"),
+                )
+            for call in value.get("calls") or []:
+                call_doc = {
+                    "call_event_id": call.get("id") or call.get("call_id"),
+                    "phone_number_id": (value.get("metadata") or {}).get("phone_number_id"),
+                    "display_phone_number": (value.get("metadata") or {}).get("display_phone_number"),
+                    "from": call.get("from"),
+                    "to": call.get("to"),
+                    "direction": call.get("direction"),
+                    "status": call.get("status"),
+                    "event": call.get("event"),
+                    "timestamp": call.get("timestamp"),
+                    "raw_call": call,
+                    "created_at": datetime.now(timezone.utc),
+                }
+                await db.whatsapp_call_events.insert_one(call_doc)
+                logger.info(
+                    "WhatsApp call event: id=%s from=%s status=%s event=%s",
+                    call_doc["call_event_id"],
+                    call_doc["from"],
+                    call_doc["status"],
+                    call_doc["event"],
                 )
 
     return {"received": True}

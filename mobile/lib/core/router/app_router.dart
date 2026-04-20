@@ -100,7 +100,44 @@ String? _extractReferralCode(Uri uri) {
       segments[1] == 'referral') {
     return segments[2].toUpperCase();
   }
+  if (uri.scheme == 'denkma' &&
+      uri.host == 'app' &&
+      segments.length >= 2 &&
+      segments[0] == 'referral') {
+    return segments[1].toUpperCase();
+  }
   return null;
+}
+
+Map<String, String> _parcelLinkQuery(Uri uri) {
+  final phone = (uri.queryParameters['phone'] ??
+          uri.queryParameters['tel'] ??
+          uri.queryParameters['recipient_phone'] ??
+          '')
+      .trim();
+  final tracking = (uri.queryParameters['tracking'] ??
+          uri.queryParameters['tracking_code'] ??
+          uri.queryParameters['code'] ??
+          '')
+      .trim()
+      .toUpperCase();
+  return {
+    if (phone.isNotEmpty) 'phone': phone,
+    if (tracking.isNotEmpty) 'tracking': tracking,
+  };
+}
+
+bool _isParcelAppLink(Uri uri) {
+  final segments = uri.pathSegments
+      .map((segment) => segment.trim())
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  if (uri.scheme == 'denkma' && uri.host == 'app') {
+    return segments.isEmpty || segments[0] == 'parcel';
+  }
+  return segments.isNotEmpty &&
+      segments[0] == 'app' &&
+      (segments.length == 1 || segments[1] == 'parcel');
 }
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -116,8 +153,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
       final referralCode = _extractReferralCode(state.uri);
+      final isParcelAppLink = _isParcelAppLink(state.uri);
+      final parcelLinkQuery = _parcelLinkQuery(state.uri);
 
       if (isUnknown) return null; // attendre la résolution
+      if (isParcelAppLink) {
+        if (!isLoggedIn) {
+          final currentPhone = state.uri.queryParameters['phone']?.trim();
+          if (state.matchedLocation != '/auth/phone' ||
+              currentPhone != parcelLinkQuery['phone']) {
+            return Uri(
+              path: '/auth/phone',
+              queryParameters: parcelLinkQuery,
+            ).toString();
+          }
+        } else if ((parcelLinkQuery['tracking'] ?? '').isNotEmpty) {
+          return '/track/${parcelLinkQuery['tracking']}';
+        } else {
+          return '/client';
+        }
+      }
       if (referralCode != null) {
         if (!isLoggedIn) {
           final currentRef =
@@ -181,11 +236,35 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ).toString(),
       ),
 
+      GoRoute(
+        path: '/app',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: _parcelLinkQuery(s.uri),
+        ).toString(),
+      ),
+      GoRoute(
+        path: '/app/parcel',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: _parcelLinkQuery(s.uri),
+        ).toString(),
+      ),
+      GoRoute(
+        path: '/parcel',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: _parcelLinkQuery(s.uri),
+        ).toString(),
+      ),
+
       // ── Auth ──────────────────────────────────────────────
       GoRoute(
         path: '/auth/phone',
         builder: (_, state) => PhoneScreen(
           initialReferralCode: state.uri.queryParameters['ref'],
+          initialPhone: state.uri.queryParameters['phone'],
+          initialTrackingCode: state.uri.queryParameters['tracking'],
         ),
       ),
       GoRoute(
@@ -235,7 +314,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 final data = extra is Map<String, dynamic>
                     ? extra
                     : extra is Map
-                        ? extra.map((key, value) => MapEntry(key.toString(), value))
+                        ? extra.map(
+                            (key, value) => MapEntry(key.toString(), value))
                         : const <String, dynamic>{};
                 return QuoteScreen(data: data);
               }),

@@ -3,6 +3,7 @@ Router auth : Firebase Auth + OTP flow + gestion session JWT.
 """
 import uuid
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 
 from typing import Optional
@@ -19,7 +20,7 @@ from core.security import (
     verify_refresh_token,
 )
 from core.dependencies import get_current_user
-from core.utils import normalize_phone, is_supported_phone
+from core.utils import normalize_phone, is_supported_phone, phone_suffix
 from database import db
 from models.user import OTPRequest, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.parcel_service import _record_event
@@ -266,6 +267,26 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "updated_at":        now,
     }
     await db.users.insert_one(user_doc)
+    phone_candidates = {phone, normalize_phone(phone)}
+    suffix = phone_suffix(phone)
+    recipient_phone_filters = [{"recipient_phone": {"$in": list(phone_candidates)}}]
+    if suffix:
+        recipient_phone_filters.append(
+            {"recipient_phone": {"$regex": f"{re.escape(suffix)}$"}}
+        )
+
+    await db.parcels.update_many(
+        {
+            "recipient_user_id": None,
+            "$or": recipient_phone_filters,
+        },
+        {
+            "$set": {
+                "recipient_user_id": user_doc["user_id"],
+                "updated_at": now,
+            }
+        },
+    )
 
     if referred_by:
         await _record_event(
