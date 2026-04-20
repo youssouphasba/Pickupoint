@@ -143,6 +143,24 @@ def _display_phone(phone: str | None) -> str:
     return (phone or "").strip() or "non renseigné"
 
 
+def _created_recipient_template_payload(
+    parcel: dict,
+    tracking_code: str,
+    tracking_url: str,
+    app_url: str,
+) -> tuple[list[str], list[str]]:
+    parcel_code = parcel.get("relay_pin") or parcel.get("delivery_code")
+    body_variables = [
+        _first_name(parcel.get("recipient_name")),
+        parcel.get("sender_name") or "l'expéditeur",
+        tracking_code,
+        _display_phone(parcel.get("sender_phone")),
+        str(parcel_code or "à confirmer"),
+    ]
+    button_variables = [tracking_url, app_url]
+    return body_variables, button_variables
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
@@ -181,17 +199,15 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     recipient_first = _first_name(parcel.get("recipient_name"))
     recipient_template = template_name
     template_vars_recipient = _template_vars(template_name, recipient_first, tracking_code, tracking_url)
+    recipient_button_vars: list[str] = []
     if new_status == ParcelStatus.CREATED:
-        parcel_code = parcel.get("relay_pin") or parcel.get("delivery_code")
         recipient_template = RECIPIENT_CREATED_TEMPLATE
-        template_vars_recipient = [
-            recipient_first,
-            parcel.get("sender_name") or "l'expéditeur",
+        template_vars_recipient, recipient_button_vars = _created_recipient_template_payload(
+            parcel,
             tracking_code,
-            _display_phone(parcel.get("sender_phone")),
-            str(parcel_code or "à confirmer"),
-        ]
-        template_vars_recipient.extend([tracking_url, app_url])
+            tracking_url,
+            app_url,
+        )
 
     if recipient_user_id:
         await _store_and_send(
@@ -201,15 +217,30 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
-            whatsapp_template=recipient_template,
-            whatsapp_variables=template_vars_recipient,
+            whatsapp_template=None if new_status == ParcelStatus.CREATED else recipient_template,
+            whatsapp_variables=[] if new_status == ParcelStatus.CREATED else template_vars_recipient,
+            whatsapp_button_variables=[] if new_status == ParcelStatus.CREATED else recipient_button_vars,
         )
+        if new_status == ParcelStatus.CREATED and recipient_phone and recipient_template:
+            sent = await _send_whatsapp_template(
+                recipient_phone,
+                recipient_template,
+                template_vars_recipient,
+                button_variables=recipient_button_vars,
+            )
+            if not sent and recipient_template != template_name and template_name:
+                await _send_whatsapp_template(
+                    recipient_phone,
+                    template_name,
+                    _template_vars(template_name, recipient_first, tracking_code, tracking_url),
+                )
     elif recipient_phone:
         if recipient_template:
             sent = await _send_whatsapp_template(
                 recipient_phone,
                 recipient_template,
                 template_vars_recipient,
+                button_variables=recipient_button_vars,
             )
             if not sent and recipient_template != template_name and template_name:
                 await _send_whatsapp_template(
@@ -568,6 +599,7 @@ async def send_location_confirmation_prompt(
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
     escalate_external: bool = False,
+    force_whatsapp: bool = False,
     whatsapp_template: Optional[str] = None,
     whatsapp_variables: Optional[list[str]] = None,
 ):
@@ -582,7 +614,7 @@ async def send_location_confirmation_prompt(
             whatsapp_template=whatsapp_template,
             whatsapp_variables=whatsapp_variables,
         )
-        if escalate_external and phone:
+        if (force_whatsapp or escalate_external) and phone:
             if whatsapp_template:
                 await _send_whatsapp_template(phone, whatsapp_template, whatsapp_variables or [])
             else:
@@ -709,6 +741,7 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
         ref_type="parcel",
         ref_id=parcel_id,
         escalate_external=escalate_external,
+        force_whatsapp=True,
     )
 
 
@@ -732,4 +765,5 @@ async def notify_relay_choice_request(parcel: dict, confirm_url: str, escalate_e
         ref_type="parcel",
         ref_id=parcel_id,
         escalate_external=escalate_external,
+        force_whatsapp=True,
     )
