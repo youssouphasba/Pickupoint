@@ -318,7 +318,8 @@ export async function sendWhatsappSupportVoiceReply(
   blob: Blob
 ) {
   const formData = new FormData();
-  formData.append("file", blob, "note-vocale.webm");
+  const extension = blob.type.includes("ogg") ? "ogg" : "webm";
+  formData.append("file", blob, `note-vocale.${extension}`);
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/voice`,
     formData,
