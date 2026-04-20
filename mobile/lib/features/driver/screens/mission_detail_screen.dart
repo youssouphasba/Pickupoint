@@ -15,6 +15,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
 
@@ -33,6 +34,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   DateTime? _lastBackendUpdate;
   GoogleMapController? _mapController;
   String? _proofBase64;
+  RTCPeerConnection? _callPeerConnection;
+  MediaStream? _callLocalStream;
+  Timer? _callStatusTimer;
+  String? _activeWhatsappCallId;
 
   @override
   void initState() {
@@ -43,6 +48,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   void dispose() {
     _positionStream?.cancel();
+    _callStatusTimer?.cancel();
+    _callPeerConnection?.close();
+    _callLocalStream?.getTracks().forEach((track) => track.stop());
     super.dispose();
   }
 
@@ -533,6 +541,133 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   // ── Échec livraison ────────────────────────────────────────────────────────
+  Future<void> _callRecipientViaDenkma(String missionId) async {
+    setState(() => _isProcessing = true);
+    try {
+      await _closeWhatsappCallSession();
+      final stream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': false,
+      });
+      final peerConnection = await createPeerConnection({
+        'iceServers': [
+          {'urls': 'stun:stun.l.google.com:19302'},
+        ],
+      });
+      for (final track in stream.getAudioTracks()) {
+        await peerConnection.addTrack(track, stream);
+      }
+
+      final iceComplete = Completer<void>();
+      peerConnection.onIceGatheringState = (state) {
+        if (state == RTCIceGatheringState.RTCIceGatheringStateComplete &&
+            !iceComplete.isCompleted) {
+          iceComplete.complete();
+        }
+      };
+
+      final offer = await peerConnection.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': false,
+      });
+      await peerConnection.setLocalDescription(offer);
+      await iceComplete.future.timeout(
+        const Duration(seconds: 4),
+        onTimeout: () {},
+      );
+      final localDescription = await peerConnection.getLocalDescription();
+      final sdpOffer = localDescription?.sdp ?? offer.sdp;
+      if (sdpOffer == null || sdpOffer.trim().isEmpty) {
+        throw 'Offre audio impossible à générer.';
+      }
+
+      final res =
+          await ref.read(apiClientProvider).callMissionRecipient(missionId, sdpOffer);
+      final connected = res.data['connected'] == true;
+      final callId = res.data['call_id']?.toString();
+      final message = res.data['message'] as String? ??
+          (connected
+              ? 'Appel WhatsApp lancé via Denkma.'
+              : "L'appel WhatsApp n'a pas pu être lancé.");
+      if (connected && callId != null && callId.isNotEmpty) {
+        _callPeerConnection = peerConnection;
+        _callLocalStream = stream;
+        _activeWhatsappCallId = callId;
+        _watchWhatsappCallStatus(missionId, callId);
+      } else {
+        await peerConnection.close();
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: connected ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      await _closeWhatsappCallSession();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  Future<void> _closeWhatsappCallSession() async {
+    _callStatusTimer?.cancel();
+    _callStatusTimer = null;
+    _activeWhatsappCallId = null;
+    final peerConnection = _callPeerConnection;
+    final stream = _callLocalStream;
+    _callPeerConnection = null;
+    _callLocalStream = null;
+    stream?.getTracks().forEach((track) => track.stop());
+    await stream?.dispose();
+    await peerConnection?.close();
+  }
+
+  void _watchWhatsappCallStatus(String missionId, String callId) {
+    _callStatusTimer?.cancel();
+    var attempts = 0;
+    _callStatusTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      attempts += 1;
+      if (attempts > 20 || _activeWhatsappCallId != callId) {
+        timer.cancel();
+        return;
+      }
+      try {
+        final res = await ref
+            .read(apiClientProvider)
+            .getMissionCallStatus(missionId, callId);
+        final data = res.data;
+        final latest = data['latest_event'];
+        final rawCall = latest is Map ? latest['raw_call'] : null;
+        final session = rawCall is Map ? rawCall['session'] : null;
+        final sdp = session is Map ? session['sdp']?.toString() : null;
+        final sdpType = session is Map ? session['sdp_type']?.toString() : null;
+        if (sdp != null &&
+            sdp.isNotEmpty &&
+            sdpType != null &&
+            sdpType != 'offer' &&
+            _callPeerConnection != null) {
+          await _callPeerConnection!.setRemoteDescription(
+            RTCSessionDescription(sdp, sdpType),
+          );
+          timer.cancel();
+        }
+      } catch (_) {
+        // Le webhook Meta peut arriver avec quelques secondes de décalage.
+      }
+    });
+  }
+
   Future<void> _showFailDialog(String parcelId) async {
     String? reason;
     await showDialog(
@@ -704,8 +839,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               if ((mission.senderName?.isNotEmpty ?? false) ||
                   (mission.senderPhotoUrl?.isNotEmpty ?? false)) ...[
                 _buildContactCard(
-                  title: 'Expediteur',
-                  name: mission.senderName ?? 'Expediteur',
+                  title: 'Expéditeur',
+                  name: mission.senderName ?? 'Expéditeur',
                   photo: mission.senderPhotoUrl,
                   phone: null,
                 ),
@@ -730,7 +865,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                   .pickupLabel, // Souvent le nom du relais ou de l'expéditeur
               photo: mission.senderPhotoUrl,
               phone: null, // On garde masqué selon politique
-              showCall: mission.status == 'assigned',
+              showCall: false,
             ),
 
             const SizedBox(height: 12),
@@ -744,6 +879,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 phone: mission.recipientPhone ?? '',
                 // Le backend masque le numéro jusqu'à ce que le driver soit à <500m
                 showCall: true,
+                onCall: () => _callRecipientViaDenkma(mission.id),
+                callLabel: 'Appeler via Denkma',
               ),
 
             const SizedBox(height: 20),
@@ -1287,6 +1424,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     required String? photo,
     required String? phone,
     bool showCall = false,
+    VoidCallback? onCall,
+    String callLabel = 'Appeler',
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1325,13 +1464,20 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ],
             ),
           ),
-          if (showCall && phone != null && !phone.contains('•'))
-            IconButton(
+          if (showCall)
+            TextButton.icon(
+              onPressed: _isProcessing
+                  ? null
+                  : (onCall ??
+                      (phone != null && !phone.contains('•')
+                          ? () => launchUrl(Uri.parse('tel:$phone'))
+                          : null)),
               icon: const Icon(Icons.phone_in_talk, color: Colors.green),
-              onPressed: () => launchUrl(Uri.parse('tel:$phone')),
+              label: Text(callLabel),
             ),
         ],
       ),
     );
   }
 }
+

@@ -60,6 +60,7 @@ dependencies:
   record: ^5.1.0
   audioplayers: ^6.0.0
   path_provider: ^2.1.0
+  flutter_webrtc: ^0.11.6+hotfix.1
 
   # Téléphone international (détection SIM + dropdown pays SN/FR)
   intl_phone_field: ^3.2.0
