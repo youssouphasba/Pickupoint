@@ -17,17 +17,32 @@ from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
-from services.parcel_service import transition_status
+from services.parcel_service import transition_status, _record_event
 from services.google_maps_service import get_directions_eta
 from services.notification_service import notify_approaching_driver
+from services.whatsapp_call_service import connect_driver_whatsapp_call, send_driver_contact_request
 from core.limiter import limiter
-from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, phone_suffix
+from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, mask_phone, phone_suffix
 
 router = APIRouter()
 
 
 def _mission_id() -> str:
     return f"msn_{uuid.uuid4().hex[:12]}"
+
+
+def _driver_has_profile_photo(current_user: dict) -> bool:
+    return bool((current_user.get("profile_picture_url") or "").strip()) and (
+        current_user.get("profile_picture_status") == "approved"
+    )
+
+
+def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
+    if current_user.get("role") != UserRole.DRIVER.value:
+        return
+    for mission in missions:
+        if mission.get("recipient_phone"):
+            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -108,6 +123,14 @@ async def available_missions(
     Gère le Dispatch en Cascade (Phase 7).
     """
     user_id = current_user["user_id"]
+    if current_user["role"] == UserRole.DRIVER.value and not _driver_has_profile_photo(current_user):
+        return {
+            "missions": [],
+            "driver_lat": lat,
+            "driver_lng": lng,
+            "radius_km": radius_km,
+            "profile_photo_required": True,
+        }
     
     # On récupère toutes les missions PENDING
     cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value}, {"_id": 0})
@@ -146,6 +169,7 @@ async def available_missions(
                 result.append(m)
         # Trier : missions avec distance connue en premier (croissant), puis sans coordonnées
         result.sort(key=lambda m: m.get("distance_km") if m.get("distance_km") is not None else 9999)
+        _mask_recipient_phone_for_driver(result, current_user)
         return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
 
     if current_user["role"] == UserRole.DRIVER.value:
@@ -157,6 +181,7 @@ async def available_missions(
             "gps_required": True,
         }
 
+    _mask_recipient_phone_for_driver(missions, current_user)
     missions.sort(key=lambda m: m["created_at"])
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
@@ -191,6 +216,10 @@ class ConfirmPickupRequest(BaseModel):
     code: str
     lat: Optional[float] = Field(None, ge=-90, le=90)
     lng: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class WhatsAppCallConnectRequest(BaseModel):
+    sdp_offer: str = Field(..., min_length=20, description="Offre SDP WebRTC générée par l'app livreur")
 
 @router.post("/{mission_id}/confirm-pickup", summary="Confirmer collecte avec code")
 @limiter.limit("10/minute")
@@ -373,6 +402,8 @@ async def accept_mission(
 ):
     if current_user["role"] != UserRole.DRIVER.value:
         raise forbidden_exception("Seuls les livreurs peuvent accepter une mission")
+    if not _driver_has_profile_photo(current_user):
+        raise bad_request_exception("Votre photo de profil doit être ajoutée puis approuvée avant d'accepter une mission.")
 
     mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
     if not mission:
@@ -513,6 +544,236 @@ async def update_location(
     )
 
     return {"message": "Position mise à jour"}
+
+
+@router.post("/{mission_id}/contact-recipient", summary="Contacter le destinataire via Denkma")
+@limiter.limit("6/minute")
+async def contact_recipient_via_denkma(
+    mission_id: str,
+    request: Request,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """Demande un contact WhatsApp sans exposer le numéro au livreur."""
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if not is_admin and mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Seul le livreur assigné peut contacter le destinataire")
+
+    if mission.get("status") not in {MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value}:
+        raise bad_request_exception("Le contact est possible seulement pendant une mission active")
+
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration")
+
+    recipient_phone = mission.get("recipient_phone") or parcel.get("recipient_phone")
+    if not recipient_phone:
+        raise bad_request_exception("Aucun numéro destinataire n'est disponible pour ce colis")
+
+    now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(minutes=2)
+    recent_count = await db.driver_contact_requests.count_documents({
+        "mission_id": mission_id,
+        "driver_id": current_user["user_id"],
+        "created_at": {"$gte": recent_cutoff},
+    })
+    if recent_count >= 2:
+        raise bad_request_exception("Attendez quelques instants avant de relancer le destinataire")
+
+    result = await send_driver_contact_request(
+        recipient_phone=recipient_phone,
+        parcel=parcel,
+        mission=mission,
+        driver=current_user,
+    )
+
+    request_doc = {
+        "request_id": f"wac_{uuid.uuid4().hex[:16]}",
+        "mission_id": mission_id,
+        "parcel_id": mission["parcel_id"],
+        "driver_id": current_user["user_id"],
+        "driver_name": current_user.get("name"),
+        "channel": "whatsapp",
+        "recipient_phone_masked": mask_phone(recipient_phone),
+        "tracking_code": parcel.get("tracking_code") or mission.get("tracking_code"),
+        "sent": bool(result.get("sent")),
+        "whatsapp_message_id": result.get("message_id"),
+        "whatsapp_template": result.get("template"),
+        "status_code": result.get("status_code"),
+        "reason": result.get("reason"),
+        "meta_error": result.get("meta_error"),
+        "created_at": now,
+    }
+    await db.driver_contact_requests.insert_one(request_doc)
+
+    await _record_event(
+        parcel_id=mission["parcel_id"],
+        event_type="DRIVER_CONTACT_RECIPIENT_REQUESTED",
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        notes=(
+            "Demande de contact WhatsApp envoyée au destinataire"
+            if result.get("sent")
+            else "Demande de contact WhatsApp non envoyée"
+        ),
+        metadata={
+            "mission_id": mission_id,
+            "channel": "whatsapp",
+            "sent": bool(result.get("sent")),
+            "whatsapp_message_id": result.get("message_id"),
+            "whatsapp_template": result.get("template"),
+            "reason": result.get("reason"),
+            "status_code": result.get("status_code"),
+        },
+    )
+
+    return {
+        "message": result.get("message"),
+        "sent": bool(result.get("sent")),
+        "channel": "whatsapp",
+        "request_id": request_doc["request_id"],
+        "reason": result.get("reason"),
+    }
+
+
+@router.post("/{mission_id}/call-recipient", summary="Appeler le destinataire via l'API WhatsApp")
+@limiter.limit("4/minute")
+async def call_recipient_via_whatsapp_api(
+    mission_id: str,
+    body: WhatsAppCallConnectRequest,
+    request: Request,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """Lance un vrai appel WhatsApp Cloud API sans exposer le numéro au livreur."""
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if not is_admin and mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Seul le livreur assigné peut appeler le destinataire")
+
+    if mission.get("status") not in {MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value}:
+        raise bad_request_exception("L'appel est possible seulement pendant une mission active")
+
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
+        raise forbidden_exception("Ce colis est suspendu par l'administration")
+
+    recipient_phone = mission.get("recipient_phone") or parcel.get("recipient_phone")
+    if not recipient_phone:
+        raise bad_request_exception("Aucun numéro destinataire n'est disponible pour ce colis")
+
+    now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(minutes=2)
+    recent_count = await db.driver_call_requests.count_documents({
+        "mission_id": mission_id,
+        "driver_id": current_user["user_id"],
+        "created_at": {"$gte": recent_cutoff},
+    })
+    if recent_count >= 2:
+        raise bad_request_exception("Attendez quelques instants avant de relancer un appel")
+
+    result = await connect_driver_whatsapp_call(
+        recipient_phone=recipient_phone,
+        parcel=parcel,
+        mission=mission,
+        driver=current_user,
+        sdp_offer=body.sdp_offer,
+    )
+
+    request_doc = {
+        "request_id": f"wacall_{uuid.uuid4().hex[:16]}",
+        "mission_id": mission_id,
+        "parcel_id": mission["parcel_id"],
+        "driver_id": current_user["user_id"],
+        "driver_name": current_user.get("name"),
+        "channel": "whatsapp_call",
+        "recipient_phone_masked": mask_phone(recipient_phone),
+        "tracking_code": parcel.get("tracking_code") or mission.get("tracking_code"),
+        "connected": bool(result.get("connected")),
+        "whatsapp_call_id": result.get("call_id"),
+        "action": result.get("action"),
+        "status_code": result.get("status_code"),
+        "reason": result.get("reason"),
+        "meta_error": result.get("meta_error"),
+        "created_at": now,
+    }
+    await db.driver_call_requests.insert_one(request_doc)
+
+    await _record_event(
+        parcel_id=mission["parcel_id"],
+        event_type="DRIVER_WHATSAPP_CALL_REQUESTED",
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        notes=(
+            "Appel WhatsApp lancé via Denkma"
+            if result.get("connected")
+            else "Appel WhatsApp non lancé"
+        ),
+        metadata={
+            "mission_id": mission_id,
+            "channel": "whatsapp_call",
+            "connected": bool(result.get("connected")),
+            "whatsapp_call_id": result.get("call_id"),
+            "action": result.get("action"),
+            "reason": result.get("reason"),
+            "status_code": result.get("status_code"),
+        },
+    )
+
+    return {
+        "message": result.get("message"),
+        "connected": bool(result.get("connected")),
+        "channel": "whatsapp_call",
+        "call_id": result.get("call_id"),
+        "request_id": request_doc["request_id"],
+        "reason": result.get("reason"),
+    }
+
+
+@router.get("/{mission_id}/calls/{call_id}", summary="Statut d'un appel WhatsApp")
+async def get_driver_whatsapp_call_status(
+    mission_id: str,
+    call_id: str,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    request_doc = await db.driver_call_requests.find_one(
+        {"mission_id": mission_id, "whatsapp_call_id": call_id},
+        {"_id": 0},
+    )
+    if not request_doc:
+        raise not_found_exception("Appel WhatsApp")
+
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if not is_admin and request_doc.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Accès refusé à cet appel")
+
+    events = await db.whatsapp_call_events.find(
+        {"call_event_id": call_id},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(10).to_list(length=10)
+    latest = events[0] if events else None
+    return {
+        "call_id": call_id,
+        "mission_id": mission_id,
+        "connected": request_doc.get("connected"),
+        "latest_event": latest,
+        "events": events,
+    }
 
 
 @router.post("/{mission_id}/release", summary="Libérer une mission (driver)")

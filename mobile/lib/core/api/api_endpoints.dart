@@ -70,6 +70,12 @@ class ApiEndpoints {
       '$_base/api/deliveries/$id/confirm-pickup';
   static String releaseMission(String id) =>
       '$_base/api/deliveries/$id/release';
+  static String contactMissionRecipient(String id) =>
+      '$_base/api/deliveries/$id/contact-recipient';
+  static String callMissionRecipient(String id) =>
+      '$_base/api/deliveries/$id/call-recipient';
+  static String missionCallStatus(String missionId, String callId) =>
+      '$_base/api/deliveries/$missionId/calls/$callId';
   static String arriveAtDestination(String parcelId) =>
       '$_base/api/parcels/$parcelId/arrive-at-destination';
   static const rankings = '$_base/api/deliveries/rankings';

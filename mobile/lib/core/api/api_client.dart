@@ -226,6 +226,18 @@ class ApiClient {
   Future<Response> releaseMission(String id) =>
       _dio.post(ApiEndpoints.releaseMission(id));
 
+  Future<Response> contactMissionRecipient(String id) =>
+      _dio.post(ApiEndpoints.contactMissionRecipient(id));
+
+  Future<Response> callMissionRecipient(String id, String sdpOffer) =>
+      _dio.post(
+        ApiEndpoints.callMissionRecipient(id),
+        data: {'sdp_offer': sdpOffer},
+      );
+
+  Future<Response> getMissionCallStatus(String missionId, String callId) =>
+      _dio.get(ApiEndpoints.missionCallStatus(missionId, callId));
+
   Future<Response> toggleAvailability() =>
       _dio.put(ApiEndpoints.myAvailability);
 
