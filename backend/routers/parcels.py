@@ -258,10 +258,10 @@ async def check_promo(
     # Mais if faut quand même le bon tier
     user = await db.users.find_one({"user_id": current_user["user_id"]})
     sender_tier = user.get("loyalty_tier", "bronze") if user else "bronze"
-    
+
     result = await find_best_promo(
-        db, 
-        delivery_mode=mode, 
+        db,
+        delivery_mode=mode,
         original_price=price,
         user_id=current_user["user_id"],
         user_tier=sender_tier,
@@ -285,7 +285,7 @@ async def create_parcel_endpoint(
     current_user: dict = Depends(get_current_user),
 ):
     parcel = await create_parcel(
-        body, 
+        body,
         sender_user_id=current_user["user_id"],
         sender_phone=current_user.get("phone", "")
     )
@@ -467,7 +467,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
-    
+
     # Déterminer le rôle du viewer AVANT le masquage
     allowed, is_sender, is_recipient, is_driver = _can_access_parcel(parcel, current_user)
     is_admin = _is_admin(current_user)
@@ -538,13 +538,13 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel.pop("delivery_code", None)
 
     timeline = await get_parcel_timeline(parcel_id)
-    
+
     # ── Enrichissement avec Photos ──
     # Sender
     sender = await db.users.find_one({"user_id": parcel.get("sender_user_id")}, {"profile_picture_url": 1})
     if sender:
         parcel["sender_photo_url"] = sender.get("profile_picture_url")
-    
+
     # Recipient (le chercher par phone s'il n'est pas lié par ID)
     recipient_uid = parcel.get("recipient_user_id")
     if not recipient_uid and parcel.get("recipient_phone"):
@@ -575,7 +575,13 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel["driver_name"] = parcel.get("driver_name") or driver.get("name")
             parcel["driver_photo_url"] = driver.get("profile_picture_url")
 
-    if not is_admin and is_driver and parcel.get("recipient_phone"):
+    if (
+        not is_admin
+        and is_driver
+        and not is_sender
+        and not is_recipient
+        and parcel.get("recipient_phone")
+    ):
         parcel["recipient_phone"] = mask_phone(parcel["recipient_phone"])
 
     _mask_payment_fields(parcel, current_user)
@@ -615,7 +621,7 @@ async def confirm_location_authenticated(
         updates["delivery_voice_note"] = payload.voice_note
 
     await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
-    
+
     # Recharger pour avoir les champs à jour pour la mission
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     updated_parcel = await _refresh_quote_sync_and_create_home_mission(updated_parcel)
@@ -626,7 +632,7 @@ async def confirm_location_authenticated(
         actor_role=current_user["role"],
         notes="Position de livraison confirmée via application",
     )
-    
+
     return {"ok": True, "message": "Position de livraison confirmée"}
 
 
@@ -1044,14 +1050,14 @@ async def bulk_relay_action(
     Traite une liste de codes de suivi pour un relais (entrée ou réception).
     """
     results = []
-    
+
     for code in codes:
         try:
             parcel = await db.parcels.find_one({"tracking_code": code.strip().upper()}, {"_id": 0})
             if not parcel:
                 results.append({"code": code, "success": False, "error": "Introuvable"})
                 continue
-            
+
             status = parcel["status"]
             if status == ParcelStatus.CREATED.value:
                 _ensure_relay_action_allowed(parcel, current_user, parcel.get("origin_relay_id"))
@@ -1066,11 +1072,11 @@ async def bulk_relay_action(
                 await _scan_departure_from_origin_relay(parcel, current_user, batch=True)
             else:
                 await _scan_arrival_at_relay(parcel, current_user, batch=True)
-                
+
             results.append({"code": code, "success": True})
         except Exception as e:
             results.append({"code": code, "success": False, "error": str(e)})
-            
+
     return {"results": results}
 
 
@@ -1132,7 +1138,7 @@ async def pickup_parcel(
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
-    
+
     if parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Action impossible.")
     _ensure_driver_action_allowed(parcel, current_user)
@@ -1358,7 +1364,7 @@ async def rate_parcel(
     parcel = await db.parcels.find_one({"parcel_id": parcel_id})
     if not parcel:
         raise not_found_exception("Colis")
-    
+
     if parcel["status"] != ParcelStatus.DELIVERED.value:
         raise bad_request_exception("Seul un colis livré peut être noté")
 
@@ -1400,8 +1406,8 @@ async def rate_parcel(
     if parcel.get("assigned_driver_id"):
         from services.gamification_service import update_driver_gamification
         await update_driver_gamification(
-            parcel["assigned_driver_id"], 
-            "rating_received", 
+            parcel["assigned_driver_id"],
+            "rating_received",
             rating=body.rating
         )
 

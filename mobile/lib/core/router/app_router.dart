@@ -140,6 +140,15 @@ bool _isParcelAppLink(Uri uri) {
       (segments.length == 1 || segments[1] == 'parcel');
 }
 
+String _homeForRole(String role) {
+  return switch (role) {
+    'relay_agent' => '/relay',
+    'driver' => '/driver',
+    'admin' || 'superadmin' => '/admin',
+    _ => '/client',
+  };
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   final notifier = _GoRouterNotifier(ref);
 
@@ -185,12 +194,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ).toString();
           }
         } else {
-          return switch (auth!.effectiveRole) {
-            'relay_agent' => '/relay',
-            'driver' => '/driver',
-            'admin' => '/admin',
-            _ => '/client',
-          };
+          return _homeForRole(auth!.effectiveRole);
         }
       }
       if (isLegalRoute) {
@@ -198,12 +202,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
       if (isLoggedIn && isAuthRoute) {
-        return switch (auth!.effectiveRole) {
-          'relay_agent' => '/relay',
-          'driver' => '/driver',
-          'admin' => '/admin',
-          _ => '/client',
-        };
+        return _homeForRole(auth!.effectiveRole);
       }
 
       return null;

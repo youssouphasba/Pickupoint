@@ -182,7 +182,7 @@ class User {
   bool get isClient => role == 'client';
   bool get isRelayAgent => role == 'relay_agent';
   bool get isDriver => role == 'driver';
-  bool get isAdmin => role == 'admin';
+  bool get isAdmin => role == 'admin' || role == 'superadmin';
 
   User copyWith({
     String? id,

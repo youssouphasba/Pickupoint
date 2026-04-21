@@ -668,36 +668,38 @@ async def notify_delivery_code(
 
 
 async def notify_approaching_driver(parcel: dict):
-    """Envoie une notification push au client quand le livreur est proche."""
+    """Notifie le destinataire quand le livreur approche du point de livraison."""
     tracking_code = parcel.get("tracking_code", "")
     parcel_id = parcel.get("parcel_id")
-    
-    # 1. Notifier l'expéditeur
-    sender_id = parcel.get("sender_user_id")
-    if sender_id:
-        await _store_and_send(
-            user_id=sender_id,
-            title="Livreur à proximité",
-            body=f"Votre livreur approche avec votre colis {tracking_code} ! Préparez votre code de réception.",
-            ref_type="parcel",
-            ref_id=parcel_id,
-            category="parcel_updates",
-        )
 
-    # 2. Notifier le destinataire s'il est un utilisateur enregistré
     recipient_phone = parcel.get("recipient_phone")
     if recipient_phone:
-        # Chercher l'utilisateur par téléphone (format normalisé)
         user = await db.users.find_one({"phone": recipient_phone})
         if user:
             await _store_and_send(
                 user_id=user["user_id"],
                 title="Livreur à proximité",
-                body=f"Votre colis {tracking_code} arrive ! Votre livreur est à moins de 500m.",
+                body=f"Votre colis {tracking_code} arrive. Préparez votre code de réception.",
                 ref_type="parcel",
                 ref_id=parcel_id,
                 category="parcel_updates",
             )
+
+
+async def notify_sender_parcel_collected(parcel: dict):
+    """Notifie l'expéditeur lorsque le livreur a collecté le colis."""
+    sender_id = parcel.get("sender_user_id")
+    if not sender_id:
+        return
+    tracking_code = parcel.get("tracking_code", "")
+    await _store_and_send(
+        user_id=sender_id,
+        title="Colis collecté",
+        body=f"Le livreur a récupéré votre colis {tracking_code}. Il est maintenant en route.",
+        ref_type="parcel",
+        ref_id=parcel.get("parcel_id"),
+        category="parcel_updates",
+    )
 
 
 async def notify_new_mission_ping(user_id: str, mission: dict):

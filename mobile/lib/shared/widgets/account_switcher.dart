@@ -17,7 +17,11 @@ class AccountSwitcherButton extends ConsumerWidget {
     final effectiveRole = auth.effectiveRole;
 
     // Un simple client sans rôle pro → pas de switcher
-    if (user.role == 'client' || user.role == 'admin') return const SizedBox.shrink();
+    if (user.role == 'client' ||
+        user.role == 'admin' ||
+        user.role == 'superadmin') {
+      return const SizedBox.shrink();
+    }
 
     // Rôle pro : driver ou relay_agent
     final isPro = effectiveRole == user.role; // vrai = on est en vue pro

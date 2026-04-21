@@ -49,6 +49,26 @@ def _permission_allows_call(permission: dict[str, Any]) -> bool:
     return status in {"granted", "approved", "active"}
 
 
+def _can_request_call_permission(permission: dict[str, Any]) -> bool:
+    for action in permission.get("actions") or []:
+        if action.get("action_name") == "send_call_permission_request":
+            return action.get("can_perform_action") is True
+    status = str(permission.get("status") or permission.get("permission_status") or "").lower()
+    return status not in {"pending", "denied"}
+
+
+def _permission_limit_message(permission: dict[str, Any]) -> str:
+    for action in permission.get("actions") or []:
+        if action.get("action_name") != "send_call_permission_request":
+            continue
+        limits = action.get("limits") or []
+        if limits:
+            return "Une demande d'autorisation d'appel a déjà été envoyée récemment. Réessayez après le délai Meta."
+        if action.get("can_perform_action") is False:
+            return "Meta bloque temporairement une nouvelle demande d'autorisation d'appel pour ce destinataire."
+    return "Le destinataire doit d'abord autoriser les appels WhatsApp de Denkma."
+
+
 async def get_driver_call_permission(recipient_phone: str) -> dict[str, Any]:
     """Vérifie si le destinataire a autorisé les appels WhatsApp de Denkma."""
     if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
@@ -91,6 +111,7 @@ async def get_driver_call_permission(recipient_phone: str) -> dict[str, Any]:
     return {
         "checked": True,
         "approved": approved,
+        "can_request_permission": _can_request_call_permission(permission),
         "permission": permission,
         "raw": data,
     }
@@ -127,6 +148,7 @@ async def send_driver_contact_request(
     driver_name = driver.get("name") or "Votre livreur"
     payload = {
         "messaging_product": "whatsapp",
+        "recipient_type": "individual",
         "to": to_number,
         "type": "interactive",
         "interactive": {
@@ -174,6 +196,60 @@ async def send_driver_contact_request(
     }
 
 
+async def ensure_driver_call_permission_request(
+    *,
+    recipient_phone: str,
+    parcel: dict,
+    mission: dict,
+    driver: dict,
+) -> dict[str, Any]:
+    """Vérifie l'autorisation d'appel et envoie la demande si nécessaire."""
+    permission = await get_driver_call_permission(recipient_phone)
+    if permission.get("approved"):
+        return {
+            "approved": True,
+            "sent": False,
+            "channel": "whatsapp",
+            "reason": "call_permission_already_granted",
+            "message": "Le destinataire a déjà autorisé les appels WhatsApp de Denkma.",
+            "permission": permission.get("permission"),
+        }
+
+    if permission.get("checked") and not permission.get("can_request_permission", True):
+        return {
+            "approved": False,
+            "sent": False,
+            "channel": "whatsapp",
+            "reason": "call_permission_request_limited",
+            "message": _permission_limit_message(permission.get("permission") or {}),
+            "permission": permission.get("permission"),
+            "permission_status_code": permission.get("status_code"),
+            "permission_error": permission.get("meta_error"),
+        }
+
+    request_result = await send_driver_contact_request(
+        recipient_phone=recipient_phone,
+        parcel=parcel,
+        mission=mission,
+        driver=driver,
+    )
+    return {
+        "approved": False,
+        "sent": bool(request_result.get("sent")),
+        "channel": "whatsapp",
+        "reason": (
+            "call_permission_required"
+            if request_result.get("sent")
+            else request_result.get("reason")
+        ),
+        "message": request_result.get("message"),
+        "permission": permission.get("permission"),
+        "permission_status_code": permission.get("status_code"),
+        "permission_error": permission.get("meta_error"),
+        **request_result,
+    }
+
+
 async def connect_driver_whatsapp_call(
     *,
     recipient_phone: str,
@@ -211,7 +287,7 @@ async def connect_driver_whatsapp_call(
 
     permission = await get_driver_call_permission(recipient_phone)
     if not permission.get("approved"):
-        request_result = await send_driver_contact_request(
+        request_result = await ensure_driver_call_permission_request(
             recipient_phone=recipient_phone,
             parcel=parcel,
             mission=mission,
