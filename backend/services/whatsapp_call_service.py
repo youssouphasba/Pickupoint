@@ -1,10 +1,8 @@
-"""Services WhatsApp liés aux demandes de contact livreur.
+"""Services WhatsApp liés aux appels livreur.
 
-La Calling API Meta nécessite une session média (SDP/WebRTC) pour initier un
-vrai appel sortant. Tant que l'appel direct n'est pas implémenté côté client,
-ce service déclenche le flux production robuste : le livreur demande un contact,
-Denkma prévient le destinataire via une template WhatsApp approuvée, et l'action
-est auditée sans jamais exposer le numéro au livreur.
+La Calling API Meta exige une autorisation explicite du destinataire avant de
+lancer un appel sortant. Le backend doit donc demander cette permission via le
+format interactif Meta, puis seulement ensuite tenter l'appel WebRTC.
 """
 import logging
 import json
@@ -20,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 DRIVER_CALL_PERMISSION_TEMPLATE = "driver_call_permission"
 WHATSAPP_CALL_CONNECT_ACTION = "connect"
+WHATSAPP_CALL_PERMISSION_ACTION = "call_permission_request"
 
 
 def _now() -> datetime:
@@ -28,6 +27,73 @@ def _now() -> datetime:
 
 def _whatsapp_to(phone: str | None) -> str:
     return re.sub(r"\D", "", phone or "")
+
+
+def _call_api_base_url() -> str:
+    version = settings.WHATSAPP_CALL_API_VERSION or settings.WHATSAPP_API_VERSION
+    return f"https://graph.facebook.com/{version}/{settings.WHATSAPP_PHONE_NUMBER_ID}"
+
+
+def _graph_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+
+def _permission_allows_call(permission: dict[str, Any]) -> bool:
+    for action in permission.get("actions") or []:
+        if action.get("action_name") == "start_call" and action.get("can_perform_action") is True:
+            return True
+    status = str(permission.get("status") or permission.get("permission_status") or "").lower()
+    return status in {"granted", "approved", "active"}
+
+
+async def get_driver_call_permission(recipient_phone: str) -> dict[str, Any]:
+    """Vérifie si le destinataire a autorisé les appels WhatsApp de Denkma."""
+    if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+        return {
+            "checked": False,
+            "approved": False,
+            "reason": "whatsapp_not_configured",
+            "message": "WhatsApp Cloud API n'est pas configurée.",
+        }
+
+    to_number = _whatsapp_to(recipient_phone)
+    if not to_number:
+        return {
+            "checked": False,
+            "approved": False,
+            "reason": "recipient_phone_missing",
+            "message": "Numéro destinataire manquant.",
+        }
+
+    url = f"{_call_api_base_url()}/call_permissions"
+    params = {"user_wa_id": to_number}
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(url, headers=_graph_headers(), params=params)
+
+    if response.status_code != 200:
+        logger.warning("Vérification permission appel refusée: %s %s", response.status_code, response.text)
+        return {
+            "checked": False,
+            "approved": False,
+            "status_code": response.status_code,
+            "reason": "call_permission_check_failed",
+            "message": "Impossible de vérifier l'autorisation d'appel WhatsApp.",
+            "meta_error": response.text,
+        }
+
+    data = response.json()
+    permissions = data.get("data") if isinstance(data.get("data"), list) else []
+    permission = permissions[0] if permissions else data
+    approved = _permission_allows_call(permission)
+    return {
+        "checked": True,
+        "approved": approved,
+        "permission": permission,
+        "raw": data,
+    }
 
 
 async def send_driver_contact_request(
@@ -58,32 +124,28 @@ async def send_driver_contact_request(
         }
 
     tracking_code = parcel.get("tracking_code") or mission.get("tracking_code") or "Denkma"
+    driver_name = driver.get("name") or "Votre livreur"
     payload = {
         "messaging_product": "whatsapp",
         "to": to_number,
-        "type": "template",
-        "template": {
-            "name": DRIVER_CALL_PERMISSION_TEMPLATE,
-            "language": {"code": "fr"},
-            "components": [
-                {
-                    "type": "body",
-                    "parameters": [{"type": "text", "text": str(tracking_code)}],
-                }
-            ],
+        "type": "interactive",
+        "interactive": {
+            "type": "call_permission_request",
+            "body": {
+                "text": (
+                    f"{driver_name} souhaite vous appeler via Denkma au sujet du colis "
+                    f"{tracking_code}. Autorisez l'appel seulement si vous attendez ce contact."
+                )
+            },
+            "action": {
+                "name": WHATSAPP_CALL_PERMISSION_ACTION,
+            },
         },
     }
-    url = (
-        f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
-        f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-    )
-    headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = f"{_call_api_base_url()}/messages"
 
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, headers=headers, json=payload)
+        response = await client.post(url, headers=_graph_headers(), json=payload)
 
     if response.status_code != 200:
         logger.warning("Demande contact WhatsApp refusée: %s %s", response.status_code, response.text)
@@ -92,10 +154,11 @@ async def send_driver_contact_request(
             "channel": "whatsapp",
             "status_code": response.status_code,
             "reason": "whatsapp_send_failed",
-            "message": "La demande WhatsApp n'a pas pu être envoyée.",
+            "message": "La demande d'autorisation WhatsApp n'a pas pu être envoyée.",
             "meta_error": response.text,
             "requested_at": _now(),
-            "template": DRIVER_CALL_PERMISSION_TEMPLATE,
+            "template": None,
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
         }
 
     data = response.json()
@@ -104,9 +167,10 @@ async def send_driver_contact_request(
         "sent": True,
         "channel": "whatsapp",
         "message_id": message_id,
-        "message": "Demande de contact envoyée au destinataire via Denkma.",
+        "message": "Demande d'autorisation d'appel envoyée au destinataire via WhatsApp.",
         "requested_at": _now(),
-        "template": DRIVER_CALL_PERMISSION_TEMPLATE,
+        "template": None,
+        "action": WHATSAPP_CALL_PERMISSION_ACTION,
     }
 
 
@@ -145,6 +209,34 @@ async def connect_driver_whatsapp_call(
             "message": "Offre SDP WebRTC invalide.",
         }
 
+    permission = await get_driver_call_permission(recipient_phone)
+    if not permission.get("approved"):
+        request_result = await send_driver_contact_request(
+            recipient_phone=recipient_phone,
+            parcel=parcel,
+            mission=mission,
+            driver=driver,
+        )
+        return {
+            "connected": False,
+            "channel": "whatsapp_call",
+            "reason": "call_permission_required",
+            "message": (
+                "Le destinataire doit d'abord autoriser l'appel WhatsApp. "
+                "Une demande d'autorisation vient de lui être envoyée."
+                if request_result.get("sent")
+                else request_result.get("message")
+                or "Le destinataire doit d'abord autoriser l'appel WhatsApp."
+            ),
+            "permission_request_sent": bool(request_result.get("sent")),
+            "permission_status_code": permission.get("status_code"),
+            "permission_error": permission.get("meta_error"),
+            "request_status_code": request_result.get("status_code"),
+            "request_error": request_result.get("meta_error"),
+            "requested_at": _now(),
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
+        }
+
     tracking_code = parcel.get("tracking_code") or mission.get("tracking_code") or "Denkma"
     opaque_data = json.dumps(
         {
@@ -165,17 +257,10 @@ async def connect_driver_whatsapp_call(
         },
         "biz_opaque_callback_data": opaque_data[:512],
     }
-    url = (
-        f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
-        f"{settings.WHATSAPP_PHONE_NUMBER_ID}/calls"
-    )
-    headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = f"{_call_api_base_url()}/calls"
 
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, headers=headers, json=payload)
+        response = await client.post(url, headers=_graph_headers(), json=payload)
 
     if response.status_code != 200:
         logger.warning("Appel WhatsApp refusé: %s %s", response.status_code, response.text)

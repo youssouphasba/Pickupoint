@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     WHATSAPP_BUSINESS_ACCOUNT_ID: Optional[str] = None
     WHATSAPP_ACCESS_TOKEN: Optional[str] = None
     WHATSAPP_API_VERSION: str = "v21.0"
+    WHATSAPP_CALL_API_VERSION: str = "v25.0"
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
     WHATSAPP_TEMPLATE_RECIPIENT_CREATED: str = "parcel_created_recipient_links_v1"
     WHATSAPP_TEMPLATE_DELIVERY_CODE: str = "parcel_reception_auth_code"
