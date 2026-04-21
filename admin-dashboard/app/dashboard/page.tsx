@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Package,
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
   Banknote,
   Loader2,
   TrendingUp,
+  ArrowUpRight,
 } from "lucide-react";
 
 type DashboardKpis = {
@@ -62,15 +64,23 @@ function KpiCard({
   Icon,
   tone = "neutral",
   hint,
+  href,
 }: {
   label: string;
   value: string | number;
   Icon: React.ComponentType<{ className?: string }>;
   tone?: Tone;
   hint?: string;
+  href?: string;
 }) {
-  return (
-    <Card>
+  const card = (
+    <Card
+      className={
+        href
+          ? "h-full transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+          : "h-full"
+      }
+    >
       <CardContent className="flex items-start justify-between p-5">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -80,6 +90,12 @@ function KpiCard({
           {hint && (
             <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
           )}
+          {href && (
+            <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+              Voir les détails
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </div>
+          )}
         </div>
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-lg ${toneStyles[tone]}`}
@@ -88,6 +104,14 @@ function KpiCard({
         </div>
       </CardContent>
     </Card>
+  );
+
+  if (!href) return card;
+
+  return (
+    <Link href={href} aria-label={`Voir les détails : ${label}`}>
+      {card}
+    </Link>
   );
 }
 
@@ -119,7 +143,8 @@ export default function DashboardHome() {
       <div>
         <h1 className="text-2xl font-bold">Tableau de bord</h1>
         <p className="text-sm text-muted-foreground">
-          Vue temps réel. Rafraîchissement toutes les 30 secondes.
+          Vue temps réel. Cliquez sur une carte pour ouvrir le module de
+          contrôle correspondant.
         </p>
       </div>
 
@@ -133,12 +158,14 @@ export default function DashboardHome() {
             value={data.parcels_today}
             Icon={Package}
             tone="info"
+            href="/dashboard/parcels"
           />
           <KpiCard
             label="Actifs"
             value={data.active_parcels}
             Icon={Activity}
             tone="info"
+            href="/dashboard/parcels"
           />
           <KpiCard
             label="Livrés (total)"
@@ -146,12 +173,14 @@ export default function DashboardHome() {
             Icon={CheckCircle2}
             tone="success"
             hint={`${data.success_rate}% réussite`}
+            href="/dashboard/parcels"
           />
           <KpiCard
             label="Échecs"
             value={data.failed}
             Icon={XCircle}
             tone="danger"
+            href="/dashboard/anomalies"
           />
         </div>
       </section>
@@ -166,6 +195,7 @@ export default function DashboardHome() {
             value={`${xof.format(Math.round(data.revenue_xof))} XOF`}
             Icon={TrendingUp}
             tone="success"
+            href="/dashboard/finance"
           />
           <KpiCard
             label="Paiements en attente"
@@ -173,24 +203,27 @@ export default function DashboardHome() {
             Icon={Banknote}
             tone="warning"
             hint="Colis bloqués pour paiement"
+            href="/dashboard/finance"
           />
           <KpiCard
             label="Demandes de retrait"
             value={data.pending_payouts}
             Icon={Wallet}
             tone="warning"
+            href="/dashboard/payouts"
           />
           <KpiCard
             label="Colis total"
             value={data.total_parcels}
             Icon={Package}
+            href="/dashboard/parcels"
           />
         </div>
       </section>
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Flotte & réseau
+          Flotte et réseau
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
@@ -198,12 +231,14 @@ export default function DashboardHome() {
             value={data.active_drivers}
             Icon={Users}
             tone="info"
+            href="/dashboard/drivers"
           />
           <KpiCard
             label="Relais actifs"
             value={data.active_relays}
             Icon={Store}
             tone="info"
+            href="/dashboard/relays"
           />
           <KpiCard
             label="Positions live"
@@ -211,13 +246,15 @@ export default function DashboardHome() {
             Icon={Radar}
             tone="success"
             hint="Dernière heure"
+            href="/dashboard/fleet"
           />
           <KpiCard
             label="Signal perdu"
             value={data.signal_lost}
             Icon={RadioTower}
             tone={data.signal_lost > 0 ? "danger" : "neutral"}
-            hint="> 20 min sans GPS"
+            hint="Plus de 20 min sans GPS"
+            href="/dashboard/fleet"
           />
         </div>
       </section>
@@ -228,23 +265,26 @@ export default function DashboardHome() {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <KpiCard
-            label="Missions > 3 h"
+            label="Missions de plus de 3 h"
             value={data.critical_delay}
             Icon={TimerOff}
             tone={data.critical_delay > 0 ? "danger" : "neutral"}
+            href="/dashboard/stale"
           />
           <KpiCard
             label="Colis stagnants"
             value={data.stale_parcels}
             Icon={Clock}
             tone={data.stale_parcels > 0 ? "warning" : "neutral"}
-            hint="> 7 j en relais"
+            hint="Plus de 7 jours en relais"
+            href="/dashboard/stale"
           />
           <KpiCard
             label="Échecs de livraison"
             value={data.failed}
             Icon={AlertTriangle}
             tone={data.failed > 0 ? "warning" : "neutral"}
+            href="/dashboard/anomalies"
           />
         </div>
       </section>
