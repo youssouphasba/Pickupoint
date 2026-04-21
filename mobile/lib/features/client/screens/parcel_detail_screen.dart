@@ -801,11 +801,21 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       ),
       child: Row(
         children: [
-          AuthenticatedAvatar(
-            imageUrl: driverPhotoUrl,
-            radius: 18,
-            backgroundColor: Colors.blueGrey.shade50,
-            fallback: const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+          InkWell(
+            borderRadius: BorderRadius.circular(40),
+            onTap: driverPhotoUrl != null && driverPhotoUrl.isNotEmpty
+                ? () => _showAvatarPreview(
+                      imageUrl: driverPhotoUrl,
+                      title: driverName ?? 'Livreur Denkma',
+                    )
+                : null,
+            child: AuthenticatedAvatar(
+              imageUrl: driverPhotoUrl,
+              radius: 30,
+              backgroundColor: Colors.blueGrey.shade50,
+              fallback:
+                  const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -839,6 +849,47 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             onPressed: () => _callDriver(parcel.driverPhone),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showAvatarPreview({
+    required String imageUrl,
+    required String title,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              AuthenticatedAvatar(
+                imageUrl: imageUrl,
+                radius: 120,
+                backgroundColor: Colors.blueGrey.shade50,
+                fallback:
+                    const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     BASE_URL: str = "https://api.denkma.com"
     PUBLIC_SITE_URL: str = "https://denkma.com"
     GOOGLE_DIRECTIONS_API_KEY: Optional[str] = None
+    MOBILE_ADMIN_PHONE_NUMBERS: str = ""
+    MOBILE_ADMIN_ROLE: str = "superadmin"
+    MOBILE_ADMIN_DEFAULT_NAME: str = "Administrateur Denkma"
 
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"

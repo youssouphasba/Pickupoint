@@ -19,8 +19,16 @@ from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
 from services.parcel_service import transition_status, _record_event
 from services.google_maps_service import get_directions_eta
-from services.notification_service import notify_approaching_driver, notify_sender_driver_assigned
-from services.whatsapp_call_service import connect_driver_whatsapp_call, send_driver_contact_request
+from services.notification_service import (
+    notify_approaching_driver,
+    notify_sender_driver_assigned,
+    notify_sender_parcel_collected,
+)
+from services.whatsapp_call_service import (
+    connect_driver_whatsapp_call,
+    ensure_driver_call_permission_request,
+    get_driver_call_permission,
+)
 from core.limiter import limiter
 from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, mask_phone, phone_suffix
 
@@ -202,13 +210,9 @@ async def my_missions(
     #   - livraison à domicile (*_to_home) ET driver est à proximité (approaching_notified)
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     if not is_admin:
-        from core.utils import mask_phone
         for m in missions:
-            if "recipient_phone" in m:
-                is_home_delivery = (m.get("delivery_type") == "gps")
-                is_near = m.get("approaching_notified", False)
-                if not (is_home_delivery and is_near):
-                    m["recipient_phone"] = mask_phone(m["recipient_phone"])
+            if m.get("recipient_phone"):
+                m["recipient_phone"] = mask_phone(m["recipient_phone"])
                 
     return {"missions": missions}
 
@@ -300,6 +304,8 @@ async def confirm_pickup(
         # R2H et R2R : driver quitte le relais origine → IN_TRANSIT
         await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up au relais origine", **actor)
 
+    await notify_sender_parcel_collected(parcel)
+
     return {"message": "Collecte confirmée", "mission_id": mission_id}
 
 
@@ -383,12 +389,11 @@ async def get_mission(
             mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
 
     # Masquage numéro destinataire — révélé si livraison domicile + driver à proximité
-    if not is_admin and mission.get("recipient_phone"):
-        from core.utils import mask_phone
-        is_home_delivery = (mission.get("delivery_type") == "gps")
-        is_near = mission.get("approaching_notified", False)
-        if not (is_home_delivery and is_near):
-            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
+    if (
+        current_user["role"] == UserRole.DRIVER.value
+        and mission.get("recipient_phone")
+    ):
+        mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
 
     return mission
 
@@ -596,17 +601,20 @@ async def contact_recipient_via_denkma(
     if not recipient_phone:
         raise bad_request_exception("Aucun numéro destinataire n'est disponible pour ce colis")
 
+    permission = await get_driver_call_permission(recipient_phone)
     now = datetime.now(timezone.utc)
-    recent_cutoff = now - timedelta(minutes=2)
-    recent_count = await db.driver_contact_requests.count_documents({
-        "mission_id": mission_id,
-        "driver_id": current_user["user_id"],
-        "created_at": {"$gte": recent_cutoff},
-    })
-    if recent_count >= 2:
-        raise bad_request_exception("Attendez quelques instants avant de relancer le destinataire")
+    if not permission.get("approved"):
+        recent_cutoff = now - timedelta(minutes=2)
+        recent_count = await db.driver_contact_requests.count_documents({
+            "mission_id": mission_id,
+            "driver_id": current_user["user_id"],
+            "sent": True,
+            "created_at": {"$gte": recent_cutoff},
+        })
+        if recent_count >= 2:
+            raise bad_request_exception("Attendez quelques instants avant de relancer le destinataire")
 
-    result = await send_driver_contact_request(
+    result = await ensure_driver_call_permission_request(
         recipient_phone=recipient_phone,
         parcel=parcel,
         mission=mission,
@@ -623,10 +631,13 @@ async def contact_recipient_via_denkma(
         "recipient_phone_masked": mask_phone(recipient_phone),
         "tracking_code": parcel.get("tracking_code") or mission.get("tracking_code"),
         "sent": bool(result.get("sent")),
+        "approved": bool(result.get("approved")),
         "whatsapp_message_id": result.get("message_id"),
         "whatsapp_template": result.get("template"),
         "action": result.get("action"),
         "status_code": result.get("status_code"),
+        "permission_status_code": result.get("permission_status_code"),
+        "permission_error": result.get("permission_error"),
         "reason": result.get("reason"),
         "meta_error": result.get("meta_error"),
         "created_at": now,
@@ -647,20 +658,24 @@ async def contact_recipient_via_denkma(
             "mission_id": mission_id,
             "channel": "whatsapp",
             "sent": bool(result.get("sent")),
+            "approved": bool(result.get("approved")),
             "whatsapp_message_id": result.get("message_id"),
             "whatsapp_template": result.get("template"),
             "action": result.get("action"),
             "reason": result.get("reason"),
             "status_code": result.get("status_code"),
+            "permission_status_code": result.get("permission_status_code"),
         },
     )
 
     return {
         "message": result.get("message"),
         "sent": bool(result.get("sent")),
+        "approved": bool(result.get("approved")),
         "channel": "whatsapp",
         "request_id": request_doc["request_id"],
         "reason": result.get("reason"),
+        "permission_status_code": result.get("permission_status_code"),
     }
 
 

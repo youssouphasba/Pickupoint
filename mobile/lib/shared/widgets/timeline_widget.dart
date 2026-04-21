@@ -12,6 +12,10 @@ class TimelineWidget extends StatelessWidget {
       'RECIPIENT_LOCATION_CONFIRMED' => 'Position destinataire confirmée',
       'SENDER_LOCATION_CONFIRMED' => 'Position expéditeur confirmée',
       'MISSION_ACCEPTED' => 'Mission acceptée',
+      'DRIVER_CONTACT_RECIPIENT_REQUESTED' =>
+        'Demande de contact envoyée au destinataire',
+      'DRIVER_WHATSAPP_CALL_REQUESTED' =>
+        'Appel WhatsApp demandé par le livreur',
       'VOICE_INSTRUCTION_ADDED' => 'Instruction vocale ajoutée',
       'PARCEL_CREATED' => 'Colis créé',
       'STATUS_CHANGED' => 'Statut mis à jour',
@@ -47,7 +51,9 @@ class TimelineWidget extends StatelessWidget {
                     width: 12,
                     height: 12,
                     decoration: BoxDecoration(
-                      color: index == 0 ? Theme.of(context).primaryColor : Colors.grey,
+                      color: index == 0
+                          ? Theme.of(context).primaryColor
+                          : Colors.grey,
                       shape: BoxShape.circle,
                     ),
                   ),

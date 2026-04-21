@@ -141,7 +141,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         breakdown['awaiting_recipient_confirmation'] == true;
     final awaitingSenderConfirmation =
         breakdown['awaiting_sender_confirmation'] == true;
-    final statusLabel = breakdown['status_label']?.toString();
     final priceAvailable =
         breakdown['price_available'] == true && total != null;
     final durationAvailable = breakdown['duration_available'] == true &&
@@ -227,16 +226,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          statusLabel != null && statusLabel.isNotEmpty
-                              ? '$statusLabel. Le montant et la durée seront calculés dès que toutes les informations nécessaires seront confirmées.'
-                              : awaitingRecipientConfirmation &&
-                                      awaitingSenderConfirmation
-                                  ? 'Le montant et la durée seront calculés après la validation des positions nécessaires.'
-                                  : awaitingRecipientConfirmation
-                                      ? 'Le montant et la durée seront calculés après la validation de la destination.'
-                                      : awaitingSenderConfirmation
-                                          ? 'Le montant et la durée seront calculés après la validation du point de collecte.'
-                                          : 'Le montant et la durée seront disponibles dès que toutes les informations nécessaires seront confirmées.',
+                          awaitingRecipientConfirmation
+                              ? 'En attente de la confirmation de la position du destinataire pour calculer le prix et la durée. Vous recevrez une notification.'
+                              : awaitingSenderConfirmation
+                                  ? 'En attente de la confirmation de la position de collecte pour calculer le prix et la durée. Vous recevrez une notification.'
+                                  : 'En attente des informations nécessaires pour calculer le prix et la durée. Vous recevrez une notification.',
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white70,
@@ -280,15 +274,6 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
               _buildPromoSection(),
               const Divider(height: 20),
               _row('TOTAL', finalAmount ?? 0, bold: true, large: true),
-            ] else ...[
-              const SizedBox(height: 20),
-              _infoCard([
-                _infoRow(
-                  Icons.info_outline,
-                  'Devis',
-                  'Le colis peut être créé maintenant. Le montant réel et la durée approximative seront envoyés dès que le destinataire aura confirmé sa position.',
-                ),
-              ]),
             ],
             const SizedBox(height: 20),
             _sectionTitle('Informations pratiques'),

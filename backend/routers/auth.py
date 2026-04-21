@@ -40,6 +40,63 @@ PIN_LOCK_MINUTES = 15
 # Utilisation du limiter global défini dans core/limiter
 from core.limiter import limiter
 
+
+def _mobile_admin_role_for_phone(phone: str) -> str | None:
+    configured_phones = {
+        normalize_phone(value.strip())
+        for value in settings.MOBILE_ADMIN_PHONE_NUMBERS.split(",")
+        if value.strip()
+    }
+    if phone not in configured_phones:
+        return None
+
+    role = settings.MOBILE_ADMIN_ROLE.strip().lower()
+    if role not in {"admin", "superadmin"}:
+        logger.warning("MOBILE_ADMIN_ROLE invalide: %s", settings.MOBILE_ADMIN_ROLE)
+        return "admin"
+    return role
+
+
+async def _ensure_mobile_admin_user(phone: str, role: str) -> dict:
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
+    if user_doc:
+        if user_doc.get("role") != role:
+            await db.users.update_one(
+                {"phone": phone},
+                {"$set": {"role": role, "updated_at": now}},
+            )
+            user_doc["role"] = role
+            user_doc["updated_at"] = now
+        return user_doc
+
+    name = settings.MOBILE_ADMIN_DEFAULT_NAME.strip() or "Administrateur Denkma"
+    user_doc = {
+        "user_id": f"usr_{uuid.uuid4().hex[:12]}",
+        "phone": phone,
+        "name": name,
+        "email": None,
+        "user_type": "individual",
+        "role": role,
+        "is_active": True,
+        "is_phone_verified": True,
+        "accepted_legal": True,
+        "accepted_legal_at": now,
+        "relay_point_id": None,
+        "store_id": None,
+        "external_ref": None,
+        "language": "fr",
+        "currency": "XOF",
+        "country_code": "SN",
+        "loyalty_points": 0,
+        "loyalty_tier": "bronze",
+        "referral_code": await generate_unique_referral_code(name),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.users.insert_one(user_doc)
+    return user_doc
+
 # ── Firebase Admin SDK init ──────────────────────────────────────────────────
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
@@ -83,7 +140,11 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
     if not is_supported_phone(phone):
         raise bad_request_exception("Denkma est disponible au Sénégal et en France uniquement")
 
-    user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
+    mobile_admin_role = _mobile_admin_role_for_phone(phone)
+    if mobile_admin_role:
+        user_doc = await _ensure_mobile_admin_user(phone, mobile_admin_role)
+    else:
+        user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
 
     # Nouvel utilisateur → renvoyer un registration_token
     if not user_doc:
@@ -138,7 +199,7 @@ async def check_phone(body: OTPRequest, request: Request):
     user_doc = await db.users.find_one({"phone": phone}, {"_id": 0, "pin_hash": 1})
     if not user_doc:
         return {"exists": False, "has_pin": False}
-    
+
     has_pin = user_doc.get("pin_hash") is not None
     return {"exists": True, "has_pin": has_pin}
 
@@ -155,11 +216,15 @@ async def login_pin(body: PINLoginRequest, request: Request):
     user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
     if not user_doc:
         raise bad_request_exception("Utilisateur introuvable")
-    
+
+    mobile_admin_role = _mobile_admin_role_for_phone(phone)
+    if mobile_admin_role:
+        user_doc = await _ensure_mobile_admin_user(phone, mobile_admin_role)
+
     if user_doc.get("is_banned"):
         from core.exceptions import forbidden_exception
         raise forbidden_exception("Votre compte a été suspendu par l'administration.")
-        
+
     pin_hash = user_doc.get("pin_hash")
     if not pin_hash:
         raise bad_request_exception("Aucun code PIN configuré pour ce compte. Veuillez utiliser la réinitialisation.")
@@ -225,7 +290,7 @@ class CompleteRegistrationRequest(BaseModel):
 async def complete_registration(body: CompleteRegistrationRequest, request: Request):
     if not body.accepted_legal:
         raise bad_request_exception("Vous devez accepter les CGU et la Politique de confidentialité.")
-        
+
     from core.security import decode_token
     try:
         payload = decode_token(body.registration_token)
@@ -240,12 +305,12 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
             raise bad_request_exception("Token d'inscription invalide.")
     except Exception:
         raise bad_request_exception("Token d'inscription expiré ou invalide.")
-        
+
     # Vérifier que le numéro n'est pas déjà inscrit complètement
     existing_user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if existing_user:
         raise bad_request_exception("Cet utilisateur existe déjà.")
-        
+
     if len(body.pin) < 4:
         raise bad_request_exception("Le code PIN doit contenir au moins 4 chiffres.")
 
@@ -411,7 +476,7 @@ async def refresh_token(body: RefreshRequest):
     user_doc = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
-    
+
     if user_doc.get("is_banned"):
         from core.exceptions import forbidden_exception
         raise forbidden_exception("Session révoquée : compte suspendu.")

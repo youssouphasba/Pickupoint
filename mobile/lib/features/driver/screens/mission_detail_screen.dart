@@ -548,6 +548,26 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     setState(() => _isProcessing = true);
     try {
       await _closeWhatsappCallSession();
+      final permissionRes =
+          await ref.read(apiClientProvider).contactMissionRecipient(missionId);
+      final permissionApproved = permissionRes.data['approved'] == true;
+      final permissionMessage = permissionRes.data['message'] as String? ??
+          "Demande d'autorisation d'appel envoyée au destinataire.";
+
+      if (!permissionApproved) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(permissionMessage),
+              backgroundColor: permissionRes.data['sent'] == true
+                  ? Colors.orange
+                  : Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
       final stream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
         'video': false,
@@ -821,34 +841,33 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             // ── Statut du paiement ─────────────────────────────────────
             _buildPaymentStatus(mission),
             const SizedBox(height: 20),
-            if ((mission.driverName?.isNotEmpty ?? false) ||
-                (mission.driverPhone?.isNotEmpty ?? false) ||
-                (mission.driverPhotoUrl?.isNotEmpty ?? false) ||
-                (mission.senderName?.isNotEmpty ?? false) ||
-                (mission.senderPhotoUrl?.isNotEmpty ?? false)) ...[
+            if ((mission.senderName?.isNotEmpty ?? false) ||
+                (mission.recipientName?.isNotEmpty ?? false)) ...[
               const Text(
-                'Identites',
+                'Personnes du colis',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
-              if ((mission.driverName?.isNotEmpty ?? false) ||
-                  (mission.driverPhone?.isNotEmpty ?? false) ||
-                  (mission.driverPhotoUrl?.isNotEmpty ?? false)) ...[
+              if (mission.senderName?.isNotEmpty ?? false) ...[
                 _buildContactCard(
-                  title: 'Livreur en charge',
-                  name: mission.driverName ?? 'Livreur Denkma',
-                  photo: mission.driverPhotoUrl,
-                  phone: mission.driverPhone,
+                  title: 'Expéditeur',
+                  name: mission.senderName!,
+                  photo: mission.senderPhotoUrl,
+                  phone: null,
                 ),
                 const SizedBox(height: 12),
               ],
-              if ((mission.senderName?.isNotEmpty ?? false) ||
-                  (mission.senderPhotoUrl?.isNotEmpty ?? false)) ...[
+              if (mission.recipientName?.isNotEmpty ?? false) ...[
                 _buildContactCard(
-                  title: 'Expéditeur',
-                  name: mission.senderName ?? 'Expéditeur',
-                  photo: mission.senderPhotoUrl,
-                  phone: null,
+                  title: 'Destinataire',
+                  name: mission.recipientName!,
+                  photo: mission.recipientPhotoUrl,
+                  phone: mission.recipientPhone == null
+                      ? null
+                      : 'Numéro masqué - appel via Denkma',
+                  showCall: true,
+                  onCall: () => _callRecipientViaDenkma(mission.id),
+                  callLabel: 'Appeler via Denkma',
                 ),
                 const SizedBox(height: 20),
               ],
@@ -859,35 +878,28 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               const SizedBox(height: 20),
             ],
 
-            // ── Contacts (Expéditeur & Destinataire) ───────────────────────
-            const Text('Contacts',
+            // ── Points de passage ───────────────────────
+            const Text('Points de passage',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
 
-            // Expéditeur (Point de Retrait)
             _buildContactCard(
-              title: 'Expéditeur (Retrait)',
-              name: mission
-                  .pickupLabel, // Souvent le nom du relais ou de l'expéditeur
+              title: 'Collecte',
+              name: mission.pickupLabel,
               photo: mission.senderPhotoUrl,
-              phone: null, // On garde masqué selon politique
+              phone: null,
               showCall: false,
             ),
 
             const SizedBox(height: 12),
 
-            // Destinataire (Point de Livraison)
-            if (mission.recipientName != null)
-              _buildContactCard(
-                title: 'Destinataire (Livraison)',
-                name: mission.recipientName!,
-                photo: mission.recipientPhotoUrl,
-                phone: mission.recipientPhone ?? '',
-                // Le backend masque le numéro jusqu'à ce que le driver soit à <500m
-                showCall: true,
-                onCall: () => _callRecipientViaDenkma(mission.id),
-                callLabel: 'Appeler via Denkma',
-              ),
+            _buildContactCard(
+              title: 'Livraison',
+              name: mission.deliveryLabel,
+              photo: mission.recipientPhotoUrl,
+              phone: null,
+              showCall: false,
+            ),
 
             const SizedBox(height: 20),
 
@@ -1367,7 +1379,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (mission.pickupVoiceNote?.isNotEmpty ?? false) {
       cards.add(
         _instructionCard(
-          title: 'Instruction collecte',
+          title: 'Instruction de collecte',
           icon: Icons.mic_none_rounded,
           color: Colors.orange,
           text: _readableInstruction(mission.pickupVoiceNote!),
@@ -1377,7 +1389,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (mission.deliveryVoiceNote?.isNotEmpty ?? false) {
       cards.add(
         _instructionCard(
-          title: 'Instruction livraison',
+          title: 'Instruction de livraison',
           icon: Icons.record_voice_over_outlined,
           color: Colors.teal,
           text: _readableInstruction(mission.deliveryVoiceNote!),
@@ -1394,7 +1406,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             !trimmed.contains(' ') &&
             RegExp(r'^[A-Za-z0-9+/=_-]+$').hasMatch(trimmed));
     if (looksLikeAudioPayload) {
-      return 'Note vocale reçue via le lien de confirmation. Elle est disponible dans la messagerie du colis.';
+      return 'Note vocale reçue. Ouvrez la messagerie du colis pour l’écouter.';
     }
     return trimmed;
   }
@@ -1454,11 +1466,17 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       ),
       child: Row(
         children: [
-          AuthenticatedAvatar(
-            imageUrl: photo,
-            radius: 24,
-            backgroundColor: Colors.blue.shade50,
-            fallback: const Icon(Icons.person, color: Colors.blue),
+          InkWell(
+            borderRadius: BorderRadius.circular(44),
+            onTap: photo != null && photo.isNotEmpty
+                ? () => _showAvatarPreview(imageUrl: photo, title: name)
+                : null,
+            child: AuthenticatedAvatar(
+              imageUrl: photo,
+              radius: 30,
+              backgroundColor: Colors.blue.shade50,
+              fallback: const Icon(Icons.person, color: Colors.blue),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1474,9 +1492,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     style: const TextStyle(
                         fontSize: 15, fontWeight: FontWeight.bold)),
                 if (phone != null)
-                  Text(phone,
-                      style: const TextStyle(
-                          fontSize: 13, color: Colors.blueGrey)),
+                  Text(
+                    phone,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        const TextStyle(fontSize: 13, color: Colors.blueGrey),
+                  ),
               ],
             ),
           ),
@@ -1492,6 +1514,46 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               label: Text(callLabel),
             ),
         ],
+      ),
+    );
+  }
+
+  void _showAvatarPreview({
+    required String imageUrl,
+    required String title,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              AuthenticatedAvatar(
+                imageUrl: imageUrl,
+                radius: 120,
+                backgroundColor: Colors.blue.shade50,
+                fallback: const Icon(Icons.person, color: Colors.blue),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
