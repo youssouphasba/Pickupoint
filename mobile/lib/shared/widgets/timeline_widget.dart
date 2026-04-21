@@ -7,6 +7,18 @@ class TimelineWidget extends StatelessWidget {
   const TimelineWidget({super.key, required this.events});
   final List<ParcelEvent> events;
 
+  String _eventLabel(ParcelEvent event) {
+    return switch (event.eventType) {
+      'RECIPIENT_LOCATION_CONFIRMED' => 'Position destinataire confirmée',
+      'SENDER_LOCATION_CONFIRMED' => 'Position expéditeur confirmée',
+      'MISSION_ACCEPTED' => 'Mission acceptée',
+      'VOICE_INSTRUCTION_ADDED' => 'Instruction vocale ajoutée',
+      'PARCEL_CREATED' => 'Colis créé',
+      'STATUS_CHANGED' => 'Statut mis à jour',
+      _ => event.eventType.replaceAll('_', ' ').toLowerCase(),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     // Trier du plus récent au plus ancien
@@ -66,6 +78,17 @@ class TimelineWidget extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (event.eventType.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text(
+                            _eventLabel(event),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
                       if (event.note != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4.0),

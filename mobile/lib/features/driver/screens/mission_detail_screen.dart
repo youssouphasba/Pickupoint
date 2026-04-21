@@ -1364,7 +1364,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           title: 'Instruction collecte',
           icon: Icons.mic_none_rounded,
           color: Colors.orange,
-          text: mission.pickupVoiceNote!,
+          text: _readableInstruction(mission.pickupVoiceNote!),
         ),
       );
     }
@@ -1374,11 +1374,23 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           title: 'Instruction livraison',
           icon: Icons.record_voice_over_outlined,
           color: Colors.teal,
-          text: mission.deliveryVoiceNote!,
+          text: _readableInstruction(mission.deliveryVoiceNote!),
         ),
       );
     }
     return Column(children: cards);
+  }
+
+  String _readableInstruction(String value) {
+    final trimmed = value.trim();
+    final looksLikeAudioPayload = trimmed.startsWith('data:audio/') ||
+        (trimmed.length > 180 &&
+            !trimmed.contains(' ') &&
+            RegExp(r'^[A-Za-z0-9+/=_-]+$').hasMatch(trimmed));
+    if (looksLikeAudioPayload) {
+      return 'Note vocale reçue via le lien de confirmation. Elle est disponible dans la messagerie du colis.';
+    }
+    return trimmed;
   }
 
   Widget _instructionCard({

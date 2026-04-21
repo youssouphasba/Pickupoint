@@ -378,7 +378,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final mode = parcel.deliveryMode as String;
     final isHomePickup = mode == 'home_to_relay' || mode == 'home_to_home';
     final code = parcel.pickupCode as String?;
-    return isHomePickup && parcel.status == 'created' && code != null;
+    final visibleStatuses = {'created', 'assigned'};
+    return isHomePickup &&
+        visibleStatuses.contains(parcel.status) &&
+        code != null;
   }
 
   Widget _buildPickupCodeCard(dynamic parcel) {
@@ -427,8 +430,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final mode = parcel.deliveryMode as String;
     // Uniquement livraison à domicile (R2H ou H2H) — pas H2R (retrait relais)
     final isHomeDel = mode == 'relay_to_home' || mode == 'home_to_home';
+    final visibleStatuses = {
+      'created',
+      'assigned',
+      'in_progress',
+      'out_for_delivery',
+    };
     return isHomeDel &&
-        parcel.status == 'out_for_delivery' &&
+        visibleStatuses.contains(parcel.status) &&
         (parcel.deliveryCode as String?) != null;
   }
 
