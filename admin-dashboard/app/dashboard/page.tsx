@@ -158,14 +158,14 @@ export default function DashboardHome() {
             value={data.parcels_today}
             Icon={Package}
             tone="info"
-            href="/dashboard/parcels"
+            href="/dashboard/parcels?created_today=true"
           />
           <KpiCard
             label="Actifs"
             value={data.active_parcels}
             Icon={Activity}
             tone="info"
-            href="/dashboard/parcels"
+            href="/dashboard/parcels?scope=active"
           />
           <KpiCard
             label="Livrés (total)"
@@ -173,14 +173,14 @@ export default function DashboardHome() {
             Icon={CheckCircle2}
             tone="success"
             hint={`${data.success_rate}% réussite`}
-            href="/dashboard/parcels"
+            href="/dashboard/parcels?status=delivered"
           />
           <KpiCard
             label="Échecs"
             value={data.failed}
             Icon={XCircle}
             tone="danger"
-            href="/dashboard/anomalies"
+            href="/dashboard/parcels?status=delivery_failed"
           />
         </div>
       </section>
@@ -203,7 +203,7 @@ export default function DashboardHome() {
             Icon={Banknote}
             tone="warning"
             hint="Colis bloqués pour paiement"
-            href="/dashboard/finance"
+            href="/dashboard/parcels?payment_blocked=true"
           />
           <KpiCard
             label="Demandes de retrait"
@@ -231,14 +231,14 @@ export default function DashboardHome() {
             value={data.active_drivers}
             Icon={Users}
             tone="info"
-            href="/dashboard/drivers"
+            href="/dashboard/drivers?active=true"
           />
           <KpiCard
             label="Relais actifs"
             value={data.active_relays}
             Icon={Store}
             tone="info"
-            href="/dashboard/relays"
+            href="/dashboard/relays?active=true"
           />
           <KpiCard
             label="Positions live"
@@ -246,7 +246,7 @@ export default function DashboardHome() {
             Icon={Radar}
             tone="success"
             hint="Dernière heure"
-            href="/dashboard/fleet"
+            href="/dashboard/fleet?filter=live"
           />
           <KpiCard
             label="Signal perdu"
@@ -254,7 +254,7 @@ export default function DashboardHome() {
             Icon={RadioTower}
             tone={data.signal_lost > 0 ? "danger" : "neutral"}
             hint="Plus de 20 min sans GPS"
-            href="/dashboard/fleet"
+            href="/dashboard/fleet?filter=signal_lost"
           />
         </div>
       </section>
@@ -284,7 +284,7 @@ export default function DashboardHome() {
             value={data.failed}
             Icon={AlertTriangle}
             tone={data.failed > 0 ? "warning" : "neutral"}
-            href="/dashboard/anomalies"
+            href="/dashboard/parcels?status=delivery_failed"
           />
         </div>
       </section>

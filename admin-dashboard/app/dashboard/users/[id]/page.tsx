@@ -100,7 +100,7 @@ export default function UserDetailPage() {
 
   const relays = useQuery({
     queryKey: ["relays"],
-    queryFn: fetchRelays,
+    queryFn: () => fetchRelays(),
   });
 
   const invalidate = () => {

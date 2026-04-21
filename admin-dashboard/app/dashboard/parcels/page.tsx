@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { AdminParcel, fetchParcels } from "@/lib/api";
@@ -8,7 +10,6 @@ import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
-import Link from "next/link";
 
 const STATUS_LABELS: Record<string, string> = {
   created: "Créé",
@@ -54,29 +55,76 @@ const MODE_LABELS: Record<string, string> = {
   home_to_home: "Domicile → Domicile",
 };
 
-const FILTERS: { value: string; label: string }[] = [
-  { value: "all", label: "Tous" },
-  { value: "created", label: "Créés" },
-  { value: "in_transit", label: "En transit" },
-  { value: "available_at_relay", label: "Dispo relais" },
-  { value: "out_for_delivery", label: "En livraison" },
-  { value: "delivered", label: "Livrés" },
-  { value: "delivery_failed", label: "Échecs" },
-  { value: "disputed", label: "Litiges" },
-  { value: "cancelled", label: "Annulés" },
+type ParcelFilter = {
+  value: string;
+  label: string;
+  params: {
+    status?: string;
+    scope?: string;
+    created_today?: boolean;
+    payment_blocked?: boolean;
+  };
+};
+
+const FILTERS: ParcelFilter[] = [
+  { value: "all", label: "Tous", params: {} },
+  { value: "today", label: "Aujourd'hui", params: { created_today: true } },
+  { value: "active", label: "Actifs", params: { scope: "active" } },
+  {
+    value: "payment_blocked",
+    label: "Paiement bloqué",
+    params: { payment_blocked: true },
+  },
+  { value: "created", label: "Créés", params: { status: "created" } },
+  { value: "in_transit", label: "En transit", params: { status: "in_transit" } },
+  {
+    value: "available_at_relay",
+    label: "Dispo relais",
+    params: { status: "available_at_relay" },
+  },
+  {
+    value: "out_for_delivery",
+    label: "En livraison",
+    params: { status: "out_for_delivery" },
+  },
+  { value: "delivered", label: "Livrés", params: { status: "delivered" } },
+  {
+    value: "delivery_failed",
+    label: "Échecs",
+    params: { status: "delivery_failed" },
+  },
+  { value: "disputed", label: "Litiges", params: { status: "disputed" } },
+  { value: "cancelled", label: "Annulés", params: { status: "cancelled" } },
 ];
 
 const xof = new Intl.NumberFormat("fr-FR");
 
+function filterFromSearchParams(searchParams: URLSearchParams) {
+  if (searchParams.get("created_today") === "true") return "today";
+  if (searchParams.get("payment_blocked") === "true") return "payment_blocked";
+  if (searchParams.get("scope") === "active") return "active";
+  return searchParams.get("status") ?? "all";
+}
+
 export default function ParcelsPage() {
-  const [status, setStatus] = React.useState("all");
+  const searchParams = useSearchParams();
+  const [selectedFilter, setSelectedFilter] = React.useState(() =>
+    filterFromSearchParams(searchParams)
+  );
+
+  React.useEffect(() => {
+    setSelectedFilter(filterFromSearchParams(searchParams));
+  }, [searchParams]);
+
+  const activeFilter =
+    FILTERS.find((filter) => filter.value === selectedFilter) ?? FILTERS[0];
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["parcels", status],
+    queryKey: ["parcels", activeFilter.value],
     queryFn: () =>
       fetchParcels({
         limit: 500,
-        status: status === "all" ? undefined : status,
+        ...activeFilter.params,
       }),
   });
 
@@ -105,10 +153,10 @@ export default function ParcelsPage() {
         header: "Statut",
         accessorKey: "status",
         cell: ({ getValue }) => {
-          const s = getValue() as string;
+          const status = getValue() as string;
           return (
-            <Badge tone={STATUS_TONE[s] ?? "default"}>
-              {STATUS_LABELS[s] ?? s}
+            <Badge tone={STATUS_TONE[status] ?? "default"}>
+              {STATUS_LABELS[status] ?? status}
             </Badge>
           );
         },
@@ -118,16 +166,14 @@ export default function ParcelsPage() {
         header: "Mode",
         accessorKey: "delivery_mode",
         cell: ({ getValue }) => {
-          const m = getValue() as string;
-          return (
-            <span className="text-xs">{MODE_LABELS[m] ?? m ?? "—"}</span>
-          );
+          const mode = getValue() as string;
+          return <span className="text-xs">{MODE_LABELS[mode] ?? mode ?? "—"}</span>;
         },
       },
       {
         id: "sender",
         header: "Expéditeur",
-        accessorFn: (p) => p.sender_name ?? "—",
+        accessorFn: (parcel) => parcel.sender_name ?? "—",
         cell: ({ getValue }) => (
           <span className="text-sm">{(getValue() as string) ?? "—"}</span>
         ),
@@ -135,7 +181,7 @@ export default function ParcelsPage() {
       {
         id: "recipient",
         header: "Destinataire",
-        accessorFn: (p) => p.recipient_name ?? p.recipient_phone ?? "—",
+        accessorFn: (parcel) => parcel.recipient_name ?? parcel.recipient_phone ?? "—",
         cell: ({ row }) => (
           <div className="flex flex-col">
             <span className="text-sm">{row.original.recipient_name ?? "—"}</span>
@@ -150,18 +196,16 @@ export default function ParcelsPage() {
       {
         id: "price",
         header: "Prix",
-        accessorFn: (p) => p.paid_price ?? p.quoted_price ?? 0,
+        accessorFn: (parcel) => parcel.paid_price ?? parcel.quoted_price ?? 0,
         cell: ({ row }) => {
-          const p = row.original;
-          const paid = p.paid_price ?? null;
-          const quoted = p.quoted_price ?? 0;
+          const parcel = row.original;
+          const paid = parcel.paid_price ?? null;
+          const quoted = parcel.quoted_price ?? 0;
           return (
             <div className="flex flex-col">
-              <span className="font-medium">
-                {xof.format(paid ?? quoted)} XOF
-              </span>
+              <span className="font-medium">{xof.format(paid ?? quoted)} XOF</span>
               <span className="text-[11px] text-muted-foreground">
-                {p.payment_status ?? "—"}
+                {parcel.payment_status ?? "—"}
               </span>
             </div>
           );
@@ -187,7 +231,8 @@ export default function ParcelsPage() {
         <div>
           <h1 className="text-2xl font-bold">Colis</h1>
           <p className="text-sm text-muted-foreground">
-            Suivre l'ensemble des colis avec filtres par statut.
+            Suivre l'ensemble des colis avec des filtres alignés sur les cartes du
+            tableau de bord.
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
@@ -196,17 +241,17 @@ export default function ParcelsPage() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {FILTERS.map((f) => (
+        {FILTERS.map((filter) => (
           <button
-            key={f.value}
-            onClick={() => setStatus(f.value)}
+            key={filter.value}
+            onClick={() => setSelectedFilter(filter.value)}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-              status === f.value
+              activeFilter.value === filter.value
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-input bg-background hover:bg-accent"
             }`}
           >
-            {f.label}
+            {filter.label}
           </button>
         ))}
       </div>
@@ -226,12 +271,12 @@ export default function ParcelsPage() {
           columns={columns}
           data={data.parcels}
           searchPlaceholder="Code suivi, expéditeur, destinataire, téléphone…"
-          globalFilterFn={(p, q) =>
-            (p.tracking_code ?? "").toLowerCase().includes(q) ||
-            (p.sender_name ?? "").toLowerCase().includes(q) ||
-            (p.recipient_name ?? "").toLowerCase().includes(q) ||
-            (p.recipient_phone ?? "").toLowerCase().includes(q) ||
-            (p.parcel_id ?? "").toLowerCase().includes(q)
+          globalFilterFn={(parcel, query) =>
+            (parcel.tracking_code ?? "").toLowerCase().includes(query) ||
+            (parcel.sender_name ?? "").toLowerCase().includes(query) ||
+            (parcel.recipient_name ?? "").toLowerCase().includes(query) ||
+            (parcel.recipient_phone ?? "").toLowerCase().includes(query) ||
+            (parcel.parcel_id ?? "").toLowerCase().includes(query)
           }
         />
       )}

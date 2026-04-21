@@ -163,6 +163,9 @@ export type AdminParcel = {
 
 export async function fetchParcels(params: {
   status?: string;
+  scope?: string;
+  created_today?: boolean;
+  payment_blocked?: boolean;
   skip?: number;
   limit?: number;
 }) {
@@ -345,10 +348,10 @@ export type AdminRelay = {
   created_at?: string;
 };
 
-export async function fetchRelays() {
+export async function fetchRelays(params?: { active?: boolean }) {
   const { data } = await api.get<{ relay_points: AdminRelay[]; total: number }>(
     "/api/admin/relay-points",
-    { params: { limit: 500 } }
+    { params: { limit: 500, ...params } }
   );
   return data;
 }
@@ -360,9 +363,10 @@ export async function verifyRelay(relayId: string) {
 
 // ───────────────────────── Drivers ─────────────────────────
 
-export async function fetchDrivers() {
+export async function fetchDrivers(params?: { active?: boolean }) {
   const { data } = await api.get<{ drivers: (AdminUser & { missions_count?: number })[] }>(
-    "/api/admin/drivers"
+    "/api/admin/drivers",
+    { params }
   );
   return data;
 }

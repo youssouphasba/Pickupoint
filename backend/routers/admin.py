@@ -599,16 +599,59 @@ async def dashboard(_admin=Depends(require_admin_dep)):
 @router.get("/parcels", summary="Tous les colis avec filtres")
 async def admin_list_parcels(
     status: str = None,
+    scope: str = None,
+    created_today: bool = False,
+    payment_blocked: bool = False,
     skip: int = 0,
     limit: int = 100,
     _admin=Depends(require_admin_dep),
 ):
     query = {}
-    if status:
+
+    if created_today:
+        now = datetime.now(timezone.utc)
+        query["created_at"] = {
+            "$gte": now.replace(hour=0, minute=0, second=0, microsecond=0)
+        }
+
+    if scope == "active":
+        query["status"] = {
+            "$in": [
+                ParcelStatus.CREATED.value,
+                ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+                ParcelStatus.IN_TRANSIT.value,
+                ParcelStatus.AT_DESTINATION_RELAY.value,
+                ParcelStatus.AVAILABLE_AT_RELAY.value,
+                ParcelStatus.OUT_FOR_DELIVERY.value,
+                ParcelStatus.REDIRECTED_TO_RELAY.value,
+                ParcelStatus.INCIDENT_REPORTED.value,
+            ]
+        }
+    elif status:
         query["status"] = status
-    cursor = db.parcels.find(query, {"_id": 0}).skip(skip).limit(limit)
+
+    if payment_blocked:
+        query["status"] = {
+            "$in": [
+                ParcelStatus.AT_DESTINATION_RELAY.value,
+                ParcelStatus.AVAILABLE_AT_RELAY.value,
+                ParcelStatus.OUT_FOR_DELIVERY.value,
+                ParcelStatus.REDIRECTED_TO_RELAY.value,
+            ]
+        }
+        query["payment_status"] = {"$ne": "paid"}
+        query["payment_override"] = {"$ne": True}
+
+    safe_limit = min(max(limit, 1), 1000)
+    safe_skip = max(skip, 0)
+    cursor = (
+        db.parcels.find(query, {"_id": 0})
+        .sort("created_at", -1)
+        .skip(safe_skip)
+        .limit(safe_limit)
+    )
     total = await db.parcels.count_documents(query)
-    return {"parcels": await cursor.to_list(length=limit), "total": total}
+    return {"parcels": await cursor.to_list(length=safe_limit), "total": total}
 
 
 @router.post("/parcels/{parcel_id}/confirm-payment", summary="Valider manuellement le paiement (Admin)")
@@ -737,12 +780,24 @@ async def admin_unsuspend_parcel(
 
 @router.get("/relay-points", summary="Réseau relais complet")
 async def admin_relay_points(
-    skip: int = 0, limit: int = 100,
+    active: Optional[bool] = None,
+    skip: int = 0,
+    limit: int = 100,
     _admin=Depends(require_admin_dep),
 ):
-    cursor = db.relay_points.find({}, {"_id": 0}).skip(skip).limit(limit)
-    total = await db.relay_points.count_documents({})
-    return {"relay_points": await cursor.to_list(length=limit), "total": total}
+    query = {}
+    if active is not None:
+        query["is_active"] = active
+    safe_limit = min(max(limit, 1), 1000)
+    safe_skip = max(skip, 0)
+    cursor = (
+        db.relay_points.find(query, {"_id": 0})
+        .sort("created_at", -1)
+        .skip(safe_skip)
+        .limit(safe_limit)
+    )
+    total = await db.relay_points.count_documents(query)
+    return {"relay_points": await cursor.to_list(length=safe_limit), "total": total}
 
 
 @router.put("/relay-points/{relay_id}/verify", summary="Valider un relais")
@@ -757,8 +812,14 @@ async def verify_relay(relay_id: str, _admin=Depends(require_admin_dep)):
 
 
 @router.get("/drivers", summary="Liste livreurs + stats")
-async def admin_drivers(_admin=Depends(require_admin_dep)):
-    cursor = db.users.find({"role": UserRole.DRIVER.value}, {"_id": 0})
+async def admin_drivers(
+    active: Optional[bool] = None,
+    _admin=Depends(require_admin_dep),
+):
+    query = {"role": UserRole.DRIVER.value}
+    if active is not None:
+        query["is_active"] = active
+    cursor = db.users.find(query, {"_id": 0}).sort("created_at", -1)
     drivers = await cursor.to_list(length=200)
     # Enrichir avec nb de missions
     for d in drivers:

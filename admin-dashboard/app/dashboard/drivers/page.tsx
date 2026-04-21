@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import {
@@ -36,10 +37,12 @@ const xof = new Intl.NumberFormat("fr-FR");
 
 export default function DriversPage() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const activeOnly = searchParams.get("active") === "true";
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["drivers-list"],
-    queryFn: fetchDrivers,
+    queryKey: ["drivers-list", activeOnly],
+    queryFn: () => fetchDrivers(activeOnly ? { active: true } : undefined),
   });
 
   // Monthly rewards
@@ -159,6 +162,7 @@ export default function DriversPage() {
           <h1 className="text-2xl font-bold">Livreurs</h1>
           <p className="text-sm text-muted-foreground">
             Suivi des performances, missions et gains de chaque livreur.
+            {activeOnly ? " Filtre actif : livreurs actifs uniquement." : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -45,7 +45,7 @@ export default function FinancePage() {
 
   const drivers = useQuery({
     queryKey: ["drivers-list"],
-    queryFn: fetchDrivers,
+    queryFn: () => fetchDrivers(),
   });
 
   const loading = recon.isLoading || cod.isLoading;
