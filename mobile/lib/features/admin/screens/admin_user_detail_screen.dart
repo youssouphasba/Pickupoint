@@ -7,6 +7,7 @@ import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../providers/admin_provider.dart';
 import 'admin_parcel_audit_screen.dart';
 import 'admin_relay_detail_screen.dart';
@@ -354,8 +355,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             _InfoRow(
                               'Bonus parrain',
                               formatXof(
-                                (rc['sponsor_bonus_xof'] as num?)
-                                        ?.toDouble() ??
+                                (rc['sponsor_bonus_xof'] as num?)?.toDouble() ??
                                     0.0,
                               ),
                             ),
@@ -667,14 +667,12 @@ class _IdentityHeader extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
+                AuthenticatedAvatar(
+                  imageUrl: hasPhoto ? photoUrl : null,
                   radius: 30,
                   backgroundColor: Colors.blueGrey.shade50,
-                  backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
-                  child: hasPhoto
-                      ? null
-                      : const Icon(Icons.person,
-                          size: 30, color: Colors.blueGrey),
+                  fallback: const Icon(Icons.person,
+                      size: 30, color: Colors.blueGrey),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

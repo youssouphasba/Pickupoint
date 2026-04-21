@@ -6,6 +6,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/widgets/state_feedback.dart';
 import '../../../shared/widgets/timeline_widget.dart';
 
@@ -113,7 +114,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
     return const EmptyStateView(
       icon: Icons.search_off,
       title: 'Saisissez un code de suivi',
-      subtitle: 'Le code de suivi est partage au moment de la creation du colis.',
+      subtitle:
+          'Le code de suivi est partagé au moment de la création du colis.',
     );
   }
 
@@ -136,7 +138,9 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: hasId ? () => context.push('/client/parcel/${parcel.id}') : null,
+            onTap: hasId
+                ? () => context.push('/client/parcel/${parcel.id}')
+                : null,
             borderRadius: BorderRadius.circular(16),
             child: Container(
               padding: const EdgeInsets.all(16),
@@ -180,10 +184,11 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           ),
           const SizedBox(height: 20),
           _InfoCard(
-            title: 'Resume',
+            title: 'Résumé',
             children: [
-              _infoRow('Expediteur', parcel.senderName ?? 'Non communique'),
-              _infoRow('Destinataire', parcel.recipientName ?? 'Non communique'),
+              _infoRow('Expéditeur', parcel.senderName ?? 'Non communiqué'),
+              _infoRow(
+                  'Destinataire', parcel.recipientName ?? 'Non communiqué'),
               if ((parcel.destinationAddress ?? '').isNotEmpty)
                 _infoRow('Destination', parcel.destinationAddress!),
               if (parcel.totalPrice != null)
@@ -229,14 +234,11 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          AuthenticatedAvatar(
+            imageUrl: photoUrl,
             radius: 22,
             backgroundColor: Colors.white,
-            backgroundImage:
-                photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
-            child: photoUrl == null || photoUrl.isEmpty
-                ? const Icon(Icons.delivery_dining)
-                : null,
+            fallback: const Icon(Icons.delivery_dining),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -252,7 +254,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                   ),
                 ),
                 Text(
-                  parcel.driverName ?? 'Livreur assigne',
+                  parcel.driverName ?? 'Livreur assigné',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,

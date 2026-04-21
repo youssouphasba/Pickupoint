@@ -6,6 +6,7 @@ import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../providers/admin_provider.dart';
 import 'admin_parcel_audit_screen.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -413,12 +414,11 @@ class _UserIdentityTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          AuthenticatedAvatar(
+            imageUrl: hasPhoto ? photoUrl : null,
+            radius: 20,
             backgroundColor: Colors.blueGrey.shade50,
-            backgroundImage: hasPhoto ? NetworkImage(photoUrl) : null,
-            child: hasPhoto
-                ? null
-                : const Icon(Icons.person, color: Colors.blueGrey),
+            fallback: const Icon(Icons.person, color: Colors.blueGrey),
           ),
           const SizedBox(width: 12),
           Expanded(

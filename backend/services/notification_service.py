@@ -79,8 +79,8 @@ STATUS_TEMPLATES = {
     ParcelStatus.DELIVERED:        "parcel_delivered",
 }
 
-DELIVERY_CODE_TEMPLATE = "parcel_reception_auth_code"
-RECIPIENT_CREATED_TEMPLATE = "parcel_created_recipient_links_v1"
+DELIVERY_CODE_TEMPLATE = settings.WHATSAPP_TEMPLATE_DELIVERY_CODE
+RECIPIENT_CREATED_TEMPLATE = settings.WHATSAPP_TEMPLATE_RECIPIENT_CREATED
 
 
 def _category_pref_key(category: Optional[str]) -> str | None:
@@ -144,13 +144,31 @@ def _display_phone(phone: str | None) -> str:
     return (phone or "").strip() or "non renseigné"
 
 
+def _recipient_access_code(parcel: dict) -> tuple[str | None, str | None]:
+    mode = parcel.get("delivery_mode") or ""
+    if mode.endswith("_to_relay"):
+        return parcel.get("relay_pin"), "Code de retrait"
+    if mode.endswith("_to_home"):
+        return parcel.get("delivery_code"), "Code de livraison"
+    return None, None
+
+
+def _body_with_recipient_code(body: str, parcel: dict) -> str:
+    code, label = _recipient_access_code(parcel)
+    if not code or not label:
+        return body
+    if str(code) in body:
+        return body
+    return f"{body} {label} : {code}."
+
+
 def _created_recipient_template_payload(
     parcel: dict,
     tracking_code: str,
     tracking_url: str,
     app_url: str,
 ) -> tuple[list[str], list[str]]:
-    parcel_code = parcel.get("relay_pin") or parcel.get("delivery_code")
+    parcel_code, _ = _recipient_access_code(parcel)
     body_variables = [
         _first_name(parcel.get("recipient_name")),
         parcel.get("sender_name") or "l'expéditeur",
@@ -160,6 +178,15 @@ def _created_recipient_template_payload(
     ]
     button_variables = [tracking_url, app_url]
     return body_variables, button_variables
+
+
+async def _send_recipient_access_code(parcel: dict, recipient_phone: str | None) -> None:
+    if not settings.WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE or not recipient_phone:
+        return
+    code, _ = _recipient_access_code(parcel)
+    if not code:
+        return
+    await _send_whatsapp_auth_code(recipient_phone, str(code))
 
 
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
@@ -198,6 +225,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             recipient_user_id = user["user_id"]
 
     recipient_first = _first_name(parcel.get("recipient_name"))
+    recipient_body = _body_with_recipient_code(body, parcel)
     recipient_template = template_name
     template_vars_recipient = _template_vars(template_name, recipient_first, tracking_code, tracking_url)
     recipient_button_vars: list[str] = []
@@ -214,7 +242,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         await _store_and_send(
             user_id=recipient_user_id,
             title="Mise à jour colis",
-            body=body,
+            body=recipient_body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
@@ -235,6 +263,13 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                     template_name,
                     _template_vars(template_name, recipient_first, tracking_code, tracking_url),
                 )
+        if new_status in {
+            ParcelStatus.CREATED,
+            ParcelStatus.OUT_FOR_DELIVERY,
+            ParcelStatus.AVAILABLE_AT_RELAY,
+            ParcelStatus.REDIRECTED_TO_RELAY,
+        }:
+            await _send_recipient_access_code(parcel, recipient_phone)
     elif recipient_phone:
         if recipient_template:
             sent = await _send_whatsapp_template(
@@ -250,7 +285,14 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                     _template_vars(template_name, recipient_first, tracking_code, tracking_url),
                 )
         else:
-            await _send_whatsapp(recipient_phone, body)
+            await _send_whatsapp(recipient_phone, recipient_body)
+        if new_status in {
+            ParcelStatus.CREATED,
+            ParcelStatus.OUT_FOR_DELIVERY,
+            ParcelStatus.AVAILABLE_AT_RELAY,
+            ParcelStatus.REDIRECTED_TO_RELAY,
+        }:
+            await _send_recipient_access_code(parcel, recipient_phone)
 
 
 def _template_vars(

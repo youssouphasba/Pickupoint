@@ -12,6 +12,7 @@ import '../providers/client_provider.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/timeline_widget.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -447,7 +448,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
         (parcel.deliveryMode as String) == 'home_to_relay';
     final code = parcel.pinCode as String?;
-    return isRelayDest && parcel.status == 'available_at_relay' && code != null;
+    final visibleStatuses = {
+      'created',
+      'assigned',
+      'in_transit',
+      'at_destination_relay',
+      'available_at_relay',
+      'redirected_to_relay',
+    };
+    return isRelayDest &&
+        visibleStatuses.contains(parcel.status) &&
+        code != null;
   }
 
   Widget _buildDeliveryCodeCard(dynamic parcel) {
@@ -698,15 +709,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       children: [
         Row(
           children: [
-            CircleAvatar(
+            AuthenticatedAvatar(
+              imageUrl: otherPartyPhoto,
               radius: 20,
               backgroundColor: Colors.blue.shade50,
-              backgroundImage: otherPartyPhoto != null
-                  ? NetworkImage(otherPartyPhoto)
-                  : null,
-              child: otherPartyPhoto == null
-                  ? const Icon(Icons.person, size: 20, color: Colors.blue)
-                  : null,
+              fallback: const Icon(Icons.person, size: 20, color: Colors.blue),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -769,12 +776,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           Text(formatDate(parcel.createdAt),
               style: const TextStyle(color: Colors.grey, fontSize: 12)),
         ]),
-        if ((parcel.driverName != null ||
-                parcel.driverPhone != null ||
-                parcel.driverPhotoUrl != null) &&
-            (parcel.status == 'assigned' ||
-                parcel.status == 'picked_up' ||
-                parcel.status == 'out_for_delivery')) ...[
+        if (parcel.assignedDriverId != null ||
+            parcel.driverName != null ||
+            parcel.driverPhone != null ||
+            parcel.driverPhotoUrl != null) ...[
           const SizedBox(height: 16),
           _buildDriverInfo(parcel),
         ],
@@ -784,7 +789,6 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
   Widget _buildDriverInfo(dynamic parcel) {
     final driverPhotoUrl = parcel.driverPhotoUrl as String?;
-    final hasPhoto = driverPhotoUrl != null && driverPhotoUrl.trim().isNotEmpty;
     final driverName = (parcel.driverName as String?)?.trim();
     final driverPhone = (parcel.driverPhone as String?)?.trim();
 
@@ -797,13 +801,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          AuthenticatedAvatar(
+            imageUrl: driverPhotoUrl,
             radius: 18,
             backgroundColor: Colors.blueGrey.shade50,
-            backgroundImage: hasPhoto ? NetworkImage(driverPhotoUrl) : null,
-            child: hasPhoto
-                ? null
-                : const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+            fallback: const Icon(Icons.delivery_dining, color: Colors.blueGrey),
           ),
           const SizedBox(width: 12),
           Expanded(

@@ -86,7 +86,25 @@ def _app_install_url(parcel: dict) -> str:
     return f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app?{urlencode(params)}"
 
 
+def _recipient_access_code(parcel: dict) -> tuple[str | None, str | None, str | None]:
+    mode = parcel.get("delivery_mode") or ""
+    if mode.endswith("_to_relay"):
+        return (
+            parcel.get("relay_pin"),
+            "Code de retrait",
+            "Présentez ce code à l'agent du point relais pour retirer le colis.",
+        )
+    if mode.endswith("_to_home"):
+        return (
+            parcel.get("delivery_code"),
+            "Code de livraison",
+            "Donnez ce code au livreur uniquement au moment de recevoir le colis.",
+        )
+    return None, None, None
+
+
 def _build_public_tracking_payload(parcel: dict, timeline: list[dict]) -> dict:
+    recipient_code, recipient_code_label, recipient_code_help = _recipient_access_code(parcel)
     return {
         "parcel_id": parcel.get("parcel_id"),
         "tracking_code": parcel.get("tracking_code"),
@@ -107,6 +125,9 @@ def _build_public_tracking_payload(parcel: dict, timeline: list[dict]) -> dict:
         "current_location_label": _current_location_label(parcel, timeline),
         "pickup_confirmed": bool(parcel.get("pickup_confirmed")),
         "delivery_confirmed": bool(parcel.get("delivery_confirmed")),
+        "recipient_code": recipient_code,
+        "recipient_code_label": recipient_code_label,
+        "recipient_code_help": recipient_code_help,
         "created_at": parcel.get("created_at"),
         "updated_at": parcel.get("updated_at"),
         "events": [_serialize_public_event(evt) for evt in timeline],
@@ -183,6 +204,19 @@ async def view_parcel_web(tracking_code: str, request: Request):
     safe_delivery = html.escape(str(parcel.get("delivery_label") or "À confirmer"))
     safe_created_at = html.escape(_format_dt(parcel.get("created_at")))
     safe_updated_at = html.escape(_format_dt(parcel.get("updated_at")))
+    safe_recipient_code = html.escape(str(parcel.get("recipient_code") or ""))
+    safe_recipient_code_label = html.escape(str(parcel.get("recipient_code_label") or ""))
+    safe_recipient_code_help = html.escape(str(parcel.get("recipient_code_help") or ""))
+
+    code_card_html = ""
+    if safe_recipient_code and safe_recipient_code_label:
+        code_card_html = f"""
+            <section class="card code-card">
+                <div class="label">{safe_recipient_code_label}</div>
+                <div class="secure-code">{safe_recipient_code}</div>
+                <p class="app-note">{safe_recipient_code_help} Ne le partagez pas avant la remise.</p>
+            </section>
+        """
 
     events_html = ""
     for evt in reversed(parcel.get("events", [])):
@@ -245,6 +279,8 @@ async def view_parcel_web(tracking_code: str, request: Request):
             .event-title {{ font-weight: 700; }}
             .app-link {{ display: block; text-decoration: none; background: var(--primary); color: white; border-radius: 18px; padding: 16px; font-weight: 800; text-align: center; margin-top: 14px; }}
             .app-note {{ color: var(--muted); line-height: 1.5; margin: 0; }}
+            .code-card {{ border-color: #f1c232; background: linear-gradient(135deg, #fff8df, #ffffff); }}
+            .secure-code {{ font-size: clamp(34px, 10vw, 54px); font-weight: 900; letter-spacing: .18em; color: #7a4f00; margin: 10px 0 8px; text-align: center; }}
             .empty {{ color: var(--muted); }}
             .footer {{ text-align: center; color: var(--muted); font-size: 12px; margin: 28px 0 8px; }}
             @media (max-width: 640px) {{ .grid {{ grid-template-columns: 1fr; }} .card {{ padding: 18px; }} }}
@@ -263,6 +299,8 @@ async def view_parcel_web(tracking_code: str, request: Request):
                 <div class="status"><span>{safe_status_emoji}</span><span>{safe_current_location}</span></div>
                 <div class="current">Dernière mise à jour : {safe_updated_at}</div>
             </section>
+
+            {code_card_html}
 
             <section class="card">
                 <div class="grid">

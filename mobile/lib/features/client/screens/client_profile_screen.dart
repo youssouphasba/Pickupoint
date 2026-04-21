@@ -5,11 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/utils/error_utils.dart';
 
 final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
@@ -183,15 +183,11 @@ class ClientProfileScreen extends ConsumerWidget {
         CircleAvatar(
           radius: 54,
           backgroundColor: Colors.white.withValues(alpha: 0.3),
-          child: CircleAvatar(
+          child: AuthenticatedAvatar(
+            imageUrl: user.profilePictureUrl,
             radius: 50,
             backgroundColor: Colors.white,
-            backgroundImage: user.profilePictureUrl != null
-                ? CachedNetworkImageProvider(user.profilePictureUrl!)
-                : null,
-            child: user.profilePictureUrl == null
-                ? const Icon(Icons.person, size: 50, color: Colors.grey)
-                : null,
+            fallback: const Icon(Icons.person, size: 50, color: Colors.grey),
           ),
         ),
         Positioned(
@@ -622,7 +618,8 @@ class ClientProfileScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }
