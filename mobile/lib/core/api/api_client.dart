@@ -494,6 +494,36 @@ class ApiClient {
     throw Exception('Format audio invalide');
   }
 
+  Future<Uint8List> downloadBytes(String url) async {
+    final response = await _dio.get(
+      url,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final raw = response.data;
+    if (raw == null) {
+      throw Exception('Fichier introuvable');
+    }
+    if (raw is Uint8List) {
+      if (raw.isEmpty) {
+        throw Exception('Fichier introuvable');
+      }
+      return raw;
+    }
+    if (raw is List<int>) {
+      if (raw.isEmpty) {
+        throw Exception('Fichier introuvable');
+      }
+      return Uint8List.fromList(raw);
+    }
+    if (raw is List) {
+      if (raw.isEmpty) {
+        throw Exception('Fichier introuvable');
+      }
+      return Uint8List.fromList(raw.cast<int>());
+    }
+    throw Exception('Format de fichier invalide');
+  }
+
   // ─── App Settings (public/admin) ─────────────────────────────────────────
   Future<Response> getPublicAppSettings() =>
       _dio.get(ApiEndpoints.publicSettings);

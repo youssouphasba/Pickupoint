@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../providers/admin_provider.dart';
 import 'admin_user_detail_screen.dart';
 import 'admin_user_history_screen.dart';
@@ -324,14 +325,11 @@ class _UserCard extends ConsumerWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
+                  AuthenticatedAvatar(
+                    imageUrl: hasProfilePicture ? profilePicture : null,
                     radius: 26,
                     backgroundColor: color.withValues(alpha: 0.15),
-                    backgroundImage:
-                        hasProfilePicture ? NetworkImage(profilePicture) : null,
-                    child: hasProfilePicture
-                        ? null
-                        : Icon(icon, color: color, size: 20),
+                    fallback: Icon(icon, color: color, size: 20),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -722,7 +720,8 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -844,7 +843,8 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -936,7 +936,8 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {

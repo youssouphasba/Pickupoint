@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../providers/driver_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -67,7 +67,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     try {
       await ref.read(apiClientProvider).uploadAvatar(File(image.path));
       await ref.read(authProvider.notifier).fetchMe();
-      _snack('Photo mise a jour.');
+      _snack('Photo mise à jour.');
     } catch (e) {
       _snack('Upload photo impossible: $e', error: true);
     } finally {
@@ -85,7 +85,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     try {
       await ref.read(apiClientProvider).uploadKyc(File(image.path), docType);
       await ref.read(authProvider.notifier).fetchMe();
-      _snack('$label envoye pour verification.');
+      _snack('$label envoyé pour vérification.');
     } catch (e) {
       _snack('Envoi impossible: $e', error: true);
     } finally {
@@ -99,7 +99,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Mettre a jour mon profil'),
+        title: const Text('Mettre à jour mon profil'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -163,9 +163,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                 await ref.read(authProvider.notifier).fetchMe();
                 if (!dialogContext.mounted) return;
                 Navigator.pop(dialogContext);
-                _snack('Profil mis a jour.');
+                _snack('Profil mis à jour.');
               } catch (e) {
-                _snack('Mise a jour impossible: $e', error: true);
+                _snack('Mise à jour impossible: $e', error: true);
               }
             },
             child: const Text('Enregistrer'),
@@ -189,15 +189,15 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
         'notification_prefs': prefs,
       });
       await ref.read(authProvider.notifier).fetchMe();
-      _snack('Preferences mises a jour.');
+      _snack('Préférences mises à jour.');
     } catch (e) {
-      _snack('Impossible de mettre a jour les preferences: $e', error: true);
+      _snack('Impossible de mettre à jour les préférences: $e', error: true);
     }
   }
 
   void _copy(String value) {
     Clipboard.setData(ClipboardData(text: value));
-    _snack('Information copiee.');
+    _snack('Information copiée.');
   }
 
   void _snack(String message, {bool error = false}) {
@@ -301,7 +301,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     title: const Text('Disponibilite'),
                     subtitle: Text(user.isAvailable
                         ? 'Vous apparaissez dans les missions disponibles.'
-                        : 'Vous etes hors ligne pour les nouvelles missions.'),
+                        : 'Vous êtes hors ligne pour les nouvelles missions.'),
                     value: user.isAvailable,
                     onChanged:
                         _busyAvailability ? null : (_) => _toggleAvailability(),
@@ -359,7 +359,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             _section(
               title: 'Conformite',
               subtitle:
-                  'Documents utiles pour la verification et le controle admin.',
+                  'Documents utiles pour la vérification et le contrôle admin.',
               child: Column(
                 children: [
                   ListTile(
@@ -372,24 +372,24 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     ),
                     title: Text(_kycLabel(user.kycStatus)),
                     subtitle: const Text(
-                        'Gardez vos pieces a jour pour fluidifier les operations.'),
+                        'Gardez vos pièces à jour pour fluidifier les opérations.'),
                   ),
                   const Divider(height: 24),
                   _docTile(
                     icon: Icons.credit_card_outlined,
-                    title: 'Piece d identite',
+                    title: "Pièce d'identité",
                     subtitle: (user.kycIdCardUrl ?? '').isNotEmpty
-                        ? 'Document deja envoye'
-                        : 'Envoyer votre piece officielle',
+                        ? 'Document déjà envoyé'
+                        : 'Envoyer votre pièce officielle',
                     isLoading: _busyDocType == 'id_card',
-                    onPressed: () => _pickKyc('id_card', 'Piece d identite'),
+                    onPressed: () => _pickKyc('id_card', "Pièce d'identité"),
                   ),
                   const SizedBox(height: 12),
                   _docTile(
                     icon: Icons.two_wheeler_outlined,
                     title: 'Permis ou justificatif livreur',
                     subtitle: (user.kycLicenseUrl ?? '').isNotEmpty
-                        ? 'Document deja envoye'
+                        ? 'Document déjà envoyé'
                         : 'Envoyer votre permis ou justificatif',
                     isLoading: _busyDocType == 'license',
                     onPressed: () =>
@@ -420,7 +420,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Mises a jour colis'),
+                    title: const Text('Mises à jour colis'),
                     subtitle: const Text('Infos sur vos missions et remises.'),
                     value: user.notificationPrefs.parcelUpdatesEnabled,
                     onChanged: (value) =>
@@ -451,7 +451,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       helper: user.acceptedLegalAt != null
                           ? 'Le ${_formatDate(user.acceptedLegalAt)}'
                           : null),
-                  _infoRow(Icons.schedule_outlined, 'Derniere mise a jour',
+                  _infoRow(Icons.schedule_outlined, 'Dernière mise à jour',
                       _formatDate(user.updatedAt)),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -519,21 +519,21 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             ),
             title: Text(
               hasSponsor
-                  ? 'Parrainage deja active'
+                  ? 'Parrainage déjà activé'
                   : 'J\'ai un code parrainage',
             ),
             subtitle: Text(
               hasSponsor
                   ? (user.referralCredited
-                      ? 'Le bonus de parrainage a deja ete credite.'
-                      : 'Votre bonus sera credite selon les regles du programme.')
+                      ? 'Le bonus de parrainage a déjà été crédité.'
+                      : 'Votre bonus sera crédité selon les règles du programme.')
                   : referralAsync.isLoading
-                      ? 'Verification des conditions...'
+                      ? 'Vérification des conditions...'
                       : referralCheckFailed
                           ? 'Vous pouvez saisir un code. Le serveur verifiera les conditions.'
                           : canApplyReferral
                               ? applyRule
-                              : 'Le code ne peut plus etre applique. $applyRule',
+                              : 'Le code ne peut plus être appliqué. $applyRule',
             ),
             trailing: hasSponsor
                 ? const Icon(Icons.lock_outline)
@@ -592,7 +592,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       await ref.read(apiClientProvider).applyReferralCode(code.trim());
       await ref.read(authProvider.notifier).fetchMe();
       ref.invalidate(_driverReferralInfoProvider);
-      _snack('Code parrainage applique. Les primes seront debloquees selon les regles du programme.');
+      _snack(
+          'Code parrainage appliqué. Les primes seront débloquées selon les règles du programme.');
     } catch (e) {
       _snack(friendlyError(e), error: true);
     }
@@ -651,11 +652,10 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   title: const Text('Copier le message'),
                   subtitle: const Text('Code et lien de parrainage'),
                   onTap: () async {
-                    await Clipboard.setData(
-                        ClipboardData(text: shareMessage));
+                    await Clipboard.setData(ClipboardData(text: shareMessage));
                     if (!sheetContext.mounted) return;
                     Navigator.of(sheetContext).pop();
-                    _snack('Message de parrainage copie');
+                    _snack('Message de parrainage copié');
                   },
                 ),
                 ListTile(
@@ -669,13 +669,13 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                               ClipboardData(text: referralCode));
                           if (!sheetContext.mounted) return;
                           Navigator.of(sheetContext).pop();
-                          _snack('Code parrainage copie');
+                          _snack('Code parrainage copié');
                         },
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.message_outlined,
-                      color: Colors.green),
+                  leading:
+                      const Icon(Icons.message_outlined, color: Colors.green),
                   title: const Text('Partager sur WhatsApp'),
                   onTap: () async {
                     final whatsappUri = Uri.parse(
@@ -719,22 +719,18 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
               CircleAvatar(
                 radius: 46,
                 backgroundColor: Colors.white24,
-                child: CircleAvatar(
+                child: AuthenticatedAvatar(
+                  imageUrl: avatarUrl,
                   radius: 42,
                   backgroundColor: Colors.white,
-                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                      ? CachedNetworkImageProvider(avatarUrl)
-                      : null,
-                  child: avatarUrl == null || avatarUrl.isEmpty
-                      ? Text(
-                          _initials(user.fullName ?? user.phone),
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blueGrey,
-                          ),
-                        )
-                      : null,
+                  fallback: Text(
+                    _initials(user.fullName ?? user.phone),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
                 ),
               ),
               CircleAvatar(
@@ -1031,7 +1027,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       case 'rejected':
         return 'KYC a corriger';
       default:
-        return 'KYC non complete';
+        return 'KYC non complété';
     }
   }
 

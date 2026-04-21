@@ -6,6 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/currency_format.dart';
 import 'dart:async';
@@ -340,7 +341,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -429,8 +431,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)),
-              backgroundColor: Colors.red),
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -482,7 +483,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -530,7 +532,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -581,8 +584,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         throw 'Offre audio impossible à générer.';
       }
 
-      final res =
-          await ref.read(apiClientProvider).callMissionRecipient(missionId, sdpOffer);
+      final res = await ref
+          .read(apiClientProvider)
+          .callMissionRecipient(missionId, sdpOffer);
       final connected = res.data['connected'] == true;
       final callId = res.data['call_id']?.toString();
       final message = res.data['message'] as String? ??
@@ -610,7 +614,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       await _closeWhatsappCallSession();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -636,7 +641,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   void _watchWhatsappCallStatus(String missionId, String callId) {
     _callStatusTimer?.cancel();
     var attempts = 0;
-    _callStatusTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+    _callStatusTimer =
+        Timer.periodic(const Duration(seconds: 2), (timer) async {
       attempts += 1;
       if (attempts > 20 || _activeWhatsappCallId != callId) {
         timer.cancel();
@@ -738,8 +744,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(friendlyError(e)), backgroundColor: Colors.red));
       }
     } finally {
       if (mounted) {
@@ -1448,13 +1454,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          AuthenticatedAvatar(
+            imageUrl: photo,
             radius: 24,
             backgroundColor: Colors.blue.shade50,
-            backgroundImage: photo != null ? NetworkImage(photo) : null,
-            child: photo == null
-                ? const Icon(Icons.person, color: Colors.blue)
-                : null,
+            fallback: const Icon(Icons.person, color: Colors.blue),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1492,4 +1496,3 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     );
   }
 }
-
