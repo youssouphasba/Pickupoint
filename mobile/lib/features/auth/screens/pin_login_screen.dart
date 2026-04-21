@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/auth/biometric_auth_service.dart';
+import '../../../core/auth/token_storage.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 
@@ -19,9 +21,31 @@ class PinLoginScreen extends ConsumerStatefulWidget {
 
 class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
   final _pinController = TextEditingController();
+  final _biometricAuth = BiometricAuthService(TokenStorage());
   bool _isLoading = false;
   bool _obscurePin = true;
   bool _resetDialogOpen = false;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  bool _enableBiometricOnLogin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometricState();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final available = await _biometricAuth.isSupported();
+    final enabled =
+        available && await _biometricAuth.canUseForPhone(widget.phone);
+    if (!mounted) return;
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled;
+      _enableBiometricOnLogin = false;
+    });
+  }
 
   Future<void> _submit() async {
     final pin = _pinController.text.trim();
@@ -33,9 +57,36 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     setState(() => _isLoading = true);
     try {
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
+      if (_enableBiometricOnLogin && _biometricAvailable) {
+        await _biometricAuth.saveCredentials(phone: widget.phone, pin: pin);
+      }
     } catch (e) {
       if (mounted) {
         _showError(friendlyError(e));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _submitBiometric() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      final pin = await _biometricAuth.getPinAfterAuthentication();
+      if (pin == null || pin.isEmpty) {
+        return;
+      }
+      await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
+    } catch (e) {
+      await _biometricAuth.disable();
+      if (mounted) {
+        await _loadBiometricState();
+        _showError(
+          '${friendlyError(e)} Connexion biométrique désactivée sur cet appareil.',
+        );
       }
     } finally {
       if (mounted) {
@@ -140,8 +191,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                     labelText: 'Nouveau code PIN',
                     prefixIcon: const Icon(Icons.lock_reset_outlined),
                     suffixIcon: IconButton(
-                      onPressed: () =>
-                          setDialogState(() => obscure = !obscure),
+                      onPressed: () => setDialogState(() => obscure = !obscure),
                       icon: Icon(
                         obscure ? Icons.visibility : Icons.visibility_off,
                       ),
@@ -168,9 +218,8 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed:
+                  isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Annuler'),
             ),
             ElevatedButton(
@@ -313,12 +362,37 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                   icon: Icon(
                     _obscurePin ? Icons.visibility : Icons.visibility_off,
                   ),
-                  onPressed: () =>
-                      setState(() => _obscurePin = !_obscurePin),
+                  onPressed: () => setState(() => _obscurePin = !_obscurePin),
                 ),
                 border: const OutlineInputBorder(),
               ),
             ),
+            if (_biometricEnabled) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _submitBiometric,
+                  icon: const Icon(Icons.fingerprint),
+                  label: const Text('Se connecter par empreinte ou visage'),
+                ),
+              ),
+            ] else if (_biometricAvailable) ...[
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _enableBiometricOnLogin,
+                onChanged: _isLoading
+                    ? null
+                    : (value) => setState(
+                          () => _enableBiometricOnLogin = value ?? false,
+                        ),
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Activer l’empreinte ou Face ID'),
+                subtitle: const Text(
+                  'Optionnel. Valable uniquement sur ce téléphone.',
+                ),
+              ),
+            ],
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(

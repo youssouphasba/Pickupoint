@@ -6,10 +6,12 @@ class TokenStorage {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  static const _kAccess  = 'access_token';
+  static const _kAccess = 'access_token';
   static const _kRefresh = 'refresh_token';
   static const _kLastPhone = 'last_account_phone';
   static const _kLastName = 'last_account_name';
+  static const _kBiometricPhone = 'biometric_account_phone';
+  static const _kBiometricPin = 'biometric_account_pin';
 
   Future<void> saveTokens({
     required String accessToken,
@@ -21,10 +23,12 @@ class TokenStorage {
     ]);
   }
 
-  Future<String?> getAccessToken()  => _storage.read(key: _kAccess);
+  Future<String?> getAccessToken() => _storage.read(key: _kAccess);
   Future<String?> getRefreshToken() => _storage.read(key: _kRefresh);
   Future<String?> getLastPhone() => _storage.read(key: _kLastPhone);
   Future<String?> getLastName() => _storage.read(key: _kLastName);
+  Future<String?> getBiometricPhone() => _storage.read(key: _kBiometricPhone);
+  Future<String?> getBiometricPin() => _storage.read(key: _kBiometricPin);
 
   Future<void> saveLastAccount({
     required String phone,
@@ -43,6 +47,26 @@ class TokenStorage {
     await Future.wait([
       _storage.delete(key: _kLastPhone),
       _storage.delete(key: _kLastName),
+    ]);
+  }
+
+  Future<void> saveBiometricCredentials({
+    required String phone,
+    required String pin,
+  }) async {
+    final normalizedPhone = phone.trim();
+    final normalizedPin = pin.trim();
+    if (normalizedPhone.isEmpty || normalizedPin.isEmpty) return;
+    await Future.wait([
+      _storage.write(key: _kBiometricPhone, value: normalizedPhone),
+      _storage.write(key: _kBiometricPin, value: normalizedPin),
+    ]);
+  }
+
+  Future<void> clearBiometricCredentials() async {
+    await Future.wait([
+      _storage.delete(key: _kBiometricPhone),
+      _storage.delete(key: _kBiometricPin),
     ]);
   }
 
