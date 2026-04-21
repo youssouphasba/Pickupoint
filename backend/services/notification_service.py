@@ -287,6 +287,37 @@ async def notify_quote_finalized(
     )
 
 
+async def notify_sender_driver_assigned(parcel: dict, driver: dict):
+    """Notifie l'expéditeur quand un livreur accepte la mission."""
+    sender_id = parcel.get("sender_user_id")
+    if not sender_id:
+        return
+
+    tracking_code = parcel.get("tracking_code", "")
+    driver_name = (driver.get("name") or "Le livreur").strip()
+    tracking_url = _tracking_url(tracking_code)
+    sender_first = _first_name(parcel.get("sender_name"))
+    body = (
+        f"{driver_name} a accepté la mission pour le colis {tracking_code}. "
+        "Préparez le colis et gardez le code de collecte à portée de main."
+    )
+    await _store_and_send(
+        user_id=sender_id,
+        title="Livreur assigné",
+        body=body,
+        ref_type="parcel",
+        ref_id=parcel.get("parcel_id"),
+        category="parcel_updates",
+        whatsapp_template="parcel_assigned",
+        whatsapp_variables=_template_vars(
+            "parcel_assigned",
+            sender_first,
+            tracking_code,
+            tracking_url,
+        ),
+    )
+
+
 async def _store_and_send(
     user_id: str,
     title: str,

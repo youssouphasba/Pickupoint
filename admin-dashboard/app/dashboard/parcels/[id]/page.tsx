@@ -275,6 +275,7 @@ export default function ParcelDetailPage() {
             <Row label="Expéditeur" value={parcel.sender_name ?? "—"} />
             <Row label="Destinataire" value={parcel.recipient_name ?? parcel.recipient_phone ?? "—"} />
             <Row label="Tél. destinataire" value={parcel.recipient_phone ?? "—"} />
+            <Row label="Créé le" value={formatDate(parcel.created_at)} />
             <Row label="Mode" value={MODE_LABELS[parcel.delivery_mode] ?? "—"} />
             {parcel.is_express && <Row label="Express" value="Oui" />}
             {parcel.weight_kg != null && <Row label="Poids" value={`${parcel.weight_kg} kg`} />}
@@ -312,6 +313,18 @@ export default function ParcelDetailPage() {
             <Row label="Relais origine" value={parcel.origin_relay_id ?? "—"} />
             <Row label="Relais destination" value={parcel.destination_relay_id ?? "—"} />
             {parcel.relay_pin && <Row label="PIN relais" value={parcel.relay_pin} />}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Codes et accès</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Row label="Code de collecte" value={parcel.pickup_code ?? "—"} />
+            <Row label="Code de livraison" value={parcel.delivery_code ?? "—"} />
+            <Row label="Code retrait relais" value={parcel.relay_pin ?? "—"} />
+            <Row label="Lien destinataire" value={parcel.recipient_confirm_url ?? "—"} />
           </CardContent>
         </Card>
 

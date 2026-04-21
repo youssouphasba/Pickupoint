@@ -19,7 +19,7 @@ from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
 from services.parcel_service import transition_status, _record_event
 from services.google_maps_service import get_directions_eta
-from services.notification_service import notify_approaching_driver
+from services.notification_service import notify_approaching_driver, notify_sender_driver_assigned
 from services.whatsapp_call_service import connect_driver_whatsapp_call, send_driver_contact_request
 from core.limiter import limiter
 from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, mask_phone, phone_suffix
@@ -411,7 +411,7 @@ async def accept_mission(
     if mission["status"] != MissionStatus.PENDING.value:
         raise bad_request_exception("Mission déjà prise en charge")
 
-    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"status": 1})
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
     if parcel and parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Mission indisponible.")
 
@@ -454,6 +454,25 @@ async def accept_mission(
             "updated_at": now,
         }},
     )
+    if parcel:
+        await notify_sender_driver_assigned(parcel, current_user)
+        await _record_event(
+            parcel_id=mission["parcel_id"],
+            event_type="MISSION_ACCEPTED",
+            actor_id=current_user["user_id"],
+            actor_role=current_user["role"],
+            notes=(
+                f"Livreur assigné : {current_user.get('name') or 'Livreur'}. "
+                "L'expéditeur a été notifié pour préparer la remise du colis."
+            ),
+            metadata={
+                "mission_id": mission_id,
+                "driver_id": current_user["user_id"],
+                "driver_name": current_user.get("name"),
+                "assigned_at": now.isoformat(),
+                "notified_sender": True,
+            },
+        )
     return {"message": "Mission acceptée", "mission_id": mission_id}
 
 

@@ -3,9 +3,13 @@ Router confirmation d'adresse — système bidirectionnel GPS.
 Liens envoyés par SMS/WhatsApp à l'expéditeur ou au destinataire.
 Aucune authentification requise — token signé suffit.
 """
+import base64
+import hashlib
 import html
 import json
+import mimetypes
 import secrets
+import uuid
 from datetime import datetime, timezone
 from datetime import timedelta
 
@@ -16,8 +20,10 @@ from typing import Optional
 
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
+from config import UPLOADS_DIR
 from database import db
 from models.parcel import ParcelQuote
+from services.parcel_service import _record_event
 from services.pricing_service import calculate_price
 from services.payment_service import create_payment_link
 
@@ -25,10 +31,88 @@ router = APIRouter()
 
 TERMINAL_PARCEL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
 RELAY_CHANGE_ALLOWED_STATUSES = {"created", "dropped_at_origin_relay"}
+PRIVATE_CONFIRM_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
+MAX_CONFIRM_VOICE_SIZE = 5 * 1024 * 1024
 
 
 def _is_confirm_token_expired(parcel: dict) -> bool:
     return (parcel.get("status") or "").lower() in TERMINAL_PARCEL_STATUSES
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def _save_confirmation_voice_note(
+    parcel: dict,
+    token: str,
+    is_recipient: bool,
+    voice_note: Optional[str],
+) -> Optional[str]:
+    if not voice_note or not voice_note.startswith("data:audio/"):
+        return None
+
+    existing = await db.parcel_messages.find_one(
+        {
+            "parcel_id": parcel["parcel_id"],
+            "type": "voice",
+            "source": "confirm_link",
+            "source_token_hash": _token_hash(token),
+        },
+        {"_id": 0, "message_id": 1},
+    )
+    if existing:
+        return existing.get("message_id")
+
+    try:
+        header, encoded = voice_note.split(",", 1)
+    except ValueError:
+        raise bad_request_exception("Note vocale invalide")
+
+    if ";base64" not in header:
+        raise bad_request_exception("Note vocale invalide")
+
+    mime_type = header.removeprefix("data:").split(";", 1)[0] or "audio/webm"
+    if not mime_type.startswith("audio/"):
+        raise bad_request_exception("Format audio non supporté")
+
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except Exception:
+        raise bad_request_exception("Note vocale invalide")
+
+    if not content:
+        raise bad_request_exception("Fichier audio vide")
+    if len(content) > MAX_CONFIRM_VOICE_SIZE:
+        raise bad_request_exception("Fichier audio trop volumineux (max 5 Mo)")
+
+    ext = (mimetypes.guess_extension(mime_type) or ".webm").lstrip(".")
+    filename = f"confirm_voice_{uuid.uuid4().hex}.{ext}"
+    PRIVATE_CONFIRM_VOICE_DIR.mkdir(parents=True, exist_ok=True)
+    filepath = PRIVATE_CONFIRM_VOICE_DIR / filename
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    sender_role = "recipient" if is_recipient else "sender"
+    sender_id = parcel.get("recipient_user_id") if is_recipient else parcel.get("sender_user_id")
+    sender_name = parcel.get("recipient_name") if is_recipient else parcel.get("sender_name")
+    msg = {
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "parcel_id": parcel["parcel_id"],
+        "sender_id": sender_id or f"confirm_{sender_role}",
+        "sender_name": sender_name or ("Destinataire" if is_recipient else "Expéditeur"),
+        "sender_role": sender_role,
+        "type": "voice",
+        "content": None,
+        "voice_path": str(filepath),
+        "mime_type": mime_type,
+        "duration_s": None,
+        "source": "confirm_link",
+        "source_token_hash": _token_hash(token),
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.parcel_messages.insert_one(msg)
+    return msg["message_id"]
 
 
 async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
@@ -529,10 +613,34 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
         updates["delivery_address"] = location
     else:
         updates["origin_location"] = location
-    if payload.voice_note:
+    voice_message_id = await _save_confirmation_voice_note(
+        parcel,
+        token,
+        is_recipient,
+        payload.voice_note,
+    )
+    if voice_message_id:
+        updates[f"{field_prefix}_voice_note"] = "Note vocale reçue via le lien de confirmation."
+        updates[f"{field_prefix}_voice_message_id"] = voice_message_id
+    elif payload.voice_note:
         updates[f"{field_prefix}_voice_note"] = payload.voice_note
 
     await db.parcels.update_one({"parcel_id": parcel["parcel_id"]}, {"$set": updates})
+    await _record_event(
+        parcel_id=parcel["parcel_id"],
+        event_type="RECIPIENT_LOCATION_CONFIRMED" if is_recipient else "SENDER_LOCATION_CONFIRMED",
+        actor_role="recipient" if is_recipient else "sender",
+        notes=(
+            "Position de livraison confirmée par le destinataire via le lien sécurisé."
+            if is_recipient
+            else "Position de collecte confirmée par l'expéditeur via le lien sécurisé."
+        ),
+        metadata={
+            "source": "confirm_link",
+            "has_voice_note": bool(voice_message_id or payload.voice_note),
+            "voice_message_id": voice_message_id,
+        },
+    )
 
     # ── Si le destinataire ou l'expéditeur confirme, on vérifie la création de mission ──
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
@@ -647,10 +755,41 @@ async def save_voice_note(token: str, payload: dict, request: Request):
 
     is_recipient = parcel.get("recipient_confirm_token") == token
     field = "delivery_voice_note" if is_recipient else "pickup_voice_note"
+    message_field = "delivery_voice_message_id" if is_recipient else "pickup_voice_message_id"
+    voice_message_id = await _save_confirmation_voice_note(
+        parcel,
+        token,
+        is_recipient,
+        payload.get("voice_note"),
+    )
+    voice_value = (
+        "Note vocale reçue via le lien de confirmation."
+        if voice_message_id
+        else payload.get("voice_note")
+    )
     await db.parcels.update_one(
         {"parcel_id": parcel["parcel_id"]},
-        {"$set": {field: payload.get("voice_note"), "updated_at": datetime.now(timezone.utc)}}
+        {"$set": {
+            field: voice_value,
+            message_field: voice_message_id,
+            "updated_at": datetime.now(timezone.utc),
+        }}
     )
+    if voice_message_id:
+        await _record_event(
+            parcel_id=parcel["parcel_id"],
+            event_type="VOICE_INSTRUCTION_ADDED",
+            actor_role="recipient" if is_recipient else "sender",
+            notes=(
+                "Note vocale de livraison ajoutée par le destinataire."
+                if is_recipient
+                else "Note vocale de collecte ajoutée par l'expéditeur."
+            ),
+            metadata={
+                "source": "confirm_link",
+                "voice_message_id": voice_message_id,
+            },
+        )
     return {"ok": True}
 
 

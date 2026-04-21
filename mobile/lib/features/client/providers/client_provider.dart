@@ -9,9 +9,11 @@ final parcelsProvider = FutureProvider<List<Parcel>>((ref) async {
   final res = await api.getParcels(params: {'role_view': 'client'});
   final data = res.data as Map<String, dynamic>;
   // Backend retourne {"parcels": [...], "total": N}
-  return (data['parcels'] as List? ?? [])
+  final parcels = (data['parcels'] as List? ?? [])
       .map((e) => Parcel.fromJson(e as Map<String, dynamic>))
       .toList();
+  parcels.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  return parcels;
 });
 
 /// Provider pour un colis spécifique identifié par son ID.
