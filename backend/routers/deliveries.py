@@ -625,6 +625,7 @@ async def contact_recipient_via_denkma(
         "sent": bool(result.get("sent")),
         "whatsapp_message_id": result.get("message_id"),
         "whatsapp_template": result.get("template"),
+        "action": result.get("action"),
         "status_code": result.get("status_code"),
         "reason": result.get("reason"),
         "meta_error": result.get("meta_error"),
@@ -648,6 +649,7 @@ async def contact_recipient_via_denkma(
             "sent": bool(result.get("sent")),
             "whatsapp_message_id": result.get("message_id"),
             "whatsapp_template": result.get("template"),
+            "action": result.get("action"),
             "reason": result.get("reason"),
             "status_code": result.get("status_code"),
         },
@@ -725,6 +727,11 @@ async def call_recipient_via_whatsapp_api(
         "whatsapp_call_id": result.get("call_id"),
         "action": result.get("action"),
         "status_code": result.get("status_code"),
+        "permission_request_sent": result.get("permission_request_sent"),
+        "permission_status_code": result.get("permission_status_code"),
+        "permission_error": result.get("permission_error"),
+        "request_status_code": result.get("request_status_code"),
+        "request_error": result.get("request_error"),
         "reason": result.get("reason"),
         "meta_error": result.get("meta_error"),
         "created_at": now,
@@ -749,6 +756,8 @@ async def call_recipient_via_whatsapp_api(
             "action": result.get("action"),
             "reason": result.get("reason"),
             "status_code": result.get("status_code"),
+            "permission_request_sent": result.get("permission_request_sent"),
+            "permission_status_code": result.get("permission_status_code"),
         },
     )
 
@@ -759,6 +768,7 @@ async def call_recipient_via_whatsapp_api(
         "call_id": result.get("call_id"),
         "request_id": request_doc["request_id"],
         "reason": result.get("reason"),
+        "permission_request_sent": bool(result.get("permission_request_sent")),
     }
 
 
