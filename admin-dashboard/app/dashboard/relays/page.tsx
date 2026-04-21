@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { AdminRelay, fetchRelays, verifyRelay } from "@/lib/api";
@@ -12,9 +13,11 @@ import Link from "next/link";
 
 export default function RelaysPage() {
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
+  const activeOnly = searchParams.get("active") === "true";
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["relays"],
-    queryFn: fetchRelays,
+    queryKey: ["relays", activeOnly],
+    queryFn: () => fetchRelays(activeOnly ? { active: true } : undefined),
   });
 
   const verifyMut = useMutation({

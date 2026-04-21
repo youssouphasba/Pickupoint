@@ -135,7 +135,7 @@ export default function ParcelDetailPage() {
 
   const driversForReassign = useQuery({
     queryKey: ["drivers-list"],
-    queryFn: fetchDrivers,
+    queryFn: () => fetchDrivers(),
     enabled: reassignOpen,
   });
 
