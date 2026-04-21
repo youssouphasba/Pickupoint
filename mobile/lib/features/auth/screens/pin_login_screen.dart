@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -25,7 +26,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
   Future<void> _submit() async {
     final pin = _pinController.text.trim();
     if (pin.length != 4) {
-      _showError('Veuillez entrer votre code PIN a 4 chiffres');
+      _showError('Veuillez entrer votre code PIN à 4 chiffres');
       return;
     }
 
@@ -70,7 +71,9 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Verification lancee. Entrez le code recu ou choisissez votre nouveau PIN.'),
+            content: Text(
+              'Vérification lancée. Entrez le code reçu ou choisissez votre nouveau PIN.',
+            ),
           ),
         );
       }
@@ -101,15 +104,15 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('Reinitialiser le PIN'),
+          title: const Text('Réinitialiser le PIN'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   autoCredential != null
-                      ? 'Votre numero a ete verifie automatiquement. Choisissez un nouveau code PIN.'
-                      : 'Un code de verification a ete envoye au ${widget.phone}.',
+                      ? 'Votre numéro a été vérifié automatiquement. Choisissez un nouveau code PIN.'
+                      : 'Un code de vérification a été envoyé au ${widget.phone}.',
                   style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 16),
@@ -181,7 +184,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                       if (verificationId != null && smsCode.length != 6) {
                         setDialogState(
                           () => errorText =
-                              'Entrez les 6 chiffres recus par SMS.',
+                              'Entrez les 6 chiffres reçus par SMS.',
                         );
                         return;
                       }
@@ -216,7 +219,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                             await userCredential.user?.getIdToken(true);
                         if (idToken == null) {
                           throw Exception(
-                            'Impossible de valider votre verification.',
+                            'Impossible de valider votre vérification.',
                           );
                         }
                         await ref.read(apiClientProvider).resetPinWithFirebase({
@@ -230,7 +233,7 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                'PIN reinitialise. Connectez-vous avec votre nouveau code.',
+                                'PIN réinitialisé. Connectez-vous avec votre nouveau code.',
                               ),
                               backgroundColor: Colors.green,
                             ),
@@ -320,7 +323,16 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: _isLoading ? null : _startResetPinFlow,
-                child: const Text('Code oublie ?'),
+                child: const Text('Code oublié ?'),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _isLoading
+                    ? null
+                    : () => context.go('/auth/phone?change=1'),
+                child: const Text("Ce n'est pas mon compte"),
               ),
             ),
             const SizedBox(height: 16),

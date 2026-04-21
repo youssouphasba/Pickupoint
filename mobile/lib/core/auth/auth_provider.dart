@@ -233,7 +233,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         if (referralCode != null && referralCode.trim().isNotEmpty)
           'referral_code': referralCode.trim().toUpperCase(),
       });
-      _handleTokenResponse(res.data as Map<String, dynamic>);
+      await _handleTokenResponse(res.data as Map<String, dynamic>);
     } catch (e) {
       state = AsyncData(AuthState(
           status: AuthStatus.unauthenticated, error: _extractError(e)));
@@ -247,7 +247,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     try {
       final client = ApiClient();
       final res = await client.loginPin({'phone': phone, 'pin': pin});
-      _handleTokenResponse(res.data as Map<String, dynamic>);
+      await _handleTokenResponse(res.data as Map<String, dynamic>);
     } catch (e) {
       state = AsyncData(AuthState(
           status: AuthStatus.unauthenticated, error: _extractError(e)));
@@ -276,6 +276,10 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
     await _storage.saveTokens(
         accessToken: accessToken, refreshToken: refreshToken);
+    await _storage.saveLastAccount(
+      phone: user.phone,
+      name: user.fullName,
+    );
 
     state = AsyncData(AuthState(
       status: AuthStatus.authenticated,
@@ -360,6 +364,9 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    try {
+      await fb.FirebaseAuth.instance.signOut();
+    } catch (_) {}
     await _storage.clearTokens();
     state = const AsyncData(AuthState(status: AuthStatus.unauthenticated));
   }

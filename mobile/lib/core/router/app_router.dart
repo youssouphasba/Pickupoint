@@ -265,6 +265,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           initialReferralCode: state.uri.queryParameters['ref'],
           initialPhone: state.uri.queryParameters['phone'],
           initialTrackingCode: state.uri.queryParameters['tracking'],
+          forcePhoneEntry: state.uri.queryParameters['change'] == '1',
         ),
       ),
       GoRoute(

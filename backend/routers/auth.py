@@ -34,6 +34,9 @@ from services.user_service import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+PIN_MAX_FAILED_ATTEMPTS = 5
+PIN_LOCK_MINUTES = 15
+
 # Utilisation du limiter global défini dans core/limiter
 from core.limiter import limiter
 
@@ -160,11 +163,37 @@ async def login_pin(body: PINLoginRequest, request: Request):
     pin_hash = user_doc.get("pin_hash")
     if not pin_hash:
         raise bad_request_exception("Aucun code PIN configuré pour ce compte. Veuillez utiliser la réinitialisation.")
-        
+
+    now = datetime.now(timezone.utc)
+    locked_until = user_doc.get("pin_locked_until")
+    if locked_until and locked_until > now:
+        raise bad_request_exception(
+            "Trop de tentatives incorrectes. Réessayez plus tard ou réinitialisez votre PIN."
+        )
+
     from core.security import verify_password
     if not verify_password(body.pin, pin_hash):
+        failed_attempts = int(user_doc.get("pin_failed_attempts") or 0) + 1
+        update = {
+            "pin_failed_attempts": failed_attempts,
+            "updated_at": now,
+        }
+        if failed_attempts >= PIN_MAX_FAILED_ATTEMPTS:
+            update["pin_locked_until"] = now + timedelta(minutes=PIN_LOCK_MINUTES)
+        await db.users.update_one({"phone": phone}, {"$set": update})
         raise bad_request_exception("Code PIN incorrect")
-        
+
+    await db.users.update_one(
+        {"phone": phone},
+        {
+            "$unset": {
+                "pin_failed_attempts": "",
+                "pin_locked_until": "",
+            },
+            "$set": {"updated_at": now},
+        },
+    )
+
     token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token  = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
@@ -325,19 +354,19 @@ class FirebaseResetPinRequest(BaseModel):
     new_pin: str
 
 
-@router.post("/reset-pin-firebase", summary="Reinitialiser le PIN via Firebase")
+@router.post("/reset-pin-firebase", summary="Réinitialiser le PIN via Firebase")
 @limiter.limit("5/minute")
 async def reset_pin_firebase(body: FirebaseResetPinRequest, request: Request):
     try:
         decoded = firebase_auth.verify_id_token(body.id_token)
     except Exception as e:
         logger.warning("Firebase reset-pin token verification failed: %s", e)
-        raise bad_request_exception("Verification Firebase invalide ou expiree")
+        raise bad_request_exception("Vérification Firebase invalide ou expirée")
 
     phone = normalize_phone(decoded.get("phone_number"))
     if not phone:
         raise bad_request_exception(
-            "Le token Firebase ne contient pas de numero de telephone"
+            "Le token Firebase ne contient pas de numéro de téléphone"
         )
 
     if len(body.new_pin) < 4:
@@ -358,10 +387,14 @@ async def reset_pin_firebase(body: FirebaseResetPinRequest, request: Request):
                 "pin_hash": hash_password(body.new_pin),
                 "is_phone_verified": True,
                 "updated_at": datetime.now(timezone.utc),
-            }
+            },
+            "$unset": {
+                "pin_failed_attempts": "",
+                "pin_locked_until": "",
+            },
         },
     )
-    return {"message": "Code PIN reinitialise avec succes."}
+    return {"message": "Code PIN réinitialisé avec succès."}
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Rafraîchir access token")
