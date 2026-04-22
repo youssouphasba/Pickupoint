@@ -34,6 +34,7 @@ class Parcel(BaseModel):
     # Codes de validation Sécurité (Phase 3)
     pickup_code:           str   = ""                          # 6 chiffres — expéditeur/relais -> livreur
     delivery_code:         str   = ""                          # 6 chiffres — destinataire -> livreur
+    return_code:           Optional[str] = None                 # 6 chiffres — expéditeur -> livreur en cas de retour
     # Statut machine d'états
     status:                ParcelStatus = ParcelStatus.CREATED
     # Driver assigné

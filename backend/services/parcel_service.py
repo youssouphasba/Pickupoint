@@ -3,6 +3,7 @@ Service colis : machine d'états, event sourcing, transitions métier.
 """
 import logging
 import math
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -18,6 +19,7 @@ from services.pricing_service import calculate_price
 from services.wallet_service import distribute_delivery_revenue
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
 from services.payment_service import create_payment_link
+from services.admin_events_service import AdminEventType, record_admin_event
 
 import random
 logger = logging.getLogger(__name__)
@@ -73,6 +75,7 @@ ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
         ParcelStatus.SUSPENDED,
     ],
     ParcelStatus.DELIVERY_FAILED: [
+        ParcelStatus.INCIDENT_REPORTED,
         ParcelStatus.REDIRECTED_TO_RELAY,
         ParcelStatus.RETURNED,
     ],
@@ -123,20 +126,117 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
+def _parse_hhmm(value: str) -> Optional[tuple[int, int]]:
+    normalized = value.strip().lower().replace("h", ":")
+    parts = normalized.split(":")
+    if not parts or not parts[0].isdigit():
+        return None
+    hour = int(parts[0])
+    minute = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour, minute
+
+
+def _time_in_range(now: datetime, value: str) -> bool:
+    if not value or value.strip().lower() in {"closed", "fermé", "ferme"}:
+        return False
+    normalized = value.lower().replace("h", ":")
+    ranges = [
+        f"{match.group(1)}-{match.group(2)}"
+        for match in re.finditer(r"(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)", normalized)
+    ]
+    if not ranges:
+        ranges = [item.strip() for item in normalized.replace(";", ",").split(",") if item.strip()]
+    current = now.hour * 60 + now.minute
+    for item in ranges:
+        if "-" not in item:
+            continue
+        start_raw, end_raw = item.split("-", 1)
+        start = _parse_hhmm(start_raw)
+        end = _parse_hhmm(end_raw)
+        if not start or not end:
+            continue
+        start_min = start[0] * 60 + start[1]
+        end_min = end[0] * 60 + end[1]
+        if start_min <= end_min and start_min <= current <= end_min:
+            return True
+        if start_min > end_min and (current >= start_min or current <= end_min):
+            return True
+    return False
+
+
+def _relay_is_open(relay: dict, now: datetime) -> bool:
+    """Vérifie les horaires quand ils sont renseignés. Les anciens relais sans horaires restent éligibles."""
+    opening_hours = relay.get("opening_hours")
+    if not opening_hours:
+        return True
+
+    if isinstance(opening_hours, dict):
+        keys_by_weekday = [
+            ("mon", "monday", "lun", "lundi"),
+            ("tue", "tuesday", "mar", "mardi"),
+            ("wed", "wednesday", "mer", "mercredi"),
+            ("thu", "thursday", "jeu", "jeudi"),
+            ("fri", "friday", "ven", "vendredi"),
+            ("sat", "saturday", "sam", "samedi"),
+            ("sun", "sunday", "dim", "dimanche"),
+        ]
+        value = None
+        for key in keys_by_weekday[now.weekday()]:
+            value = opening_hours.get(key)
+            if value:
+                break
+        return _time_in_range(now, str(value)) if value else False
+
+    if isinstance(opening_hours, str):
+        return _time_in_range(now, opening_hours)
+
+    return True
+
+
 async def find_nearest_relay(lat: float, lng: float) -> Optional[dict]:
-    """Retourne le relais actif le plus proche d'une coordonnée GPS."""
+    """Retourne le relais actif, ouvert et proche d'une coordonnée GPS."""
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    configured_distance = settings_doc.get("redirect_relay_max_distance_km")
+    max_distance_km = max(
+        0.1,
+        float(configured_distance if configured_distance is not None else settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
+    )
+    now = datetime.now(timezone.utc)
     relays = await db.relay_points.find(
         {"is_active": True},
-        {"_id": 0, "relay_id": 1, "name": 1, "address": 1},
+        {
+            "_id": 0,
+            "relay_id": 1,
+            "name": 1,
+            "address": 1,
+            "coverage_radius_km": 1,
+            "current_load": 1,
+            "max_capacity": 1,
+            "opening_hours": 1,
+        },
     ).to_list(length=500)
 
     nearest, min_dist = None, float("inf")
     for relay in relays:
+        max_capacity = relay.get("max_capacity")
+        current_load = relay.get("current_load")
+        if max_capacity is not None and current_load is not None and current_load >= max_capacity:
+            continue
+        if not _relay_is_open(relay, now):
+            continue
         geopin = (relay.get("address") or {}).get("geopin")
         if geopin and geopin.get("lat") is not None and geopin.get("lng") is not None:
             dist = _haversine_km(lat, lng, geopin["lat"], geopin["lng"])
+            relay_radius = float(relay.get("coverage_radius_km") or max_distance_km)
+            allowed_distance = min(max_distance_km, relay_radius)
+            if dist > allowed_distance:
+                continue
             if dist < min_dist:
                 min_dist, nearest = dist, relay
+    if nearest:
+        nearest["distance_km"] = round(min_dist, 2)
     return nearest
 
 
@@ -532,6 +632,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "pickup_code":           _generate_code(),
         "delivery_code":         _generate_delivery_code() if data.delivery_mode.value.endswith("_to_home") else None,
         "relay_pin":             _generate_delivery_code() if data.delivery_mode.value.endswith("_to_relay") else None,
+        "return_code":           None,
         "paid_price":            None,
         "payment_status":        "pending",
         "payment_method":        None,
@@ -938,19 +1039,105 @@ async def transition_status(
                     # On sort sans mettre FAILED
                     return await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
 
+            return_code = parcel.get("return_code") or _generate_delivery_code()
+            await db.parcels.update_one(
+                {"parcel_id": parcel_id},
+                {"$set": {
+                    "return_code": return_code,
+                    "updated_at": now,
+                }},
+            )
             await db.delivery_missions.update_one(
                 {"mission_id": mission["mission_id"]},
                 {"$set": {
-                    "status": MissionStatus.FAILED.value,
-                    "completed_at": now,
-                    "updated_at":   now
-                }}
+                    "status": MissionStatus.INCIDENT_REPORTED.value,
+                    "failure_reason": "no_redirect_relay_available_return_to_sender",
+                    "updated_at": now,
+                }},
             )
-            logger.info(f"Mission {mission['mission_id']} échouée (pas de repli possible) pour {parcel_id}")
+            logger.info(
+                "Aucun relais de repli proche/ouvert trouvé pour la mission %s / colis %s. "
+                "Retour à l'expéditeur déclenché.",
+                mission["mission_id"],
+                parcel_id,
+            )
+            return await transition_status(
+                parcel_id,
+                ParcelStatus.INCIDENT_REPORTED,
+                actor_id=actor_id,
+                actor_role=actor_role,
+                notes="Aucun relais de repli proche/ouvert. Retour à l'expéditeur requis.",
+                metadata={
+                    "fallback_action": "return_to_sender",
+                    "reason": "no_nearby_open_relay",
+                },
+            )
 
 
     # Notifier le changement
     await notify_parcel_status_change(parcel, new_status)
+
+    if new_status == ParcelStatus.DISPUTED:
+        tracking = parcel.get("tracking_code") or parcel_id
+        await record_admin_event(
+            AdminEventType.PARCEL_DISPUTED,
+            title=f"Litige ouvert — colis {tracking}",
+            message=(notes or "Le colis est passé en litige"),
+            href=f"/dashboard/parcels/{parcel_id}",
+            metadata={
+                "parcel_id": parcel_id,
+                "tracking_code": tracking,
+                "from_status": current_status.value,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+            },
+        )
+    elif new_status == ParcelStatus.REDIRECTED_TO_RELAY:
+        tracking = parcel.get("tracking_code") or parcel_id
+        redirect_relay_id = (metadata or {}).get("redirect_relay_id") or parcel.get("redirect_relay_id")
+        await record_admin_event(
+            AdminEventType.PARCEL_REDIRECTED,
+            title=f"Colis redirigé — {tracking}",
+            message=(notes or "Livraison échouée, colis redirigé vers un relais de repli"),
+            href=f"/dashboard/parcels/{parcel_id}",
+            metadata={
+                "parcel_id": parcel_id,
+                "tracking_code": tracking,
+                "redirect_relay_id": redirect_relay_id,
+                "from_status": current_status.value,
+            },
+        )
+    elif new_status == ParcelStatus.INCIDENT_REPORTED:
+        tracking = parcel.get("tracking_code") or parcel_id
+        await record_admin_event(
+            AdminEventType.INCIDENT_REPORTED,
+            title=f"Retour à l'expéditeur requis — {tracking}",
+            message=(notes or "Incident signalé sur le colis"),
+            href=f"/dashboard/parcels/{parcel_id}",
+            metadata={
+                "parcel_id": parcel_id,
+                "tracking_code": tracking,
+                "from_status": current_status.value,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+                **(metadata or {}),
+            },
+        )
+    elif new_status == ParcelStatus.CANCELLED:
+        tracking = parcel.get("tracking_code") or parcel_id
+        await record_admin_event(
+            AdminEventType.PARCEL_CANCELLED,
+            title=f"Colis annulé — {tracking}",
+            message=(notes or "Colis annulé"),
+            href=f"/dashboard/parcels/{parcel_id}",
+            metadata={
+                "parcel_id": parcel_id,
+                "tracking_code": tracking,
+                "from_status": current_status.value,
+                "actor_id": actor_id,
+                "actor_role": actor_role,
+            },
+        )
 
     updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     return updated

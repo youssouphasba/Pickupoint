@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
+import { ActionCenterSection } from "@/components/action-center-section";
 import {
   Package,
   CheckCircle2,
@@ -147,6 +148,8 @@ export default function DashboardHome() {
           contrôle correspondant.
         </p>
       </div>
+
+      <ActionCenterSection />
 
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">

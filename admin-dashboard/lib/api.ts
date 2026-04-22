@@ -166,6 +166,8 @@ export async function fetchParcels(params: {
   scope?: string;
   created_today?: boolean;
   payment_blocked?: boolean;
+  from_date?: string;
+  to_date?: string;
   skip?: number;
   limit?: number;
 }) {
@@ -188,9 +190,13 @@ export type AdminPayout = {
   created_at?: string;
 };
 
-export async function fetchPendingPayouts() {
+export async function fetchPendingPayouts(params?: {
+  from_date?: string;
+  to_date?: string;
+}) {
   const { data } = await api.get<{ payouts: AdminPayout[] }>(
-    "/api/admin/wallets/payouts"
+    "/api/admin/wallets/payouts",
+    { params }
   );
   return data;
 }
@@ -407,7 +413,13 @@ export async function fetchCodMonitoring() {
 
 // ───────────────────────── Audit log ─────────────────────────
 
-export async function fetchAuditLog(params: { skip?: number; limit?: number }) {
+export async function fetchAuditLog(params: {
+  skip?: number;
+  limit?: number;
+  offset?: number;
+  from_date?: string;
+  to_date?: string;
+}) {
   const { data } = await api.get("/api/admin/audit-log", { params });
   return data;
 }
@@ -423,6 +435,36 @@ export async function toggleExpress(enabled: boolean) {
   const { data } = await api.put("/api/admin/settings/express", {
     enabled,
   });
+  return data;
+}
+
+export async function updateLogisticsSettings(body: {
+  redirect_relay_max_distance_km: number;
+}) {
+  const { data } = await api.put("/api/admin/settings/logistics", body);
+  return data;
+}
+
+export type OperationalSettingsPayload = {
+  express_enabled: boolean;
+  base_relay_to_relay: number;
+  base_relay_to_home: number;
+  base_home_to_relay: number;
+  base_home_to_home: number;
+  price_per_km: number;
+  price_per_kg: number;
+  free_weight_kg: number;
+  min_price: number;
+  express_multiplier: number;
+  night_multiplier: number;
+  default_distance_km: number;
+  redirect_relay_max_distance_km: number;
+};
+
+export async function updateOperationalSettings(
+  body: OperationalSettingsPayload
+) {
+  const { data } = await api.put("/api/admin/settings/operational", body);
   return data;
 }
 
@@ -615,5 +657,97 @@ export async function fetchDriverStats(period: string) {
 
 export async function fetchDashboard() {
   const { data } = await api.get("/api/admin/dashboard");
+  return data;
+}
+
+// ───────────────────── Action Center ─────────────────────
+
+export type ActionUrgency = "normal" | "warning" | "critical";
+
+export type ActionItem = {
+  id: string;
+  age_hours: number;
+  urgency: ActionUrgency;
+  href?: string;
+  // Champs spécifiques selon la catégorie — typés côté consommateur.
+  [key: string]: unknown;
+};
+
+export type ActionCategory = {
+  label: string;
+  href: string;
+  count: number;
+  urgent_count: number;
+  warning_count: number;
+  items: ActionItem[];
+};
+
+export type ActionCenter = {
+  generated_at: string;
+  total: number;
+  total_urgent: number;
+  total_warning: number;
+  categories: {
+    payouts: ActionCategory;
+    applications: ActionCategory;
+    incidents: ActionCategory;
+    anomalies: ActionCategory;
+    stale_parcels: ActionCategory;
+    payment_blocked: ActionCategory;
+    support: ActionCategory;
+    disputes: ActionCategory;
+  };
+  sla: Record<string, { warning: number; critical: number }>;
+};
+
+export async function fetchActionCenter(): Promise<ActionCenter> {
+  const { data } = await api.get("/api/admin/action-center");
+  return data as ActionCenter;
+}
+
+// ───────────────────── Admin events (cloche) ─────────────────────
+
+export type AdminEvent = {
+  event_id: string;
+  event_type: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  message: string;
+  href: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  is_read: boolean;
+};
+
+export type AdminEventsFeed = {
+  events: AdminEvent[];
+  unread_count: number;
+};
+
+export async function fetchAdminEvents(params: {
+  limit?: number;
+  before?: string;
+  from_date?: string;
+  to_date?: string;
+  unread_only?: boolean;
+} = {}): Promise<AdminEventsFeed> {
+  const { data } = await api.get("/api/admin/events", { params });
+  return data as AdminEventsFeed;
+}
+
+export async function fetchAdminEventsUnreadCount(): Promise<number> {
+  const { data } = await api.get<{ unread_count: number }>(
+    "/api/admin/events/unread-count"
+  );
+  return data.unread_count;
+}
+
+export async function markAdminEventRead(eventId: string) {
+  const { data } = await api.post(`/api/admin/events/${eventId}/read`);
+  return data;
+}
+
+export async function markAllAdminEventsRead() {
+  const { data } = await api.post(`/api/admin/events/read-all`);
   return data;
 }

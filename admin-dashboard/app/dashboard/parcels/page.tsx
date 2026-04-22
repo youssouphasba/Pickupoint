@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { AdminParcel, fetchParcels } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
@@ -111,6 +112,7 @@ export default function ParcelsPage() {
   const [selectedFilter, setSelectedFilter] = React.useState(() =>
     filterFromSearchParams(searchParams)
   );
+  const [dateRange, setDateRange] = React.useState<DateRange>({});
 
   React.useEffect(() => {
     setSelectedFilter(filterFromSearchParams(searchParams));
@@ -120,11 +122,13 @@ export default function ParcelsPage() {
     FILTERS.find((filter) => filter.value === selectedFilter) ?? FILTERS[0];
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["parcels", activeFilter.value],
+    queryKey: ["parcels", activeFilter.value, dateRange.from ?? "", dateRange.to ?? ""],
     queryFn: () =>
       fetchParcels({
         limit: 500,
         ...activeFilter.params,
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
   });
 
@@ -240,20 +244,23 @@ export default function ParcelsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {FILTERS.map((filter) => (
-          <button
-            key={filter.value}
-            onClick={() => setSelectedFilter(filter.value)}
-            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-              activeFilter.value === filter.value
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-input bg-background hover:bg-accent"
-            }`}
-          >
-            {filter.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {FILTERS.map((filter) => (
+            <button
+              key={filter.value}
+              onClick={() => setSelectedFilter(filter.value)}
+              className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                activeFilter.value === filter.value
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input bg-background hover:bg-accent"
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {isLoading && (

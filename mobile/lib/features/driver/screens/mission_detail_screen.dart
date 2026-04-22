@@ -78,14 +78,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           now.difference(_lastBackendUpdate!).inSeconds > 30) {
         _lastBackendUpdate = now;
         try {
-          await ref.read(apiClientProvider).updateLocation(
-            widget.id,
-            {
-              'lat': pos.latitude,
-              'lng': pos.longitude,
-              'accuracy': pos.accuracy,
-            },
-          );
+          await ref.read(apiClientProvider).updateLocation(widget.id, {
+            'lat': pos.latitude,
+            'lng': pos.longitude,
+            'accuracy': pos.accuracy,
+          });
           // Auto-refresh mission data to get new ETA from backend
           ref.invalidate(missionProvider(widget.id));
         } catch (_) {}
@@ -94,103 +91,118 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   // ── Scan QR ou saisie manuelle → retourne le code saisi ──────────────────
-  Future<String?> _showCodeDialog(
-      {required String title, required String hint, int maxLength = 6}) async {
+  Future<String?> _showCodeDialog({
+    required String title,
+    required String hint,
+    int maxLength = 6,
+  }) async {
     final codeCtrl = TextEditingController();
 
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: StatefulBuilder(builder: (ctx, setLocal) {
-          return Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(title,
-                  style: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
+        child: StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
 
-              // ── Scan QR ────────────────────────────────────────────
-              Container(
-                height: 180,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.black,
-                ),
-                clipBehavior: Clip.hardEdge,
-                child: MobileScanner(
-                  onDetect: (capture) {
-                    final code = capture.barcodes.first.rawValue;
-                    if (code != null) {
-                      // Format attendu : "parcel_id:code" → extraire le code
-                      final parts = code.split(':');
-                      final extracted = parts.length >= 2 ? parts.last : code;
-                      Navigator.of(ctx).pop(extracted);
-                    }
-                  },
-                ),
-              ),
+                  // ── Scan QR ────────────────────────────────────────────
+                  Container(
+                    height: 180,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.black,
+                    ),
+                    clipBehavior: Clip.hardEdge,
+                    child: MobileScanner(
+                      onDetect: (capture) {
+                        final code = capture.barcodes.first.rawValue;
+                        if (code != null) {
+                          // Format attendu : "parcel_id:code" → extraire le code
+                          final parts = code.split(':');
+                          final extracted =
+                              parts.length >= 2 ? parts.last : code;
+                          Navigator.of(ctx).pop(extracted);
+                        }
+                      },
+                    ),
+                  ),
 
-              const SizedBox(height: 16),
-              const Row(children: [
-                Expanded(child: Divider()),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('ou', style: TextStyle(color: Colors.grey)),
-                ),
-                Expanded(child: Divider()),
-              ]),
-              const SizedBox(height: 12),
+                  const SizedBox(height: 16),
+                  const Row(
+                    children: [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('ou', style: TextStyle(color: Colors.grey)),
+                      ),
+                      Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
 
-              // ── Saisie manuelle ────────────────────────────────────
-              TextField(
-                controller: codeCtrl,
-                keyboardType: TextInputType.number,
-                maxLength: maxLength,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 8),
-                decoration: InputDecoration(
-                  hintText: hint,
-                  border: const OutlineInputBorder(),
-                  counterText: '',
-                ),
+                  // ── Saisie manuelle ────────────────────────────────────
+                  TextField(
+                    controller: codeCtrl,
+                    keyboardType: TextInputType.number,
+                    maxLength: maxLength,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 8,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      border: const OutlineInputBorder(),
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () =>
+                          Navigator.of(ctx).pop(codeCtrl.text.trim()),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Valider le code'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(codeCtrl.text.trim()),
-                  style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14)),
-                  child: const Text('Valider le code'),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ]),
-          );
-        }),
+            );
+          },
+        ),
       ),
     );
   }
 
   // ── Ouvrir navigation externe (Google Maps / Waze) ───────────────────────
   Future<void> _openNavigation(double lat, double lng, String label) async {
-    final googleMapsUrl = Uri.parse(
-      'google.navigation:q=$lat,$lng&mode=d',
-    );
+    final googleMapsUrl = Uri.parse('google.navigation:q=$lat,$lng&mode=d');
     final googleMapsWeb = Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
     );
-    final wazeUrl = Uri.parse(
-      'waze://ul?ll=$lat,$lng&navigate=yes',
-    );
+    final wazeUrl = Uri.parse('waze://ul?ll=$lat,$lng&navigate=yes');
 
     if (!mounted) {
       return;
@@ -209,8 +221,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             children: [
               Text(
                 'Naviguer vers $label',
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               Row(
@@ -224,9 +238,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.shield, color: Colors.blueGrey, size: 24),
-                      Text('Sécurisé',
-                          style:
-                              TextStyle(fontSize: 10, color: Colors.blueGrey)),
+                      Text(
+                        'Sécurisé',
+                        style: TextStyle(fontSize: 10, color: Colors.blueGrey),
+                      ),
                     ],
                   ),
                 ],
@@ -240,11 +255,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 onTap: () async {
                   Navigator.pop(ctx);
                   // Essayer l'app native, sinon web (toujours disponible)
-                  final launched = await launchUrl(googleMapsUrl,
-                      mode: LaunchMode.externalApplication);
+                  final launched = await launchUrl(
+                    googleMapsUrl,
+                    mode: LaunchMode.externalApplication,
+                  );
                   if (!launched) {
-                    await launchUrl(googleMapsWeb,
-                        mode: LaunchMode.externalApplication);
+                    await launchUrl(
+                      googleMapsWeb,
+                      mode: LaunchMode.externalApplication,
+                    );
                   }
                 },
               ),
@@ -256,12 +275,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 label: 'Waze',
                 onTap: () async {
                   Navigator.pop(ctx);
-                  final launched = await launchUrl(wazeUrl,
-                      mode: LaunchMode.externalApplication);
+                  final launched = await launchUrl(
+                    wazeUrl,
+                    mode: LaunchMode.externalApplication,
+                  );
                   if (!launched) {
                     // Waze non installé → Google Maps web
-                    await launchUrl(googleMapsWeb,
-                        mode: LaunchMode.externalApplication);
+                    await launchUrl(
+                      googleMapsWeb,
+                      mode: LaunchMode.externalApplication,
+                    );
                   }
                 },
               ),
@@ -289,23 +312,33 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           border: Border.all(color: Colors.grey.shade200),
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: iconColor.withValues(alpha: 0.15),
-            child: Text(icon,
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: iconColor.withValues(alpha: 0.15),
+              child: Text(
+                icon,
                 style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: iconColor,
-                    fontSize: 16)),
-          ),
-          const SizedBox(width: 14),
-          Text(label,
-              style:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
-          const Spacer(),
-          Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey.shade400),
-        ]),
+                  fontWeight: FontWeight.bold,
+                  color: iconColor,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+            ),
+            const Spacer(),
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 14,
+              color: Colors.grey.shade400,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -326,23 +359,28 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       double? lat, lng;
       try {
         final pos = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high);
+          desiredAccuracy: LocationAccuracy.high,
+        );
         lat = pos.latitude;
         lng = pos.longitude;
       } catch (_) {}
       await api.confirmPickup(widget.id, code, lat: lat, lng: lng);
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Collecte confirmée ! Bonne route.'),
-          backgroundColor: Colors.green,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Collecte confirmée ! Bonne route.'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -366,18 +404,25 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         throw 'Permission GPS requise pour confirmer l\'arrivée';
       }
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
       final api = ref.read(apiClientProvider);
-      await api.arriveAtDestination(parcelId,
-          lat: pos.latitude, lng: pos.longitude);
+      await api.arriveAtDestination(
+        parcelId,
+        lat: pos.latitude,
+        lng: pos.longitude,
+      );
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('Arrivée confirmée ! Validez la livraison avec le code.'),
-          backgroundColor: Colors.green,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Arrivée confirmée ! Validez la livraison avec le code.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -422,16 +467,20 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Photo de preuve enregistrée !'),
-          backgroundColor: Colors.teal,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Photo de preuve enregistrée !'),
+            backgroundColor: Colors.teal,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -458,8 +507,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       double? driverLat, driverLng;
       try {
         final pos = await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.high)
-            .timeout(const Duration(seconds: 8));
+          desiredAccuracy: LocationAccuracy.high,
+        ).timeout(const Duration(seconds: 8));
         driverLat = pos.latitude;
         driverLng = pos.longitude;
       } catch (_) {}
@@ -474,17 +523,21 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       });
       if (mounted) {
         ref.invalidate(myMissionsProvider);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Livraison validée ! Merci.'),
-          backgroundColor: Colors.green,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Livraison validée ! Merci.'),
+            backgroundColor: Colors.green,
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -506,8 +559,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirmer'),
@@ -524,16 +578,18 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       await ref.read(apiClientProvider).releaseMission(missionId);
       if (mounted) {
         ref.invalidate(myMissionsProvider);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Mission libérée.'),
-        ));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Mission libérée.')));
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -635,7 +691,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -661,8 +719,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   void _watchWhatsappCallStatus(String missionId, String callId) {
     _callStatusTimer?.cancel();
     var attempts = 0;
-    _callStatusTimer =
-        Timer.periodic(const Duration(seconds: 2), (timer) async {
+    _callStatusTimer = Timer.periodic(const Duration(seconds: 2), (
+      timer,
+    ) async {
       attempts += 1;
       if (attempts > 20 || _activeWhatsappCallId != callId) {
         timer.cancel();
@@ -698,53 +757,187 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     String? reason;
     await showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
-        return AlertDialog(
-          title: const Text('Signaler un problème'),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Le colis sera redirigé vers le relais le plus proche.'),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: reason,
-              decoration: const InputDecoration(
-                labelText: 'Motif',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(
-                  value: 'destinataire_absent',
-                  child: Text('Destinataire absent'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return AlertDialog(
+            title: const Text('Signaler un problème'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Le colis sera redirigé vers le relais le plus proche.',
                 ),
-                DropdownMenuItem(
-                  value: 'adresse_introuvable',
-                  child: Text('Adresse introuvable'),
-                ),
-                DropdownMenuItem(
-                  value: 'colis_refuse',
-                  child: Text('Colis refusé'),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: reason,
+                  decoration: const InputDecoration(
+                    labelText: 'Motif',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'destinataire_absent',
+                      child: Text('Destinataire absent'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'adresse_introuvable',
+                      child: Text('Adresse introuvable'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'colis_refuse',
+                      child: Text('Colis refusé'),
+                    ),
+                  ],
+                  onChanged: (value) => setLocal(() => reason = value),
                 ),
               ],
-              onChanged: (value) => setLocal(() => reason = value),
             ),
-          ]),
-          actions: [
-            TextButton(
+            actions: [
+              TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Annuler')),
-            TextButton(
-              onPressed: reason == null
-                  ? null
-                  : () {
-                      Navigator.pop(ctx);
-                      _failDelivery(parcelId, reason!);
-                    },
-              child:
-                  const Text('Confirmer', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      }),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: reason == null
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _failDelivery(parcelId, reason!);
+                      },
+                child: const Text(
+                  'Confirmer',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
+  }
+
+  Future<void> _showReturnToSenderDialog(String missionId) async {
+    final notesController = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return AlertDialog(
+            title: const Text("Retour à l'expéditeur ?"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Vous avez déjà collecté le colis. Si vous ne pouvez plus continuer, vous devez le rapporter à l'expéditeur. L'équipe Denkma sera alertée pour contrôler le retour.",
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Raison du retour',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(
+                  'Demander le retour',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    final notes = notesController.text.trim();
+    notesController.dispose();
+    if (confirm == true) {
+      await _requestReturnToSender(missionId, notes);
+    }
+  }
+
+  Future<void> _requestReturnToSender(String missionId, String notes) async {
+    setState(() => _isProcessing = true);
+    try {
+      await ref.read(apiClientProvider).reportMissionIncident(missionId, {
+        'reason': 'retour_expediteur_demande',
+        if (notes.isNotEmpty) 'notes': notes,
+      });
+      if (mounted) {
+        ref.invalidate(myMissionsProvider);
+        ref.invalidate(missionProvider(widget.id));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Retour demandé. Rapportez le colis à l'expéditeur et attendez la validation Denkma.",
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  Future<void> _confirmReturnToSender(String missionId) async {
+    final code = await _showCodeDialog(
+      title: 'Code de retour expéditeur',
+      hint: '• • • • • •',
+      maxLength: 6,
+    );
+    if (code == null || code.isEmpty) {
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+    try {
+      await ref.read(apiClientProvider).confirmMissionReturn(missionId, {
+        'code': code,
+      });
+      if (mounted) {
+        ref.invalidate(myMissionsProvider);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Retour confirmé. Le colis est clôturé côté Denkma."),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
   }
 
   Future<void> _failDelivery(String parcelId, String reason) async {
@@ -755,17 +948,22 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       final redirectRelayId = res.data['redirect_relay_id'] as String?;
       if (mounted) {
         ref.invalidate(myMissionsProvider);
+        ref.invalidate(missionProvider(widget.id));
         final msg = redirectRelayId != null
-            ? 'Livraison échouée — colis redirigé vers le relais de repli'
-            : 'Livraison échouée';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(msg)));
-        Navigator.pop(context);
+            ? 'Livraison échouée. Nouvelle destination : relais de repli.'
+            : "Aucun relais de repli disponible. Utilisez le retour à l'expéditeur.";
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(friendlyError(e)), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -783,143 +981,168 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       body: missionAsync.when(
         data: (mission) => SingleChildScrollView(
           padding: const EdgeInsets.all(20),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            // ── Gain ──────────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Gain ──────────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('VOTRE GAIN',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.blueGrey)),
-                        Text(formatXof(mission.earnAmount),
-                            style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue)),
+                        const Text(
+                          'VOTRE GAIN',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blueGrey,
+                          ),
+                        ),
+                        Text(
+                          formatXof(mission.earnAmount),
+                          style: const TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
                         if (mission.driverBonusXof > 0)
                           Text(
                             'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
                             style: const TextStyle(
-                                fontSize: 12, color: Colors.green),
+                              fontSize: 12,
+                              color: Colors.green,
+                            ),
                           ),
-                      ]),
-                  if (mission.etaText != null)
-                    Column(
+                      ],
+                    ),
+                    if (mission.etaText != null)
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text(mission.etaText!.toUpperCase(),
-                              style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold)),
-                          Text(mission.distanceText ?? '',
-                              style: const TextStyle(
-                                  fontSize: 14, color: Colors.blueGrey)),
-                        ]),
-                  if (mission.etaText == null)
-                    const Icon(Icons.local_shipping,
-                        size: 40, color: Colors.blue),
-                ],
+                          Text(
+                            mission.etaText!.toUpperCase(),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            mission.distanceText ?? '',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Colors.blueGrey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (mission.etaText == null)
+                      const Icon(
+                        Icons.local_shipping,
+                        size: 40,
+                        color: Colors.blue,
+                      ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            // ── Carte itinéraire ───────────────────────────────────────
-            _buildRouteMap(mission),
-            const SizedBox(height: 20),
+              // ── Carte itinéraire ───────────────────────────────────────
+              _buildRouteMap(mission),
+              const SizedBox(height: 20),
 
-            // ── Statut du paiement ─────────────────────────────────────
-            _buildPaymentStatus(mission),
-            const SizedBox(height: 20),
-            if ((mission.senderName?.isNotEmpty ?? false) ||
-                (mission.recipientName?.isNotEmpty ?? false)) ...[
+              // ── Statut du paiement ─────────────────────────────────────
+              _buildPaymentStatus(mission),
+              const SizedBox(height: 20),
+              if ((mission.senderName?.isNotEmpty ?? false) ||
+                  (mission.recipientName?.isNotEmpty ?? false)) ...[
+                const Text(
+                  'Personnes du colis',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                if (mission.senderName?.isNotEmpty ?? false) ...[
+                  _buildContactCard(
+                    title: 'Expéditeur',
+                    name: mission.senderName!,
+                    photo: mission.senderPhotoUrl,
+                    phone: null,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (mission.recipientName?.isNotEmpty ?? false) ...[
+                  _buildContactCard(
+                    title: 'Destinataire',
+                    name: mission.recipientName!,
+                    photo: mission.recipientPhotoUrl,
+                    phone: mission.recipientPhone == null
+                        ? null
+                        : 'Numéro masqué - appel via Denkma',
+                    showCall: true,
+                    onCall: () => _callRecipientViaDenkma(mission.id),
+                    callLabel: 'Appeler via Denkma',
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ],
+              if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
+                  (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
+                _buildInstructionCards(mission),
+                const SizedBox(height: 20),
+              ],
+
+              // ── Points de passage ───────────────────────
               const Text(
-                'Personnes du colis',
+                'Points de passage',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
-              if (mission.senderName?.isNotEmpty ?? false) ...[
-                _buildContactCard(
-                  title: 'Expéditeur',
-                  name: mission.senderName!,
-                  photo: mission.senderPhotoUrl,
-                  phone: null,
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (mission.recipientName?.isNotEmpty ?? false) ...[
-                _buildContactCard(
-                  title: 'Destinataire',
-                  name: mission.recipientName!,
-                  photo: mission.recipientPhotoUrl,
-                  phone: mission.recipientPhone == null
-                      ? null
-                      : 'Numéro masqué - appel via Denkma',
-                  showCall: true,
-                  onCall: () => _callRecipientViaDenkma(mission.id),
-                  callLabel: 'Appeler via Denkma',
-                ),
+
+              _buildContactCard(
+                title: 'Collecte',
+                name: mission.pickupLabel,
+                photo: mission.senderPhotoUrl,
+                phone: null,
+                showCall: false,
+              ),
+
+              const SizedBox(height: 12),
+
+              _buildContactCard(
+                title: 'Livraison',
+                name: mission.deliveryLabel,
+                photo: mission.recipientPhotoUrl,
+                phone: null,
+                showCall: false,
+              ),
+
+              const SizedBox(height: 20),
+
+              // ── Code de suivi (visible livreur pour montrer au relais) ─
+              if (mission.trackingCode != null) ...[
+                _buildTrackingCodeCard(mission),
                 const SizedBox(height: 20),
               ],
+
+              // ── Messagerie colis ──────────────────────────────────────
+              if (mission.status == 'assigned' ||
+                  mission.status == 'in_progress') ...[
+                ParcelChatWidget(parcelId: mission.parcelId, isClosed: false),
+                const SizedBox(height: 20),
+              ],
+
+              // ── Boutons action selon statut ───────────────────────────
+              _buildActionButtons(mission),
+              const SizedBox(height: 40),
             ],
-            if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
-                (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
-              _buildInstructionCards(mission),
-              const SizedBox(height: 20),
-            ],
-
-            // ── Points de passage ───────────────────────
-            const Text('Points de passage',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-
-            _buildContactCard(
-              title: 'Collecte',
-              name: mission.pickupLabel,
-              photo: mission.senderPhotoUrl,
-              phone: null,
-              showCall: false,
-            ),
-
-            const SizedBox(height: 12),
-
-            _buildContactCard(
-              title: 'Livraison',
-              name: mission.deliveryLabel,
-              photo: mission.recipientPhotoUrl,
-              phone: null,
-              showCall: false,
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── Code de suivi (visible livreur pour montrer au relais) ─
-            if (mission.trackingCode != null) ...[
-              _buildTrackingCodeCard(mission),
-              const SizedBox(height: 20),
-            ],
-
-            // ── Messagerie colis ──────────────────────────────────────
-            if (mission.status == 'assigned' ||
-                mission.status == 'in_progress') ...[
-              ParcelChatWidget(parcelId: mission.parcelId, isClosed: false),
-              const SizedBox(height: 20),
-            ],
-
-            // ── Boutons action selon statut ───────────────────────────
-            _buildActionButtons(mission),
-            const SizedBox(height: 40),
-          ]),
+          ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, __) => Center(child: Text(friendlyError(e))),
@@ -954,8 +1177,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         Marker(
           markerId: const MarkerId('pickup_pos'),
           position: LatLng(mission.pickupLat!, mission.pickupLng!),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
           infoWindow: const InfoWindow(title: 'Point de retrait'),
         ),
       );
@@ -975,8 +1199,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (hasPickup && hasDelivery) {
       List<LatLng> routePoints;
       if (mission.encodedPolyline != null) {
-        final decoded =
-            PolylinePoints().decodePolyline(mission.encodedPolyline!);
+        final decoded = PolylinePoints().decodePolyline(
+          mission.encodedPolyline!,
+        );
         routePoints =
             decoded.map((p) => LatLng(p.latitude, p.longitude)).toList();
       } else {
@@ -1040,8 +1265,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                   );
                 },
                 backgroundColor: Colors.white,
-                child:
-                    const Icon(Icons.my_location, color: Colors.blue, size: 20),
+                child: const Icon(
+                  Icons.my_location,
+                  color: Colors.blue,
+                  size: 20,
+                ),
               ),
             ),
           ],
@@ -1056,9 +1284,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               const Icon(Icons.store, color: Colors.orange, size: 14),
               const SizedBox(width: 4),
               Flexible(
-                  child: Text(mission.pickupLabel,
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      overflow: TextOverflow.ellipsis)),
+                child: Text(
+                  mission.pickupLabel,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6),
                 child: Icon(Icons.arrow_forward, size: 12, color: Colors.grey),
@@ -1066,9 +1297,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               const Icon(Icons.location_on, color: Colors.red, size: 14),
               const SizedBox(width: 4),
               Flexible(
-                  child: Text(mission.deliveryLabel,
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      overflow: TextOverflow.ellipsis)),
+                child: Text(
+                  mission.deliveryLabel,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ],
@@ -1084,16 +1318,18 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             label: Text(
               'NAVIGUER VERS $navLabel'.toUpperCase(),
               style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue.shade700,
               foregroundColor: Colors.white,
               elevation: 4,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
           ),
         ),
@@ -1114,44 +1350,48 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
-      child: Row(children: [
-        Icon(isPaid ? Icons.check_circle : Icons.warning_amber_rounded,
-            color: color),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isPaid
-                    ? 'PAIEMENT CONFIRMÉ'
-                    : (isBlocked
-                        ? 'PAIEMENT BLOQUANT EN ATTENTE'
-                        : 'PAIEMENT EN ATTENTE'),
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: color.shade800,
+      child: Row(
+        children: [
+          Icon(
+            isPaid ? Icons.check_circle : Icons.warning_amber_rounded,
+            color: color,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isPaid
+                      ? 'PAIEMENT CONFIRMÉ'
+                      : (isBlocked
+                          ? 'PAIEMENT BLOQUANT EN ATTENTE'
+                          : 'PAIEMENT EN ATTENTE'),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: color.shade800,
+                  ),
                 ),
-              ),
-              Text(
-                isPaid
-                    ? 'Le client a réglé la commande.'
-                    : 'Payeur: ${mission.whoPays == 'recipient' ? 'destinataire' : 'expéditeur'}'
-                        '${mission.paymentMethod != null ? ' • ${mission.paymentMethod}' : ''}'
-                        '${mission.paymentOverride ? ' • override admin actif' : ''}',
-                style: TextStyle(fontSize: 12, color: color.shade700),
-              ),
-            ],
+                Text(
+                  isPaid
+                      ? 'Le client a réglé la commande.'
+                      : 'Payeur: ${mission.whoPays == 'recipient' ? 'destinataire' : 'expéditeur'}'
+                          '${mission.paymentMethod != null ? ' • ${mission.paymentMethod}' : ''}'
+                          '${mission.paymentOverride ? ' • override admin actif' : ''}',
+                  style: TextStyle(fontSize: 12, color: color.shade700),
+                ),
+              ],
+            ),
           ),
-        ),
-        if (!isPaid)
-          IconButton(
-            icon: const Icon(Icons.refresh, size: 20),
-            onPressed: () => ref.invalidate(missionProvider(widget.id)),
-            tooltip: 'Vérifier le statut',
-          ),
-      ]),
+          if (!isPaid)
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 20),
+              onPressed: () => ref.invalidate(missionProvider(widget.id)),
+              tooltip: 'Vérifier le statut',
+            ),
+        ],
+      ),
     );
   }
 
@@ -1170,21 +1410,26 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(Icons.qr_code_2,
-                color: isInProgress ? Colors.teal : Colors.grey, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              isInProgress
-                  ? 'Montrez ce code au relais destinataire'
-                  : 'Code de suivi du colis',
-              style: TextStyle(
-                fontSize: 12,
-                color: isInProgress ? Colors.teal.shade700 : Colors.grey,
-                fontWeight: FontWeight.w500,
+          Row(
+            children: [
+              Icon(
+                Icons.qr_code_2,
+                color: isInProgress ? Colors.teal : Colors.grey,
+                size: 18,
               ),
-            ),
-          ]),
+              const SizedBox(width: 8),
+              Text(
+                isInProgress
+                    ? 'Montrez ce code au relais destinataire'
+                    : 'Code de suivi du colis',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: isInProgress ? Colors.teal.shade700 : Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
           Center(
             child: Text(
@@ -1217,80 +1462,14 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     // Statut "assigned" → livreur doit confirmer qu'il a le colis (pickup_code)
     if (status == 'assigned') {
-      return Column(children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _isProcessing ? null : _confirmPickup,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Confirmer la collecte (QR / code)'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Center(
-          child: TextButton.icon(
-            onPressed: _isProcessing ? null : () => _releaseMission(mission.id),
-            icon: const Icon(Icons.undo, color: Colors.grey),
-            label: const Text('Libérer la mission',
-                style: TextStyle(color: Colors.grey)),
-          ),
-        ),
-      ]);
-    }
-
-    // Statut "in_progress" → livraison en cours → valider ou signaler
-    if (status == 'in_progress') {
-      // Livraison relais → relais : le relais B confirme lui-même sur son app
-      if (mission.deliveryIsRelay) {
-        return Column(children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.shade200),
-            ),
-            child: const Row(children: [
-              Icon(Icons.info_outline, color: Colors.blue),
-              SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Déposez le colis au relais destinataire.\nIl confirmera la réception sur son application.',
-                  style: TextStyle(fontSize: 13, color: Colors.blue),
-                ),
-              ),
-            ]),
-          ),
-          const SizedBox(height: 12),
-          Center(
-            child: TextButton.icon(
-              onPressed: _isProcessing
-                  ? null
-                  : () => _showFailDialog(mission.parcelId),
-              icon: const Icon(Icons.report_problem, color: Colors.red),
-              label: const Text('Impossible de livrer',
-                  style: TextStyle(color: Colors.red)),
-            ),
-          ),
-        ]);
-      }
-
-      // Driver en transit vers le domicile → bouton "Je suis arrivé"
-      if (mission.parcelStatus == 'in_transit') {
-        return Column(children: [
+      return Column(
+        children: [
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _isProcessing
-                  ? null
-                  : () => _arriveAtDestination(mission.parcelId),
-              icon: const Icon(Icons.location_on),
-              label: const Text('Je suis arrivé à destination'),
+              onPressed: _isProcessing ? null : _confirmPickup,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Confirmer la collecte (QR / code)'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orange,
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1300,75 +1479,263 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           const SizedBox(height: 12),
           Center(
             child: TextButton.icon(
+              onPressed:
+                  _isProcessing ? null : () => _releaseMission(mission.id),
+              icon: const Icon(Icons.undo, color: Colors.grey),
+              label: const Text(
+                'Libérer la mission',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Statut "in_progress" → livraison en cours → valider ou signaler
+    if (status == 'in_progress') {
+      if (mission.parcelStatus == 'delivery_failed') {
+        return Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "Aucun relais de repli n'a été confirmé pour ce colis. "
+                      "Si vous ne pouvez pas livrer, rapportez le colis à l'expéditeur.",
+                      style: TextStyle(fontSize: 13, color: Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _showReturnToSenderDialog(mission.id),
+                icon: const Icon(Icons.keyboard_return, color: Colors.red),
+                label: const Text(
+                  "Retour à l'expéditeur",
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      // Livraison relais → relais : le relais B confirme lui-même sur son app
+      if (mission.deliveryIsRelay) {
+        return Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Déposez le colis au relais destinataire.\nIl confirmera la réception sur son application.',
+                      style: TextStyle(fontSize: 13, color: Colors.blue),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _showReturnToSenderDialog(mission.id),
+                icon: const Icon(Icons.keyboard_return, color: Colors.red),
+                label: const Text(
+                  "Retour à l'expéditeur",
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      // Driver en transit vers le domicile → bouton "Je suis arrivé"
+      if (mission.parcelStatus == 'in_transit') {
+        return Column(
+          children: [
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _arriveAtDestination(mission.parcelId),
+                icon: const Icon(Icons.location_on),
+                label: const Text('Je suis arrivé à destination'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _showReturnToSenderDialog(mission.id),
+                icon: const Icon(Icons.keyboard_return, color: Colors.red),
+                label: const Text(
+                  "Retour à l'expéditeur",
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      // Livraison domicile : livreur valide avec le code du destinataire
+      return Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing || mission.paymentBlocksDelivery
+                  ? null
+                  : () => _confirmDelivery(mission.parcelId),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(
+                mission.paymentBlocksDelivery
+                    ? 'Paiement requis avant remise'
+                    : 'Valider la livraison (QR / code)',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    mission.paymentBlocksDelivery ? Colors.grey : Colors.green,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+          if (mission.paymentBlocksDelivery) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Actualisez le paiement ou contactez les ops avant la remise finale.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.redAccent),
+            ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isProcessing ? null : _takePhoto,
+              icon: Icon(
+                _proofBase64 != null ? Icons.check_circle : Icons.camera_alt,
+                color: _proofBase64 != null ? Colors.green : Colors.blue,
+              ),
+              label: Text(
+                _proofBase64 != null
+                    ? 'Photo enregistrée'
+                    : 'Prendre une photo (Preuve)',
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                side: BorderSide(
+                  color: _proofBase64 != null ? Colors.green : Colors.blue,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton.icon(
               onPressed: _isProcessing
                   ? null
                   : () => _showFailDialog(mission.parcelId),
               icon: const Icon(Icons.report_problem, color: Colors.red),
-              label: const Text('Impossible de livrer',
-                  style: TextStyle(color: Colors.red)),
+              label: const Text(
+                'Impossible de livrer',
+                style: TextStyle(color: Colors.red),
+              ),
             ),
           ),
-        ]);
-      }
-
-      // Livraison domicile : livreur valide avec le code du destinataire
-      return Column(children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _isProcessing || mission.paymentBlocksDelivery
-                ? null
-                : () => _confirmDelivery(mission.parcelId),
-            icon: const Icon(Icons.qr_code_scanner),
-            label: Text(
-              mission.paymentBlocksDelivery
-                  ? 'Paiement requis avant remise'
-                  : 'Valider la livraison (QR / code)',
+          Center(
+            child: TextButton.icon(
+              onPressed: _isProcessing
+                  ? null
+                  : () => _showReturnToSenderDialog(mission.id),
+              icon: const Icon(Icons.keyboard_return, color: Colors.red),
+              label: const Text(
+                "Retour à l'expéditeur",
+                style: TextStyle(color: Colors.red),
+              ),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor:
-                  mission.paymentBlocksDelivery ? Colors.grey : Colors.green,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-          ),
-        ),
-        if (mission.paymentBlocksDelivery) ...[
-          const SizedBox(height: 8),
-          const Text(
-            'Actualisez le paiement ou contactez les ops avant la remise finale.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: Colors.redAccent),
           ),
         ],
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _isProcessing ? null : _takePhoto,
-            icon: Icon(
-                _proofBase64 != null ? Icons.check_circle : Icons.camera_alt,
-                color: _proofBase64 != null ? Colors.green : Colors.blue),
-            label: Text(_proofBase64 != null
-                ? 'Photo enregistrée'
-                : 'Prendre une photo (Preuve)'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              side: BorderSide(
-                  color: _proofBase64 != null ? Colors.green : Colors.blue),
+      );
+    }
+
+    if (status == 'incident_reported') {
+      return Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.keyboard_return, color: Colors.red),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "Retour demandé. Rapportez le colis à l'expéditeur, puis saisissez le code qu'il vous donnera.",
+                    style: TextStyle(fontSize: 13, color: Colors.red),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Center(
-          child: TextButton.icon(
-            onPressed:
-                _isProcessing ? null : () => _showFailDialog(mission.parcelId),
-            icon: const Icon(Icons.report_problem, color: Colors.red),
-            label: const Text('Impossible de livrer',
-                style: TextStyle(color: Colors.red)),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing
+                  ? null
+                  : () => _confirmReturnToSender(mission.id),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Confirmer le retour (QR / code)'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
-        ),
-      ]);
+        ],
+      );
     }
 
     return const SizedBox.shrink();
@@ -1435,9 +1802,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, color: color)),
+                Text(
+                  title,
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
+                ),
                 const SizedBox(height: 4),
                 Text(text, style: const TextStyle(fontSize: 13)),
               ],
@@ -1483,21 +1851,30 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.bold)),
-                Text(name,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 if (phone != null)
                   Text(
                     phone,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        const TextStyle(fontSize: 13, color: Colors.blueGrey),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.blueGrey,
+                    ),
                   ),
               ],
             ),
@@ -1518,10 +1895,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     );
   }
 
-  void _showAvatarPreview({
-    required String imageUrl,
-    required String title,
-  }) {
+  void _showAvatarPreview({required String imageUrl, required String title}) {
     showDialog<void>(
       context: context,
       builder: (context) => Dialog(
@@ -1548,8 +1922,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),

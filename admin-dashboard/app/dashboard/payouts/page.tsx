@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ActionModal } from "@/components/action-modal";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { useToast } from "@/components/ui/toaster";
 import { formatDate } from "@/lib/utils";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
@@ -30,9 +31,14 @@ export default function PayoutsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
+  const [dateRange, setDateRange] = React.useState<DateRange>({});
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["payouts", "pending"],
-    queryFn: fetchPendingPayouts,
+    queryKey: ["payouts", "pending", dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () =>
+      fetchPendingPayouts({
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
+      }),
     refetchInterval: 30_000,
   });
 
@@ -46,11 +52,14 @@ export default function PayoutsPage() {
 
   return (
     <div className="space-y-5 p-8">
-      <div>
-        <h1 className="text-2xl font-bold">Demandes de retrait</h1>
-        <p className="text-sm text-muted-foreground">
-          Valider ou rejeter les demandes de retrait des livreurs et relais.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Demandes de retrait</h1>
+          <p className="text-sm text-muted-foreground">
+            Valider ou rejeter les demandes de retrait des livreurs et relais.
+          </p>
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {isLoading && (

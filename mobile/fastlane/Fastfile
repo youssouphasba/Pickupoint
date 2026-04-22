@@ -2,7 +2,7 @@ default_platform(:android)
 
 def play_json_key_path
   key_path = File.expand_path("google-play-service-account.json", __dir__)
-  credentials = ENV["GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS"]
+  credentials = ENV["GCLOUD_SERVICE_ACCOUNT_CREDENTIALS"] || ENV["GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS"]
 
   if credentials && !credentials.strip.empty?
     File.write(key_path, credentials)
@@ -10,7 +10,7 @@ def play_json_key_path
 
   unless File.exist?(key_path)
     UI.user_error!(
-      "Google Play credentials missing. Set GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS in Codemagic or place google-play-service-account.json in mobile/fastlane locally."
+      "Google Play credentials missing. Set GCLOUD_SERVICE_ACCOUNT_CREDENTIALS in Codemagic or place google-play-service-account.json in mobile/fastlane locally."
     )
   end
 

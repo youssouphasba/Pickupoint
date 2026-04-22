@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/lib/api";
 import { Sidebar } from "@/components/sidebar";
+import { NotificationBell } from "@/components/notification-bell";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -36,7 +37,12 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <Sidebar admin={data} />
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-end gap-3 border-b bg-background/80 px-6 backdrop-blur">
+          <NotificationBell />
+        </header>
+        <main className="flex-1 overflow-x-hidden">{children}</main>
+      </div>
     </div>
   );
 }

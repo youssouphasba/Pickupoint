@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { fetchAuditLog } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 
@@ -38,9 +39,15 @@ function fmtDate(iso?: string) {
 }
 
 export default function AuditLogPage() {
+  const [dateRange, setDateRange] = React.useState<DateRange>({});
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["audit-log"],
-    queryFn: () => fetchAuditLog({ limit: 500 }),
+    queryKey: ["audit-log", dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () =>
+      fetchAuditLog({
+        limit: 500,
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
+      }),
   });
 
   const events: AuditEvent[] = data?.events ?? [];
@@ -109,11 +116,14 @@ export default function AuditLogPage() {
 
   return (
     <div className="space-y-5 p-8">
-      <div>
-        <h1 className="text-2xl font-bold">Audit log</h1>
-        <p className="text-sm text-muted-foreground">
-          Journal d'audit global — tous les événements système tracés.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Audit log</h1>
+          <p className="text-sm text-muted-foreground">
+            Journal d'audit global — tous les événements système tracés.
+          </p>
+        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {isLoading && (
