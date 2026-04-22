@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -51,7 +53,11 @@ class AdminUserDetailScreen extends ConsumerWidget {
             data['last_session'] as Map<String, dynamic>? ?? const {},
           );
           final recentEvents = List<Map<String, dynamic>>.from(
-              data['recent_events'] as List? ?? const []);
+            data['recent_events'] as List? ?? const [],
+          );
+          final applications = List<Map<String, dynamic>>.from(
+            data['applications'] as List? ?? const [],
+          );
           final referral = Map<String, dynamic>.from(
             data['referral'] as Map<String, dynamic>? ?? const {},
           );
@@ -77,19 +83,34 @@ class AdminUserDetailScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+                if (applications.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Candidatures et documents',
+                    child: Column(
+                      children: [
+                        for (final application in applications)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _ApplicationCard(application: application),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'Resume',
+                  title: 'Résumé',
                   child: Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
                       _MetricTile(
-                        label: 'Colis envoyes',
+                        label: 'Colis envoyés',
                         value: '${summary['parcels_sent'] ?? 0}',
                       ),
                       _MetricTile(
-                        label: 'Colis recus',
+                        label: 'Colis reçus',
                         value: '${summary['parcels_received'] ?? 0}',
                       ),
                       _MetricTile(
@@ -133,28 +154,23 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           ),
                           FilledButton.icon(
                             style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  user.isBanned ? Colors.green : Colors.red,
+                              backgroundColor: user.isBanned
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
-                            onPressed: () => _toggleBan(
-                              context,
-                              ref,
-                              user,
-                            ),
+                            onPressed: () => _toggleBan(context, ref, user),
                             icon: Icon(
                               user.isBanned
                                   ? Icons.check_circle_outline
                                   : Icons.block_outlined,
                             ),
-                            label: Text(
-                              user.isBanned ? 'Debannir' : 'Bannir',
-                            ),
+                            label: Text(user.isBanned ? 'Débannir' : 'Bannir'),
                           ),
                         ],
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Changement de role et liaison relais : Admin > Utilisateurs > menu actions sur la liste.',
+                        'Changement de rôle et liaison relais : Admin > Utilisateurs > menu actions sur la liste.',
                         style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
@@ -177,7 +193,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           value: user.averageRating.toStringAsFixed(1),
                         ),
                         _MetricTile(
-                          label: 'Gains cumules',
+                          label: 'Gains cumulés',
                           value: formatXof(user.totalEarned),
                         ),
                         _MetricTile(
@@ -191,7 +207,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 if (linkedRelay != null) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
-                    title: 'Point relais lie',
+                    title: 'Point relais lié',
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
                       onTap: () => Navigator.push(
@@ -206,10 +222,13 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         child: Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor:
-                                  Colors.orange.withValues(alpha: 0.12),
-                              child:
-                                  const Icon(Icons.store, color: Colors.orange),
+                              backgroundColor: Colors.orange.withValues(
+                                alpha: 0.12,
+                              ),
+                              child: const Icon(
+                                Icons.store,
+                                color: Colors.orange,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -224,7 +243,8 @@ class AdminUserDetailScreen extends ConsumerWidget {
                                     ),
                                   ),
                                   Text(
-                                      '${linkedRelay.city} - ${linkedRelay.addressLabel}'),
+                                    '${linkedRelay.city} - ${linkedRelay.addressLabel}',
+                                  ),
                                   Text(linkedRelay.phone),
                                 ],
                               ),
@@ -244,7 +264,9 @@ class AdminUserDetailScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _InfoRow(
-                            'Wallet ID', _stringOrDash(wallet['wallet_id'])),
+                          'Wallet ID',
+                          _stringOrDash(wallet['wallet_id']),
+                        ),
                         _InfoRow(
                           'Solde',
                           formatXof(
@@ -305,10 +327,14 @@ class AdminUserDetailScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _InfoRow('User ID', user.id),
-                        _InfoRow('Creee le',
-                            _formatDateValue(lastSession['created_at'])),
-                        _InfoRow('Expire le',
-                            _formatDateValue(lastSession['expires_at'])),
+                        _InfoRow(
+                          'Creee le',
+                          _formatDateValue(lastSession['created_at']),
+                        ),
+                        _InfoRow(
+                          'Expire le',
+                          _formatDateValue(lastSession['expires_at']),
+                        ),
                       ],
                     ),
                   ),
@@ -319,10 +345,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _InfoRow(
-                        'Code',
-                        _stringOrDash(referral['code']),
-                      ),
+                      _InfoRow('Code', _stringOrDash(referral['code'])),
                       _InfoRow(
                         'Acces effectif',
                         (referral['effective_enabled'] as bool? ?? false)
@@ -345,31 +368,34 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         'Override',
                         _referralOverrideLabel(referral['enabled_override']),
                       ),
-                      Builder(builder: (_) {
-                        final rc = Map<String, dynamic>.from(
-                          referral['role_config'] as Map? ?? const {},
-                        );
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _InfoRow(
-                              'Bonus parrain',
-                              formatXof(
-                                (rc['sponsor_bonus_xof'] as num?)?.toDouble() ??
-                                    0.0,
+                      Builder(
+                        builder: (_) {
+                          final rc = Map<String, dynamic>.from(
+                            referral['role_config'] as Map? ?? const {},
+                          );
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _InfoRow(
+                                'Bonus parrain',
+                                formatXof(
+                                  (rc['sponsor_bonus_xof'] as num?)
+                                          ?.toDouble() ??
+                                      0.0,
+                                ),
                               ),
-                            ),
-                            _InfoRow(
-                              'Bonus filleul',
-                              formatXof(
-                                (rc['referred_bonus_xof'] as num?)
-                                        ?.toDouble() ??
-                                    0.0,
+                              _InfoRow(
+                                'Bonus filleul',
+                                formatXof(
+                                  (rc['referred_bonus_xof'] as num?)
+                                          ?.toDouble() ??
+                                      0.0,
+                                ),
                               ),
-                            ),
-                          ],
-                        );
-                      }),
+                            ],
+                          );
+                        },
+                      ),
                       _InfoRow(
                         'Regle saisie',
                         _stringOrDash(referral['apply_rule']),
@@ -441,7 +467,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 _SectionCard(
                   title: 'Evenements recents',
                   child: recentEvents.isEmpty
-                      ? const Text('Aucun evenement recent.')
+                      ? const Text('Aucun événement récent.')
                       : Column(
                           children: [
                             for (final event in recentEvents)
@@ -462,9 +488,9 @@ class AdminUserDetailScreen extends ConsumerWidget {
   Future<void> _callPhone(BuildContext context, String phone) async {
     final cleanPhone = phone.trim();
     if (cleanPhone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Numero indisponible.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Numéro indisponible.')));
       return;
     }
 
@@ -524,12 +550,12 @@ class AdminUserDetailScreen extends ConsumerWidget {
     final reason = await _askAdminReason(
       context: context,
       title: user.isBanned
-          ? 'Confirmer le debannissement'
+          ? 'Confirmer le débannissement'
           : 'Confirmer le bannissement',
       helper: user.isBanned
-          ? 'Explique pourquoi tu leves la suspension de ${user.name}.'
+          ? 'Explique pourquoi tu lèves la suspension de ${user.name}.'
           : 'Explique pourquoi tu suspends le compte de ${user.name}.',
-      confirmLabel: user.isBanned ? 'Debannir' : 'Bannir',
+      confirmLabel: user.isBanned ? 'Débannir' : 'Bannir',
       confirmColor: user.isBanned ? Colors.green : Colors.red,
     );
 
@@ -553,7 +579,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
         SnackBar(
           content: Text(
             user.isBanned
-                ? 'Utilisateur debanni avec succes.'
+                ? 'Utilisateur débanni avec succès.'
                 : 'Utilisateur banni avec succes.',
           ),
           backgroundColor: user.isBanned ? Colors.green : Colors.red,
@@ -671,8 +697,11 @@ class _IdentityHeader extends StatelessWidget {
                   imageUrl: hasPhoto ? photoUrl : null,
                   radius: 30,
                   backgroundColor: Colors.blueGrey.shade50,
-                  fallback: const Icon(Icons.person,
-                      size: 30, color: Colors.blueGrey),
+                  fallback: const Icon(
+                    Icons.person,
+                    size: 30,
+                    color: Colors.blueGrey,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -746,7 +775,7 @@ class _IdentityHeader extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _InfoRow('Legal accepte', user.acceptedLegal ? 'Oui' : 'Non'),
+            _InfoRow('Légal accepté', user.acceptedLegal ? 'Oui' : 'Non'),
             _InfoRow('Legal accepte le', _formatDateValue(acceptedLegalAt)),
             _InfoRow('Cree le', _formatDateValue(createdAt)),
             _InfoRow('Mis a jour le', _formatDateValue(updatedAt)),
@@ -803,10 +832,7 @@ class _MetricTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
           const SizedBox(height: 6),
           Text(
             value,
@@ -819,10 +845,7 @@ class _MetricTile extends StatelessWidget {
 }
 
 class _MissionSummaryCard extends StatelessWidget {
-  const _MissionSummaryCard({
-    required this.mission,
-    required this.onOpenAudit,
-  });
+  const _MissionSummaryCard({required this.mission, required this.onOpenAudit});
 
   final Map<String, dynamic> mission;
   final VoidCallback onOpenAudit;
@@ -859,6 +882,125 @@ class _MissionSummaryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ApplicationCard extends ConsumerWidget {
+  const _ApplicationCard({required this.application});
+
+  final Map<String, dynamic> application;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final data = Map<String, dynamic>.from(
+      application['data'] as Map? ?? const {},
+    );
+    final type = _stringOrDash(application['type']);
+    final isDriver = type == 'driver';
+    final documents = isDriver
+        ? <_ApplicationDocument>[
+            _ApplicationDocument(
+              label: 'Pièce d’identité',
+              url: _stringOrEmpty(data['id_card_url']),
+            ),
+            _ApplicationDocument(
+              label: 'Permis de conduire',
+              url: _stringOrEmpty(data['license_url']),
+            ),
+          ]
+        : <_ApplicationDocument>[];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isDriver ? Icons.two_wheeler_outlined : Icons.store_outlined,
+                color: isDriver ? Colors.indigo : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isDriver ? 'Candidature livreur' : 'Candidature point relais',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              _StatusChip(
+                label: _applicationStatusLabel(application['status']),
+                color: _applicationStatusColor(application['status']),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InfoRow(
+            'ID candidature',
+            _stringOrDash(application['application_id']),
+          ),
+          _InfoRow('Soumise le', _formatDateValue(application['created_at'])),
+          _InfoRow('Mise à jour', _formatDateValue(application['updated_at'])),
+          if (isDriver) ...[
+            _InfoRow('Nom déclaré', _stringOrDash(data['full_name'])),
+            _InfoRow('Numéro CNI', _stringOrDash(data['id_card_number'])),
+            _InfoRow('Numéro permis', _stringOrDash(data['license_number'])),
+            _InfoRow('Véhicule', _stringOrDash(data['vehicle_type'])),
+          ] else ...[
+            _InfoRow('Nom du commerce', _stringOrDash(data['business_name'])),
+            _InfoRow('Adresse', _stringOrDash(data['address_label'])),
+            _InfoRow('Ville', _stringOrDash(data['city'])),
+            _InfoRow('Registre commerce', _stringOrDash(data['business_reg'])),
+            _InfoRow('Horaires', _stringOrDash(data['opening_hours'])),
+            if (data['geopin'] is Map)
+              _InfoRow('GPS', _formatGeopin(data['geopin'] as Map)),
+          ],
+          if (_stringOrDash(data['message']) != '--')
+            _InfoRow('Message candidat', _stringOrDash(data['message'])),
+          if (_stringOrDash(application['admin_notes']) != '--')
+            _InfoRow('Note admin', _stringOrDash(application['admin_notes'])),
+          if (documents.any((document) => document.url.isNotEmpty)) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Documents',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final document in documents)
+                  if (document.url.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: () => _openDocumentPreview(
+                        context,
+                        ref,
+                        document.label,
+                        document.url,
+                      ),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: Text(document.label),
+                    ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ApplicationDocument {
+  const _ApplicationDocument({required this.label, required this.url});
+
+  final String label;
+  final String url;
 }
 
 class _EventTile extends StatelessWidget {
@@ -956,6 +1098,107 @@ String _stringOrDash(dynamic value) {
     return '--';
   }
   return text;
+}
+
+String _stringOrEmpty(dynamic value) {
+  return value?.toString().trim() ?? '';
+}
+
+String _formatGeopin(Map value) {
+  final lat = _stringOrDash(value['lat']);
+  final lng = _stringOrDash(value['lng']);
+  if (lat == '--' && lng == '--') {
+    return '--';
+  }
+  return '$lat, $lng';
+}
+
+String _applicationStatusLabel(dynamic value) {
+  switch (_stringOrEmpty(value)) {
+    case 'approved':
+      return 'Approuvée';
+    case 'rejected':
+      return 'Refusée';
+    case 'pending':
+      return 'En attente';
+    default:
+      return _stringOrDash(value);
+  }
+}
+
+Color _applicationStatusColor(dynamic value) {
+  switch (_stringOrEmpty(value)) {
+    case 'approved':
+      return Colors.green;
+    case 'rejected':
+      return Colors.red;
+    case 'pending':
+      return Colors.orange;
+    default:
+      return Colors.blueGrey;
+  }
+}
+
+Future<void> _openDocumentPreview(
+  BuildContext context,
+  WidgetRef ref,
+  String title,
+  String url,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: FutureBuilder<Uint8List>(
+            future: ref.read(apiClientProvider).downloadBytes(url),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 220,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError || !snapshot.hasData) {
+                return Text(
+                  friendlyError(snapshot.error ?? 'Document introuvable'),
+                );
+              }
+              return InteractiveViewer(
+                child: Image.memory(
+                  snapshot.data!,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Aperçu non disponible sur mobile pour ce format.',
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Fermer'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null && await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            child: const Text('Ouvrir le lien'),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 String _formatDateValue(dynamic value) {

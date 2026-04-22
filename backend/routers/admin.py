@@ -246,6 +246,8 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "is_banned": user.get("is_banned", False),
         "is_available": user.get("is_available", False),
         "kyc_status": user.get("kyc_status", "none"),
+        "kyc_id_card_url": user.get("kyc_id_card_url"),
+        "kyc_license_url": user.get("kyc_license_url"),
         "relay_point_id": user.get("relay_point_id"),
         "deliveries_completed": user.get("deliveries_completed", 0),
         "average_rating": user.get("average_rating", 0.0),
@@ -286,6 +288,23 @@ def _relay_identity_snapshot(relay: dict | None) -> dict | None:
         "external_ref": relay.get("external_ref"),
         "created_at": relay.get("created_at"),
         "updated_at": relay.get("updated_at"),
+    }
+
+
+def _application_snapshot(application: dict | None) -> dict | None:
+    if not application:
+        return None
+    return {
+        "application_id": application.get("application_id"),
+        "user_id": application.get("user_id"),
+        "user_phone": application.get("user_phone"),
+        "user_name": application.get("user_name"),
+        "type": application.get("type"),
+        "status": application.get("status"),
+        "data": application.get("data") or {},
+        "admin_notes": application.get("admin_notes"),
+        "created_at": application.get("created_at"),
+        "updated_at": application.get("updated_at"),
     }
 
 
@@ -1064,6 +1083,10 @@ async def admin_user_detail(
         {"actor_id": user_id},
         {"_id": 0},
     ).sort("created_at", -1).limit(10).to_list(length=10)
+    applications = await db.applications.find(
+        {"user_id": user_id},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(10).to_list(length=10)
     last_session = await db.user_sessions.find_one(
         {"user_id": user_id},
         {"_id": 0, "refresh_token": 0},
@@ -1129,6 +1152,11 @@ async def admin_user_detail(
         ),
         "last_session": last_session,
         "recent_events": recent_events,
+        "applications": [
+            snapshot
+            for snapshot in (_application_snapshot(application) for application in applications)
+            if snapshot
+        ],
         "referral": {
             "code": user.get("referral_code"),
             "referred_by": user.get("referred_by"),
@@ -2054,6 +2082,17 @@ async def admin_relay_point_detail(
         {"owner_id": relay.get("owner_user_id"), "owner_type": "relay"},
         {"_id": 0},
     )
+    application_user_ids = {relay.get("owner_user_id"), *agent_ids}
+    application_user_ids = {user_id for user_id in application_user_ids if user_id}
+    application_query: dict[str, Any] = {"type": "relay"}
+    if application_user_ids:
+        application_query["user_id"] = {"$in": list(application_user_ids)}
+    else:
+        application_query["user_id"] = relay.get("owner_user_id")
+    applications = await db.applications.find(
+        application_query,
+        {"_id": 0},
+    ).sort("created_at", -1).limit(10).to_list(length=10)
 
     return {
         "relay_point": relay,
@@ -2072,6 +2111,11 @@ async def admin_relay_point_detail(
             ],
         ),
         "recent_parcels": recent_parcels,
+        "applications": [
+            snapshot
+            for snapshot in (_application_snapshot(application) for application in applications)
+            if snapshot
+        ],
     }
 
 

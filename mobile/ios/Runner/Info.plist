@@ -72,6 +72,8 @@
 	<string>Cette application a besoin d'acceder a votre position en arriere-plan pour le suivi des livraisons en temps reel.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Cette application a besoin d'acceder a l'appareil photo pour scanner les codes de livraison et prendre des preuves de depot.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Denkma utilise le microphone uniquement pour enregistrer et envoyer des notes vocales.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Cette application a besoin d'acceder a votre bibliotheque de photos pour enregistrer les preuves de livraison.</string>
 	<key>NSFaceIDUsageDescription</key>

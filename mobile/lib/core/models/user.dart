@@ -93,6 +93,18 @@ class User {
   factory User.fromJson(Map<String, dynamic> json) {
     // Le backend renvoie 'user_id' au lieu de 'id'
     final idStr = json['user_id'] as String? ?? json['id'] as String? ?? '';
+    final profilePictureUrl = _firstString(json, const [
+      'profile_picture_url',
+      'profile_photo_url',
+      'avatar_url',
+      'photo_url',
+    ]);
+    final avatarUrl = _firstString(json, const [
+      'avatar_url',
+      'profile_picture_url',
+      'profile_photo_url',
+      'photo_url',
+    ]);
 
     return User(
       id: idStr,
@@ -100,11 +112,10 @@ class User {
       // Le backend renvoie 1 = admin, 2 = client... mais on s'attend à un string ici
       // On le convertit en string si jamais c'est un enum Backend (UserRole.XXX)
       role: json['role']?.toString() ?? 'client',
-      profilePictureUrl:
-          json['profile_picture_url'] as String?, // Added this line
+      profilePictureUrl: profilePictureUrl,
       fullName: json['name'] as String? ?? json['full_name'] as String?,
       email: json['email'] as String?,
-      avatarUrl: json['avatar_url'] as String?,
+      avatarUrl: avatarUrl,
       relayPointId: json['relay_point_id'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       isAvailable: json['is_available'] as bool? ?? false,
@@ -295,6 +306,16 @@ class FavoriteAddress {
         'lat': lat,
         'lng': lng,
       };
+}
+
+String? _firstString(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key]?.toString().trim();
+    if (value != null && value.isNotEmpty && value.toLowerCase() != 'null') {
+      return value;
+    }
+  }
+  return null;
 }
 
 class NotificationPrefs {

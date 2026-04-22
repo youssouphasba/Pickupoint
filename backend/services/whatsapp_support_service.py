@@ -1,8 +1,11 @@
-import json
+﻿import json
 import logging
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +28,11 @@ SUPPORTED_OUTBOUND_AUDIO_MIME_TYPES = {
     "audio/mp4",
     "audio/mpeg",
     "audio/ogg",
+}
+TRANSCODABLE_OUTBOUND_AUDIO_MIME_TYPES = {
+    "audio/webm",
+    "audio/wav",
+    "application/octet-stream",
 }
 
 ACTIVE_STATUSES = {
@@ -82,11 +90,49 @@ def _base_mime_type(mime_type: str | None) -> str:
 def _outbound_audio_mime_type(mime_type: str | None) -> str:
     clean_mime = _base_mime_type(mime_type)
     if clean_mime not in SUPPORTED_OUTBOUND_AUDIO_MIME_TYPES:
-        raise ValueError(
-            "Format audio non supporté par WhatsApp Cloud API. "
-            "Essayez Firefox pour enregistrer en audio/ogg, ou envoyez une réponse texte."
-        )
+        raise ValueError("Format audio non supporté par WhatsApp Cloud API.")
     return clean_mime
+
+
+def _prepare_outbound_audio(content: bytes, filename: str, mime_type: str) -> tuple[bytes, str, str]:
+    clean_mime = _base_mime_type(mime_type)
+    if clean_mime in SUPPORTED_OUTBOUND_AUDIO_MIME_TYPES:
+        return content, filename, clean_mime
+    if clean_mime not in TRANSCODABLE_OUTBOUND_AUDIO_MIME_TYPES:
+        raise ValueError("Format audio non supporté par WhatsApp Cloud API.")
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise ValueError(
+            "Le serveur ne peut pas convertir cet audio. Répondez en texte ou réessayez après le déploiement avec ffmpeg."
+        )
+
+    source_suffix = Path(filename or "note-vocale.webm").suffix or ".webm"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / f"source{source_suffix}"
+        target = Path(tmpdir) / "note-vocale.ogg"
+        source.write_bytes(content)
+        command = [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(source),
+            "-vn",
+            "-acodec",
+            "libopus",
+            "-b:a",
+            "32k",
+            str(target),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0 or not target.is_file():
+            logger.warning("WhatsApp support audio conversion failed: %s", result.stderr[-500:])
+            raise ValueError("La conversion de la note vocale a échoué. Envoyez une réponse texte.")
+        converted = target.read_bytes()
+
+    if not converted or len(converted) > MAX_WHATSAPP_MEDIA_BYTES:
+        raise ValueError("Audio WhatsApp invalide ou trop volumineux après conversion.")
+    return converted, "note-vocale.ogg", "audio/ogg"
 
 
 def _whatsapp_error_message(status_code: int, body: str) -> str:
@@ -489,8 +535,12 @@ async def send_support_audio_reply(
     mime_type: str,
     admin_user: dict,
 ) -> dict:
-    clean_mime_type = _outbound_audio_mime_type(mime_type)
-    media_id = await _upload_whatsapp_media(content, filename, clean_mime_type)
+    prepared_content, prepared_filename, clean_mime_type = _prepare_outbound_audio(
+        content,
+        filename,
+        mime_type,
+    )
+    media_id = await _upload_whatsapp_media(prepared_content, prepared_filename, clean_mime_type)
     payload = {
         "messaging_product": "whatsapp",
         "to": conversation["phone"].lstrip("+"),
@@ -504,12 +554,12 @@ async def send_support_audio_reply(
     ext = _safe_media_extension(clean_mime_type)
     stored_filename = f"out_{media_id}_{uuid.uuid4().hex[:10]}{ext}"
     path = PRIVATE_WHATSAPP_DIR / stored_filename
-    path.write_bytes(content)
+    path.write_bytes(prepared_content)
 
     media = {
         "media_id": media_id,
         "mime_type": clean_mime_type,
-        "file_size": len(content),
+        "file_size": len(prepared_content),
         "storage_path": str(path),
         "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{stored_filename}",
     }

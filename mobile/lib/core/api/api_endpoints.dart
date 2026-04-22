@@ -10,6 +10,17 @@ class ApiEndpoints {
     defaultValue: 'https://api.denkma.com',
   );
 
+  static String resolve(String url) {
+    final value = url.trim();
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    if (value.startsWith('/')) {
+      return '$_base$value';
+    }
+    return '$_base/$value';
+  }
+
   // ─── Auth ────────────────────────────────────────────────────────────────
   static const checkPhone = '$_base/api/auth/check-phone';
   static const loginPin = '$_base/api/auth/login-pin';
@@ -111,6 +122,16 @@ class ApiEndpoints {
       '$_base/api/admin/parcels/$id/override';
   static String adminPaymentOverride(String id) =>
       '$_base/api/admin/parcels/$id/payment-override';
+  static const adminWhatsappSupportConversations =
+      '$_base/api/admin/support/whatsapp/conversations';
+  static String adminWhatsappSupportConversation(String id) =>
+      '$_base/api/admin/support/whatsapp/conversations/$id';
+  static String adminWhatsappSupportConversationStatus(String id) =>
+      '$_base/api/admin/support/whatsapp/conversations/$id/status';
+  static String adminWhatsappSupportReply(String id) =>
+      '$_base/api/admin/support/whatsapp/conversations/$id/reply';
+  static String adminWhatsappSupportVoice(String id) =>
+      '$_base/api/admin/support/whatsapp/conversations/$id/voice';
 
   // Control Max (Phase 9)
   static const adminFleetLive = '$_base/api/admin/fleet/live-rich';

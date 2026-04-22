@@ -72,6 +72,54 @@ function mediaUrl(downloadUrl?: string | null) {
   }
 }
 
+function AuthenticatedAudio({ downloadUrl }: { downloadUrl?: string | null }) {
+  const [src, setSrc] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const url = mediaUrl(downloadUrl);
+    if (!url) return;
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    setError(null);
+    setSrc(null);
+
+    api
+      .get(url, { responseType: "blob" })
+      .then((response) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(response.data);
+        setSrc(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("Lecture audio impossible. Le média est indisponible ou expiré.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [downloadUrl]);
+
+  if (error) {
+    return <div className="mt-3 text-xs text-red-700">{error}</div>;
+  }
+
+  if (!src) {
+    return (
+      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Chargement de l'audio...
+      </div>
+    );
+  }
+
+  return <audio className="mt-3 w-full max-w-md" controls src={src} />;
+}
+
 export default function WhatsAppSupportPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -395,11 +443,7 @@ export default function WhatsAppSupportPage() {
                           {message.text || `[${message.message_type}]`}
                         </div>
                         {message.media?.download_url && (
-                          <audio
-                            className="mt-3 w-full max-w-md"
-                            controls
-                            src={mediaUrl(message.media.download_url)}
-                          />
+                          <AuthenticatedAudio downloadUrl={message.media.download_url} />
                         )}
                         <div className="mt-2 text-xs text-muted-foreground">
                           {outbound ? "Envoyé · " : ""}

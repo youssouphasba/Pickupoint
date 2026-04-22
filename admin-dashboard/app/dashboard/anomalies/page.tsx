@@ -1,20 +1,23 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { fetchAnomalies } from "@/lib/api";
+import { fetchActionCenter } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/utils";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 type Anomaly = {
+  id: string;
   type: string;
   parcel_id?: string;
+  parcel_status?: string;
+  mission_id?: string;
+  mission_status?: string;
   tracking_code?: string;
   status?: string;
   driver_name?: string;
   relay_name?: string;
-  hours_since_update?: number;
+  age_hours?: number;
   message?: string;
 };
 
@@ -23,24 +26,36 @@ const TYPE_LABELS: Record<string, string> = {
   signal_lost: "Signal GPS perdu",
   long_transit: "Transit trop long",
   capacity_overflow: "Relais plein",
+  critical_delay: "Mission trop longue",
 };
+
+function anomalyMessage(anomaly: Anomaly) {
+  if (anomaly.message) return anomaly.message;
+  if (anomaly.type === "signal_lost") {
+    return "Le livreur n'a pas transmis de position GPS depuis plus de 20 minutes.";
+  }
+  if (anomaly.type === "critical_delay") {
+    return "La mission dépasse le délai opérationnel attendu et doit être contrôlée.";
+  }
+  return "Une anomalie opérationnelle demande un contrôle admin.";
+}
 
 export default function AnomaliesPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["anomalies"],
-    queryFn: fetchAnomalies,
+    queryKey: ["action-center", "anomalies"],
+    queryFn: fetchActionCenter,
     refetchInterval: 60_000,
   });
 
-  const alerts: Anomaly[] = data?.alerts ?? [];
+  const alerts = (data?.categories.anomalies.items ?? []) as unknown as Anomaly[];
 
   return (
     <div className="space-y-5 p-8">
       <div>
         <h1 className="text-2xl font-bold">Anomalies</h1>
         <p className="text-sm text-muted-foreground">
-          Détection automatique : immobilité livreur, missions bloquées, relais
-          pleins.
+          Détection automatique : signal GPS perdu, missions trop longues et
+          incidents qui demandent un contrôle.
         </p>
       </div>
 
@@ -65,7 +80,7 @@ export default function AnomaliesPage() {
 
       <div className="grid gap-3">
         {alerts.map((a, i) => (
-          <Card key={i}>
+          <Card key={a.id ?? i}>
             <CardContent className="flex items-start gap-4 p-5">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
                 <AlertTriangle className="h-5 w-5" />
@@ -81,18 +96,19 @@ export default function AnomaliesPage() {
                     </Badge>
                   )}
                 </div>
-                {a.message && (
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {a.message}
-                  </div>
-                )}
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {anomalyMessage(a)}
+                </div>
                 <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                  {a.driver_name && <span>Livreur: {a.driver_name}</span>}
-                  {a.relay_name && <span>Relais: {a.relay_name}</span>}
-                  {a.hours_since_update != null && (
-                    <span>{a.hours_since_update.toFixed(1)}h sans MAJ</span>
+                  {a.driver_name && <span>Livreur : {a.driver_name}</span>}
+                  {a.relay_name && <span>Relais : {a.relay_name}</span>}
+                  {a.mission_id && <span>Mission : {a.mission_id}</span>}
+                  {a.age_hours != null && <span>{a.age_hours.toFixed(1)} h</span>}
+                  {(a.parcel_status || a.mission_status || a.status) && (
+                    <span>
+                      Statut : {a.parcel_status || a.mission_status || a.status}
+                    </span>
                   )}
-                  {a.status && <span>Statut: {a.status}</span>}
                 </div>
               </div>
             </CardContent>

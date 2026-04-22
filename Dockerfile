@@ -9,6 +9,7 @@ WORKDIR /app
 # Dépendances système
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Installer les dépendances Python

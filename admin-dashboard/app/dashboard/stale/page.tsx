@@ -3,31 +3,33 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
-import { fetchStaleParcels } from "@/lib/api";
+import { fetchActionCenter } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 
 type StaleParcel = {
+  id: string;
   parcel_id: string;
   tracking_code: string;
-  status: string;
+  parcel_status?: string;
+  status?: string;
   relay_name?: string;
-  updated_at?: string;
-  days_stale?: number;
+  last_move_at?: string;
+  age_days?: number;
   sender_name?: string;
   recipient_name?: string;
 };
 
 export default function StaleParcelsPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["stale-parcels"],
-    queryFn: fetchStaleParcels,
+    queryKey: ["action-center", "stale-parcels"],
+    queryFn: fetchActionCenter,
     refetchInterval: 60_000,
   });
 
-  const parcels: StaleParcel[] = data?.parcels ?? [];
+  const parcels = (data?.categories.stale_parcels.items ?? []) as unknown as StaleParcel[];
 
   const columns = React.useMemo<ColumnDef<StaleParcel, any>[]>(
     () => [
@@ -44,30 +46,27 @@ export default function StaleParcelsPage() {
       {
         id: "status",
         header: "Statut",
-        accessorKey: "status",
-        cell: ({ getValue }) => (
-          <Badge tone="warning">{(getValue() as string).replace(/_/g, " ")}</Badge>
-        ),
+        accessorFn: (row) => row.parcel_status || row.status || "",
+        cell: ({ getValue }) => {
+          const status = (getValue() as string) || "inconnu";
+          return <Badge tone="warning">{status.replace(/_/g, " ")}</Badge>;
+        },
       },
       {
         id: "relay",
         header: "Relais",
         accessorKey: "relay_name",
         cell: ({ getValue }) => (
-          <span className="text-sm">{(getValue() as string) ?? "—"}</span>
+          <span className="text-sm">{(getValue() as string) ?? "-"}</span>
         ),
       },
       {
         id: "days",
         header: "Jours",
-        accessorKey: "days_stale",
+        accessorKey: "age_days",
         cell: ({ getValue }) => {
           const d = (getValue() as number) ?? 0;
-          return (
-            <Badge tone={d > 14 ? "danger" : "warning"}>
-              {d}j
-            </Badge>
-          );
+          return <Badge tone={d > 14 ? "danger" : "warning"}>{d} j</Badge>;
         },
       },
       {
@@ -75,13 +74,13 @@ export default function StaleParcelsPage() {
         header: "Expéditeur",
         accessorKey: "sender_name",
         cell: ({ getValue }) => (
-          <span className="text-sm">{(getValue() as string) ?? "—"}</span>
+          <span className="text-sm">{(getValue() as string) ?? "-"}</span>
         ),
       },
       {
         id: "updated",
-        header: "Dernière MAJ",
-        accessorKey: "updated_at",
+        header: "Dernière mise à jour",
+        accessorKey: "last_move_at",
         cell: ({ getValue }) => (
           <span className="text-xs text-muted-foreground">
             {formatDate(getValue() as string)}
@@ -115,7 +114,7 @@ export default function StaleParcelsPage() {
         <DataTable
           columns={columns}
           data={parcels}
-          searchPlaceholder="Code suivi, relais, expéditeur…"
+          searchPlaceholder="Code suivi, relais, expéditeur..."
           globalFilterFn={(p, q) =>
             (p.tracking_code ?? "").toLowerCase().includes(q) ||
             (p.relay_name ?? "").toLowerCase().includes(q) ||

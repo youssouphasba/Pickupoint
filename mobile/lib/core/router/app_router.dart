@@ -39,6 +39,7 @@ import '../../features/admin/screens/admin_parcel_audit_screen.dart';
 import '../../features/admin/screens/admin_anomalies_screen.dart';
 import '../../features/admin/screens/admin_heatmap_screen.dart';
 import '../../features/admin/screens/admin_promotions_screen.dart';
+import '../../features/admin/screens/admin_whatsapp_support_screen.dart';
 import '../../features/client/screens/partnership_screen.dart';
 import '../../features/client/screens/client_loyalty_history_screen.dart';
 import '../../features/admin/screens/admin_global_audit_screen.dart';
@@ -428,6 +429,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/admin/promotions',
               builder: (_, __) => const AdminPromotionsScreen()),
+          GoRoute(
+              path: '/admin/support',
+              builder: (_, __) => const AdminWhatsappSupportScreen()),
           GoRoute(
               path: '/admin/audit-log',
               builder: (_, __) => const AdminGlobalAuditScreen()),
