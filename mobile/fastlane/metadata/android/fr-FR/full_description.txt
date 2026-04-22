@@ -1,0 +1,31 @@
+Denkma simplifie l'envoi, le suivi, la livraison et le retrait de colis au Sénégal.
+
+L'application connecte les expéditeurs, les destinataires, les livreurs et les points relais dans un même parcours. Vous créez un colis, choisissez le mode de livraison, suivez les étapes importantes et recevez les informations utiles au bon moment.
+
+Pour les expéditeurs :
+• créez un colis rapidement ;
+• choisissez une livraison à domicile ou en point relais ;
+• suivez l'avancement du colis ;
+• recevez les notifications importantes ;
+• préparez la remise du colis quand un livreur accepte la mission.
+
+Pour les destinataires :
+• recevez les informations de suivi par WhatsApp ou dans l'application ;
+• confirmez votre position lorsque c'est nécessaire ;
+• consultez les détails du colis lié à votre numéro ;
+• utilisez un code de retrait ou de livraison sécurisé.
+
+Pour les livreurs :
+• consultez les missions disponibles ;
+• acceptez les livraisons adaptées à votre zone ;
+• suivez les étapes de collecte et de remise ;
+• gardez les informations sensibles protégées.
+
+Pour les points relais :
+• gérez les dépôts et retraits ;
+• identifiez les colis avec les codes de suivi ;
+• facilitez la remise au bon destinataire.
+
+Denkma aide chaque utilisateur à gagner du temps, à mieux suivre ses colis et à réduire les attentes inutiles.
+
+Service disponible progressivement selon les zones couvertes.

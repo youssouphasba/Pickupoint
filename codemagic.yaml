@@ -45,6 +45,24 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           flutter build apk --release --no-tree-shake-icons
+      - name: Publish Google Play listing and internal release
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          if [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS:-}" ]; then
+            echo "GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS is not configured. Skipping Google Play publication."
+            exit 0
+          fi
+
+          cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          bundle install
+          export ANDROID_PACKAGE_NAME="${ANDROID_PACKAGE_NAME:-com.denkma.app}"
+          export GOOGLE_PLAY_TRACK="${GOOGLE_PLAY_TRACK:-internal}"
+          export GOOGLE_PLAY_RELEASE_STATUS="${GOOGLE_PLAY_RELEASE_STATUS:-draft}"
+          export ANDROID_AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
+          bundle exec fastlane android upload_store_listing
+          bundle exec fastlane android deploy_internal
     artifacts:
       - mobile/build/app/outputs/bundle/release/*.aab
       - mobile/build/app/outputs/flutter-apk/*.apk
