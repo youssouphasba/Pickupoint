@@ -63,6 +63,7 @@ docs/tutorial_video_real/
 !.env.example
 !backend/.env.example
 backend/.env.railway
+mobile/fastlane/google-play-service-account.json
 
 # Project specific
 backend/__pycache__/
@@ -92,5 +93,8 @@ mobile/android/key.properties
 !mobile/assets/**/*.jpg
 !mobile/android/app/src/main/res/**/*.png
 !mobile/ios/Runner/Assets.xcassets/**/*.png
+!mobile/fastlane/metadata/android/**/*.png
+!mobile/fastlane/metadata/android/**/*.jpg
+!mobile/fastlane/metadata/android/**/*.jpeg
 !landing/assets/**/*.png
 !landing/assets/**/*.jpg
