@@ -36,7 +36,7 @@ if (mapsApiKey == null) {
     mapsApiKey = System.getenv("GOOGLE_MAPS_ANDROID_KEY") ?: ""
 }
 
-def androidCompileSdk = (System.getenv("ANDROID_COMPILE_SDK") ?: "35").toInteger()
+def androidCompileSdk = (System.getenv("ANDROID_COMPILE_SDK") ?: "36").toInteger()
 def androidTargetSdk = (System.getenv("ANDROID_TARGET_SDK") ?: "35").toInteger()
 
 android {
