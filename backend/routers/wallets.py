@@ -14,6 +14,7 @@ from core.utils import normalize_phone
 from database import db
 from models.wallet import PayoutRequest, TransactionType
 from services.wallet_service import get_or_create_wallet, record_wallet_transaction
+from services.admin_events_service import AdminEventType, record_admin_event
 
 router = APIRouter()
 
@@ -122,6 +123,19 @@ async def request_payout(
         )
         await db.payout_requests.delete_one({"payout_id": payout["payout_id"]})
         raise
+
+    await record_admin_event(
+        AdminEventType.PAYOUT_REQUESTED,
+        title=f"Demande de retrait : {body.amount:,} XOF".replace(",", " "),
+        message=f"{current_user.get('name') or current_user['phone']} · {body.method}",
+        href="/dashboard/payouts",
+        metadata={
+            "payout_id": payout["payout_id"],
+            "owner_id": current_user["user_id"],
+            "amount": body.amount,
+            "method": body.method,
+        },
+    )
 
     return {k: v for k, v in payout.items() if k != "_id"}
 

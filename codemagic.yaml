@@ -50,10 +50,12 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
 
-          if [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS:-}" ]; then
-            echo "GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS is not configured. Skipping Google Play publication."
+          GOOGLE_PLAY_CREDENTIALS="${GCLOUD_SERVICE_ACCOUNT_CREDENTIALS:-${GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS:-}}"
+          if [ -z "$GOOGLE_PLAY_CREDENTIALS" ]; then
+            echo "GCLOUD_SERVICE_ACCOUNT_CREDENTIALS is not configured. Skipping Google Play publication."
             exit 0
           fi
+          export GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS="$GOOGLE_PLAY_CREDENTIALS"
 
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           bundle install

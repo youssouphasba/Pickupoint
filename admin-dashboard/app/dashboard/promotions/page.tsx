@@ -6,6 +6,7 @@ import {
   fetchReferralStats,
   fetchSettings,
   toggleExpress,
+  updateLogisticsSettings,
   updateReferralSettings,
   ReferralRoleConfig,
 } from "@/lib/api";
@@ -187,6 +188,7 @@ export default function PromotionsPage() {
   const [editing, setEditing] = React.useState(false);
   const [clientConfig, setClientConfig] = React.useState<ReferralRoleConfig | null>(null);
   const [driverConfig, setDriverConfig] = React.useState<ReferralRoleConfig | null>(null);
+  const [redirectRelayDistance, setRedirectRelayDistance] = React.useState("1");
 
   const s = settings.data;
 
@@ -195,7 +197,21 @@ export default function PromotionsPage() {
       setClientConfig(s.referral_roles.client);
       setDriverConfig(s.referral_roles.driver);
     }
+    if (s?.redirect_relay_max_distance_km != null) {
+      setRedirectRelayDistance(String(s.redirect_relay_max_distance_km));
+    }
   }, [s]);
+
+  const logisticsMut = useMutation({
+    mutationFn: () =>
+      updateLogisticsSettings({
+        redirect_relay_max_distance_km: Number(redirectRelayDistance),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast("Règles logistiques mises à jour.");
+    },
+  });
 
   const referralMut = useMutation({
     mutationFn: () =>
@@ -233,35 +249,83 @@ export default function PromotionsPage() {
       )}
 
       {s && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Livraison express
-          </h2>
-          <Card>
-            <CardContent className="flex items-center justify-between p-5">
-              <div>
-                <div className="font-medium">Mode express</div>
-                <div className="text-sm text-muted-foreground">
-                  Coefficient x1.40 sur les tarifs
+        <>
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Livraison express
+            </h2>
+            <Card>
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <div className="font-medium">Mode express</div>
+                  <div className="text-sm text-muted-foreground">
+                    Coefficient x1.30 sur les tarifs.
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Badge tone={s.express_enabled ? "success" : "default"}>
-                  {s.express_enabled ? "Activé" : "Désactivé"}
-                </Badge>
+                <div className="flex items-center gap-3">
+                  <Badge tone={s.express_enabled ? "success" : "default"}>
+                    {s.express_enabled ? "Activé" : "Désactivé"}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={expressMut.isPending}
+                    onClick={() => expressMut.mutate(!s.express_enabled)}
+                  >
+                    {expressMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {s.express_enabled ? "Désactiver" : "Activer"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+
+          <section>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Règles logistiques
+            </h2>
+            <Card>
+              <CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-end">
+                <div>
+                  <div className="font-medium">Rayon maximum relais de repli</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Si aucun relais actif, ouvert et disponible n'est trouvé dans ce rayon autour du destinataire,
+                    Denkma déclenche un retour à l'expéditeur au lieu d'envoyer le colis trop loin.
+                  </div>
+                  <div className="mt-3 max-w-xs">
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      Distance maximale autour du destinataire
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="0.1"
+                        max="10"
+                        step="0.1"
+                        value={redirectRelayDistance}
+                        onChange={(e) => setRedirectRelayDistance(e.target.value)}
+                      />
+                      <span className="text-sm text-muted-foreground">km</span>
+                    </div>
+                  </div>
+                </div>
                 <Button
-                  size="sm"
+                  className="w-full md:w-auto"
                   variant="outline"
-                  disabled={expressMut.isPending}
-                  onClick={() => expressMut.mutate(!s.express_enabled)}
+                  disabled={logisticsMut.isPending || Number(redirectRelayDistance) < 0.1}
+                  onClick={() => logisticsMut.mutate()}
                 >
-                  {expressMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {s.express_enabled ? "Désactiver" : "Activer"}
+                  {logisticsMut.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Sauvegarder
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
+              </CardContent>
+            </Card>
+          </section>
+        </>
       )}
 
       {clientConfig && driverConfig && (

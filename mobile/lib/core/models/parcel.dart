@@ -63,6 +63,7 @@ class Parcel {
     this.deliveryCode,
     this.pinCode,
     this.pickupCode,
+    this.returnCode,
     this.deliveryLat,
     this.deliveryLng,
     this.rating,
@@ -127,6 +128,8 @@ class Parcel {
   pinCode; // code que le destinataire donne au relais (retrait relais)
   final String?
   pickupCode; // code que l'expéditeur donne au livreur (H2R / H2H)
+  final String?
+  returnCode; // code que l'expéditeur donne au livreur pour confirmer un retour
   final double? deliveryLat;
   final double? deliveryLng;
   final int? rating;
@@ -213,6 +216,7 @@ class Parcel {
       deliveryCode: json['delivery_code'] as String?,
       pinCode: json['relay_pin'] as String? ?? json['pin_code'] as String?,
       pickupCode: json['pickup_code'] as String?,
+      returnCode: json['return_code'] as String?,
       deliveryLat:
           (json['delivery_address'] as Map<String, dynamic>?)?['geopin'] != null
           ? ((json['delivery_address']['geopin']['lat']) as num?)?.toDouble()

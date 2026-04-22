@@ -21,6 +21,25 @@ from services.dynamic_pricing import get_dynamic_coefficient
 logger = logging.getLogger(__name__)
 
 
+async def get_pricing_settings() -> dict:
+    """Retourne les règles tarifaires configurées dans l'admin, avec fallback env."""
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    return {
+        "base_relay_to_relay": float(settings_doc.get("base_relay_to_relay", settings.BASE_RELAY_TO_RELAY)),
+        "base_relay_to_home": float(settings_doc.get("base_relay_to_home", settings.BASE_RELAY_TO_HOME)),
+        "base_home_to_relay": float(settings_doc.get("base_home_to_relay", settings.BASE_HOME_TO_RELAY)),
+        "base_home_to_home": float(settings_doc.get("base_home_to_home", settings.BASE_HOME_TO_HOME)),
+        "price_per_km": float(settings_doc.get("price_per_km", settings.PRICE_PER_KM)),
+        "price_per_kg": float(settings_doc.get("price_per_kg", settings.PRICE_PER_KG)),
+        "free_weight_kg": float(settings_doc.get("free_weight_kg", settings.FREE_WEIGHT_KG)),
+        "min_price": float(settings_doc.get("min_price", settings.MIN_PRICE)),
+        "express_multiplier": float(settings_doc.get("express_multiplier", settings.EXPRESS_MULTIPLIER)),
+        "night_multiplier": float(settings_doc.get("night_multiplier", settings.NIGHT_MULTIPLIER)),
+        "default_distance_km": float(settings_doc.get("default_distance_km", settings.DEFAULT_DISTANCE_KM)),
+        "express_enabled": bool(settings_doc.get("express_enabled", False)),
+    }
+
+
 # ── Distances ─────────────────────────────────────────────────────────────────
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -60,7 +79,7 @@ async def _relay_geopin(
     return None
 
 
-async def estimate_distance_km(quote: ParcelQuote) -> float:
+async def estimate_distance_km(quote: ParcelQuote, pricing_settings: Optional[dict] = None) -> float:
     """
     Calcule la distance Haversine entre le point de départ et d'arrivée.
     Fallback : DEFAULT_DISTANCE_KM si les coordonnées sont inconnues.
@@ -97,16 +116,18 @@ async def estimate_distance_km(quote: ParcelQuote) -> float:
         # Minimum 1 km pour ne pas avoir 0 XOF de distance
         return max(1.0, round(km, 2))
 
-    logger.debug("GPS inconnu pour le devis — fallback %.1f km", settings.DEFAULT_DISTANCE_KM)
-    return settings.DEFAULT_DISTANCE_KM
+    pricing_settings = pricing_settings or await get_pricing_settings()
+    default_distance = float(pricing_settings["default_distance_km"])
+    logger.debug("GPS inconnu pour le devis — fallback %.1f km", default_distance)
+    return default_distance
 
 
-def _base_price(mode: DeliveryMode) -> float:
+def _base_price(mode: DeliveryMode, pricing_settings: dict) -> float:
     return {
-        DeliveryMode.RELAY_TO_RELAY: settings.BASE_RELAY_TO_RELAY,
-        DeliveryMode.RELAY_TO_HOME:  settings.BASE_RELAY_TO_HOME,
-        DeliveryMode.HOME_TO_RELAY:  settings.BASE_HOME_TO_RELAY,
-        DeliveryMode.HOME_TO_HOME:   settings.BASE_HOME_TO_HOME,
+        DeliveryMode.RELAY_TO_RELAY: pricing_settings["base_relay_to_relay"],
+        DeliveryMode.RELAY_TO_HOME:  pricing_settings["base_relay_to_home"],
+        DeliveryMode.HOME_TO_RELAY:  pricing_settings["base_home_to_relay"],
+        DeliveryMode.HOME_TO_HOME:   pricing_settings["base_home_to_home"],
     }[mode]
 
 
@@ -199,11 +220,12 @@ async def calculate_price(
             },
         )
 
-    base       = _base_price(quote.delivery_mode)
-    distance   = await estimate_distance_km(quote)
-    dist_cost  = distance * settings.PRICE_PER_KM
-    extra_kg   = max(0.0, quote.weight_kg - settings.FREE_WEIGHT_KG)
-    weight_cost = extra_kg * settings.PRICE_PER_KG
+    pricing_settings = await get_pricing_settings()
+    base       = _base_price(quote.delivery_mode, pricing_settings)
+    distance   = await estimate_distance_km(quote, pricing_settings)
+    dist_cost  = distance * pricing_settings["price_per_km"]
+    extra_kg   = max(0.0, quote.weight_kg - pricing_settings["free_weight_kg"])
+    weight_cost = extra_kg * pricing_settings["price_per_kg"]
 
     # ── Surcharge Inter-City ──
     inter_city_cost = 0.0
@@ -230,14 +252,13 @@ async def calculate_price(
     # Express — uniquement si activé globalement par l'admin
     express_cost = 0.0
     if quote.is_express:
-        express_setting = await db.app_settings.find_one({"key": "global"}, {"express_enabled": 1})
-        express_globally_enabled = (express_setting or {}).get("express_enabled", False)
-        if express_globally_enabled:
-            express_cost = price_with_coeff * (settings.EXPRESS_MULTIPLIER - 1)
-            price_with_coeff *= settings.EXPRESS_MULTIPLIER
+        if pricing_settings["express_enabled"]:
+            express_multiplier = pricing_settings["express_multiplier"]
+            express_cost = price_with_coeff * (express_multiplier - 1)
+            price_with_coeff *= express_multiplier
 
     # Min + arrondi 50 XOF
-    final = _round_to_50(max(price_with_coeff, settings.MIN_PRICE))
+    final = _round_to_50(max(price_with_coeff, pricing_settings["min_price"]))
 
     # ── Promotions (Bloc E) ──
     from services.promotion_service import find_best_promo

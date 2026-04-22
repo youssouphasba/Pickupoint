@@ -529,6 +529,8 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel.pop("relay_pin", None)
         if is_recipient and not is_sender:
             parcel.pop("pickup_code", None)
+        if not is_sender:
+            parcel.pop("return_code", None)
 
         # Filtrage par mode : ne montrer que le code pertinent pour le destinataire/admin
         mode = parcel.get("delivery_mode", "")
@@ -1348,11 +1350,13 @@ async def get_parcel_codes(
     mode = parcel.get("delivery_mode", "")
     show_delivery = (is_admin or is_recipient) and mode.endswith("_to_home")
     show_relay    = (is_admin or is_recipient) and mode.endswith("_to_relay")
+    show_return   = is_admin or parcel.get("sender_user_id") == user_id
 
     return {
         "pickup_code":   parcel.get("pickup_code")   if can_see_pickup else None,
         "delivery_code": parcel.get("delivery_code") if (is_admin or show_delivery) else None,
         "relay_pin":     parcel.get("relay_pin")     if (is_admin or show_relay)    else None,
+        "return_code":   parcel.get("return_code")   if show_return else None,
     }
 
 @router.post("/{parcel_id}/rate", summary="Noter le livreur + Pourboire")

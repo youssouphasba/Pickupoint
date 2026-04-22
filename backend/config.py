@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     EXPRESS_MULTIPLIER:  float = 1.30    # +30 %
     NIGHT_MULTIPLIER:    float = 1.20    # +20 % (20h-7h et dimanche)
     DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
+    REDIRECT_RELAY_MAX_DISTANCE_KM: float = 1.0  # relais de repli proche du destinataire uniquement
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15

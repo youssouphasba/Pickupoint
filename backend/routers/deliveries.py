@@ -2,6 +2,7 @@
 Router deliveries : missions de livraison pour les drivers.
 """
 import math
+import random
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -18,6 +19,7 @@ from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
 from services.parcel_service import transition_status, _record_event
+from services.admin_events_service import AdminEventType, record_admin_event
 from services.google_maps_service import get_directions_eta
 from services.notification_service import (
     notify_approaching_driver,
@@ -37,6 +39,10 @@ router = APIRouter()
 
 def _mission_id() -> str:
     return f"msn_{uuid.uuid4().hex[:12]}"
+
+
+def _return_code() -> str:
+    return f"{random.randint(100000, 999999)}"
 
 
 def _driver_has_profile_photo(current_user: dict) -> bool:
@@ -854,11 +860,34 @@ async def release_mission(
         {"parcel_id": mission["parcel_id"]},
         {"$set": {"assigned_driver_id": None, "updated_at": now}},
     )
+
+    parcel = await db.parcels.find_one(
+        {"parcel_id": mission["parcel_id"]},
+        {"_id": 0, "tracking_code": 1},
+    )
+    tracking = (parcel or {}).get("tracking_code") or mission["parcel_id"]
+    await record_admin_event(
+        AdminEventType.MISSION_RELEASED,
+        title=f"Mission relâchée — colis {tracking}",
+        message=f"{current_user.get('name') or 'Livreur'} a libéré la mission, à réassigner.",
+        href=f"/dashboard/parcels/{mission['parcel_id']}",
+        metadata={
+            "mission_id": mission_id,
+            "parcel_id": mission["parcel_id"],
+            "tracking_code": tracking,
+            "driver_id": current_user["user_id"],
+        },
+    )
     return {"message": "Mission libérée, disponible pour d'autres livreurs"}
 
 
 class IncidentReportRequest(BaseModel):
     reason: str
+    notes: Optional[str] = None
+
+
+class ConfirmReturnRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
     notes: Optional[str] = None
 
 @router.post("/{mission_id}/report-incident", summary="Signaler un incident (driver)")
@@ -879,8 +908,15 @@ async def report_incident(
     
     if mission.get("driver_id") != current_user["user_id"]:
         raise forbidden_exception()
+    if mission.get("status") != MissionStatus.IN_PROGRESS.value:
+        raise bad_request_exception("Le retour à l'expéditeur n'est possible qu'après la collecte du colis")
+
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
 
     now = datetime.now(timezone.utc)
+    return_code = parcel.get("return_code") or _return_code()
     # 1. Marquer la mission en incident
     await db.delivery_missions.update_one(
         {"mission_id": mission_id},
@@ -891,16 +927,112 @@ async def report_incident(
         }}
     )
 
+    await db.parcels.update_one(
+        {"parcel_id": mission["parcel_id"]},
+        {"$set": {"return_code": return_code, "updated_at": now}},
+    )
+
     # 2. Transition colis
     actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
     await transition_status(
-        mission["parcel_id"], 
-        ParcelStatus.INCIDENT_REPORTED, 
-        notes=f"Incident signalé: {body.reason}. {body.notes or ''}",
+        mission["parcel_id"],
+        ParcelStatus.INCIDENT_REPORTED,
+        notes=f"Retour à l'expéditeur demandé : {body.reason}. {body.notes or ''}",
         **actor
     )
 
-    return {"message": "Incident signalé avec succès. L'administrateur a été notifié."}
+    await record_admin_event(
+        AdminEventType.INCIDENT_REPORTED,
+        title=f"Incident sur colis {parcel.get('tracking_code') if parcel else mission['parcel_id']}",
+        message=f"{body.reason}{' · ' + body.notes if body.notes else ''}",
+        href=f"/dashboard/parcels/{mission['parcel_id']}",
+        metadata={
+            "parcel_id": mission["parcel_id"],
+            "mission_id": mission_id,
+            "driver_id": current_user["user_id"],
+            "reason": body.reason,
+        },
+    )
+
+    await _record_event(
+        parcel_id=mission["parcel_id"],
+        event_type="RETURN_TO_SENDER_REQUESTED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes="Le livreur doit rapporter le colis à l'expéditeur et saisir le code de retour.",
+        metadata={
+            "mission_id": mission_id,
+            "return_code_generated": True,
+        },
+    )
+
+    return {
+        "message": "Retour demandé. L'expéditeur doit donner le code de retour au livreur après réception du colis."
+    }
+
+
+@router.post("/{mission_id}/confirm-return", summary="Confirmer le retour chez l'expéditeur")
+@limiter.limit("10/minute")
+async def confirm_return_to_sender(
+    mission_id: str,
+    body: ConfirmReturnRequest,
+    request: Request,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if not is_admin and mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Seul le livreur assigné peut confirmer ce retour")
+    if mission.get("status") != MissionStatus.INCIDENT_REPORTED.value:
+        raise bad_request_exception("Le retour doit d'abord être demandé depuis la mission")
+
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("status") != ParcelStatus.INCIDENT_REPORTED.value:
+        raise bad_request_exception("Le colis n'est pas en attente de retour expéditeur")
+
+    await check_code_lockout(db, parcel["parcel_id"], "return_code")
+    if (parcel.get("return_code") or "") != body.code.strip():
+        await record_failed_attempt(db, parcel["parcel_id"], "return_code")
+        raise bad_request_exception("Code de retour invalide")
+    await clear_code_attempts(db, parcel["parcel_id"], "return_code")
+
+    now = datetime.now(timezone.utc)
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": {
+            "status": MissionStatus.FAILED.value,
+            "failure_reason": "retour_expediteur_confirme",
+            "completed_at": now,
+            "updated_at": now,
+        }},
+    )
+
+    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
+    updated = await transition_status(
+        parcel["parcel_id"],
+        ParcelStatus.RETURNED,
+        notes=body.notes or "Retour confirmé par code expéditeur",
+        metadata={"mission_id": mission_id, "return_code_used": True},
+        **actor,
+    )
+
+    await _record_event(
+        parcel_id=parcel["parcel_id"],
+        event_type="RETURN_TO_SENDER_CONFIRMED",
+        actor_id=current_user["user_id"],
+        actor_role=current_user["role"],
+        notes="Le colis a été remis à l'expéditeur avec le code de retour.",
+        metadata={"mission_id": mission_id},
+    )
+
+    return {"message": "Retour confirmé chez l'expéditeur", "parcel": updated}
 
 
 @router.get("/{mission_id}/trail", summary="Trail GPS complet (admin)")

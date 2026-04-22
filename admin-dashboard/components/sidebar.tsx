@@ -20,36 +20,125 @@ import {
   Scale,
   LogOut,
   MessageCircle,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { logout } from "@/lib/api";
+import { logout, type ActionCategory } from "@/lib/api";
+import { useActionCenter } from "@/lib/use-action-center";
 
-const items = [
+type BadgeSource = keyof ReturnType<typeof useActionCenter>["data"] extends never
+  ? never
+  : "payouts" | "applications" | "anomalies" | "stale_parcels" | "support";
+
+type Item = {
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  badge?:
+    | "payouts"
+    | "applications"
+    | "anomalies"
+    | "stale_parcels"
+    | "support"
+    | "incidents_payment"; // combo : incidents + paiements bloqués sous "Colis"
+};
+
+const items: Item[] = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/dashboard/parcels", label: "Colis", Icon: Package },
+  { href: "/dashboard/parcels", label: "Colis", Icon: Package, badge: "incidents_payment" },
   { href: "/dashboard/users", label: "Utilisateurs", Icon: Users },
-  { href: "/dashboard/applications", label: "Candidatures", Icon: FileText },
-  { href: "/dashboard/payouts", label: "Retraits", Icon: Wallet },
+  { href: "/dashboard/applications", label: "Candidatures", Icon: FileText, badge: "applications" },
+  { href: "/dashboard/payouts", label: "Retraits", Icon: Wallet, badge: "payouts" },
   { href: "/dashboard/relays", label: "Relais", Icon: Store },
   { href: "/dashboard/drivers", label: "Livreurs", Icon: Truck },
   { href: "/dashboard/fleet", label: "Flotte live", Icon: Map },
   { href: "/dashboard/promotions", label: "Promotions", Icon: Tag },
+  { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },
   { href: "/dashboard/finance", label: "Finance", Icon: Banknote },
-  { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle },
-  { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle },
-  { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock },
+  { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle, badge: "anomalies" },
+  { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle, badge: "support" },
+  { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock, badge: "stale_parcels" },
   { href: "/dashboard/heatmap", label: "Heatmap", Icon: Flame },
   { href: "/dashboard/audit-log", label: "Audit log", Icon: History },
   { href: "/dashboard/legal", label: "Juridique", Icon: Scale },
 ];
 
-export function Sidebar({ admin }: { admin: { email?: string | null; full_name?: string | null } }) {
+function SidebarBadge({ category }: { category?: ActionCategory }) {
+  if (!category || category.count === 0) return null;
+  const tone =
+    category.urgent_count > 0
+      ? "bg-red-600 text-white"
+      : category.warning_count > 0
+        ? "bg-amber-500 text-white"
+        : "bg-muted text-foreground";
+  return (
+    <span
+      className={cn(
+        "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
+        tone
+      )}
+      aria-label={`${category.count} à traiter`}
+    >
+      {category.count > 99 ? "99+" : category.count}
+    </span>
+  );
+}
+
+function ComboBadge({
+  incidents,
+  payment,
+}: {
+  incidents?: ActionCategory;
+  payment?: ActionCategory;
+}) {
+  const total = (incidents?.count ?? 0) + (payment?.count ?? 0);
+  if (total === 0) return null;
+  const urgent = (incidents?.urgent_count ?? 0) + (payment?.urgent_count ?? 0);
+  const warning = (incidents?.warning_count ?? 0) + (payment?.warning_count ?? 0);
+  const tone =
+    urgent > 0
+      ? "bg-red-600 text-white"
+      : warning > 0
+        ? "bg-amber-500 text-white"
+        : "bg-muted text-foreground";
+  return (
+    <span
+      className={cn(
+        "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
+        tone
+      )}
+      aria-label={`${total} colis à traiter`}
+    >
+      {total > 99 ? "99+" : total}
+    </span>
+  );
+}
+
+export function Sidebar({
+  admin,
+}: {
+  admin: { email?: string | null; full_name?: string | null };
+}) {
   const pathname = usePathname();
   const router = useRouter();
+  const { data: ac } = useActionCenter();
 
   async function handleLogout() {
     await logout();
     router.replace("/login");
+  }
+
+  function resolveBadge(item: Item) {
+    if (!ac || !item.badge) return null;
+    if (item.badge === "incidents_payment") {
+      return (
+        <ComboBadge
+          incidents={ac.categories.incidents}
+          payment={ac.categories.payment_blocked}
+        />
+      );
+    }
+    return <SidebarBadge category={ac.categories[item.badge]} />;
   }
 
   return (
@@ -66,7 +155,8 @@ export function Sidebar({ admin }: { admin: { email?: string | null; full_name?:
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-1">
-          {items.map(({ href, label, Icon }) => {
+          {items.map((item) => {
+            const { href, label, Icon } = item;
             const active =
               href === "/dashboard"
                 ? pathname === "/dashboard"
@@ -83,7 +173,8 @@ export function Sidebar({ admin }: { admin: { email?: string | null; full_name?:
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  {label}
+                  <span className="flex-1 truncate">{label}</span>
+                  {resolveBadge(item)}
                 </Link>
               </li>
             );

@@ -88,7 +88,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
           if (_mapController != null) {
             _mapController!.animateCamera(
-                CameraUpdate.newLatLng(LatLng(_driverLat!, _driverLng!)));
+              CameraUpdate.newLatLng(LatLng(_driverLat!, _driverLng!)),
+            );
           }
         }
       } else {
@@ -147,6 +148,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   const SizedBox(height: 16),
                 ],
 
+                if (_shouldShowReturnCode(parcel, isRecipient)) ...[
+                  _buildReturnCodeCard(parcel),
+                  const SizedBox(height: 16),
+                ],
+
                 // ── Code PIN retrait relais (destinataire) ───────────────────
                 if (_shouldShowPinCode(parcel, isRecipient)) ...[
                   _buildPinCodeCard(parcel),
@@ -174,9 +180,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 _buildEnhancedInfoSection(parcel, isRecipient: isRecipient),
                 const SizedBox(height: 28),
 
-                const Text('Historique',
-                    style:
-                        TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Historique',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 12),
                 TimelineWidget(events: parcel.events),
                 const SizedBox(height: 28),
@@ -184,14 +191,20 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 // ── Messagerie temporaire ────────────────────────────────────
                 ParcelChatWidget(
                   parcelId: parcel.id,
-                  isClosed: ['delivered', 'cancelled', 'returned', 'expired']
-                      .contains(parcel.status),
+                  isClosed: [
+                    'delivered',
+                    'cancelled',
+                    'returned',
+                    'expired',
+                  ].contains(parcel.status),
                 ),
                 const SizedBox(height: 28),
 
                 if (isRecipient &&
-                    ['created', 'dropped_at_origin_relay']
-                        .contains(parcel.status))
+                    [
+                      'created',
+                      'dropped_at_origin_relay',
+                    ].contains(parcel.status))
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: OutlinedButton.icon(
@@ -304,7 +317,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       }
 
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
       // 2. Appel API
       final api = ref.read(apiClientProvider);
@@ -338,7 +352,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -399,29 +415,95 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         ),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
-          Icon(Icons.local_shipping, color: Colors.white70, size: 16),
-          SizedBox(width: 6),
-          Text('Code de collecte — Livreur',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
-        ]),
-        const SizedBox(height: 8),
-        const Text(
-          'Donnez ce code au livreur quand il arrive chez vous.',
-          style: TextStyle(color: Colors.white70, fontSize: 12),
-        ),
-        const SizedBox(height: 14),
-        Center(
-          child: Text(code,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.local_shipping, color: Colors.white70, size: 16),
+              SizedBox(width: 6),
+              Text(
+                'Code de collecte — Livreur',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Donnez ce code au livreur quand il arrive chez vous.',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              code,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 38,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 8,
-              )),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _shouldShowReturnCode(dynamic parcel, bool isRecipient) {
+    if (isRecipient) return false;
+    final code = parcel.returnCode as String?;
+    return code != null &&
+        code.isNotEmpty &&
+        parcel.status == 'incident_reported';
+  }
+
+  Widget _buildReturnCodeCard(dynamic parcel) {
+    final code = parcel.returnCode as String? ?? '';
+    if (code.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.red.shade700, Colors.red.shade500],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-      ]),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.keyboard_return, color: Colors.white70, size: 16),
+              SizedBox(width: 6),
+              Text(
+                'Code de retour — Expéditeur',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Donnez ce code au livreur uniquement quand le colis vous est remis.',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              code,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 38,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 8,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -445,7 +527,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   // ── Code retrait relais (pin_code / delivery_code) — donné à l'agent relais ──
   bool _shouldShowPinCode(dynamic parcel, bool isRecipient) {
     if (!isRecipient) return false;
-    final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
+    final isRelayDest =
+        (parcel.deliveryMode as String) == 'relay_to_relay' ||
         (parcel.deliveryMode as String) == 'home_to_relay';
     final code = parcel.pinCode as String?;
     final visibleStatuses = {
@@ -475,46 +558,55 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         ),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
-          Icon(Icons.lock, color: Colors.white70, size: 16),
-          SizedBox(width: 6),
-          Text('Code de réception — Livraison domicile',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
-        ]),
-        const SizedBox(height: 10),
-        Center(
-          child: Text(code,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.lock, color: Colors.white70, size: 16),
+              SizedBox(width: 6),
+              Text(
+                'Code de réception — Livraison domicile',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              code,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 38,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 8,
-              )),
-        ),
-        const SizedBox(height: 10),
-        const SizedBox(
-          width: double.infinity,
-          child: Text(
-            'Donnez ce code au livreur à son arrivée.\nNe le partagez pas avant.',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-            textAlign: TextAlign.center,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.white,
-            child: QrImageView(
-              data: '${parcel.id}:$code',
-              version: QrVersions.auto,
-              size: 120,
-              backgroundColor: Colors.white,
+              ),
             ),
           ),
-        ),
-      ]),
+          const SizedBox(height: 10),
+          const SizedBox(
+            width: double.infinity,
+            child: Text(
+              'Donnez ce code au livreur à son arrivée.\nNe le partagez pas avant.',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.white,
+              child: QrImageView(
+                data: '${parcel.id}:$code',
+                version: QrVersions.auto,
+                size: 120,
+                backgroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -532,51 +624,60 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         ),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
-          Icon(Icons.store, color: Colors.white70, size: 16),
-          SizedBox(width: 6),
-          Text('Code de retrait — Point relais',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
-        ]),
-        const SizedBox(height: 6),
-        const Text(
-          'Votre colis est disponible au relais. Présentez ce code à l\'agent.',
-          style: TextStyle(color: Colors.white70, fontSize: 12),
-        ),
-        const SizedBox(height: 14),
-        Center(
-          child: Text(pin,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.store, color: Colors.white70, size: 16),
+              SizedBox(width: 6),
+              Text(
+                'Code de retrait — Point relais',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Votre colis est disponible au relais. Présentez ce code à l\'agent.',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: Text(
+              pin,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 38,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 10,
-              )),
-        ),
-        const SizedBox(height: 14),
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.white,
-            child: QrImageView(
-              data: pin,
-              version: QrVersions.auto,
-              size: 130,
-              backgroundColor: Colors.white,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        const SizedBox(
-          width: double.infinity,
-          child: Text(
-            'Le QR code ou le code à 6 chiffres — montrez-en un seul.',
-            style: TextStyle(color: Colors.white70, fontSize: 11),
-            textAlign: TextAlign.center,
+          const SizedBox(height: 14),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.white,
+              child: QrImageView(
+                data: pin,
+                version: QrVersions.auto,
+                size: 130,
+                backgroundColor: Colors.white,
+              ),
+            ),
           ),
-        ),
-      ]),
+          const SizedBox(height: 10),
+          const SizedBox(
+            width: double.infinity,
+            child: Text(
+              'Le QR code ou le code à 6 chiffres — montrez-en un seul.',
+              style: TextStyle(color: Colors.white70, fontSize: 11),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -589,8 +690,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final center = _driverLat != null
         ? LatLng(_driverLat!, _driverLng!)
         : (destLat != null
-            ? LatLng(destLat, destLng!)
-            : const LatLng(14.693, -17.447)); // Dakar fallback
+              ? LatLng(destLat, destLng!)
+              : const LatLng(14.693, -17.447)); // Dakar fallback
 
     final Set<Marker> markers = {};
 
@@ -600,8 +701,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         Marker(
           markerId: const MarkerId('driver_pos'),
           position: LatLng(_driverLat!, _driverLng!),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
           infoWindow: const InfoWindow(title: 'Livreur en route'),
         ),
       );
@@ -629,10 +731,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       child: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: center,
-              zoom: 14.0,
-            ),
+            initialCameraPosition: CameraPosition(target: center, zoom: 14.0),
             onMapCreated: (controller) => _mapController = controller,
             markers: markers,
             zoomControlsEnabled: true,
@@ -653,24 +752,27 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 color: _driverOnline ? Colors.green : Colors.orange,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(
-                  _driverOnline ? Icons.circle : Icons.circle_outlined,
-                  size: 8,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _driverOnline
-                      ? (_liveEtaText != null
-                          ? 'En route • $_liveEtaText'
-                          : (parcel.etaText != null
-                              ? 'En route • ${parcel.etaText}'
-                              : 'En route'))
-                      : 'Signal GPS faible',
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                ),
-              ]),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _driverOnline ? Icons.circle : Icons.circle_outlined,
+                    size: 8,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _driverOnline
+                        ? (_liveEtaText != null
+                              ? 'En route • $_liveEtaText'
+                              : (parcel.etaText != null
+                                    ? 'En route • ${parcel.etaText}'
+                                    : 'En route'))
+                        : 'Signal GPS faible',
+                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                  ),
+                ],
+              ),
             ),
           ),
           if (_liveDistanceText != null)
@@ -678,8 +780,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               left: 8,
               bottom: 8,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.65),
                   borderRadius: BorderRadius.circular(20),
@@ -696,10 +800,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   // RESTE DE L'UI: Header, QrTracking, Infos
-  Widget _buildHeader(BuildContext context, dynamic parcel,
-      {bool isRecipient = false}) {
-    final otherPartyPhoto =
-        isRecipient ? parcel.senderPhotoUrl : parcel.recipientPhotoUrl;
+  Widget _buildHeader(
+    BuildContext context,
+    dynamic parcel, {
+    bool isRecipient = false,
+  }) {
+    final otherPartyPhoto = isRecipient
+        ? parcel.senderPhotoUrl
+        : parcel.recipientPhotoUrl;
     final otherPartyName = isRecipient
         ? (parcel.senderName ?? 'Expéditeur')
         : (parcel.recipientName ?? 'Destinataire');
@@ -725,10 +833,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                         ? 'Expéditeur : $otherPartyName'
                         : 'Destinataire : $otherPartyName',
                     style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.bold),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  Text('Colis ${parcel.trackingCode}',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  Text(
+                    'Colis ${parcel.trackingCode}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
                 ],
               ),
             ),
@@ -741,41 +853,50 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 parcel.status == 'redirected_to_relay'))
           _buildExpiryCountdown(parcel.expiresAt!),
         const SizedBox(height: 16),
-        Row(children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: isRecipient ? Colors.green.shade50 : Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color:
-                    isRecipient ? Colors.green.shade200 : Colors.blue.shade200,
-              ),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(
-                isRecipient ? Icons.download : Icons.upload,
-                size: 12,
-                color:
-                    isRecipient ? Colors.green.shade700 : Colors.blue.shade700,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                isRecipient ? 'Colis reçu' : 'Colis envoyé',
-                style: TextStyle(
-                  fontSize: 11,
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: isRecipient ? Colors.green.shade50 : Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
                   color: isRecipient
-                      ? Colors.green.shade700
-                      : Colors.blue.shade700,
-                  fontWeight: FontWeight.w600,
+                      ? Colors.green.shade200
+                      : Colors.blue.shade200,
                 ),
               ),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          Text(formatDate(parcel.createdAt),
-              style: const TextStyle(color: Colors.grey, fontSize: 12)),
-        ]),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isRecipient ? Icons.download : Icons.upload,
+                    size: 12,
+                    color: isRecipient
+                        ? Colors.green.shade700
+                        : Colors.blue.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    isRecipient ? 'Colis reçu' : 'Colis envoyé',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isRecipient
+                          ? Colors.green.shade700
+                          : Colors.blue.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatDate(parcel.createdAt),
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
         if (parcel.assignedDriverId != null ||
             parcel.driverName != null ||
             parcel.driverPhone != null ||
@@ -805,16 +926,18 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             borderRadius: BorderRadius.circular(40),
             onTap: driverPhotoUrl != null && driverPhotoUrl.isNotEmpty
                 ? () => _showAvatarPreview(
-                      imageUrl: driverPhotoUrl,
-                      title: driverName ?? 'Livreur Denkma',
-                    )
+                    imageUrl: driverPhotoUrl,
+                    title: driverName ?? 'Livreur Denkma',
+                  )
                 : null,
             child: AuthenticatedAvatar(
               imageUrl: driverPhotoUrl,
               radius: 30,
               backgroundColor: Colors.blueGrey.shade50,
-              fallback:
-                  const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+              fallback: const Icon(
+                Icons.delivery_dining,
+                color: Colors.blueGrey,
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -822,8 +945,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Livreur en charge',
-                    style: TextStyle(fontSize: 11, color: Colors.grey)),
+                const Text(
+                  'Livreur en charge',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
                 Text(
                   driverName != null && driverName.isNotEmpty
                       ? driverName
@@ -853,10 +978,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
-  void _showAvatarPreview({
-    required String imageUrl,
-    required String title,
-  }) {
+  void _showAvatarPreview({required String imageUrl, required String title}) {
     showDialog<void>(
       context: context,
       builder: (context) => Dialog(
@@ -877,15 +999,19 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 imageUrl: imageUrl,
                 radius: 120,
                 backgroundColor: Colors.blueGrey.shade50,
-                fallback:
-                    const Icon(Icons.delivery_dining, color: Colors.blueGrey),
+                fallback: const Icon(
+                  Icons.delivery_dining,
+                  color: Colors.blueGrey,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -894,14 +1020,19 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     );
   }
 
-  Widget _buildQrSection(BuildContext context, Parcel parcel,
-      {bool isRecipient = false}) {
+  Widget _buildQrSection(
+    BuildContext context,
+    Parcel parcel, {
+    bool isRecipient = false,
+  }) {
     // Choix du code affiché dans le QR selon le rôle et le mode de livraison
-    final isRelayPickup = parcel.deliveryMode == 'relay_to_relay' ||
+    final isRelayPickup =
+        parcel.deliveryMode == 'relay_to_relay' ||
         parcel.deliveryMode == 'home_to_relay';
     late final String qrCode;
     final String qrLabel;
-    final isHomePickup = parcel.deliveryMode == 'home_to_relay' ||
+    final isHomePickup =
+        parcel.deliveryMode == 'home_to_relay' ||
         parcel.deliveryMode == 'home_to_home';
     if (!isRecipient) {
       // Expéditeur : code collecte seulement en H2R/H2H, sinon code suivi
@@ -933,19 +1064,20 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         children: [
           Row(
             children: [
-              QrImageView(
-                data: qrCode,
-                size: 64,
-              ),
+              QrImageView(data: qrCode, size: 64),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(qrLabel,
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(qrCode,
-                        style: const TextStyle(fontFamily: 'monospace')),
+                    Text(
+                      qrLabel,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      qrCode,
+                      style: const TextStyle(fontFamily: 'monospace'),
+                    ),
                   ],
                 ),
               ),
@@ -957,13 +1089,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: OutlinedButton.icon(
               onPressed: () => _shareOnWhatsApp(parcel),
               icon: const Icon(Icons.share, size: 18, color: Colors.green),
-              label: const Text('Partager sur WhatsApp',
-                  style: TextStyle(color: Colors.green)),
+              label: const Text(
+                'Partager sur WhatsApp',
+                style: TextStyle(color: Colors.green),
+              ),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Colors.green),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -988,8 +1123,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       text += '\n\nVous pouvez suivre l\'avancement ici : $url';
     }
 
-    final whatsappUrl =
-        Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
+    final whatsappUrl = Uri.parse(
+      'https://wa.me/?text=${Uri.encodeComponent(text)}',
+    );
 
     if (await canLaunchUrl(whatsappUrl)) {
       await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
@@ -1022,7 +1158,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-          content: Text("Impossible d'ouvrir l'application téléphone")),
+        content: Text("Impossible d'ouvrir l'application téléphone"),
+      ),
     );
   }
 
@@ -1031,7 +1168,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Numéro du livreur indisponible pour le moment')),
+          content: Text('Numéro du livreur indisponible pour le moment'),
+        ),
       );
       return;
     }
@@ -1045,7 +1183,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-          content: Text('Impossible d’ouvrir l’application téléphone')),
+        content: Text('Impossible d’ouvrir l’application téléphone'),
+      ),
     );
   }
 
@@ -1056,7 +1195,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     return Column(
       children: [
         _buildInfoRow(
-            Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
+          Icons.person,
+          'Destinataire',
+          parcel.recipientName ?? 'N/A',
+        ),
         _buildInfoRow(Icons.phone, 'Téléphone', parcel.recipientPhone ?? ''),
         if (parcel.isRelayToHome)
           _buildInfoRow(
@@ -1078,10 +1220,12 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           const SizedBox(height: 8),
           _buildRelayInfoCard(
             relayId: destinationRelayId,
-            title:
-                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
-            fallbackLabel:
-                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
+            title: parcel.isRelayPickup
+                ? 'Relais de retrait'
+                : "Relais d'arrivée",
+            fallbackLabel: parcel.isRelayPickup
+                ? 'Relais de retrait'
+                : "Relais d'arrivée",
           ),
         ],
       ],
@@ -1093,8 +1237,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     required String title,
     required String fallbackLabel,
   }) {
-    final future =
-        _relayFutureCache.putIfAbsent(relayId, () => _loadRelayPoint(relayId));
+    final future = _relayFutureCache.putIfAbsent(
+      relayId,
+      () => _loadRelayPoint(relayId),
+    );
 
     return FutureBuilder<RelayPoint?>(
       future: future,
@@ -1136,11 +1282,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w600)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 Container(height: 12, color: Colors.grey.shade200),
                 const SizedBox(height: 6),
@@ -1183,16 +1332,21 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey,
-                            fontWeight: FontWeight.w600)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       relay.name,
                       style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold),
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     if (summaryParts.isNotEmpty)
                       Text(
@@ -1225,8 +1379,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   Expanded(
                     child: Text(
                       relay.openingHours!['general'].toString(),
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.black87),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
                 ],
@@ -1238,14 +1394,19 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.info_outline,
-                      size: 16, color: Colors.indigo),
+                  const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.indigo,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       relay.description!.trim(),
-                      style:
-                          const TextStyle(fontSize: 12, color: Colors.black87),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
                 ],
@@ -1261,7 +1422,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     return Column(
       children: [
         _buildInfoRow(
-            Icons.person, 'Destinataire', parcel.recipientName ?? 'N/A'),
+          Icons.person,
+          'Destinataire',
+          parcel.recipientName ?? 'N/A',
+        ),
         _buildInfoRow(Icons.phone, 'Téléphone', parcel.recipientPhone ?? ''),
         _buildInfoRow(
           Icons.location_on,
@@ -1286,11 +1450,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                Text(value,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w500)),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1308,8 +1478,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final label = days <= 0
         ? 'Délai de retrait expiré'
         : days == 1
-            ? 'Dernier jour pour récupérer'
-            : '$days jours restants pour récupérer';
+        ? 'Dernier jour pour récupérer'
+        : '$days jours restants pour récupérer';
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Container(
@@ -1324,9 +1494,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           children: [
             Icon(Icons.timer_outlined, size: 18, color: color),
             const SizedBox(width: 8),
-            Text(label,
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.w600, fontSize: 13)),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
           ],
         ),
       ),
@@ -1345,8 +1520,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         content: const Text('Cette action est irréversible.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Retour')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Retour'),
+          ),
           TextButton(
             onPressed: () async {
               try {
@@ -1359,8 +1535,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(friendlyError(e))));
                 }
               }
             },
@@ -1372,20 +1549,27 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   void _showChangeModeDialog(
-      BuildContext context, WidgetRef ref, Parcel parcel) {
+    BuildContext context,
+    WidgetRef ref,
+    Parcel parcel,
+  ) {
     final isCurrentlyHome = parcel.deliveryMode.endsWith('_to_home');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-            isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile'),
-        content: Text(isCurrentlyHome
-            ? 'Votre colis sera déposé dans un relais près de chez vous. Le prix sera recalculé.'
-            : 'Un livreur apportera le colis à votre adresse. Le prix sera recalculé.'),
+          isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile',
+        ),
+        content: Text(
+          isCurrentlyHome
+              ? 'Votre colis sera déposé dans un relais près de chez vous. Le prix sera recalculé.'
+              : 'Un livreur apportera le colis à votre adresse. Le prix sera recalculé.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Annuler')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
@@ -1400,7 +1584,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   double? relaySearchLng;
                   try {
                     final pos = await Geolocator.getCurrentPosition(
-                        desiredAccuracy: LocationAccuracy.high);
+                      desiredAccuracy: LocationAccuracy.high,
+                    );
                     relaySearchLat = pos.latitude;
                     relaySearchLng = pos.longitude;
                   } catch (_) {
@@ -1411,10 +1596,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   }
                   if (relaySearchLat == null || relaySearchLng == null) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text(
-                            'Aucun relais de destination trouvé. Contactez le support.'),
-                      ));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Aucun relais de destination trouvé. Contactez le support.',
+                          ),
+                        ),
+                      );
                     }
                     return;
                   }
@@ -1422,7 +1610,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   body['lng'] = relaySearchLng;
                   try {
                     final nearbyResponse = await api.getNearbyRelays(
-                        relaySearchLat, relaySearchLng);
+                      relaySearchLat,
+                      relaySearchLng,
+                    );
                     final nearbyData = Map<String, dynamic>.from(
                       nearbyResponse.data as Map<String, dynamic>? ?? const {},
                     );
@@ -1430,10 +1620,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                       nearbyData['relay_points'] as List? ?? const [],
                     );
                     if (nearbyRelays.isNotEmpty) {
-                      body['relay_id'] =
-                          nearbyRelays.first['relay_id']?.toString();
-                      body['selected_relay_name'] =
-                          nearbyRelays.first['name']?.toString();
+                      body['relay_id'] = nearbyRelays.first['relay_id']
+                          ?.toString();
+                      body['selected_relay_name'] = nearbyRelays.first['name']
+                          ?.toString();
                     }
                   } catch (_) {}
                 } else {
@@ -1441,15 +1631,19 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   body['new_mode'] = 'home';
                   try {
                     final pos = await Geolocator.getCurrentPosition(
-                        desiredAccuracy: LocationAccuracy.high);
+                      desiredAccuracy: LocationAccuracy.high,
+                    );
                     body['lat'] = pos.latitude;
                     body['lng'] = pos.longitude;
                   } catch (_) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content:
-                            Text('Impossible d\'obtenir votre position GPS.'),
-                      ));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Impossible d\'obtenir votre position GPS.',
+                          ),
+                        ),
+                      );
                     }
                     return;
                   }
@@ -1457,18 +1651,22 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 await api.changeDeliveryMode(parcel.id, body);
                 if (context.mounted) {
                   ref.invalidate(parcelProvider(widget.id));
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(
-                        'Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}'),
-                    backgroundColor: Colors.green,
-                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}',
+                      ),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                        content: Text(friendlyError(e)),
-                        backgroundColor: Colors.red),
+                      content: Text(friendlyError(e)),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               }
@@ -1506,7 +1704,8 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     if (_rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Veuillez sélectionner au moins une étoile')),
+          content: Text('Veuillez sélectionner au moins une étoile'),
+        ),
       );
       return;
     }
@@ -1514,7 +1713,9 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     setState(() => _submitting = true);
     try {
       final tip = double.tryParse(_tipController.text) ?? 0.0;
-      await ref.read(apiClientProvider).rateParcel(
+      await ref
+          .read(apiClientProvider)
+          .rateParcel(
             widget.parcelId,
             _rating,
             comment: _commentController.text,
@@ -1528,9 +1729,9 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -1548,16 +1749,19 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
         border: Border.all(color: Colors.blue.shade100),
         boxShadow: [
           BoxShadow(
-              color: Colors.blue.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4)),
+            color: Colors.blue.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Comment s\'est passée la livraison ?',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Text(
+            'Comment s\'est passée la livraison ?',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1583,8 +1787,10 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
             maxLines: 2,
           ),
           const SizedBox(height: 16),
-          const Text('Ajouter un pourboire au livreur ?',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          const Text(
+            'Ajouter un pourboire au livreur ?',
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          ),
           const SizedBox(height: 8),
           TextField(
             controller: _tipController,

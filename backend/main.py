@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
@@ -16,7 +17,7 @@ from database import connect_db, close_db, db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_auth, webhooks, confirm, applications, promotions, legal, app_settings
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, legal, app_settings
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -261,6 +262,129 @@ async def _expire_stale_parcels():
         logger.error("Erreur job expiration colis : %s", exc)
 
 
+async def _admin_anomaly_notifier_loop() -> None:
+    """
+    Alimente la cloche admin avec les anomalies flotte et colis stagnants.
+    On marque chaque mission/colis après émission pour éviter les doublons.
+    """
+    from services.admin_events_service import AdminEventType, record_admin_event
+
+    SIGNAL_LOST_THRESHOLD = timedelta(minutes=20)
+    CRITICAL_DELAY_THRESHOLD = timedelta(hours=3)
+    STALE_PARCEL_THRESHOLD = timedelta(days=7)
+    STALE_RELAY_STATUSES = [
+        "dropped_at_origin_relay",
+        "at_destination_relay",
+        "available_at_relay",
+        "redirected_to_relay",
+    ]
+    ACTIVE_MISSION_STATUSES = ["assigned", "in_progress"]
+
+    while True:
+        await asyncio.sleep(120)
+        try:
+            now = datetime.now(timezone.utc)
+
+            # Signal GPS perdu — missions actives sans update de position depuis 20 min.
+            signal_cutoff = now - SIGNAL_LOST_THRESHOLD
+            signal_query = {
+                "status": {"$in": ACTIVE_MISSION_STATUSES},
+                "location_updated_at": {"$lt": signal_cutoff},
+                "signal_lost_notified_at": {"$in": [None, False]},
+            }
+            async for mission in db.delivery_missions.find(
+                signal_query,
+                {"_id": 0, "mission_id": 1, "parcel_id": 1, "driver_id": 1, "location_updated_at": 1},
+            ):
+                upd = await db.delivery_missions.update_one(
+                    {
+                        "mission_id": mission["mission_id"],
+                        "signal_lost_notified_at": {"$in": [None, False]},
+                    },
+                    {"$set": {"signal_lost_notified_at": now}},
+                )
+                if upd.modified_count == 0:
+                    continue
+                await record_admin_event(
+                    AdminEventType.SIGNAL_LOST,
+                    title="Perte de signal GPS livreur",
+                    message=f"Mission {mission['mission_id']} sans position depuis plus de 20 min.",
+                    href="/dashboard/fleet?filter=signal_lost",
+                    metadata={
+                        "mission_id": mission["mission_id"],
+                        "parcel_id": mission.get("parcel_id"),
+                        "driver_id": mission.get("driver_id"),
+                    },
+                )
+
+            # Retard critique — missions actives non terminées depuis plus de 3 h.
+            delay_cutoff = now - CRITICAL_DELAY_THRESHOLD
+            delay_query = {
+                "status": {"$in": ACTIVE_MISSION_STATUSES},
+                "assigned_at": {"$lt": delay_cutoff},
+                "critical_delay_notified_at": {"$in": [None, False]},
+            }
+            async for mission in db.delivery_missions.find(
+                delay_query,
+                {"_id": 0, "mission_id": 1, "parcel_id": 1, "driver_id": 1, "assigned_at": 1},
+            ):
+                upd = await db.delivery_missions.update_one(
+                    {
+                        "mission_id": mission["mission_id"],
+                        "critical_delay_notified_at": {"$in": [None, False]},
+                    },
+                    {"$set": {"critical_delay_notified_at": now}},
+                )
+                if upd.modified_count == 0:
+                    continue
+                await record_admin_event(
+                    AdminEventType.MISSION_CRITICAL_DELAY,
+                    title="Mission en retard critique",
+                    message=f"Mission {mission['mission_id']} assignée depuis plus de 3 h sans complétion.",
+                    href="/dashboard/stale",
+                    metadata={
+                        "mission_id": mission["mission_id"],
+                        "parcel_id": mission.get("parcel_id"),
+                        "driver_id": mission.get("driver_id"),
+                    },
+                )
+
+            # Colis stagnants — en relais depuis plus de 7 j sans mouvement.
+            stale_cutoff = now - STALE_PARCEL_THRESHOLD
+            stale_query = {
+                "status": {"$in": STALE_RELAY_STATUSES},
+                "updated_at": {"$lt": stale_cutoff},
+                "stale_notified_at": {"$in": [None, False]},
+            }
+            async for parcel in db.parcels.find(
+                stale_query,
+                {"_id": 0, "parcel_id": 1, "tracking_code": 1, "status": 1, "updated_at": 1},
+            ):
+                upd = await db.parcels.update_one(
+                    {
+                        "parcel_id": parcel["parcel_id"],
+                        "stale_notified_at": {"$in": [None, False]},
+                    },
+                    {"$set": {"stale_notified_at": now}},
+                )
+                if upd.modified_count == 0:
+                    continue
+                tracking = parcel.get("tracking_code") or parcel["parcel_id"]
+                await record_admin_event(
+                    AdminEventType.PARCEL_STALE,
+                    title=f"Colis stagnant — {tracking}",
+                    message=f"Sans mouvement depuis plus de 7 jours ({parcel.get('status')}).",
+                    href=f"/dashboard/parcels/{parcel['parcel_id']}",
+                    metadata={
+                        "parcel_id": parcel["parcel_id"],
+                        "tracking_code": tracking,
+                        "parcel_status": parcel.get("status"),
+                    },
+                )
+        except Exception as exc:
+            logger.error("Erreur admin anomaly notifier : %s", exc)
+
+
 scheduler = AsyncIOScheduler()
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
@@ -274,12 +398,14 @@ async def lifespan(app: FastAPI):
     auto_release_task = asyncio.create_task(_auto_release_stuck_missions())
     dispatch_task = asyncio.create_task(_advance_delivery_dispatch_loop())
     gps_reminder_task = asyncio.create_task(_gps_confirmation_reminder_loop())
+    anomaly_notifier_task = asyncio.create_task(_admin_anomaly_notifier_loop())
     logger.info("Denkma API started (with scheduler)")
     yield
     # Shutdown
     auto_release_task.cancel()
     dispatch_task.cancel()
     gps_reminder_task.cancel()
+    anomaly_notifier_task.cancel()
     scheduler.shutdown()
     await close_db()
     logger.info("Denkma API stopped")
@@ -360,8 +486,28 @@ app.include_router(pricing.router, prefix="/api/pricing", tags=["Pricing"])
 app.include_router(wallets.router, prefix="/api/wallets", tags=["Wallets"])
 app.include_router(admin_auth.router, prefix="/api/admin/auth", tags=["Admin Auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(admin_action_center.router, prefix="/api/admin", tags=["Admin Action Center"])
 app.include_router(promotions.router, prefix="/api/admin", tags=["Promotions Admin"])
 app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
+
+
+ASSETLINKS_PAYLOAD = [
+    {
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.denkma.app",
+            "sha256_cert_fingerprints": [
+                "9A:43:04:88:31:6D:F6:2F:C5:56:7E:D7:A6:45:98:A5:8A:B2:77:E6:95:45:6B:54:63:F0:C6:51:BE:F0:9A:A2"
+            ],
+        },
+    }
+]
+
+
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+async def android_assetlinks():
+    return JSONResponse(content=ASSETLINKS_PAYLOAD)
 
 
 @app.get("/health", tags=["Health"])

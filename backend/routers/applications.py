@@ -11,8 +11,10 @@ from pydantic import BaseModel
 
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception
+from core.date_filters import date_range_query
 from database import db
 from models.common import UserRole, GeoPin
+from services.admin_events_service import AdminEventType, record_admin_event
 
 router = APIRouter()
 
@@ -76,6 +78,13 @@ async def apply_driver(
         "updated_at":      now,
     }
     await db.applications.insert_one(doc)
+    await record_admin_event(
+        AdminEventType.APPLICATION_SUBMITTED,
+        title=f"Candidature livreur : {doc['user_name']}",
+        message=f"{doc['user_phone']}",
+        href="/dashboard/applications",
+        metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "driver"},
+    )
     return {"message": "Candidature soumise. L'équipe Denkma vous contactera.", "application_id": doc["application_id"]}
 
 
@@ -106,6 +115,13 @@ async def apply_relay(
         "updated_at":      now,
     }
     await db.applications.insert_one(doc)
+    await record_admin_event(
+        AdminEventType.APPLICATION_SUBMITTED,
+        title=f"Candidature point relais : {doc['user_name']}",
+        message=f"{doc['user_phone']}",
+        href="/dashboard/applications",
+        metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "relay"},
+    )
     return {"message": "Candidature soumise. L'équipe Denkma visitera votre point.", "application_id": doc["application_id"]}
 
 
@@ -127,6 +143,8 @@ require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 async def list_applications(
     status: Optional[str] = "pending",
     app_type: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     _admin=Depends(require_admin),
@@ -136,6 +154,7 @@ async def list_applications(
         query["status"] = status
     if app_type:
         query["type"] = app_type
+    query.update(date_range_query(from_date, to_date, field="created_at"))
     cursor = db.applications.find(query, {"_id": 0}).sort("created_at", 1).skip(skip).limit(limit)
     total = await db.applications.count_documents(query)
     return {"applications": await cursor.to_list(length=limit), "total": total}

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.denkma.app",
+      "sha256_cert_fingerprints": [
+        "9A:43:04:88:31:6D:F6:2F:C5:56:7E:D7:A6:45:98:A5:8A:B2:77:E6:95:45:6B:54:63:F0:C6:51:BE:F0:9A:A2"
+      ]
+    }
+  }
+]

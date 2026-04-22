@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from config import settings
 from core.dependencies import require_role
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
@@ -17,7 +18,10 @@ from database import db
 from models.common import UserRole, ParcelStatus
 from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
+from services.pricing_service import get_pricing_settings
 from services.notification_service import notify_payout_result
+from services.admin_events_service import AdminEventType, record_admin_event
+from core.date_filters import date_range_query
 from services.whatsapp_support_service import (
     MAX_WHATSAPP_MEDIA_BYTES,
     send_support_audio_reply,
@@ -602,13 +606,18 @@ async def admin_list_parcels(
     scope: str = None,
     created_today: bool = False,
     payment_blocked: bool = False,
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     skip: int = 0,
     limit: int = 100,
     _admin=Depends(require_admin_dep),
 ):
-    query = {}
+    query: dict = {}
 
-    if created_today:
+    date_clause = date_range_query(from_date, to_date, field="created_at")
+    if date_clause:
+        query.update(date_clause)
+    elif created_today:
         now = datetime.now(timezone.utc)
         query["created_at"] = {
             "$gte": now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -830,8 +839,14 @@ async def admin_drivers(
 
 
 @router.get("/wallets/payouts", summary="Demandes de retrait en attente")
-async def admin_pending_payouts(_admin=Depends(require_admin_dep)):
-    cursor = db.payout_requests.find({"status": "pending"}, {"_id": 0}).sort("created_at", 1)
+async def admin_pending_payouts(
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    _admin=Depends(require_admin_dep),
+):
+    query: dict = {"status": "pending"}
+    query.update(date_range_query(from_date, to_date, field="created_at"))
+    cursor = db.payout_requests.find(query, {"_id": 0}).sort("created_at", 1)
     return {"payouts": await cursor.to_list(length=200)}
 
 
@@ -921,6 +936,19 @@ async def approve_payout(
     owner_id = payout.get("user_id") or payout.get("owner_id")
     if owner_id:
         await notify_payout_result(owner_id, payout["amount"], approved=True)
+
+    await record_admin_event(
+        AdminEventType.PAYOUT_APPROVED,
+        title=f"Retrait validé : {int(payout['amount']):,} XOF".replace(",", " "),
+        message=f"Payout {payout_id}",
+        href="/dashboard/payouts",
+        metadata={
+            "payout_id": payout_id,
+            "owner_id": owner_id,
+            "amount": payout["amount"],
+            "method": payout.get("method"),
+        },
+    )
 
     return {"message": "Retrait approuve", "payout_id": payout_id}
 
@@ -2491,12 +2519,15 @@ async def admin_get_driver_stats(
 async def admin_get_audit_log(
     limit: int = 100,
     offset: int = 0,
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
     """
     Récupère les derniers événements système pour une traçabilité complète.
     """
-    cursor = db.parcel_events.find({}, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+    query = date_range_query(from_date, to_date, field="created_at")
+    cursor = db.parcel_events.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
     events = await cursor.to_list(length=limit)
     
     # Enrichissement avec les noms des acteurs et codes de colis
@@ -2613,6 +2644,19 @@ async def reject_payout(
     if owner_id:
         await notify_payout_result(owner_id, payout["amount"], approved=False)
 
+    await record_admin_event(
+        AdminEventType.PAYOUT_REJECTED,
+        title=f"Retrait rejeté : {int(payout['amount']):,} XOF".replace(",", " "),
+        message=reason,
+        href="/dashboard/payouts",
+        metadata={
+            "payout_id": payout_id,
+            "owner_id": owner_id,
+            "amount": payout["amount"],
+            "reason": reason,
+        },
+    )
+
     return {"message": "Retrait rejete", "payout_id": payout_id}
 
 
@@ -2622,8 +2666,11 @@ async def reject_payout(
 @router.get("/settings", summary="Lire les paramètres globaux de l'app")
 async def get_app_settings(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    pricing_settings = await get_pricing_settings()
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
+        "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
+        "pricing": pricing_settings,
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
@@ -2731,6 +2778,85 @@ async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
     )
     status = "activée" if enabled else "désactivée"
     return {"express_enabled": enabled, "message": f"Livraison Express {status}"}
+
+
+@router.put("/settings/logistics", summary="Configurer les règles logistiques")
+async def update_logistics_settings(body: dict, _admin=Depends(require_admin_dep)):
+    try:
+        distance = float(body.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM))
+    except (TypeError, ValueError):
+        raise bad_request_exception("Rayon relais de repli invalide")
+
+    if distance < 0.1 or distance > 10:
+        raise bad_request_exception("Le rayon relais de repli doit être compris entre 0,1 km et 10 km")
+
+    now = datetime.now(timezone.utc)
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {
+            "redirect_relay_max_distance_km": distance,
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+    return {
+        "redirect_relay_max_distance_km": distance,
+        "message": "Règles logistiques mises à jour",
+    }
+
+
+@router.put("/settings/operational", summary="Configurer les règles opérationnelles")
+async def update_operational_settings(body: dict, _admin=Depends(require_admin_dep)):
+    numeric_defaults = {
+        "base_relay_to_relay": settings.BASE_RELAY_TO_RELAY,
+        "base_relay_to_home": settings.BASE_RELAY_TO_HOME,
+        "base_home_to_relay": settings.BASE_HOME_TO_RELAY,
+        "base_home_to_home": settings.BASE_HOME_TO_HOME,
+        "price_per_km": settings.PRICE_PER_KM,
+        "price_per_kg": settings.PRICE_PER_KG,
+        "free_weight_kg": settings.FREE_WEIGHT_KG,
+        "min_price": settings.MIN_PRICE,
+        "express_multiplier": settings.EXPRESS_MULTIPLIER,
+        "night_multiplier": settings.NIGHT_MULTIPLIER,
+        "default_distance_km": settings.DEFAULT_DISTANCE_KM,
+        "redirect_relay_max_distance_km": settings.REDIRECT_RELAY_MAX_DISTANCE_KM,
+    }
+
+    updates: dict[str, Any] = {}
+    for key, default in numeric_defaults.items():
+        raw = body.get(key, default)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise bad_request_exception(f"Valeur invalide pour {key}")
+        if value < 0:
+            raise bad_request_exception(f"{key} ne peut pas être négatif")
+        updates[key] = value
+
+    if not 0.1 <= updates["redirect_relay_max_distance_km"] <= 10:
+        raise bad_request_exception("Le rayon relais de repli doit être compris entre 0,1 km et 10 km")
+    if updates["express_multiplier"] < 1:
+        raise bad_request_exception("Le multiplicateur Express doit être supérieur ou égal à 1")
+    if updates["night_multiplier"] < 1:
+        raise bad_request_exception("Le multiplicateur nuit/dimanche doit être supérieur ou égal à 1")
+    if updates["min_price"] < 100:
+        raise bad_request_exception("Le prix minimum est trop faible")
+
+    updates["express_enabled"] = bool(body.get("express_enabled", False))
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": updates},
+        upsert=True,
+    )
+    after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    return {
+        "express_enabled": after.get("express_enabled", False),
+        "redirect_relay_max_distance_km": after.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
+        "pricing": await get_pricing_settings(),
+        "message": "Configuration opérationnelle mise à jour",
+    }
 
 
 @router.put("/settings/referral", summary="Configurer le parrainage")
