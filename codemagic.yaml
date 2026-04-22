@@ -10,7 +10,7 @@ workflows:
         - android_signing
       vars:
         PROJECT_PATH: mobile
-        ANDROID_COMPILE_SDK: "35"
+        ANDROID_COMPILE_SDK: "36"
         ANDROID_TARGET_SDK: "35"
     cache:
       cache_paths:
