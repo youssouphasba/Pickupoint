@@ -1,8 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchRelayDetail, verifyRelay } from "@/lib/api";
+import { api, fetchRelayDetail, verifyRelay } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,66 @@ import Link from "next/link";
 export const runtime = "edge";
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+type BadgeTone = NonNullable<React.ComponentProps<typeof Badge>["tone"]>;
+
+type ApplicationDocument = {
+  label: string;
+  url?: string | null;
+};
+
+function textOrDash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || "—";
+}
+
+function applicationStatusLabel(status: unknown) {
+  switch (String(status ?? "")) {
+    case "approved":
+      return "Approuvée";
+    case "rejected":
+      return "Refusée";
+    case "pending":
+      return "En attente";
+    default:
+      return textOrDash(status);
+  }
+}
+
+function applicationStatusTone(status: unknown): BadgeTone {
+  switch (String(status ?? "")) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "pending":
+      return "warning";
+    default:
+      return "default";
+  }
+}
+
+async function openSecureDocument(url: string) {
+  const response = await api.get(url, { responseType: "blob" });
+  const objectUrl = URL.createObjectURL(response.data);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function InfoLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="max-w-[65%] text-right">{textOrDash(value)}</span>
+    </div>
+  );
+}
 
 export default function RelayDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -108,6 +169,75 @@ export default function RelayDetailPage() {
         )}
       </div>
 
+      {data.applications && data.applications.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Candidatures et documents</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.applications.map((application: any) => {
+              const applicationData = application.data ?? {};
+              const isDriver = application.type === "driver";
+              const documents: ApplicationDocument[] = [
+                { label: "Pièce d'identité", url: applicationData.id_card_url },
+                { label: "Permis de conduire", url: applicationData.license_url },
+                { label: "Document commerce", url: applicationData.business_doc_url },
+                { label: "Registre commerce", url: applicationData.business_reg_url },
+              ];
+              const availableDocuments = documents.filter((doc) => doc.url);
+
+              return (
+                <div
+                  key={application.application_id}
+                  className="rounded-lg border bg-muted/20 p-4 text-sm"
+                >
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-semibold">
+                      {isDriver ? "Candidature livreur" : "Candidature point relais"}
+                    </div>
+                    <Badge tone={applicationStatusTone(application.status)}>
+                      {applicationStatusLabel(application.status)}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <InfoLine label="ID candidature" value={application.application_id} />
+                    <InfoLine label="Utilisateur" value={application.user_name} />
+                    <InfoLine label="Téléphone" value={application.user_phone} />
+                    <InfoLine label="Soumise le" value={formatDate(application.created_at)} />
+                    <InfoLine label="Mise à jour" value={formatDate(application.updated_at)} />
+                    <InfoLine label="Nom du commerce" value={applicationData.business_name} />
+                    <InfoLine label="Adresse" value={applicationData.address_label} />
+                    <InfoLine label="Ville" value={applicationData.city} />
+                    <InfoLine label="Registre commerce" value={applicationData.business_reg} />
+                    <InfoLine label="Horaires" value={applicationData.opening_hours} />
+                    <InfoLine label="Message candidat" value={applicationData.message} />
+                    <InfoLine label="Note admin" value={application.admin_notes} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {availableDocuments.length > 0 ? (
+                      availableDocuments.map((document) => (
+                        <Button
+                          key={document.label}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openSecureDocument(document.url!)}
+                        >
+                          Voir {document.label.toLowerCase()}
+                        </Button>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Aucun document transmis dans cette candidature.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stock summary */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -190,19 +320,41 @@ export default function RelayDetailPage() {
           <CardContent>
             {data.agents && data.agents.length > 0 ? (
               <div className="space-y-2">
-                {data.agents.map((agent: any) => (
-                  <Link
-                    key={agent.user_id}
-                    href={`/dashboard/users/${agent.user_id}`}
-                    className="flex items-center justify-between rounded-md border p-3 text-sm hover:bg-accent"
-                  >
-                    <div>
-                      <div className="font-medium">{agent.name ?? "—"}</div>
-                      <div className="text-xs text-muted-foreground">{agent.phone}</div>
+                {data.agents.map((agent: any) => {
+                  const documents: ApplicationDocument[] = [
+                    { label: "Pièce d'identité", url: agent.kyc_id_card_url },
+                    { label: "Permis de conduire", url: agent.kyc_license_url },
+                  ].filter((document) => document.url);
+
+                  return (
+                    <div key={agent.user_id} className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <Link
+                          href={`/dashboard/users/${agent.user_id}`}
+                          className="hover:underline"
+                        >
+                          <div className="font-medium">{agent.name ?? "—"}</div>
+                          <div className="text-xs text-muted-foreground">{agent.phone}</div>
+                        </Link>
+                        <Badge tone="warning">Agent</Badge>
+                      </div>
+                      {documents.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {documents.map((document) => (
+                            <Button
+                              key={document.label}
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openSecureDocument(document.url!)}
+                            >
+                              Voir {document.label.toLowerCase()}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <Badge tone="warning">Agent</Badge>
-                  </Link>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">Aucun agent lié.</div>
@@ -216,13 +368,35 @@ export default function RelayDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Propriétaire</CardTitle>
             </CardHeader>
-            <CardContent className="text-sm">
+            <CardContent className="space-y-3 text-sm">
               <Link
                 href={`/dashboard/users/${data.owner.user_id}`}
                 className="text-primary underline"
               >
                 {data.owner.name ?? data.owner.phone ?? data.owner.user_id}
               </Link>
+              {[
+                { label: "Pièce d'identité", url: data.owner.kyc_id_card_url },
+                { label: "Permis de conduire", url: data.owner.kyc_license_url },
+              ].some((document) => document.url) && (
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "Pièce d'identité", url: data.owner.kyc_id_card_url },
+                    { label: "Permis de conduire", url: data.owner.kyc_license_url },
+                  ]
+                    .filter((document) => document.url)
+                    .map((document) => (
+                      <Button
+                        key={document.label}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openSecureDocument(document.url!)}
+                      >
+                        Voir {document.label.toLowerCase()}
+                      </Button>
+                    ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

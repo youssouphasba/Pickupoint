@@ -36,9 +36,12 @@ if (mapsApiKey == null) {
     mapsApiKey = System.getenv("GOOGLE_MAPS_ANDROID_KEY") ?: ""
 }
 
+def androidCompileSdk = (System.getenv("ANDROID_COMPILE_SDK") ?: "35").toInteger()
+def androidTargetSdk = (System.getenv("ANDROID_TARGET_SDK") ?: "35").toInteger()
+
 android {
     namespace "com.denkma.app"
-    compileSdk flutter.compileSdkVersion
+    compileSdk androidCompileSdk
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -57,7 +60,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk 24
-        targetSdk flutter.targetSdkVersion
+        targetSdk androidTargetSdk
         versionCode flutter.versionCode
         versionName flutter.versionName
 

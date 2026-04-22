@@ -10,6 +10,13 @@ workflows:
         - android_signing
       vars:
         PROJECT_PATH: mobile
+        ANDROID_COMPILE_SDK: "35"
+        ANDROID_TARGET_SDK: "35"
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/wrapper
     scripts:
       - name: Prepare Firebase and Android signing files
         script: |
@@ -44,7 +51,7 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          flutter build apk --release --no-tree-shake-icons
+          flutter build apk --release --split-per-abi --no-tree-shake-icons
       - name: Publish Google Play listing and internal release
         script: |
           #!/usr/bin/env bash
@@ -85,6 +92,12 @@ workflows:
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/wrapper
+        - $HOME/Library/Caches/CocoaPods
     scripts:
       - name: Prepare Firebase files
         script: |

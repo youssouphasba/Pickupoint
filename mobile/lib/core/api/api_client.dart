@@ -403,6 +403,58 @@ class ApiClient {
         data: {'reason': reason},
       );
 
+  Future<Response> getWhatsappSupportConversations({
+    String? status,
+    String? query,
+    int limit = 100,
+  }) =>
+      _dio.get(
+        ApiEndpoints.adminWhatsappSupportConversations,
+        queryParameters: {
+          if (status != null && status != 'all') 'status': status,
+          if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
+          'limit': limit,
+        },
+      );
+
+  Future<Response> getWhatsappSupportConversation(String conversationId) =>
+      _dio.get(ApiEndpoints.adminWhatsappSupportConversation(conversationId));
+
+  Future<Response> updateWhatsappSupportConversationStatus(
+    String conversationId,
+    String status,
+  ) =>
+      _dio.patch(
+        ApiEndpoints.adminWhatsappSupportConversationStatus(conversationId),
+        data: {'status': status},
+      );
+
+  Future<Response> sendWhatsappSupportTextReply(
+    String conversationId,
+    String text,
+  ) =>
+      _dio.post(
+        ApiEndpoints.adminWhatsappSupportReply(conversationId),
+        data: {'text': text},
+      );
+
+  Future<Response> sendWhatsappSupportVoiceReply(
+    String conversationId,
+    String filePath,
+  ) async {
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        filePath,
+        filename: filePath.split(RegExp(r'[\\/]')).last,
+        contentType: DioMediaType('audio', 'mp4'),
+      ),
+    });
+    return _dio.post(
+      ApiEndpoints.adminWhatsappSupportVoice(conversationId),
+      data: formData,
+    );
+  }
+
   // ─── Admin — Utilisateurs ─────────────────────────────────────────────────
   Future<Response> getAdminUsers({int skip = 0, int limit = 50}) => _dio.get(
     ApiEndpoints.adminUsers,
@@ -553,7 +605,7 @@ class ApiClient {
 
   Future<Uint8List> downloadBytes(String url) async {
     final response = await _dio.get(
-      url,
+      ApiEndpoints.resolve(url),
       options: Options(responseType: ResponseType.bytes),
     );
     final raw = response.data;

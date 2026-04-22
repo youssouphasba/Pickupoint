@@ -391,6 +391,13 @@ class _DashboardBody extends StatelessWidget {
         icon: Icons.campaign_outlined,
         color: Colors.pink,
       ),
+      _ShortcutItem(
+        title: 'Support WhatsApp',
+        subtitle: 'Messages, audios et suivi client',
+        route: '/admin/support',
+        icon: Icons.support_agent_outlined,
+        color: Colors.green,
+      ),
     ];
   }
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  api,
   assignRelayPoint,
   banUser,
   changeUserRole,
@@ -79,6 +80,64 @@ const PROFILE_PHOTO_LABELS: Record<string, string> = {
   rejected: "Refusée",
   missing: "Absente",
 };
+
+type ApplicationDocument = {
+  label: string;
+  url?: string | null;
+};
+
+function textOrDash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text || "—";
+}
+
+function applicationStatusLabel(status: unknown) {
+  switch (String(status ?? "")) {
+    case "approved":
+      return "Approuvée";
+    case "rejected":
+      return "Refusée";
+    case "pending":
+      return "En attente";
+    default:
+      return textOrDash(status);
+  }
+}
+
+function applicationStatusTone(status: unknown): BadgeTone {
+  switch (String(status ?? "")) {
+    case "approved":
+      return "success";
+    case "rejected":
+      return "danger";
+    case "pending":
+      return "warning";
+    default:
+      return "default";
+  }
+}
+
+async function openSecureDocument(url: string) {
+  const response = await api.get(url, { responseType: "blob" });
+  const objectUrl = URL.createObjectURL(response.data);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function InfoLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: unknown;
+}) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="max-w-[65%] text-right">{textOrDash(value)}</span>
+    </div>
+  );
+}
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -309,6 +368,88 @@ export default function UserDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {data.applications && data.applications.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Candidatures et documents</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.applications.map((application: any) => {
+              const applicationData = application.data ?? {};
+              const isDriver = application.type === "driver";
+              const documents: ApplicationDocument[] = isDriver
+                ? [
+                    { label: "Pièce d'identité", url: applicationData.id_card_url },
+                    { label: "Permis de conduire", url: applicationData.license_url },
+                  ]
+                : [
+                    { label: "Document commerce", url: applicationData.business_doc_url },
+                    { label: "Registre commerce", url: applicationData.business_reg_url },
+                    { label: "Pièce d'identité", url: applicationData.id_card_url },
+                  ];
+              const availableDocuments = documents.filter((doc) => doc.url);
+
+              return (
+                <div
+                  key={application.application_id}
+                  className="rounded-lg border bg-muted/20 p-4 text-sm"
+                >
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-semibold">
+                      {isDriver ? "Candidature livreur" : "Candidature point relais"}
+                    </div>
+                    <Badge tone={applicationStatusTone(application.status)}>
+                      {applicationStatusLabel(application.status)}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <InfoLine label="ID candidature" value={application.application_id} />
+                    <InfoLine label="Soumise le" value={formatDate(application.created_at)} />
+                    <InfoLine label="Mise à jour" value={formatDate(application.updated_at)} />
+                    {isDriver ? (
+                      <>
+                        <InfoLine label="Nom déclaré" value={applicationData.full_name} />
+                        <InfoLine label="Numéro CNI" value={applicationData.id_card_number} />
+                        <InfoLine label="Numéro permis" value={applicationData.license_number} />
+                        <InfoLine label="Véhicule" value={applicationData.vehicle_type} />
+                      </>
+                    ) : (
+                      <>
+                        <InfoLine label="Nom du commerce" value={applicationData.business_name} />
+                        <InfoLine label="Adresse" value={applicationData.address_label} />
+                        <InfoLine label="Ville" value={applicationData.city} />
+                        <InfoLine label="Registre commerce" value={applicationData.business_reg} />
+                        <InfoLine label="Horaires" value={applicationData.opening_hours} />
+                      </>
+                    )}
+                    <InfoLine label="Message candidat" value={applicationData.message} />
+                    <InfoLine label="Note admin" value={application.admin_notes} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {availableDocuments.length > 0 ? (
+                      availableDocuments.map((document) => (
+                        <Button
+                          key={document.label}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openSecureDocument(document.url!)}
+                        >
+                          Voir {document.label.toLowerCase()}
+                        </Button>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Aucun document transmis dans cette candidature.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

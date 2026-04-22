@@ -184,7 +184,7 @@ class ClientProfileScreen extends ConsumerWidget {
           radius: 54,
           backgroundColor: Colors.white.withValues(alpha: 0.3),
           child: AuthenticatedAvatar(
-            imageUrl: user.profilePictureUrl,
+            imageUrl: user.profilePictureUrl ?? user.avatarUrl,
             radius: 50,
             backgroundColor: Colors.white,
             fallback: const Icon(Icons.person, size: 50, color: Colors.grey),
@@ -642,11 +642,10 @@ class ClientProfileScreen extends ConsumerWidget {
     if (image != null) {
       try {
         await ref.read(apiClientProvider).uploadAvatar(File(image.path));
+        await ref.read(authProvider.notifier).fetchMe();
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Photo mise à jour !')));
-          // Re-fetch user profile to update avatar everywhere
-          ref.read(authProvider.notifier).fetchMe();
         }
       } catch (e) {
         if (context.mounted) {

@@ -1,7 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -31,8 +34,9 @@ class AdminRelayDetailScreen extends ConsumerWidget {
           final ownerData = data['owner'] as Map<String, dynamic>?;
           final owner = ownerData == null ? null : User.fromJson(ownerData);
           final agents = (data['agents'] as List? ?? const [])
-              .map((item) =>
-                  User.fromJson(Map<String, dynamic>.from(item as Map)))
+              .map(
+                (item) => User.fromJson(Map<String, dynamic>.from(item as Map)),
+              )
               .toList();
           final stockSummary = Map<String, dynamic>.from(
             data['stock_summary'] as Map<String, dynamic>? ?? const {},
@@ -41,7 +45,11 @@ class AdminRelayDetailScreen extends ConsumerWidget {
             data['wallet'] as Map<String, dynamic>? ?? const {},
           );
           final recentParcels = List<Map<String, dynamic>>.from(
-              data['recent_parcels'] as List? ?? const []);
+            data['recent_parcels'] as List? ?? const [],
+          );
+          final applications = List<Map<String, dynamic>>.from(
+            data['applications'] as List? ?? const [],
+          );
           final rawAddress = relayData['address'];
           final address = Map<String, dynamic>.from(
             rawAddress is Map<String, dynamic>
@@ -70,13 +78,13 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'Stock et capacite',
+                  title: 'Stock et capacité',
                   child: Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     children: [
                       _MetricTile(
-                        label: 'Capacite',
+                        label: 'Capacité',
                         value: '${relay.capacity}',
                       ),
                       _MetricTile(
@@ -96,16 +104,31 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                         value: '${stockSummary['available'] ?? 0}',
                       ),
                       _MetricTile(
-                        label: 'Livres total',
+                        label: 'Livrés total',
                         value: '${stockSummary['delivered_total'] ?? 0}',
                       ),
                     ],
                   ),
                 ),
+                if (applications.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Candidatures et documents',
+                    child: Column(
+                      children: [
+                        for (final application in applications)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _ApplicationCard(application: application),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (owner != null) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
-                    title: 'Proprietaire',
+                    title: 'Propriétaire',
                     child: _UserIdentityTile(
                       user: owner,
                       subtitle:
@@ -116,7 +139,7 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                 if (agents.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
-                    title: 'Agents lies',
+                    title: 'Agents liés',
                     child: Column(
                       children: [
                         for (final agent in agents)
@@ -140,7 +163,9 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _InfoRow(
-                            'Wallet ID', _stringOrDash(wallet['wallet_id'])),
+                          'Wallet ID',
+                          _stringOrDash(wallet['wallet_id']),
+                        ),
                         _InfoRow(
                           'Solde',
                           formatXof(
@@ -161,9 +186,9 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'Colis recents',
+                  title: 'Colis récents',
                   child: recentParcels.isEmpty
-                      ? const Text('Aucun colis recent.')
+                      ? const Text('Aucun colis récent.')
                       : Column(
                           children: [
                             for (final parcel in recentParcels)
@@ -184,9 +209,9 @@ class AdminRelayDetailScreen extends ConsumerWidget {
   Future<void> _callPhone(BuildContext context, String phone) async {
     final cleanPhone = phone.trim();
     if (cleanPhone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Numero indisponible.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Numéro indisponible.')));
       return;
     }
 
@@ -234,8 +259,11 @@ class _RelayHeader extends StatelessWidget {
                 CircleAvatar(
                   radius: 28,
                   backgroundColor: Colors.orange.withValues(alpha: 0.12),
-                  child:
-                      const Icon(Icons.store, color: Colors.orange, size: 28),
+                  child: const Icon(
+                    Icons.store,
+                    color: Colors.orange,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -271,7 +299,7 @@ class _RelayHeader extends StatelessWidget {
               runSpacing: 8,
               children: [
                 _StatusChip(
-                  label: relay.isVerified ? 'Verifie' : 'Non verifie',
+                  label: relay.isVerified ? 'Vérifié' : 'Non vérifié',
                   color: relay.isVerified ? Colors.green : Colors.orange,
                 ),
                 _StatusChip(
@@ -299,12 +327,18 @@ class _RelayHeader extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _InfoRow(
-                'Owner user ID', _stringOrDash(relayData['owner_user_id'])),
+              'Owner user ID',
+              _stringOrDash(relayData['owner_user_id']),
+            ),
             _InfoRow('Store ID', _stringOrDash(relayData['store_id'])),
             _InfoRow(
-                'Reference externe', _stringOrDash(relayData['external_ref'])),
-            _InfoRow('Adresse',
-                _stringOrDash(address['label'] ?? address['district'])),
+              'Reference externe',
+              _stringOrDash(relayData['external_ref']),
+            ),
+            _InfoRow(
+              'Adresse',
+              _stringOrDash(address['label'] ?? address['district']),
+            ),
             _InfoRow('Quartier', _stringOrDash(address['district'])),
             _InfoRow('Ville', _stringOrDash(address['city'])),
             _InfoRow(
@@ -321,7 +355,9 @@ class _RelayHeader extends StatelessWidget {
             _InfoRow('Description', _stringOrDash(relayData['description'])),
             _InfoRow('Cree le', _formatDateValue(relayData['created_at'])),
             _InfoRow(
-                'Mis a jour le', _formatDateValue(relayData['updated_at'])),
+              'Mis a jour le',
+              _formatDateValue(relayData['updated_at']),
+            ),
           ],
         ),
       ),
@@ -375,10 +411,7 @@ class _MetricTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
           const SizedBox(height: 6),
           Text(
             value,
@@ -390,19 +423,26 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _UserIdentityTile extends StatelessWidget {
-  const _UserIdentityTile({
-    required this.user,
-    required this.subtitle,
-  });
+class _UserIdentityTile extends ConsumerWidget {
+  const _UserIdentityTile({required this.user, required this.subtitle});
 
   final User user;
   final String subtitle;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final photoUrl = user.profilePictureUrl;
     final hasPhoto = photoUrl != null && photoUrl.trim().isNotEmpty;
+    final documents = [
+      _ApplicationDocument(
+        label: 'Pièce d’identité',
+        url: _stringOrEmpty(user.kycIdCardUrl),
+      ),
+      _ApplicationDocument(
+        label: 'Permis de conduire',
+        url: _stringOrEmpty(user.kycLicenseUrl),
+      ),
+    ];
 
     return Container(
       width: double.infinity,
@@ -412,41 +452,198 @@ class _UserIdentityTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AuthenticatedAvatar(
-            imageUrl: hasPhoto ? photoUrl : null,
-            radius: 20,
-            backgroundColor: Colors.blueGrey.shade50,
-            fallback: const Icon(Icons.person, color: Colors.blueGrey),
+          Row(
+            children: [
+              AuthenticatedAvatar(
+                imageUrl: hasPhoto ? photoUrl : null,
+                radius: 20,
+                backgroundColor: Colors.blueGrey.shade50,
+                fallback: const Icon(Icons.person, color: Colors.blueGrey),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Text(user.phone),
+                    if (user.email != null && user.email!.isNotEmpty)
+                      Text(user.email!),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.blueGrey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (documents.any((document) => document.url.isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Text(
-                  user.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(user.phone),
-                if (user.email != null && user.email!.isNotEmpty)
-                  Text(user.email!),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.blueGrey,
-                  ),
-                ),
+                for (final document in documents)
+                  if (document.url.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: () => _openDocumentPreview(
+                        context,
+                        ref,
+                        document.label,
+                        document.url,
+                      ),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: Text(document.label),
+                    ),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );
   }
+}
+
+class _ApplicationCard extends ConsumerWidget {
+  const _ApplicationCard({required this.application});
+
+  final Map<String, dynamic> application;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final type = _stringOrEmpty(application['type']);
+    final isDriver = type == 'driver';
+    final data = Map<String, dynamic>.from(
+      application['data'] as Map? ?? const {},
+    );
+    final documents = [
+      _ApplicationDocument(
+        label: 'Pièce d’identité',
+        url: _stringOrEmpty(data['id_card_url']),
+      ),
+      _ApplicationDocument(
+        label: 'Permis de conduire',
+        url: _stringOrEmpty(data['license_url']),
+      ),
+      _ApplicationDocument(
+        label: 'Document commerce',
+        url: _stringOrEmpty(data['business_doc_url']),
+      ),
+      _ApplicationDocument(
+        label: 'Registre commerce',
+        url: _stringOrEmpty(data['business_reg_url']),
+      ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isDriver ? Icons.two_wheeler_outlined : Icons.store_outlined,
+                color: isDriver ? Colors.indigo : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isDriver ? 'Candidature livreur' : 'Candidature point relais',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              _StatusChip(
+                label: _applicationStatusLabel(application['status']),
+                color: _applicationStatusColor(application['status']),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _InfoRow(
+            'ID candidature',
+            _stringOrDash(application['application_id']),
+          ),
+          _InfoRow('Utilisateur', _stringOrDash(application['user_name'])),
+          _InfoRow('Téléphone', _stringOrDash(application['user_phone'])),
+          _InfoRow('Soumise le', _formatDateValue(application['created_at'])),
+          _InfoRow('Mise à jour', _formatDateValue(application['updated_at'])),
+          if (isDriver) ...[
+            _InfoRow('Nom déclaré', _stringOrDash(data['full_name'])),
+            _InfoRow('Numéro CNI', _stringOrDash(data['id_card_number'])),
+            _InfoRow('Numéro permis', _stringOrDash(data['license_number'])),
+            _InfoRow('Véhicule', _stringOrDash(data['vehicle_type'])),
+          ] else ...[
+            _InfoRow('Nom du commerce', _stringOrDash(data['business_name'])),
+            _InfoRow('Adresse', _stringOrDash(data['address_label'])),
+            _InfoRow('Ville', _stringOrDash(data['city'])),
+            _InfoRow('Registre commerce', _stringOrDash(data['business_reg'])),
+            _InfoRow('Horaires', _stringOrDash(data['opening_hours'])),
+            if (data['geopin'] is Map)
+              _InfoRow('GPS', _formatGeopin(data['geopin'] as Map)),
+          ],
+          if (_stringOrDash(data['message']) != '--')
+            _InfoRow('Message candidat', _stringOrDash(data['message'])),
+          if (_stringOrDash(application['admin_notes']) != '--')
+            _InfoRow('Note admin', _stringOrDash(application['admin_notes'])),
+          const SizedBox(height: 8),
+          if (documents.any((document) => document.url.isNotEmpty)) ...[
+            const Text(
+              'Documents transmis',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final document in documents)
+                  if (document.url.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: () => _openDocumentPreview(
+                        context,
+                        ref,
+                        document.label,
+                        document.url,
+                      ),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: Text(document.label),
+                    ),
+              ],
+            ),
+          ] else
+            const Text(
+              'Aucun document transmis dans cette candidature.',
+              style: TextStyle(color: Colors.blueGrey),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ApplicationDocument {
+  const _ApplicationDocument({required this.label, required this.url});
+
+  final String label;
+  final String url;
 }
 
 class _RecentParcelTile extends StatelessWidget {
@@ -480,12 +677,11 @@ class _RecentParcelTile extends StatelessWidget {
           onPressed: parcelId == '--'
               ? null
               : () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          AdminParcelAuditScreen(id: parcelId),
-                    ),
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AdminParcelAuditScreen(id: parcelId),
                   ),
+                ),
         ),
       ),
     );
@@ -554,6 +750,107 @@ String _stringOrDash(dynamic value) {
     return '--';
   }
   return text;
+}
+
+String _stringOrEmpty(dynamic value) {
+  return value?.toString().trim() ?? '';
+}
+
+String _formatGeopin(Map value) {
+  final lat = _stringOrDash(value['lat']);
+  final lng = _stringOrDash(value['lng']);
+  if (lat == '--' && lng == '--') {
+    return '--';
+  }
+  return '$lat, $lng';
+}
+
+String _applicationStatusLabel(dynamic value) {
+  switch (_stringOrEmpty(value)) {
+    case 'approved':
+      return 'Approuvée';
+    case 'rejected':
+      return 'Refusée';
+    case 'pending':
+      return 'En attente';
+    default:
+      return _stringOrDash(value);
+  }
+}
+
+Color _applicationStatusColor(dynamic value) {
+  switch (_stringOrEmpty(value)) {
+    case 'approved':
+      return Colors.green;
+    case 'rejected':
+      return Colors.red;
+    case 'pending':
+      return Colors.orange;
+    default:
+      return Colors.blueGrey;
+  }
+}
+
+Future<void> _openDocumentPreview(
+  BuildContext context,
+  WidgetRef ref,
+  String title,
+  String url,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: FutureBuilder<Uint8List>(
+            future: ref.read(apiClientProvider).downloadBytes(url),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 220,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError || !snapshot.hasData) {
+                return Text(
+                  friendlyError(snapshot.error ?? 'Document introuvable'),
+                );
+              }
+              return InteractiveViewer(
+                child: Image.memory(
+                  snapshot.data!,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Aperçu non disponible sur mobile pour ce format.',
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Fermer'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null && await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            child: const Text('Ouvrir le lien'),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 String _formatDateValue(dynamic value) {
