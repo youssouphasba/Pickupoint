@@ -63,7 +63,7 @@ def _permission_limit_message(permission: dict[str, Any]) -> str:
             continue
         limits = action.get("limits") or []
         if limits:
-            return "Une demande d'autorisation d'appel a déjà été envoyée récemment. Réessayez après le délai Meta."
+            return "Autorisation d'appel en attente côté destinataire. Réessayez après le délai Meta."
         if action.get("can_perform_action") is False:
             return "Meta bloque temporairement une nouvelle demande d'autorisation d'appel pour ce destinataire."
     return "Le destinataire doit d'abord autoriser les appels WhatsApp de Denkma."
@@ -156,7 +156,8 @@ async def send_driver_contact_request(
             "body": {
                 "text": (
                     f"{driver_name} souhaite vous appeler via Denkma au sujet du colis "
-                    f"{tracking_code}. Autorisez l'appel seulement si vous attendez ce contact."
+                    f"{tracking_code}. Si un bouton d'autorisation s'affiche, appuyez dessus. "
+                    "Sinon, ouvrez les infos de cette discussion WhatsApp et autorisez les appels."
                 )
             },
             "action": {
@@ -189,7 +190,7 @@ async def send_driver_contact_request(
         "sent": True,
         "channel": "whatsapp",
         "message_id": message_id,
-        "message": "Demande d'autorisation d'appel envoyée au destinataire via WhatsApp.",
+        "message": "Autorisation d'appel demandée au destinataire.",
         "requested_at": _now(),
         "template": None,
         "action": WHATSAPP_CALL_PERMISSION_ACTION,
@@ -298,8 +299,7 @@ async def connect_driver_whatsapp_call(
             "channel": "whatsapp_call",
             "reason": "call_permission_required",
             "message": (
-                "Le destinataire doit d'abord autoriser l'appel WhatsApp. "
-                "Une demande d'autorisation vient de lui être envoyée."
+                "Autorisation d'appel en attente côté destinataire."
                 if request_result.get("sent")
                 else request_result.get("message")
                 or "Le destinataire doit d'abord autoriser l'appel WhatsApp."

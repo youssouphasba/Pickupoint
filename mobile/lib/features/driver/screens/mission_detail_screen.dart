@@ -39,6 +39,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   MediaStream? _callLocalStream;
   Timer? _callStatusTimer;
   String? _activeWhatsappCallId;
+  String? _whatsappCallStatus;
+  Color _whatsappCallStatusColor = Colors.blueGrey;
 
   @override
   void initState() {
@@ -601,7 +603,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   // ── Échec livraison ────────────────────────────────────────────────────────
   Future<void> _callRecipientViaDenkma(String missionId) async {
-    setState(() => _isProcessing = true);
+    setState(() {
+      _isProcessing = true;
+      _whatsappCallStatus = "Vérification de l'autorisation d'appel...";
+      _whatsappCallStatusColor = Colors.blueGrey;
+    });
     try {
       await _closeWhatsappCallSession();
       final permissionRes =
@@ -611,6 +617,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           "Demande d'autorisation d'appel envoyée au destinataire.";
 
       if (!permissionApproved) {
+        if (mounted) {
+          setState(() {
+            _whatsappCallStatus = permissionMessage;
+            _whatsappCallStatusColor = Colors.orange;
+          });
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -673,10 +685,22 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         _callPeerConnection = peerConnection;
         _callLocalStream = stream;
         _activeWhatsappCallId = callId;
+        if (mounted) {
+          setState(() {
+            _whatsappCallStatus = 'Appel lancé. En attente du destinataire...';
+            _whatsappCallStatusColor = Colors.orange;
+          });
+        }
         _watchWhatsappCallStatus(missionId, callId);
       } else {
         await peerConnection.close();
         stream.getTracks().forEach((track) => track.stop());
+        if (mounted) {
+          setState(() {
+            _whatsappCallStatus = message;
+            _whatsappCallStatusColor = Colors.orange;
+          });
+        }
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -716,6 +740,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     await peerConnection?.close();
   }
 
+  Future<void> _hangUpWhatsappCall() async {
+    await _closeWhatsappCallSession();
+    if (!mounted) return;
+    setState(() {
+      _whatsappCallStatus = 'Appel terminé côté livreur.';
+      _whatsappCallStatusColor = Colors.blueGrey;
+    });
+  }
+
   void _watchWhatsappCallStatus(String missionId, String callId) {
     _callStatusTimer?.cancel();
     var attempts = 0;
@@ -733,6 +766,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             .getMissionCallStatus(missionId, callId);
         final data = res.data;
         final latest = data['latest_event'];
+        final status = latest is Map ? latest['status']?.toString() : null;
+        final event = latest is Map ? latest['event']?.toString() : null;
+        final statusLabel = _whatsappCallStatusLabel(status, event);
+        if (statusLabel != null && mounted) {
+          setState(() {
+            _whatsappCallStatus = statusLabel.message;
+            _whatsappCallStatusColor = statusLabel.color;
+          });
+        }
         final rawCall = latest is Map ? latest['raw_call'] : null;
         final session = rawCall is Map ? rawCall['session'] : null;
         final sdp = session is Map ? session['sdp']?.toString() : null;
@@ -745,6 +787,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           await _callPeerConnection!.setRemoteDescription(
             RTCSessionDescription(sdp, sdpType),
           );
+        }
+        if (_whatsappCallIsTerminal(status, event)) {
+          await _closeWhatsappCallSession();
           timer.cancel();
         }
       } catch (_) {
@@ -972,6 +1017,47 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
   }
 
+  Widget _buildWhatsappCallBanner() {
+    final isActive = _activeWhatsappCallId != null;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _whatsappCallStatusColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _whatsappCallStatusColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isActive ? Icons.phone_in_talk : Icons.info_outline,
+            color: _whatsappCallStatusColor,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _whatsappCallStatus ?? '',
+              style: TextStyle(
+                color: _whatsappCallStatusColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (isActive)
+            TextButton.icon(
+              onPressed: _hangUpWhatsappCall,
+              icon: const Icon(Icons.call_end, color: Colors.red),
+              label: const Text(
+                'Raccrocher',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final missionAsync = ref.watch(missionProvider(widget.id));
@@ -984,6 +1070,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_whatsappCallStatus != null) ...[
+                _buildWhatsappCallBanner(),
+                const SizedBox(height: 12),
+              ],
               // ── Gain ──────────────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.all(20),
@@ -1086,8 +1176,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                         ? null
                         : 'Numéro masqué - appel via Denkma',
                     showCall: true,
-                    onCall: () => _callRecipientViaDenkma(mission.id),
-                    callLabel: 'Appeler via Denkma',
+                    onCall: _activeWhatsappCallId != null
+                        ? _hangUpWhatsappCall
+                        : () => _callRecipientViaDenkma(mission.id),
+                    callLabel: _activeWhatsappCallId != null
+                        ? 'Raccrocher'
+                        : 'Appeler via Denkma',
                   ),
                   const SizedBox(height: 20),
                 ],
@@ -1825,6 +1919,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     VoidCallback? onCall,
     String callLabel = 'Appeler',
   }) {
+    final isHangUpAction = callLabel == 'Raccrocher';
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1887,7 +1982,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                       (phone != null && !phone.contains('•')
                           ? () => launchUrl(Uri.parse('tel:$phone'))
                           : null)),
-              icon: const Icon(Icons.phone_in_talk, color: Colors.green),
+              icon: Icon(
+                isHangUpAction ? Icons.call_end : Icons.phone_in_talk,
+                color: isHangUpAction ? Colors.red : Colors.green,
+              ),
               label: Text(callLabel),
             ),
         ],
@@ -1933,4 +2031,68 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       ),
     );
   }
+}
+
+class _WhatsappCallStatusLabel {
+  const _WhatsappCallStatusLabel(this.message, this.color);
+
+  final String message;
+  final Color color;
+}
+
+_WhatsappCallStatusLabel? _whatsappCallStatusLabel(
+  String? status,
+  String? event,
+) {
+  final raw = '${status ?? ''} ${event ?? ''}'.toLowerCase().trim();
+  if (raw.isEmpty) return null;
+  if (raw.contains('accept') ||
+      raw.contains('answer') ||
+      raw.contains('connect') ||
+      raw.contains('active')) {
+    return const _WhatsappCallStatusLabel(
+      'Destinataire connecté. Appel en cours.',
+      Colors.green,
+    );
+  }
+  if (raw.contains('ring') || raw.contains('calling')) {
+    return const _WhatsappCallStatusLabel(
+      'Ça sonne chez le destinataire...',
+      Colors.orange,
+    );
+  }
+  if (raw.contains('reject') || raw.contains('decline')) {
+    return const _WhatsappCallStatusLabel(
+      'Appel refusé par le destinataire.',
+      Colors.red,
+    );
+  }
+  if (raw.contains('timeout') ||
+      raw.contains('missed') ||
+      raw.contains('no_answer')) {
+    return const _WhatsappCallStatusLabel(
+      'Aucune réponse du destinataire.',
+      Colors.red,
+    );
+  }
+  if (_whatsappCallIsTerminal(status, event)) {
+    return const _WhatsappCallStatusLabel('Appel terminé.', Colors.blueGrey);
+  }
+  return _WhatsappCallStatusLabel(
+    'État WhatsApp: ${status ?? event}',
+    Colors.blueGrey,
+  );
+}
+
+bool _whatsappCallIsTerminal(String? status, String? event) {
+  final raw = '${status ?? ''} ${event ?? ''}'.toLowerCase();
+  return raw.contains('end') ||
+      raw.contains('hang') ||
+      raw.contains('terminate') ||
+      raw.contains('completed') ||
+      raw.contains('reject') ||
+      raw.contains('decline') ||
+      raw.contains('timeout') ||
+      raw.contains('missed') ||
+      raw.contains('no_answer');
 }
