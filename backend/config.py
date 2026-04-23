@@ -41,7 +41,11 @@ class Settings(BaseSettings):
     WHATSAPP_CALL_API_VERSION: str = "v25.0"
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
     WHATSAPP_TEMPLATE_RECIPIENT_CREATED: str = "parcel_created_recipient_links_v1"
+    WHATSAPP_TEMPLATE_RECIPIENT_CREATED_RELAY: Optional[str] = None
     WHATSAPP_TEMPLATE_DELIVERY_CODE: str = "parcel_reception_auth_code"
+    WHATSAPP_TEMPLATE_RELAY_CHOICE_REQUEST: Optional[str] = None
+    WHATSAPP_TEMPLATE_RELAY_READY: Optional[str] = None
+    WHATSAPP_TEMPLATE_RELAY_REDIRECTED: Optional[str] = None
     WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE: bool = True
 
     # Flutterwave

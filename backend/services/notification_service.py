@@ -70,6 +70,23 @@ STATUS_MESSAGES = {
     ParcelStatus.RETURNED:                "Votre colis a été retourné à l'expéditeur.",
 }
 
+
+SENDER_STATUS_MESSAGES = {
+    ParcelStatus.CREATED:                 "Votre colis {tracking_code} a été créé.",
+    ParcelStatus.DROPPED_AT_ORIGIN_RELAY: "Votre colis {tracking_code} a été déposé au point relais de départ.",
+    ParcelStatus.IN_TRANSIT:              "Votre colis {tracking_code} est en transit.",
+    ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis {tracking_code} est arrivé au relais proche du destinataire.",
+    ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis {tracking_code} est disponible au relais pour le destinataire.",
+    ParcelStatus.OUT_FOR_DELIVERY:        "Le livreur est en route pour livrer votre colis {tracking_code}.",
+    ParcelStatus.DELIVERED:               "Votre colis {tracking_code} a été livré avec succès.",
+    ParcelStatus.DELIVERY_FAILED:         "La livraison du colis {tracking_code} n'a pas pu être finalisée. Denkma recherche la meilleure solution.",
+    ParcelStatus.REDIRECTED_TO_RELAY:     "Votre colis {tracking_code} a été redirigé vers un relais proche du destinataire.",
+    ParcelStatus.INCIDENT_REPORTED:       "Un incident est en cours de traitement sur votre colis {tracking_code}.",
+    ParcelStatus.CANCELLED:               "Votre colis {tracking_code} a été annulé.",
+    ParcelStatus.EXPIRED:                 "Le délai de retrait du colis {tracking_code} est expiré.",
+    ParcelStatus.RETURNED:                "Votre colis {tracking_code} vous a été retourné.",
+}
+
 # Mapping ParcelStatus -> template WhatsApp approuvé (notifs proactives).
 # Les templates qui ne figurent pas ici retombent sur le texte libre
 # (qui n'est livré que si l'user a écrit dans les 24 h).
@@ -80,8 +97,15 @@ STATUS_TEMPLATES = {
     ParcelStatus.DELIVERED:        "parcel_delivered",
 }
 
+if settings.WHATSAPP_TEMPLATE_RELAY_READY:
+    STATUS_TEMPLATES[ParcelStatus.AVAILABLE_AT_RELAY] = settings.WHATSAPP_TEMPLATE_RELAY_READY
+if settings.WHATSAPP_TEMPLATE_RELAY_REDIRECTED:
+    STATUS_TEMPLATES[ParcelStatus.REDIRECTED_TO_RELAY] = settings.WHATSAPP_TEMPLATE_RELAY_REDIRECTED
+
 DELIVERY_CODE_TEMPLATE = settings.WHATSAPP_TEMPLATE_DELIVERY_CODE
 RECIPIENT_CREATED_TEMPLATE = settings.WHATSAPP_TEMPLATE_RECIPIENT_CREATED
+RECIPIENT_CREATED_RELAY_TEMPLATE = settings.WHATSAPP_TEMPLATE_RECIPIENT_CREATED_RELAY
+RELAY_CHOICE_TEMPLATE = settings.WHATSAPP_TEMPLATE_RELAY_CHOICE_REQUEST
 
 
 def _category_pref_key(category: Optional[str]) -> str | None:
@@ -154,6 +178,11 @@ def _recipient_access_code(parcel: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _is_relay_delivery(parcel: dict) -> bool:
+    mode = parcel.get("delivery_mode") or ""
+    return mode.endswith("_to_relay") or bool(parcel.get("redirect_relay_id"))
+
+
 def _body_with_recipient_code(body: str, parcel: dict) -> str:
     code, label = _recipient_access_code(parcel)
     if not code or not label:
@@ -161,6 +190,30 @@ def _body_with_recipient_code(body: str, parcel: dict) -> str:
     if str(code) in body:
         return body
     return f"{body} {label} : {code}."
+
+
+def _status_body(messages: dict, status: ParcelStatus, tracking_code: str, relay_pin: str) -> str:
+    template = messages.get(status, f"Statut mis à jour : {status.value}")
+    return template.format(tracking_code=tracking_code, relay_pin=relay_pin)
+
+
+def _phone_lookup_values(phone: str | None) -> list[str]:
+    if not phone:
+        return []
+    normalized = normalize_phone(phone)
+    digits = re.sub(r"\D", "", normalized or phone)
+    values = {phone, normalized}
+    if digits:
+        values.add(digits)
+        values.add(f"+{digits}")
+    return [value for value in values if value]
+
+
+async def _find_user_by_phone(phone: str | None) -> dict | None:
+    values = _phone_lookup_values(phone)
+    if not values:
+        return None
+    return await db.users.find_one({"phone": {"$in": values}}, {"user_id": 1})
 
 
 def _created_recipient_template_payload(
@@ -181,6 +234,33 @@ def _created_recipient_template_payload(
     return body_variables, button_variables
 
 
+def _recipient_created_template(parcel: dict) -> str:
+    if _is_relay_delivery(parcel) and RECIPIENT_CREATED_RELAY_TEMPLATE:
+        return RECIPIENT_CREATED_RELAY_TEMPLATE
+    return RECIPIENT_CREATED_TEMPLATE
+
+
+def _relay_status_template_vars(
+    template_name: Optional[str],
+    parcel: dict,
+    first_name: str,
+    tracking_code: str,
+    tracking_url: str,
+) -> list[str]:
+    relay_templates = {
+        value
+        for value in (
+            settings.WHATSAPP_TEMPLATE_RELAY_READY,
+            settings.WHATSAPP_TEMPLATE_RELAY_REDIRECTED,
+        )
+        if value
+    }
+    if not template_name or template_name not in relay_templates:
+        return _template_vars(template_name, first_name, tracking_code, tracking_url)
+    code, _ = _recipient_access_code(parcel)
+    return [first_name, tracking_code, str(code or "à confirmer"), tracking_url]
+
+
 async def _send_recipient_access_code(parcel: dict, recipient_phone: str | None) -> None:
     if not settings.WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE or not recipient_phone:
         return
@@ -194,8 +274,8 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
     relay_pin = parcel.get("relay_pin", "—")
-    body = STATUS_MESSAGES.get(new_status, f"Statut mis à jour : {new_status.value}")
-    body = body.format(tracking_code=tracking_code, relay_pin=relay_pin)
+    recipient_body_base = _status_body(STATUS_MESSAGES, new_status, tracking_code, relay_pin)
+    sender_body = _status_body(SENDER_STATUS_MESSAGES, new_status, tracking_code, relay_pin)
 
     template_name = STATUS_TEMPLATES.get(new_status)
     tracking_url = _tracking_url(tracking_code)
@@ -204,16 +284,15 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     # Notifier expéditeur
     sender_id = parcel.get("sender_user_id")
     if sender_id:
-        sender_first = _first_name(parcel.get("sender_name"))
         await _store_and_send(
             user_id=sender_id,
             title="Mise à jour colis",
-            body=body,
+            body=sender_body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
-            whatsapp_template=template_name,
-            whatsapp_variables=_template_vars(template_name, sender_first, tracking_code, tracking_url),
+            whatsapp_template=None,
+            whatsapp_variables=[],
         )
 
     # Notifier destinataire
@@ -221,17 +300,23 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     recipient_user_id = parcel.get("recipient_user_id")
     if not recipient_user_id and recipient_phone:
         # Recherche tardive (si inscrit entre temps)
-        user = await db.users.find_one({"phone": recipient_phone}, {"user_id": 1})
+        user = await _find_user_by_phone(recipient_phone)
         if user:
             recipient_user_id = user["user_id"]
 
     recipient_first = _first_name(parcel.get("recipient_name"))
-    recipient_body = _body_with_recipient_code(body, parcel)
+    recipient_body = _body_with_recipient_code(recipient_body_base, parcel)
     recipient_template = template_name
-    template_vars_recipient = _template_vars(template_name, recipient_first, tracking_code, tracking_url)
+    template_vars_recipient = _relay_status_template_vars(
+        template_name,
+        parcel,
+        recipient_first,
+        tracking_code,
+        tracking_url,
+    )
     recipient_button_vars: list[str] = []
     if new_status == ParcelStatus.CREATED:
-        recipient_template = RECIPIENT_CREATED_TEMPLATE
+        recipient_template = _recipient_created_template(parcel)
         template_vars_recipient, recipient_button_vars = _created_recipient_template_payload(
             parcel,
             tracking_code,
@@ -262,7 +347,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                 await _send_whatsapp_template(
                     recipient_phone,
                     template_name,
-                    _template_vars(template_name, recipient_first, tracking_code, tracking_url),
+                    _relay_status_template_vars(template_name, parcel, recipient_first, tracking_code, tracking_url),
                 )
         if new_status in {
             ParcelStatus.CREATED,
@@ -283,7 +368,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                 await _send_whatsapp_template(
                     recipient_phone,
                     template_name,
-                    _template_vars(template_name, recipient_first, tracking_code, tracking_url),
+                    _relay_status_template_vars(template_name, parcel, recipient_first, tracking_code, tracking_url),
                 )
         else:
             await _send_whatsapp(recipient_phone, recipient_body)
@@ -876,6 +961,8 @@ async def notify_relay_choice_request(parcel: dict, confirm_url: str, escalate_e
     parcel_id = parcel.get("parcel_id")
     user_id = parcel.get("recipient_user_id")
     phone = parcel.get("recipient_phone")
+    target_name = _first_name(parcel.get("recipient_name"))
+    sender_full = parcel.get("sender_name") or "Denkma"
     title = "Choisissez votre point relais"
     body = (
         f"Choisissez ou modifiez le point relais de retrait du colis {tracking_code}. "
@@ -891,4 +978,6 @@ async def notify_relay_choice_request(parcel: dict, confirm_url: str, escalate_e
         ref_id=parcel_id,
         escalate_external=escalate_external,
         force_whatsapp=True,
+        whatsapp_template=RELAY_CHOICE_TEMPLATE,
+        whatsapp_variables=[target_name, sender_full, tracking_code, confirm_url] if RELAY_CHOICE_TEMPLATE else None,
     )
