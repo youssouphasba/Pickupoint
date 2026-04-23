@@ -223,6 +223,15 @@ def _created_recipient_template_payload(
     app_url: str,
 ) -> tuple[list[str], list[str]]:
     parcel_code, _ = _recipient_access_code(parcel)
+    if _is_relay_delivery(parcel) and RECIPIENT_CREATED_RELAY_TEMPLATE:
+        return [
+            _first_name(parcel.get("recipient_name")),
+            parcel.get("sender_name") or "l'expéditeur",
+            tracking_code,
+            str(parcel_code or "à confirmer"),
+            tracking_url,
+        ], []
+
     body_variables = [
         _first_name(parcel.get("recipient_name")),
         parcel.get("sender_name") or "l'expéditeur",
