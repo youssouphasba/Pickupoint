@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_PATH: Optional[str] = "firebase-service-account.json"
 
     # OTP — Firebase Phone Auth gère l'OTP (SDK côté mobile, pas de SMS backend)
-    GPS_REMINDER_INITIAL_MINUTES: int = 2
-    GPS_REMINDER_ESCALATION_MINUTES: int = 10
-    GPS_REMINDER_MAX_COUNT: int = 4
+    GPS_REMINDER_INITIAL_MINUTES: int = 5
+    GPS_REMINDER_ESCALATION_MINUTES: int = 5
+    GPS_REMINDER_MAX_COUNT: int = 3
 
     # WhatsApp Cloud API (Meta)
     WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None

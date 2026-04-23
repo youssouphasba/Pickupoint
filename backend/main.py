@@ -129,6 +129,7 @@ async def _advance_delivery_dispatch_loop() -> None:
 
 async def _maybe_send_gps_reminder(parcel: dict, actor: str, now: datetime) -> bool:
     from services.notification_service import notify_location_confirmation_request
+    from services.notification_service import notify_sender_recipient_position_pending
     from services.parcel_service import _record_event
 
     reminders = parcel.get("gps_reminders") or {}
@@ -174,6 +175,8 @@ async def _maybe_send_gps_reminder(parcel: dict, actor: str, now: datetime) -> b
         confirm_url=confirm_url,
         escalate_external=escalate_external,
     )
+    if actor == "recipient":
+        await notify_sender_recipient_position_pending(parcel)
 
     channel = "sms_whatsapp"
     if has_app and escalate_external:

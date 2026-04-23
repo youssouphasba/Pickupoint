@@ -967,6 +967,29 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
     )
 
 
+async def notify_sender_recipient_position_pending(parcel: dict) -> None:
+    """Informe l'expéditeur que le destinataire n'a pas encore validé sa position."""
+    sender_id = parcel.get("sender_user_id")
+    if not sender_id:
+        return
+
+    tracking_code = parcel.get("tracking_code", "")
+    body = (
+        f"Le destinataire n'a pas encore validé sa position pour le colis {tracking_code}. "
+        "Merci de le contacter pour qu'il confirme sa position."
+    )
+    await _store_and_send(
+        user_id=sender_id,
+        title="Position du destinataire en attente",
+        body=body,
+        ref_type="parcel",
+        ref_id=parcel.get("parcel_id"),
+        category="parcel_updates",
+        whatsapp_template=None,
+        whatsapp_variables=[],
+    )
+
+
 async def notify_relay_choice_request(parcel: dict, confirm_url: str, escalate_external: bool = False):
     """Invite le destinataire à choisir ou modifier son point relais de retrait."""
     tracking_code = parcel.get("tracking_code", "")
