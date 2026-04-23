@@ -916,12 +916,19 @@ async def report_incident(
     
     if mission.get("driver_id") != current_user["user_id"]:
         raise forbidden_exception()
-    if mission.get("status") != MissionStatus.IN_PROGRESS.value:
-        raise bad_request_exception("Le retour à l'expéditeur n'est possible qu'après la collecte du colis")
 
     parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
+    if (
+        mission.get("status") == MissionStatus.INCIDENT_REPORTED.value
+        and parcel.get("status") == ParcelStatus.INCIDENT_REPORTED.value
+    ):
+        return {
+            "message": "Retour déjà demandé. Rapportez le colis à l'expéditeur puis saisissez le code de retour."
+        }
+    if mission.get("status") != MissionStatus.IN_PROGRESS.value:
+        raise bad_request_exception("Le retour à l'expéditeur n'est possible qu'après la collecte du colis")
 
     now = datetime.now(timezone.utc)
     return_code = parcel.get("return_code") or _return_code()
