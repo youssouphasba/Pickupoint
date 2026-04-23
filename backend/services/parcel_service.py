@@ -779,7 +779,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             await db.parcels.update_one(
                 {"parcel_id": parcel_id},
                 {"$set": {
-                    "gps_reminders.recipient.count": 1,
+                    "gps_reminders.recipient.count": 0,
                     "gps_reminders.recipient.last_sent_at": now,
                     "gps_reminders.recipient.last_channel": (
                         "in_app_push" if parcel_doc.get("recipient_user_id") else "sms_whatsapp"
@@ -801,7 +801,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             await db.parcels.update_one(
                 {"parcel_id": parcel_id},
                 {"$set": {
-                    "gps_reminders.recipient.count": 1,
+                    "gps_reminders.recipient.count": 0,
                     "gps_reminders.recipient.last_sent_at": now,
                     "gps_reminders.recipient.last_channel": (
                         "in_app_push" if parcel_doc.get("recipient_user_id") else "sms_whatsapp"
@@ -825,7 +825,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
             await db.parcels.update_one(
                 {"parcel_id": parcel_id},
                 {"$set": {
-                    "gps_reminders.sender.count": 1,
+                    "gps_reminders.sender.count": 0,
                     "gps_reminders.sender.last_sent_at": now,
                     "gps_reminders.sender.last_channel": (
                         "in_app_push" if parcel_doc.get("sender_user_id") else "sms_whatsapp"
