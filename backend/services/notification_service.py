@@ -91,10 +91,10 @@ SENDER_STATUS_MESSAGES = {
 # Les templates qui ne figurent pas ici retombent sur le texte libre
 # (qui n'est livré que si l'user a écrit dans les 24 h).
 STATUS_TEMPLATES = {
-    ParcelStatus.CREATED:          "parcel_created",
-    ParcelStatus.OUT_FOR_DELIVERY: "parcel_assigned",
-    ParcelStatus.IN_TRANSIT:       "parcel_assigned",
-    ParcelStatus.DELIVERED:        "parcel_delivered",
+    ParcelStatus.CREATED:          settings.WHATSAPP_TEMPLATE_PARCEL_CREATED,
+    ParcelStatus.OUT_FOR_DELIVERY: settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
+    ParcelStatus.IN_TRANSIT:       settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
+    ParcelStatus.DELIVERED:        settings.WHATSAPP_TEMPLATE_PARCEL_DELIVERED,
 }
 
 if settings.WHATSAPP_TEMPLATE_RELAY_READY:
@@ -396,9 +396,12 @@ def _template_vars(
     tracking_code: str,
     tracking_url: str,
 ) -> list[str]:
-    if template_name in ("parcel_created", "parcel_assigned"):
+    if template_name in {
+        settings.WHATSAPP_TEMPLATE_PARCEL_CREATED,
+        settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
+    }:
         return [first_name, tracking_code, tracking_url]
-    if template_name == "parcel_delivered":
+    if template_name == settings.WHATSAPP_TEMPLATE_PARCEL_DELIVERED:
         return [first_name, tracking_code]
     return []
 
@@ -445,9 +448,9 @@ async def notify_sender_driver_assigned(parcel: dict, driver: dict):
         ref_type="parcel",
         ref_id=parcel.get("parcel_id"),
         category="parcel_updates",
-        whatsapp_template="parcel_assigned",
+        whatsapp_template=settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
         whatsapp_variables=_template_vars(
-            "parcel_assigned",
+            settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
             sender_first,
             tracking_code,
             tracking_url,
@@ -955,7 +958,7 @@ async def notify_location_confirmation_request(parcel: dict, actor: str, confirm
         body=body,
         user_id=user_id,
         phone=phone,
-        whatsapp_template="gps_confirmation",
+        whatsapp_template=settings.WHATSAPP_TEMPLATE_GPS_CONFIRMATION,
         whatsapp_variables=template_vars,
         ref_type="parcel",
         ref_id=parcel_id,
