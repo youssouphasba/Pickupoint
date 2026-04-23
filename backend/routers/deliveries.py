@@ -37,6 +37,14 @@ from core.utils import check_code_lockout, record_failed_attempt, clear_code_att
 router = APIRouter()
 
 
+def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _mission_id() -> str:
     return f"msn_{uuid.uuid4().hex[:12]}"
 
@@ -521,7 +529,7 @@ async def update_location(
     }
 
     # ── Calculer l'ETA si nécessaire (max 1 fois toutes les 5 minutes pour budget API) ──
-    last_eta_update = mission.get("eta_updated_at")
+    last_eta_update = _as_aware_utc(mission.get("eta_updated_at"))
     should_update_eta = (
         mission["status"] == MissionStatus.IN_PROGRESS.value
         and (last_eta_update is None or (now - last_eta_update).total_seconds() > 300)
