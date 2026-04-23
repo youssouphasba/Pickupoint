@@ -8,7 +8,8 @@ final notificationServiceProvider = Provider((ref) => NotificationService(ref));
 class NotificationService {
   final Ref _ref;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifs = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifs =
+      FlutterLocalNotificationsPlugin();
 
   NotificationService(this._ref);
 
@@ -58,6 +59,11 @@ class NotificationService {
   }
 
   Future<void> _uploadToken(String token) async {
+    final authState = _ref.read(authProvider).valueOrNull;
+    if (authState?.accessToken == null) {
+      return;
+    }
+
     try {
       await _ref.read(apiClientProvider).updateFcmToken(token);
     } catch (_) {
