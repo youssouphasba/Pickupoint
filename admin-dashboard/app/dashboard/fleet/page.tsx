@@ -1,12 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import {
+  APIProvider,
+  Map,
+  AdvancedMarker,
+  InfoWindow,
+  Pin,
+} from "@vis.gl/react-google-maps";
 import { fetchFleetLive } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, Navigation, RadioTower } from "lucide-react";
+import { Loader2, MapPin, Navigation, Phone, RadioTower } from "lucide-react";
 
 type GeoPoint = {
   lat?: number;
@@ -23,22 +31,42 @@ type FleetMission = {
   driver_id?: string;
   driver_name?: string;
   driver_phone?: string;
+  driver_photo_url?: string;
   driver_location?: GeoPoint | null;
   location_updated_at?: string;
   is_stale?: boolean;
   eta_text?: string;
   distance_text?: string;
   recipient_name?: string;
+  recipient_phone?: string;
   route_summary?: {
     speed_kmh?: number;
   };
 };
 
+type IdleDriver = {
+  driver_id: string;
+  driver_name?: string;
+  driver_phone?: string;
+  driver_photo_url?: string;
+  driver_location?: GeoPoint | null;
+  location_updated_at?: string;
+};
+
+type SelectedPin =
+  | { kind: "mission"; data: FleetMission }
+  | { kind: "idle"; data: IdleDriver }
+  | null;
+
 const FILTERS = [
   { value: "all", label: "Toutes les missions" },
   { value: "live", label: "Positions live" },
   { value: "signal_lost", label: "Signal perdu" },
+  { value: "idle", label: "Hors course" },
 ] as const;
+
+const DAKAR_CENTER = { lat: 14.7167, lng: -17.4677 };
+const MAP_ID = "denkma-fleet-map";
 
 function fmtTime(iso?: string) {
   if (!iso) return "—";
@@ -64,9 +92,28 @@ function statusTone(status?: string) {
   return "default";
 }
 
+function statusLabel(mission: FleetMission) {
+  if (mission.is_stale) return "Signal perdu";
+  if (mission.status === "in_progress") return "En course";
+  if (mission.status === "assigned") return "Assignée";
+  if (mission.status === "incident_reported") return "Incident";
+  return mission.status ?? "—";
+}
+
+function pinColors(mission: FleetMission) {
+  if (mission.is_stale)
+    return { background: "#f59e0b", border: "#b45309", glyph: "#fff" };
+  if (mission.status === "in_progress")
+    return { background: "#16a34a", border: "#15803d", glyph: "#fff" };
+  if (mission.status === "incident_reported")
+    return { background: "#dc2626", border: "#991b1b", glyph: "#fff" };
+  return { background: "#2563eb", border: "#1d4ed8", glyph: "#fff" };
+}
+
 export default function FleetPage() {
   const searchParams = useSearchParams();
   const selectedFilter = searchParams.get("filter") ?? "all";
+  const [selectedPin, setSelectedPin] = useState<SelectedPin>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["fleet-live"],
@@ -75,6 +122,10 @@ export default function FleetPage() {
   });
 
   const missions: FleetMission[] = data?.fleet ?? [];
+  const idleDrivers: IdleDriver[] = data?.idle_drivers ?? [];
+  const summary = data?.summary ?? {};
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+
   const filteredMissions = useMemo(() => {
     if (selectedFilter === "live") {
       return missions.filter((mission) => {
@@ -89,11 +140,32 @@ export default function FleetPage() {
           ["assigned", "in_progress"].includes(mission.status ?? "")
       );
     }
+    if (selectedFilter === "idle") {
+      return [];
+    }
     return missions;
   }, [missions, selectedFilter]);
 
+  const filteredIdle = useMemo(() => {
+    if (selectedFilter === "idle" || selectedFilter === "all") return idleDrivers;
+    return [];
+  }, [idleDrivers, selectedFilter]);
+
   const activeFilter =
     FILTERS.find((filter) => filter.value === selectedFilter) ?? FILTERS[0];
+
+  const mapCenter = useMemo(() => {
+    const first = filteredMissions
+      .map((m) => readLatLng(m.driver_location))
+      .find((p): p is { lat: number; lng: number } => p !== null);
+    if (first) return first;
+    const firstIdle = filteredIdle
+      .map((d) => readLatLng(d.driver_location))
+      .find((p): p is { lat: number; lng: number } => p !== null);
+    return firstIdle ?? DAKAR_CENTER;
+  }, [filteredMissions, filteredIdle]);
+
+  const totalVisible = filteredMissions.length + filteredIdle.length;
 
   return (
     <div className="space-y-5 p-8">
@@ -101,18 +173,42 @@ export default function FleetPage() {
         <div>
           <h1 className="text-2xl font-bold">Flotte live</h1>
           <p className="text-sm text-muted-foreground">
-            Positions GPS temps réel des livreurs en mission. Les filtres reprennent
-            les mêmes critères que les cartes du tableau de bord.
+            Positions GPS temps réel des livreurs en mission et hors mission.
+            Cliquez sur un marqueur pour voir les détails.
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
-          {filteredMissions.length} résultat{filteredMissions.length > 1 ? "s" : ""}
+          {totalVisible} résultat{totalVisible > 1 ? "s" : ""}
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <KpiTile label="Actives" value={summary.total_active ?? 0} color="blue" />
+        <KpiTile
+          label="Avec GPS"
+          value={summary.with_live_location ?? 0}
+          color="green"
+        />
+        <KpiTile
+          label="Signal faible"
+          value={summary.stale_locations ?? 0}
+          color="orange"
+        />
+        <KpiTile
+          label="Sans position"
+          value={summary.missing_locations ?? 0}
+          color="red"
+        />
+        <KpiTile
+          label="Hors course"
+          value={summary.idle_drivers ?? 0}
+          color="purple"
+        />
       </div>
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((filter) => (
-          <a
+          <Link
             key={filter.value}
             href={`/dashboard/fleet${filter.value === "all" ? "" : `?filter=${filter.value}`}`}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
@@ -122,7 +218,7 @@ export default function FleetPage() {
             }`}
           >
             {filter.label}
-          </a>
+          </Link>
         ))}
       </div>
 
@@ -137,7 +233,89 @@ export default function FleetPage() {
         </div>
       )}
 
-      {filteredMissions.length === 0 && !isLoading && (
+      {!mapsApiKey ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-amber-700">
+            Clé Google Maps manquante : définissez{" "}
+            <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">
+              NEXT_PUBLIC_GOOGLE_MAPS_KEY
+            </code>{" "}
+            dans l&apos;environnement du dashboard pour afficher la carte.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-white">
+          <div className="h-[520px] w-full">
+            <APIProvider apiKey={mapsApiKey}>
+              <Map
+                mapId={MAP_ID}
+                defaultCenter={mapCenter}
+                defaultZoom={12}
+                gestureHandling="greedy"
+                disableDefaultUI={false}
+              >
+                {filteredMissions.map((mission) => {
+                  const location = readLatLng(mission.driver_location);
+                  if (!location) return null;
+                  const colors = pinColors(mission);
+                  return (
+                    <AdvancedMarker
+                      key={`mission:${mission.mission_id}`}
+                      position={location}
+                      onClick={() =>
+                        setSelectedPin({ kind: "mission", data: mission })
+                      }
+                    >
+                      <Pin
+                        background={colors.background}
+                        borderColor={colors.border}
+                        glyphColor={colors.glyph}
+                      />
+                    </AdvancedMarker>
+                  );
+                })}
+
+                {filteredIdle.map((driver) => {
+                  const location = readLatLng(driver.driver_location);
+                  if (!location) return null;
+                  return (
+                    <AdvancedMarker
+                      key={`idle:${driver.driver_id}`}
+                      position={location}
+                      onClick={() =>
+                        setSelectedPin({ kind: "idle", data: driver })
+                      }
+                    >
+                      <Pin
+                        background="#8b5cf6"
+                        borderColor="#6d28d9"
+                        glyphColor="#fff"
+                      />
+                    </AdvancedMarker>
+                  );
+                })}
+
+                {selectedPin && (
+                  <InfoWindow
+                    position={
+                      readLatLng(selectedPin.data.driver_location) ?? undefined
+                    }
+                    onCloseClick={() => setSelectedPin(null)}
+                  >
+                    {selectedPin.kind === "mission" ? (
+                      <MissionPopup mission={selectedPin.data} />
+                    ) : (
+                      <IdlePopup driver={selectedPin.data} />
+                    )}
+                  </InfoWindow>
+                )}
+              </Map>
+            </APIProvider>
+          </div>
+        </div>
+      )}
+
+      {totalVisible === 0 && !isLoading && (
         <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
             Aucun résultat pour ce filtre.
@@ -153,13 +331,15 @@ export default function FleetPage() {
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="font-medium">{mission.driver_name ?? "—"}</div>
+                    <div className="font-medium">
+                      {mission.driver_name ?? "—"}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {mission.driver_id ?? "Livreur non renseigné"}
                     </div>
                   </div>
                   <Badge tone={statusTone(mission.status)}>
-                    {mission.status ?? "—"}
+                    {statusLabel(mission)}
                   </Badge>
                 </div>
 
@@ -211,10 +391,212 @@ export default function FleetPage() {
                   Dernière mise à jour : {fmtTime(mission.location_updated_at)}
                   {mission.is_stale ? " · signal perdu" : ""}
                 </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {mission.driver_phone && (
+                    <a
+                      href={`tel:${mission.driver_phone}`}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 hover:bg-accent"
+                    >
+                      <Phone className="h-3 w-3" /> Appeler
+                    </a>
+                  )}
+                  {mission.driver_id && (
+                    <Link
+                      href={`/dashboard/users/${mission.driver_id}`}
+                      className="rounded-md border px-2 py-1 hover:bg-accent"
+                    >
+                      Fiche livreur
+                    </Link>
+                  )}
+                  {mission.parcel_id && (
+                    <Link
+                      href={`/dashboard/parcels/${mission.parcel_id}`}
+                      className="rounded-md border px-2 py-1 hover:bg-accent"
+                    >
+                      Fiche colis
+                    </Link>
+                  )}
+                </div>
               </CardContent>
             </Card>
           );
         })}
+
+        {filteredIdle.map((driver) => {
+          const location = readLatLng(driver.driver_location);
+          return (
+            <Card
+              key={`idle-${driver.driver_id}`}
+              className="border-purple-200 bg-purple-50/40"
+            >
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-medium">
+                      {driver.driver_name ?? "—"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {driver.driver_id}
+                    </div>
+                  </div>
+                  <Badge tone="default">Hors course</Badge>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                  {location ? (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5" />
+                      {location.lat.toFixed(4)}, {location.lng.toFixed(4)}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-amber-700">
+                      <RadioTower className="h-3.5 w-3.5" />
+                      Aucune position
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Dernière mise à jour : {fmtTime(driver.location_updated_at)}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {driver.driver_phone && (
+                    <a
+                      href={`tel:${driver.driver_phone}`}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 hover:bg-accent"
+                    >
+                      <Phone className="h-3 w-3" /> Appeler
+                    </a>
+                  )}
+                  <Link
+                    href={`/dashboard/users/${driver.driver_id}`}
+                    className="rounded-md border px-2 py-1 hover:bg-accent"
+                  >
+                    Fiche livreur
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number | string;
+  color: "blue" | "green" | "orange" | "red" | "purple";
+}) {
+  const palette: Record<typeof color, string> = {
+    blue: "bg-blue-50 border-blue-200 text-blue-700",
+    green: "bg-green-50 border-green-200 text-green-700",
+    orange: "bg-orange-50 border-orange-200 text-orange-700",
+    red: "bg-red-50 border-red-200 text-red-700",
+    purple: "bg-purple-50 border-purple-200 text-purple-700",
+  };
+  return (
+    <div className={`rounded-xl border p-3 ${palette[color]}`}>
+      <div className="text-xs font-semibold">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function MissionPopup({ mission }: { mission: FleetMission }) {
+  return (
+    <div className="min-w-[240px] space-y-2 p-1 text-sm">
+      <div className="font-semibold">{mission.driver_name ?? "Livreur"}</div>
+      <div className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+        {statusLabel(mission)}
+      </div>
+      {mission.driver_phone && (
+        <div className="flex items-center gap-2">
+          <Phone className="h-3.5 w-3.5 text-slate-500" />
+          <a
+            href={`tel:${mission.driver_phone}`}
+            className="text-blue-600 underline-offset-2 hover:underline"
+          >
+            {mission.driver_phone}
+          </a>
+        </div>
+      )}
+      {mission.tracking_code && (
+        <div className="text-xs text-slate-600">
+          Colis : <span className="font-mono">{mission.tracking_code}</span>
+        </div>
+      )}
+      {mission.recipient_name && (
+        <div className="text-xs text-slate-600">
+          Destinataire : {mission.recipient_name}
+        </div>
+      )}
+      {(mission.eta_text || mission.distance_text) && (
+        <div className="text-xs text-slate-600">
+          {mission.distance_text ? `${mission.distance_text} · ` : ""}
+          {mission.eta_text ?? ""}
+        </div>
+      )}
+      <div className="text-xs text-slate-500">
+        Dernière MAJ : {fmtTime(mission.location_updated_at)}
+      </div>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {mission.driver_id && (
+          <Link
+            href={`/dashboard/users/${mission.driver_id}`}
+            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Fiche livreur
+          </Link>
+        )}
+        {mission.parcel_id && (
+          <Link
+            href={`/dashboard/parcels/${mission.parcel_id}`}
+            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Fiche colis
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IdlePopup({ driver }: { driver: IdleDriver }) {
+  return (
+    <div className="min-w-[220px] space-y-2 p-1 text-sm">
+      <div className="font-semibold">{driver.driver_name ?? "Livreur"}</div>
+      <div className="inline-block rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+        Hors course
+      </div>
+      {driver.driver_phone && (
+        <div className="flex items-center gap-2">
+          <Phone className="h-3.5 w-3.5 text-slate-500" />
+          <a
+            href={`tel:${driver.driver_phone}`}
+            className="text-blue-600 underline-offset-2 hover:underline"
+          >
+            {driver.driver_phone}
+          </a>
+        </div>
+      )}
+      <div className="text-xs text-slate-500">
+        Dernière position : {fmtTime(driver.location_updated_at)}
+      </div>
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Link
+          href={`/dashboard/users/${driver.driver_id}`}
+          className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+        >
+          Fiche livreur
+        </Link>
       </div>
     </div>
   );
