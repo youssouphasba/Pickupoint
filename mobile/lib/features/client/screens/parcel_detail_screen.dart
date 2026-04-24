@@ -60,8 +60,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     _locationTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
       final parcel = ref.read(parcelProvider(widget.id)).value;
       if (parcel == null) return;
-      // Seulement quand le colis est en cours de livraison
-      if (parcel.status != 'out_for_delivery') return;
+      if (!_shouldShowLiveTracking(parcel)) return;
       await _fetchDriverLocation();
     });
   }
@@ -131,7 +130,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 _buildHeader(context, parcel, isRecipient: isRecipient),
                 const SizedBox(height: 16),
 
-                if (parcel.status == 'out_for_delivery') ...[
+                if (_shouldShowLiveTracking(parcel)) ...[
                   _buildLiveMap(parcel),
                   const SizedBox(height: 16),
                 ],
@@ -246,6 +245,17 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final isHomeDel = parcel.deliveryMode.endsWith('_to_home');
     return isHomeDel &&
         !['delivered', 'cancelled', 'returned'].contains(parcel.status);
+  }
+
+  bool _shouldShowLiveTracking(Parcel parcel) {
+    final isHomeDelivery = parcel.deliveryMode.endsWith('_to_home');
+    final hasAssignedDriver =
+        (parcel.assignedDriverId?.trim().isNotEmpty ?? false) ||
+        (parcel.driverName?.trim().isNotEmpty ?? false);
+    return isHomeDelivery &&
+        hasAssignedDriver &&
+        {'in_transit', 'out_for_delivery', 'incident_reported'}
+            .contains(parcel.status);
   }
 
   Widget _buildConfirmLocationCard(Parcel parcel) {

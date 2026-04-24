@@ -57,14 +57,49 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     super.dispose();
   }
 
+  Future<bool> _ensureGpsReady({
+    String disabledMessage =
+        'Activez le GPS pour poursuivre cette livraison et rester suivi.',
+  }) async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(disabledMessage),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      await Geolocator.openLocationSettings();
+      return false;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.whileInUse &&
+        permission != LocationPermission.always) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Autorisez la localisation pour continuer cette mission.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+    return true;
+  }
+
   // ── GPS streaming (Temps Réel) ──────────────────────────────────────────
   Future<void> _startLocationUpdates() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    if (perm != LocationPermission.whileInUse &&
-        perm != LocationPermission.always) {
+    final gpsReady = await _ensureGpsReady();
+    if (!gpsReady) {
       return;
     }
 
@@ -347,6 +382,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   // ── Confirmer la collecte (pickup_code) ───────────────────────────────────
   Future<void> _confirmPickup() async {
+    final gpsReady = await _ensureGpsReady(
+      disabledMessage:
+          'Activez le GPS avant de confirmer la collecte du colis.',
+    );
+    if (!gpsReady) {
+      return;
+    }
     final code = await _showCodeDialog(
       title: 'Code de collecte',
       hint: '• • • • • •',
@@ -396,6 +438,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   Future<void> _arriveAtDestination(String parcelId) async {
     setState(() => _isProcessing = true);
     try {
+      final gpsReady = await _ensureGpsReady(
+        disabledMessage:
+            'Activez le GPS avant de confirmer votre arrivée à destination.',
+      );
+      if (!gpsReady) {
+        return;
+      }
       // Capturer la position GPS du driver
       LocationPermission perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) {
@@ -494,6 +543,13 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   // ── Valider la livraison (delivery_code + géofence) ───────────────────────
   Future<void> _confirmDelivery(String parcelId) async {
+    final gpsReady = await _ensureGpsReady(
+      disabledMessage:
+          'Activez le GPS avant de valider la livraison du colis.',
+    );
+    if (!gpsReady) {
+      return;
+    }
     final code = await _showCodeDialog(
       title: 'Code du destinataire',
       hint: '• • • • • •',

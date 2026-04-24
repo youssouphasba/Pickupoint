@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
 import '../../features/auth/screens/phone_screen.dart';
@@ -26,6 +30,7 @@ import '../../features/driver/screens/mission_detail_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
+import '../../features/driver/providers/driver_provider.dart';
 import '../../features/admin/screens/admin_dashboard.dart';
 import '../../features/admin/screens/admin_parcels_screen.dart';
 import '../../features/admin/screens/admin_relays_screen.dart';
@@ -522,15 +527,116 @@ class RelayShell extends StatelessWidget {
   }
 }
 
-class DriverShell extends StatelessWidget {
+class DriverShell extends ConsumerStatefulWidget {
   const DriverShell({super.key, required this.child});
   final Widget child;
 
   static const _tabs = ['/driver', '/driver/wallet', '/driver/profile'];
 
   @override
+  ConsumerState<DriverShell> createState() => _DriverShellState();
+}
+
+class _DriverShellState extends ConsumerState<DriverShell> {
+  StreamSubscription<Position>? _positionStream;
+  DateTime? _lastBackendUpdate;
+  String? _trackingMissionId;
+
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _syncDriverTracking(String? missionId) async {
+    if (!mounted) return;
+    if (missionId == _trackingMissionId) return;
+
+    await _positionStream?.cancel();
+    _positionStream = null;
+    _trackingMissionId = missionId;
+    _lastBackendUpdate = null;
+
+    if (missionId == null || missionId.isEmpty) {
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.whileInUse &&
+        permission != LocationPermission.always) {
+      return;
+    }
+
+    final LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+        intervalDuration: Duration(seconds: 15),
+        foregroundNotificationConfig: ForegroundNotificationConfig(
+          notificationTitle: 'Denkma suit votre livraison',
+          notificationText:
+              'Votre position est partagée en continu pendant la course.',
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 10,
+        activityType: ActivityType.automotiveNavigation,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((position) async {
+      final now = DateTime.now();
+      if (_trackingMissionId == null) return;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      if (_lastBackendUpdate != null &&
+          now.difference(_lastBackendUpdate!).inSeconds <= 30) {
+        return;
+      }
+      _lastBackendUpdate = now;
+      try {
+        await ref.read(apiClientProvider).updateLocation(_trackingMissionId!, {
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'accuracy': position.accuracy,
+        });
+      } catch (_) {}
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
+    final myMissions = ref.watch(myMissionsProvider).valueOrNull ?? const [];
+    String? activeMissionId;
+    for (final mission in myMissions) {
+      if (mission.status == 'in_progress' ||
+          mission.status == 'incident_reported') {
+        activeMissionId = mission.id;
+        break;
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncDriverTracking(activeMissionId);
+    });
+
     final int idx;
     if (location.startsWith('/driver/wallet')) {
       idx = 1;
@@ -543,13 +649,13 @@ class DriverShell extends StatelessWidget {
 
     return _ShellScaffold(
       currentIndex: idx,
-      tabs: _tabs,
+      tabs: DriverShell._tabs,
       currentLocation: location,
-      body: child,
+      body: widget.child,
       bottomNavigationBar: BottomNavigationBar(
           currentIndex: idx,
           type: BottomNavigationBarType.fixed,
-          onTap: (i) => context.go(_tabs[i]),
+          onTap: (i) => context.go(DriverShell._tabs[i]),
           items: const [
             BottomNavigationBarItem(
                 icon: Icon(Icons.local_shipping), label: 'Missions'),
