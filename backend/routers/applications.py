@@ -3,11 +3,13 @@ Router applications : candidatures livreur et point relais.
 Workflow : Client soumet → Admin examine (pièces + coordonnées) → Approuve ou Rejette
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+
+import re
 
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception
@@ -39,6 +41,23 @@ class RelayApplicationCreate(BaseModel):
     business_reg:    Optional[str] = None         # numéro registre commerce
     opening_hours:   Optional[str] = None         # ex: "Lun-Sam 8h-20h"
     message:         Optional[str] = None
+
+
+class PublicDriverLead(BaseModel):
+    full_name:    str
+    phone:        str
+    vehicle_type: Literal["moto", "car", "van", "tricycle"] = "moto"
+    message:      Optional[str] = None
+
+
+class PublicRelayLead(BaseModel):
+    full_name:      str
+    phone:          str
+    business_name:  str
+    address_label:  str
+    city:           str = "Dakar"
+    opening_hours:  Optional[str] = None
+    message:        Optional[str] = None
 
 
 # ── Endpoints utilisateur ─────────────────────────────────────────────────────
@@ -123,6 +142,112 @@ async def apply_relay(
         metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "relay"},
     )
     return {"message": "Candidature soumise. L'équipe Denkma visitera votre point.", "application_id": doc["application_id"]}
+
+
+# ── Endpoints publics (landing — pré-candidatures sans auth) ──────────────────
+
+def _normalize_sn_phone(raw: str) -> str:
+    cleaned = re.sub(r"[^\d+]", "", raw or "")
+    if cleaned.startswith("+221"):
+        return cleaned
+    if cleaned.startswith("221") and len(cleaned) >= 11:
+        return "+" + cleaned
+    digits = re.sub(r"\D", "", cleaned)
+    if len(digits) == 9 and digits.startswith("7"):
+        return "+221" + digits
+    return cleaned
+
+
+async def _check_lead_rate_limit(phone: str, request: Request) -> None:
+    """Empêche le spam : max 1 lead même téléphone / 10 min, max 5 leads / IP / heure."""
+    now = datetime.now(timezone.utc)
+    recent_by_phone = await db.application_leads.find_one(
+        {"phone": phone, "created_at": {"$gte": now - timedelta(minutes=10)}},
+        {"_id": 1},
+    )
+    if recent_by_phone:
+        raise bad_request_exception("Une candidature récente existe déjà pour ce numéro. Patientez avant de renvoyer.")
+    ip = request.client.host if request.client else "unknown"
+    count_ip = await db.application_leads.count_documents(
+        {"ip": ip, "created_at": {"$gte": now - timedelta(hours=1)}}
+    )
+    if count_ip >= 5:
+        raise bad_request_exception("Trop de candidatures depuis votre connexion. Réessayez plus tard.")
+
+
+@router.post("/public/driver", summary="Pré-candidature livreur (landing, sans auth)")
+async def public_apply_driver(body: PublicDriverLead, request: Request):
+    phone = _normalize_sn_phone(body.phone)
+    if not phone.startswith("+221") or len(phone) != 13:
+        raise bad_request_exception("Numéro sénégalais invalide")
+    if len(body.full_name.strip()) < 2:
+        raise bad_request_exception("Nom complet requis")
+    await _check_lead_rate_limit(phone, request)
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "lead_id":       f"lead_{uuid.uuid4().hex[:12]}",
+        "type":          "driver",
+        "status":        "new",
+        "full_name":     body.full_name.strip(),
+        "phone":         phone,
+        "vehicle_type":  body.vehicle_type,
+        "message":       (body.message or "").strip() or None,
+        "ip":            request.client.host if request.client else None,
+        "user_agent":    request.headers.get("user-agent"),
+        "source":        "landing",
+        "created_at":    now,
+    }
+    await db.application_leads.insert_one(doc)
+    await record_admin_event(
+        AdminEventType.APPLICATION_SUBMITTED,
+        title=f"Pré-candidature livreur (landing) : {doc['full_name']}",
+        message=doc["phone"],
+        href="/dashboard/applications",
+        metadata={"lead_id": doc["lead_id"], "type": "driver", "source": "landing"},
+    )
+    return {"message": "Candidature enregistrée. L'équipe Denkma vous rappellera."}
+
+
+@router.post("/public/relay", summary="Pré-candidature point relais (landing, sans auth)")
+async def public_apply_relay(body: PublicRelayLead, request: Request):
+    phone = _normalize_sn_phone(body.phone)
+    if not phone.startswith("+221") or len(phone) != 13:
+        raise bad_request_exception("Numéro sénégalais invalide")
+    if len(body.full_name.strip()) < 2:
+        raise bad_request_exception("Nom complet requis")
+    if len(body.business_name.strip()) < 2:
+        raise bad_request_exception("Nom du local requis")
+    if len(body.address_label.strip()) < 3:
+        raise bad_request_exception("Adresse requise")
+    await _check_lead_rate_limit(phone, request)
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "lead_id":        f"lead_{uuid.uuid4().hex[:12]}",
+        "type":           "relay",
+        "status":         "new",
+        "full_name":      body.full_name.strip(),
+        "phone":          phone,
+        "business_name":  body.business_name.strip(),
+        "address_label":  body.address_label.strip(),
+        "city":           body.city.strip() or "Dakar",
+        "opening_hours":  (body.opening_hours or "").strip() or None,
+        "message":        (body.message or "").strip() or None,
+        "ip":             request.client.host if request.client else None,
+        "user_agent":     request.headers.get("user-agent"),
+        "source":         "landing",
+        "created_at":     now,
+    }
+    await db.application_leads.insert_one(doc)
+    await record_admin_event(
+        AdminEventType.APPLICATION_SUBMITTED,
+        title=f"Pré-candidature relais (landing) : {doc['business_name']}",
+        message=f"{doc['full_name']} — {doc['phone']}",
+        href="/dashboard/applications",
+        metadata={"lead_id": doc["lead_id"], "type": "relay", "source": "landing"},
+    )
+    return {"message": "Candidature enregistrée. L'équipe Denkma visitera votre point."}
 
 
 @router.get("/my", summary="Mes candidatures")
