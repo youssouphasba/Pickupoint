@@ -431,7 +431,10 @@ async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_c
         raise forbidden_exception("Accès refusé à ce suivi live")
 
     mission = await db.delivery_missions.find_one(
-        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {
+            "parcel_id": parcel_id,
+            "status": {"$in": ["assigned", "in_progress", "incident_reported"]},
+        },
         {
             "_id": 0,
             "driver_location": 1,
@@ -478,7 +481,10 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     parcel["is_recipient"] = bool(is_recipient)
 
     active_mission = await db.delivery_missions.find_one(
-        {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress"]}},
+        {
+            "parcel_id": parcel_id,
+            "status": {"$in": ["assigned", "in_progress", "incident_reported"]},
+        },
         {
             "_id": 0,
             "driver_id": 1,

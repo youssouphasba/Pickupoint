@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
+import { LocationPreviewMap } from "@/components/location-preview-map";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import {
   Select,
@@ -39,6 +40,7 @@ import {
   Package,
   Truck,
   Link as LinkIcon,
+  MapPin,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -137,6 +139,19 @@ function InfoLine({
       <span className="max-w-[65%] text-right">{textOrDash(value)}</span>
     </div>
   );
+}
+
+function resolveGeoPoint(point?: {
+  lat?: number | null;
+  lng?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+} | null) {
+  if (!point) return null;
+  const lat = point.lat ?? point.latitude;
+  const lng = point.lng ?? point.longitude;
+  if (lat == null || lng == null) return null;
+  return { lat, lng };
 }
 
 export default function UserDetailPage() {
@@ -251,6 +266,16 @@ export default function UserDetailPage() {
   const summary = data.summary;
   const wallet = data.wallet;
   const referral = data.referral;
+  const missionLocation = resolveGeoPoint(data.active_mission?.driver_location);
+  const profileLocation = resolveGeoPoint(user.last_driver_location);
+  const displayLocation = missionLocation ?? profileLocation;
+  const displayLocationUpdatedAt =
+    data.active_mission?.location_updated_at ?? user.last_driver_location_at;
+  const displayLocationSource = missionLocation
+    ? "Mission active"
+    : profileLocation
+      ? "Dernière position connue"
+      : null;
 
   return (
     <div className="space-y-6 p-8">
@@ -500,6 +525,31 @@ export default function UserDetailPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {(user.role === "driver" || displayLocation) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MapPin className="h-4 w-4" />
+                Position du livreur
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2 text-sm">
+                <InfoLine label="Source" value={displayLocationSource} />
+                <InfoLine
+                  label="Dernière remontée"
+                  value={displayLocationUpdatedAt ? formatDate(displayLocationUpdatedAt) : "—"}
+                />
+              </div>
+              <LocationPreviewMap
+                point={displayLocation}
+                title={`Position de ${user.name ?? user.phone}`}
+                heightClassName="h-72"
+              />
+            </CardContent>
+          </Card>
+        )}
+
         {/* Wallet */}
         {wallet && (
           <Card>

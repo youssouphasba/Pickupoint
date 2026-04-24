@@ -77,7 +77,53 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
     }
   }
 
+  Future<bool> _ensureGpsReady() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Activez le GPS pour accepter une course et rester traçable.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      await Geolocator.openLocationSettings();
+      return false;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Autorisez la localisation pour accepter une course.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+    return true;
+  }
+
   DriverLocation get _driverLoc => (lat: _driverLat, lng: _driverLng);
+
+  bool _hasLockedMission(List<DeliveryMission> missions) {
+    return missions.any(
+      (mission) =>
+          mission.status == 'in_progress' ||
+          mission.status == 'incident_reported',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +131,8 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
         ref.watch(authProvider).value?.user?.isAvailable ?? false;
     final availableAsync = ref.watch(availableMissionsProvider(_driverLoc));
     final myMissionsAsync = ref.watch(myMissionsProvider);
+    final myMissions = myMissionsAsync.valueOrNull ?? const <DeliveryMission>[];
+    final hasLockedMission = _hasLockedMission(myMissions);
     final hasGps = _driverLat != null;
 
     return DefaultTabController(
@@ -139,29 +187,37 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
             // Toggle disponibilité
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(
-                  Icons.circle,
-                  size: 10,
-                  color: isAvailable ? Colors.green : Colors.grey.shade400,
-                ),
-                const SizedBox(width: 4),
-                _toggling
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
-                      )
-                    : Switch(
-                        value: isAvailable,
-                        onChanged: (_) => _toggleAvailability(),
-                        activeThumbColor: Colors.green,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-              ]),
+              child: Tooltip(
+                message: hasLockedMission
+                    ? "Disponibilité verrouillée pendant une course active ou un retour expéditeur."
+                    : 'Activer ou désactiver les nouvelles missions',
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(
+                    Icons.circle,
+                    size: 10,
+                    color: isAvailable ? Colors.green : Colors.grey.shade400,
+                  ),
+                  const SizedBox(width: 4),
+                  _toggling
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : Switch(
+                          value: isAvailable,
+                          onChanged: hasLockedMission
+                              ? null
+                              : (_) => _toggleAvailability(),
+                          activeThumbColor: Colors.green,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                ]),
+              ),
             ),
-            const AccountSwitcherButton(),
+            if (!hasLockedMission) const AccountSwitcherButton(),
             // Badge Niveau (Phase 8)
             if (ref.watch(authProvider).value?.user != null)
               GestureDetector(
@@ -193,8 +249,15 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                 ),
               ),
             IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () => ref.read(authProvider.notifier).logout(),
+              icon: Icon(
+                hasLockedMission ? Icons.lock_outline : Icons.logout,
+              ),
+              tooltip: hasLockedMission
+                  ? 'Déconnexion bloquée pendant une course active'
+                  : 'Se déconnecter',
+              onPressed: hasLockedMission
+                  ? null
+                  : () => ref.read(authProvider.notifier).logout(),
             ),
           ],
         ),
@@ -215,11 +278,13 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                     asyncValue: availableAsync,
                     isAvailable: true,
                     driverLoc: _driverLoc,
+                    ensureGpsReady: _ensureGpsReady,
                   ),
                   _MissionsList(
                     asyncValue: myMissionsAsync,
                     isAvailable: false,
                     driverLoc: _driverLoc,
+                    ensureGpsReady: _ensureGpsReady,
                   ),
                 ],
               ),
@@ -234,10 +299,12 @@ class _MissionsList extends ConsumerWidget {
     required this.asyncValue,
     required this.isAvailable,
     required this.driverLoc,
+    required this.ensureGpsReady,
   });
   final AsyncValue<List<DeliveryMission>> asyncValue;
   final bool isAvailable;
   final DriverLocation driverLoc;
+  final Future<bool> Function() ensureGpsReady;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -251,8 +318,10 @@ class _MissionsList extends ConsumerWidget {
           // Pour "Mes missions" : séparer actives et terminées
           if (!isAvailable) {
             final active = missions
-                .where(
-                    (m) => m.status == 'assigned' || m.status == 'in_progress')
+                .where((m) =>
+                    m.status == 'assigned' ||
+                    m.status == 'in_progress' ||
+                    m.status == 'incident_reported')
                 .toList();
             final completed = missions
                 .where((m) => m.status == 'completed' || m.status == 'failed')
@@ -272,7 +341,8 @@ class _MissionsList extends ConsumerWidget {
                         child: _MissionCard(
                             mission: m,
                             isAvailable: false,
-                            driverLoc: driverLoc),
+                            driverLoc: driverLoc,
+                            ensureGpsReady: ensureGpsReady),
                       )),
                 ] else ...[
                   Container(
@@ -330,6 +400,7 @@ class _MissionsList extends ConsumerWidget {
               mission: missions[i],
               isAvailable: true,
               driverLoc: driverLoc,
+              ensureGpsReady: ensureGpsReady,
             ),
           );
         },
@@ -405,10 +476,12 @@ class _MissionCard extends ConsumerWidget {
     required this.mission,
     required this.isAvailable,
     required this.driverLoc,
+    required this.ensureGpsReady,
   });
   final DeliveryMission mission;
   final bool isAvailable;
   final DriverLocation driverLoc;
+  final Future<bool> Function() ensureGpsReady;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -570,6 +643,10 @@ class _MissionCard extends ConsumerWidget {
 
   Future<void> _accept(BuildContext context, WidgetRef ref) async {
     try {
+      final gpsReady = await ensureGpsReady();
+      if (!gpsReady) {
+        return;
+      }
       final api = ref.read(apiClientProvider);
       await api.acceptMission(mission.id);
       ref.invalidate(availableMissionsProvider);
