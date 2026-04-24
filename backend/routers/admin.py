@@ -1604,19 +1604,6 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         },
     )
     missions = await cursor.to_list(length=500)
-    if not missions:
-        return {
-            "fleet": [],
-            "summary": {
-                "total_active": 0,
-                "with_live_location": 0,
-                "stale_locations": 0,
-                "missing_locations": 0,
-                "in_progress": 0,
-                "assigned": 0,
-                "incident_reported": 0,
-            },
-        }
 
     driver_ids = sorted({m.get("driver_id") for m in missions if m.get("driver_id")})
     parcel_ids = sorted({m.get("parcel_id") for m in missions if m.get("parcel_id")})
@@ -1729,10 +1716,52 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
             }
         )
 
+    idle_cutoff = now - timedelta(minutes=30)
+    busy_driver_ids = {m.get("driver_id") for m in missions if m.get("driver_id")}
+    idle_cursor = db.users.find(
+        {
+            "role": "driver",
+            "is_banned": {"$ne": True},
+            "user_id": {"$nin": list(busy_driver_ids)},
+            "last_driver_location": {"$ne": None},
+            "last_driver_location_at": {"$gte": idle_cutoff},
+        },
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "phone": 1,
+            "profile_picture_url": 1,
+            "last_driver_location": 1,
+            "last_driver_location_at": 1,
+        },
+    )
+    idle_drivers_raw = await idle_cursor.to_list(length=500)
+    idle_drivers: list[dict[str, Any]] = []
+    for driver in idle_drivers_raw:
+        location = _normalize_geopin(driver.get("last_driver_location"))
+        if not location:
+            continue
+        last_seen_at = driver.get("last_driver_location_at")
+        if last_seen_at and last_seen_at.tzinfo is None:
+            last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+        idle_drivers.append(
+            {
+                "driver_id": driver.get("user_id"),
+                "driver_name": driver.get("name"),
+                "driver_phone": driver.get("phone"),
+                "driver_photo_url": driver.get("profile_picture_url"),
+                "driver_location": location,
+                "location_updated_at": last_seen_at,
+            }
+        )
+
     return {
         "fleet": fleet,
+        "idle_drivers": idle_drivers,
         "summary": {
             "total_active": len(fleet),
+            "idle_drivers": len(idle_drivers),
             "with_live_location": with_live_location,
             "stale_locations": stale_locations,
             "missing_locations": missing_locations,

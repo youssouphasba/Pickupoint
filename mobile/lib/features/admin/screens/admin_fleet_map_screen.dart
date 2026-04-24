@@ -7,6 +7,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/admin_provider.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -62,11 +63,15 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           final fleet = List<Map<String, dynamic>>.from(
             payload['fleet'] as List? ?? const [],
           );
+          final idleDrivers = List<Map<String, dynamic>>.from(
+            payload['idle_drivers'] as List? ?? const [],
+          );
           final summary = Map<String, dynamic>.from(
             payload['summary'] as Map? ?? const {},
           );
           final selectedMission = _resolveSelectedMission(fleet);
-          final visiblePoints = _cameraSeedPoints(fleet, selectedMission);
+          final visiblePoints =
+              _cameraSeedPoints(fleet, idleDrivers, selectedMission);
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             _fitBoundsIfNeeded(visiblePoints);
@@ -79,7 +84,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                 child: _FleetSummary(summary: summary),
               ),
               Expanded(
-                child: fleet.isEmpty
+                child: (fleet.isEmpty && idleDrivers.isEmpty)
                     ? _buildGlobalEmptyState()
                     : Column(
                         children: [
@@ -93,7 +98,11 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                             child: Padding(
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 16),
-                              child: _buildMap(fleet, selectedMission),
+                              child: _buildMap(
+                                fleet,
+                                idleDrivers,
+                                selectedMission,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -230,6 +239,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
 
   Widget _buildMap(
     List<Map<String, dynamic>> fleet,
+    List<Map<String, dynamic>> idleDrivers,
     Map<String, dynamic>? selectedMission,
   ) {
     final markers = <Marker>{};
@@ -237,20 +247,22 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
       final location = _latLngFromMap(mission['driver_location']);
       if (location == null) continue;
       final status = mission['status'] as String? ?? '';
+      final isStale = mission['is_stale'] as bool? ?? false;
       markers.add(
         Marker(
-          markerId: MarkerId(mission['mission_id'] as String),
+          markerId: MarkerId('mission:${mission['mission_id']}'),
           position: location,
           icon: BitmapDescriptor.defaultMarkerWithHue(
-            _statusHue(status),
+            isStale ? BitmapDescriptor.hueOrange : _statusHue(status),
           ),
           infoWindow: InfoWindow(
             title: mission['driver_name'] as String? ?? 'Livreur',
             snippet: [
               if ((mission['tracking_code'] as String?)?.isNotEmpty ?? false)
                 mission['tracking_code'] as String,
-              status,
+              isStale ? 'Signal perdu' : status,
             ].where((value) => value.isNotEmpty).join(' • '),
+            onTap: () => _openDriverSheet(mission: mission, isIdle: false),
           ),
           onTap: () {
             setState(() {
@@ -258,6 +270,25 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
               _lastCameraKey = null;
             });
           },
+        ),
+      );
+    }
+
+    for (final driver in idleDrivers) {
+      final location = _latLngFromMap(driver['driver_location']);
+      if (location == null) continue;
+      markers.add(
+        Marker(
+          markerId: MarkerId('idle:${driver['driver_id']}'),
+          position: location,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueViolet,
+          ),
+          infoWindow: InfoWindow(
+            title: driver['driver_name'] as String? ?? 'Livreur',
+            snippet: 'Hors course',
+            onTap: () => _openDriverSheet(mission: driver, isIdle: true),
+          ),
         ),
       );
     }
@@ -352,8 +383,9 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
       }
     }
 
-    final cameraTarget = _cameraSeedPoints(fleet, selectedMission).isNotEmpty
-        ? _cameraSeedPoints(fleet, selectedMission).first
+    final seedPoints = _cameraSeedPoints(fleet, idleDrivers, selectedMission);
+    final cameraTarget = seedPoints.isNotEmpty
+        ? seedPoints.first
         : const LatLng(14.7167, -17.4677);
 
     return ClipRRect(
@@ -365,7 +397,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                 CameraPosition(target: cameraTarget, zoom: 12),
             onMapCreated: (controller) {
               _mapController = controller;
-              _fitBoundsIfNeeded(_cameraSeedPoints(fleet, selectedMission));
+              _fitBoundsIfNeeded(seedPoints);
             },
             markers: markers,
             polylines: polylines,
@@ -399,7 +431,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
               backgroundColor: Colors.white,
               onPressed: () {
                 _lastCameraKey = null;
-                _fitBoundsIfNeeded(_cameraSeedPoints(fleet, selectedMission));
+                _fitBoundsIfNeeded(seedPoints);
               },
               child: const Icon(Icons.center_focus_strong, color: Colors.black87),
             ),
@@ -432,6 +464,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
 
   List<LatLng> _cameraSeedPoints(
     List<Map<String, dynamic>> fleet,
+    List<Map<String, dynamic>> idleDrivers,
     Map<String, dynamic>? selectedMission,
   ) {
     if (selectedMission != null) {
@@ -450,10 +483,10 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
       }
     }
 
-    return fleet
-        .map((mission) => _latLngFromMap(mission['driver_location']))
-        .whereType<LatLng>()
-        .toList();
+    return [
+      ...fleet.map((mission) => _latLngFromMap(mission['driver_location'])),
+      ...idleDrivers.map((driver) => _latLngFromMap(driver['driver_location'])),
+    ].whereType<LatLng>().toList();
   }
 
   Future<void> _fitBoundsIfNeeded(List<LatLng> points) async {
@@ -477,6 +510,50 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
       CameraUpdate.newLatLngBounds(bounds, 64),
     );
   }
+
+  void _openDriverSheet({
+    required Map<String, dynamic> mission,
+    required bool isIdle,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return _DriverDetailsSheet(
+          data: mission,
+          isIdle: isIdle,
+          onCenter: () {
+            Navigator.of(sheetContext).pop();
+            if (!isIdle) {
+              setState(() {
+                _selectedMissionId = mission['mission_id'] as String?;
+                _lastCameraKey = null;
+              });
+            } else {
+              final point = _latLngFromMap(mission['driver_location']);
+              if (point != null) {
+                _mapController?.animateCamera(
+                  CameraUpdate.newLatLngZoom(point, 15),
+                );
+              }
+            }
+          },
+          onOpenAudit: isIdle
+              ? null
+              : () {
+                  final parcelId = mission['parcel_id'] as String?;
+                  if (parcelId == null || parcelId.isEmpty) return;
+                  Navigator.of(sheetContext).pop();
+                  context.push('/admin/parcels/$parcelId/audit');
+                },
+        );
+      },
+    );
+  }
 }
 
 class _FleetSummary extends StatelessWidget {
@@ -491,6 +568,7 @@ class _FleetSummary extends StatelessWidget {
       ('Avec GPS', '${summary['with_live_location'] ?? 0}', Colors.green),
       ('Signal faible', '${summary['stale_locations'] ?? 0}', Colors.orange),
       ('Sans position', '${summary['missing_locations'] ?? 0}', Colors.red),
+      ('Hors course', '${summary['idle_drivers'] ?? 0}', Colors.purple),
     ];
     return Wrap(
       spacing: 8,
@@ -868,4 +946,219 @@ String? _formatDateTime(Object? value) {
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
   return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} à $hh:$mm';
+}
+
+class _DriverDetailsSheet extends StatelessWidget {
+  const _DriverDetailsSheet({
+    required this.data,
+    required this.isIdle,
+    required this.onCenter,
+    this.onOpenAudit,
+  });
+
+  final Map<String, dynamic> data;
+  final bool isIdle;
+  final VoidCallback onCenter;
+  final VoidCallback? onOpenAudit;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = data['driver_name'] as String? ?? 'Livreur';
+    final phone = data['driver_phone'] as String?;
+    final tracking = data['tracking_code'] as String?;
+    final status = data['status'] as String? ?? '';
+    final isStale = data['is_stale'] as bool? ?? false;
+    final eta = data['eta_text'] as String?;
+    final distance = data['distance_text'] as String?;
+    final recipientName = data['recipient_name'] as String?;
+    final recipientPhone = data['recipient_phone'] as String?;
+    final updatedAt = _formatDateTime(data['location_updated_at']);
+    final photoUrl = data['driver_photo_url'] as String?;
+
+    final statusLabel = isIdle
+        ? 'Hors course'
+        : isStale
+            ? 'Signal perdu'
+            : _statusLabel(status);
+    final statusColor = isIdle
+        ? Colors.purple
+        : isStale
+            ? Colors.orange
+            : _statusColor(status);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: Colors.grey.shade200,
+                    backgroundImage:
+                        (photoUrl != null && photoUrl.isNotEmpty)
+                            ? NetworkImage(photoUrl)
+                            : null,
+                    child: (photoUrl == null || photoUrl.isEmpty)
+                        ? Text(
+                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.bold),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: statusColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (phone != null && phone.isNotEmpty)
+                _SheetRow(
+                  icon: Icons.phone,
+                  label: phone,
+                  trailing: TextButton.icon(
+                    onPressed: () => _callNumber(phone),
+                    icon: const Icon(Icons.call, size: 18),
+                    label: const Text('Appeler'),
+                  ),
+                ),
+              if (!isIdle && tracking != null && tracking.isNotEmpty)
+                _SheetRow(icon: Icons.qr_code, label: 'Colis $tracking'),
+              if (!isIdle && recipientName != null && recipientName.isNotEmpty)
+                _SheetRow(
+                  icon: Icons.person,
+                  label: 'Destinataire : $recipientName',
+                  trailing: (recipientPhone != null &&
+                          recipientPhone.isNotEmpty)
+                      ? IconButton(
+                          onPressed: () => _callNumber(recipientPhone),
+                          icon: const Icon(Icons.call, size: 18),
+                          tooltip: 'Appeler le destinataire',
+                        )
+                      : null,
+                ),
+              if (!isIdle && (eta != null || distance != null))
+                _SheetRow(
+                  icon: Icons.schedule,
+                  label: [
+                    if (eta != null && eta.isNotEmpty) 'ETA $eta',
+                    if (distance != null && distance.isNotEmpty) distance,
+                  ].join(' • '),
+                ),
+              if (updatedAt != null)
+                _SheetRow(
+                  icon: Icons.update,
+                  label: 'Dernière position : $updatedAt',
+                ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onCenter,
+                      icon: const Icon(Icons.center_focus_strong),
+                      label: const Text('Centrer'),
+                    ),
+                  ),
+                  if (onOpenAudit != null) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onOpenAudit,
+                        icon: const Icon(Icons.visibility_outlined),
+                        label: const Text('Voir audit'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _callNumber(String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+}
+
+class _SheetRow extends StatelessWidget {
+  const _SheetRow({
+    required this.icon,
+    required this.label,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.black54),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 14)),
+          ),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
 }

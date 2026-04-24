@@ -8,6 +8,7 @@ workflows:
       groups:
         - firebase_files
         - android_signing
+        - google_maps
       vars:
         PROJECT_PATH: mobile
         ANDROID_COMPILE_SDK: "36"
@@ -87,6 +88,7 @@ workflows:
       cocoapods: default
       groups:
         - firebase_files
+        - google_maps
       vars:
         PROJECT_PATH: mobile
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -107,6 +109,7 @@ workflows:
           echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
           echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+          plutil -replace GoogleMapsApiKey -string "$GOOGLE_MAPS_IOS_KEY" "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
       - name: Install dependencies
         script: |
