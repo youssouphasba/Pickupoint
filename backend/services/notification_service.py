@@ -358,12 +358,11 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                     template_name,
                     _relay_status_template_vars(template_name, parcel, recipient_first, tracking_code, tracking_url),
                 )
-        if new_status in {
-            ParcelStatus.CREATED,
-            ParcelStatus.OUT_FOR_DELIVERY,
-            ParcelStatus.AVAILABLE_AT_RELAY,
-            ParcelStatus.REDIRECTED_TO_RELAY,
-        }:
+        # Le code de retrait/livraison est déjà inclus dans le template principal
+        # pour CREATED, AVAILABLE_AT_RELAY et REDIRECTED_TO_RELAY. On envoie un
+        # message séparé uniquement pour OUT_FOR_DELIVERY (template parcel_assigned
+        # qui n'a pas de variable code).
+        if new_status == ParcelStatus.OUT_FOR_DELIVERY:
             await _send_recipient_access_code(parcel, recipient_phone)
     elif recipient_phone:
         if recipient_template:
@@ -381,12 +380,11 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                 )
         else:
             await _send_whatsapp(recipient_phone, recipient_body)
-        if new_status in {
-            ParcelStatus.CREATED,
-            ParcelStatus.OUT_FOR_DELIVERY,
-            ParcelStatus.AVAILABLE_AT_RELAY,
-            ParcelStatus.REDIRECTED_TO_RELAY,
-        }:
+        # Le code de retrait/livraison est déjà inclus dans le template principal
+        # pour CREATED, AVAILABLE_AT_RELAY et REDIRECTED_TO_RELAY. On envoie un
+        # message séparé uniquement pour OUT_FOR_DELIVERY (template parcel_assigned
+        # qui n'a pas de variable code).
+        if new_status == ParcelStatus.OUT_FOR_DELIVERY:
             await _send_recipient_access_code(parcel, recipient_phone)
 
 
