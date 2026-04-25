@@ -491,9 +491,6 @@ h1.hero-title .accent::after{
   box-shadow:var(--shadow-md);position:relative;aspect-ratio:1.3/1;
 }
 .map svg{width:100%;height:100%}
-.map iframe{width:100%;height:100%;border:0;display:block}
-.map-credit{position:absolute;bottom:10px;right:14px;background:rgba(255,255,255,.88);backdrop-filter:blur(4px);padding:4px 10px;border-radius:999px;font-size:11px;color:#0f1b17;font-weight:600}
-.map-credit a{color:var(--primary);text-decoration:none}
 .pin-dot{fill:var(--primary);}
 .pin-ring{fill:none;stroke:var(--primary);stroke-width:2;transform-origin:center;transform-box:fill-box;opacity:0;}
 .pin[data-on="1"] .pin-ring{animation:radar 1.8s var(--ease) infinite}
@@ -1027,7 +1024,17 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
   .flow-wrap *{animation:none !important}
 }
 
+/* Leaflet override pour s'aligner avec le design */
+.leaflet-container{font-family:Manrope,system-ui,sans-serif !important;background:#eaf5ef !important}
+.leaflet-popup-content-wrapper{border-radius:12px !important;box-shadow:0 8px 20px rgba(0,0,0,.12) !important}
+.leaflet-popup-content{margin:10px 14px !important;font-size:13px !important;color:#0f1b17}
+.leaflet-popup-content strong{color:var(--primary);font-weight:800}
+.denkma-marker{background:var(--primary);color:#fff;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 3px rgba(11,138,95,.25);transition:transform .15s}
+.denkma-marker.hub{width:18px;height:18px;box-shadow:0 0 0 5px rgba(11,138,95,.3)}
+.denkma-marker:hover{transform:scale(1.2)}
+
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 </head>
 <body>
 <!-- ============== SHARED SVG DEFS (included once in main file via inline) ============== -->
@@ -1648,15 +1655,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
     </div>
     <div class="map-wrap">
       <div class="map reveal" id="mapCard">
-        <iframe
-          title="Zones couvertes par Denkma au Sénégal"
-          src="https://www.openstreetmap.org/export/embed.html?bbox=-17.9,12.1,-11.0,16.9&amp;layer=mapnik&amp;marker=14.7167,-17.4677"
-          loading="lazy"
-          referrerpolicy="no-referrer-when-downgrade"
-        ></iframe>
-        <div class="map-credit">
-          © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a>
-        </div>
+        <div id="senegalMap" style="width:100%;height:100%" aria-label="Carte des villes couvertes par Denkma au Sénégal"></div>
       </div>
       <div class="map-stats reveal-stagger">
         <div class="map-stat">
@@ -2322,6 +2321,66 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
 
   driverForm.addEventListener('submit', function(ev){ ev.preventDefault(); submitForm(driverForm, '/api/applications/public/driver'); });
   relayForm .addEventListener('submit', function(ev){ ev.preventDefault(); submitForm(relayForm,  '/api/applications/public/relay'); });
+})();
+</script>
+
+<!-- ============== LEAFLET MAP - SENEGAL COVERAGE ============== -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+<script>
+(function(){
+  var CITIES = [
+    { name: 'Dakar',       lat: 14.7167, lng: -17.4677, hub: true },
+    { name: 'Pikine',      lat: 14.7547, lng: -17.3956 },
+    { name: 'Guédiawaye',  lat: 14.7762, lng: -17.4108 },
+    { name: 'Rufisque',    lat: 14.7167, lng: -17.2667 },
+    { name: 'Mbour',       lat: 14.4167, lng: -16.9667 },
+    { name: 'Thiès',       lat: 14.7886, lng: -16.9269, hub: true },
+    { name: 'Touba',       lat: 14.8500, lng: -15.8833, hub: true },
+    { name: 'Diourbel',    lat: 14.6500, lng: -16.2333 },
+    { name: 'Louga',       lat: 15.6172, lng: -16.2244 },
+    { name: 'Saint-Louis', lat: 16.0179, lng: -16.4818, hub: true },
+    { name: 'Kaolack',     lat: 14.1517, lng: -16.0750, hub: true },
+    { name: 'Tambacounda', lat: 13.7700, lng: -13.6700 },
+    { name: 'Kolda',       lat: 12.8939, lng: -14.9406 },
+    { name: 'Ziguinchor',  lat: 12.5681, lng: -16.2719 }
+  ];
+
+  function initMap(){
+    if (!window.L || !document.getElementById('senegalMap')) {
+      setTimeout(initMap, 50);
+      return;
+    }
+    var map = L.map('senegalMap', {
+      center: [14.5, -14.5],
+      zoom: 7,
+      scrollWheelZoom: false,
+      zoomControl: true,
+      attributionControl: true
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18
+    }).addTo(map);
+
+    var bounds = [];
+    CITIES.forEach(function(c){
+      var icon = L.divIcon({
+        className: 'denkma-marker' + (c.hub ? ' hub' : ''),
+        iconSize: c.hub ? [18,18] : [14,14],
+        iconAnchor: c.hub ? [9,9] : [7,7]
+      });
+      var marker = L.marker([c.lat, c.lng], { icon: icon, title: c.name }).addTo(map);
+      marker.bindPopup('<strong>' + c.name + '</strong><br>Couverte par Denkma');
+      bounds.push([c.lat, c.lng]);
+    });
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMap);
+  } else {
+    initMap();
+  }
 })();
 </script>
 
