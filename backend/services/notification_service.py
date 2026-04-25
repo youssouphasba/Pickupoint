@@ -334,6 +334,10 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         )
 
     if recipient_user_id:
+        # Pour CREATED, le template recipient_created_* contient déjà toutes les
+        # infos (nom expéditeur, tracking, code, lien de confirmation). On le
+        # passe directement à _store_and_send pour ne pas envoyer aussi le
+        # body en texte libre (qui faisait doublon WhatsApp).
         await _store_and_send(
             user_id=recipient_user_id,
             title="Mise à jour colis",
@@ -341,23 +345,10 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
-            whatsapp_template=None if new_status == ParcelStatus.CREATED else recipient_template,
-            whatsapp_variables=[] if new_status == ParcelStatus.CREATED else template_vars_recipient,
-            whatsapp_button_variables=[] if new_status == ParcelStatus.CREATED else recipient_button_vars,
+            whatsapp_template=recipient_template,
+            whatsapp_variables=template_vars_recipient,
+            whatsapp_button_variables=recipient_button_vars,
         )
-        if new_status == ParcelStatus.CREATED and recipient_phone and recipient_template:
-            sent = await _send_whatsapp_template(
-                recipient_phone,
-                recipient_template,
-                template_vars_recipient,
-                button_variables=recipient_button_vars,
-            )
-            if not sent and recipient_template != template_name and template_name:
-                await _send_whatsapp_template(
-                    recipient_phone,
-                    template_name,
-                    _relay_status_template_vars(template_name, parcel, recipient_first, tracking_code, tracking_url),
-                )
         # Le code de retrait/livraison est déjà inclus dans le template principal
         # pour CREATED, AVAILABLE_AT_RELAY et REDIRECTED_TO_RELAY. On envoie un
         # message séparé uniquement pour OUT_FOR_DELIVERY (template parcel_assigned
