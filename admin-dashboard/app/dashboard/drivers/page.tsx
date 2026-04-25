@@ -263,11 +263,19 @@ export default function DriversPage() {
                             {s.driver_name ?? s.driver_id}
                           </Link>
                         </td>
-                        <td className="px-3 py-2">{s.deliveries ?? 0}</td>
+                        <td className="px-3 py-2">
+                          {s.deliveries_success ?? s.deliveries_total ?? s.deliveries ?? 0}
+                        </td>
                         <td className="px-3 py-2">{(s.avg_rating ?? 0).toFixed(1)}</td>
-                        <td className="px-3 py-2">{xof.format(s.total_earned ?? 0)} XOF</td>
+                        <td className="px-3 py-2">
+                          {xof.format(s.total_earned_xof ?? s.total_earned ?? 0)} XOF
+                        </td>
                         <td className="px-3 py-2 font-medium text-green-600">
-                          {s.bonus ? `${xof.format(s.bonus)} XOF` : "—"}
+                          {s.bonus_paid_xof
+                            ? `${xof.format(s.bonus_paid_xof)} XOF`
+                            : s.bonus
+                              ? `${xof.format(s.bonus)} XOF`
+                              : "—"}
                         </td>
                       </tr>
                     ))}

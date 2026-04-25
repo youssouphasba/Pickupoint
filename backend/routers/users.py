@@ -575,11 +575,62 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
     """Retourne les points, le tier et l'historique de fidelite."""
     from services.user_service import compute_tier
 
-    events = await db.loyalty_events.find(
+    loyalty_events = await db.loyalty_events.find(
         {"user_id": current_user["user_id"]},
         sort=[("created_at", -1)],
-        limit=20,
-    ).to_list(length=20)
+        limit=50,
+    ).to_list(length=50)
+
+    referral_wallet_txs = await db.wallet_transactions.find(
+        {
+            "user_id": current_user["user_id"],
+            "type": {"$in": ["referral_bonus", "welcome_bonus", "monthly_bonus"]},
+        },
+        sort=[("created_at", -1)],
+        limit=50,
+    ).to_list(length=50)
+
+    merged_history = []
+    for event in loyalty_events:
+        merged_history.append(
+            {
+                **event,
+                "event_source": "loyalty",
+                "reward_kind": "points",
+            }
+        )
+
+    for tx in referral_wallet_txs:
+        merged_history.append(
+            {
+                "event_id": tx.get("tx_id"),
+                "user_id": tx.get("user_id"),
+                "type": tx.get("type"),
+                "created_at": tx.get("created_at"),
+                "description": tx.get("description"),
+                "amount_xof": tx.get("amount", 0),
+                "event_source": "wallet",
+                "reward_kind": "cash",
+            }
+        )
+
+    def _history_sort_key(item: dict) -> float:
+        raw_date = item.get("created_at")
+        if isinstance(raw_date, datetime):
+            dt = raw_date if raw_date.tzinfo else raw_date.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        if isinstance(raw_date, str):
+            try:
+                parsed = datetime.fromisoformat(raw_date.replace("Z", "+00:00")) if raw_date else None
+            except ValueError:
+                parsed = None
+            if parsed:
+                dt = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+        return 0.0
+
+    merged_history.sort(key=_history_sort_key, reverse=True)
+    merged_history = merged_history[:50]
 
     points = current_user.get("loyalty_points", 0)
     tier = compute_tier(points)
@@ -590,7 +641,7 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
         "tier": tier,
         "next_tier_at": next_tier_at,
         "referral_code": current_user.get("referral_code", ""),
-        "history": events,
+        "history": merged_history,
     }
 
 
