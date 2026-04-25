@@ -290,9 +290,18 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     tracking_url = _tracking_url(tracking_code)
     app_url = _app_url(parcel)
 
-    # Notifier expéditeur
+    # Notifier expéditeur — règle : un seul WhatsApp à la création (template
+    # parcel_created avec lien de tracking). Tous les autres changements de
+    # statut restent en push + in-app uniquement.
     sender_id = parcel.get("sender_user_id")
     if sender_id:
+        sender_first = _first_name(parcel.get("sender_name"))
+        is_creation = (new_status == ParcelStatus.CREATED)
+        sender_template = settings.WHATSAPP_TEMPLATE_PARCEL_CREATED if is_creation else None
+        sender_template_vars = (
+            _template_vars(sender_template, sender_first, tracking_code, tracking_url)
+            if sender_template else []
+        )
         await _store_and_send(
             user_id=sender_id,
             title="Mise à jour colis",
@@ -300,8 +309,9 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
             category="parcel_updates",
-            whatsapp_template=None,
-            whatsapp_variables=[],
+            whatsapp_template=sender_template,
+            whatsapp_variables=sender_template_vars,
+            skip_whatsapp=not is_creation,
         )
 
     # Notifier destinataire
@@ -413,6 +423,7 @@ async def notify_quote_finalized(
         ref_type="parcel",
         ref_id=parcel_id,
         category="parcel_updates",
+        skip_whatsapp=True,
     )
 
 
@@ -437,13 +448,7 @@ async def notify_sender_driver_assigned(parcel: dict, driver: dict):
         ref_type="parcel",
         ref_id=parcel.get("parcel_id"),
         category="parcel_updates",
-        whatsapp_template=settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
-        whatsapp_variables=_template_vars(
-            settings.WHATSAPP_TEMPLATE_PARCEL_ASSIGNED,
-            sender_first,
-            tracking_code,
-            tracking_url,
-        ),
+        skip_whatsapp=True,
     )
 
 
@@ -457,8 +462,13 @@ async def _store_and_send(
     whatsapp_template: Optional[str] = None,
     whatsapp_variables: Optional[list[str]] = None,
     whatsapp_button_variables: Optional[list[str]] = None,
+    skip_whatsapp: bool = False,
 ):
-    """Stocke la notification en base et tente l'envoi."""
+    """Stocke la notification en base et tente l'envoi.
+
+    skip_whatsapp: si True, n'envoie ni template ni texte libre WhatsApp.
+    Utile quand on veut limiter une notif à push + in-app seulement.
+    """
     user = await db.users.find_one(
         {"user_id": user_id},
         {"notification_prefs": 1, "phone": 1, "fcm_token": 1},
@@ -484,7 +494,7 @@ async def _store_and_send(
         category=category,
     )
 
-    if _should_send_whatsapp_tracking(user, category):
+    if not skip_whatsapp and _should_send_whatsapp_tracking(user, category):
         phone = (user or {}).get("phone")
         if phone:
             if whatsapp_template:
