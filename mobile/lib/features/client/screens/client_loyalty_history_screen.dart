@@ -38,9 +38,17 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
                 events[i] as Map<dynamic, dynamic>,
               );
               final type = event['type']?.toString() ?? 'unknown';
+              final rewardKind = event['reward_kind']?.toString() ?? 'points';
               final points = _intValue(event['points']);
+              final amountXof = _numValue(event['amount_xof']);
               final balance = _intValue(event['balance']);
-              final isPositive = points >= 0;
+              final isCash = rewardKind == 'cash';
+              final isPositive = isCash ? amountXof >= 0 : points >= 0;
+              final subtitle = _buildSubtitle(
+                event: event,
+                balance: balance,
+                isCash: isCash,
+              );
 
               return Card(
                 child: ListTile(
@@ -54,13 +62,11 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
                     ),
                   ),
                   title: Text(_formatEventType(type)),
-                  subtitle: Text(
-                    balance > 0
-                        ? '${_formatEventDate(event['created_at'])} - Solde: $balance pts'
-                        : _formatEventDate(event['created_at']),
-                  ),
+                  subtitle: Text(subtitle),
                   trailing: Text(
-                    '${isPositive ? "+" : ""}$points pts',
+                    isCash
+                        ? '${isPositive ? "+" : ""}${_formatCurrency(amountXof)}'
+                        : '${isPositive ? "+" : ""}$points pts',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isPositive
@@ -89,11 +95,37 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
         return 'Bonus de parrainage';
       case 'welcome_bonus':
         return 'Bonus de bienvenue';
+      case 'monthly_bonus':
+        return 'Prime mensuelle';
       case 'level_up':
         return 'Montee de niveau';
       default:
         return type.replaceAll('_', ' ');
     }
+  }
+
+  String _buildSubtitle({
+    required Map<String, dynamic> event,
+    required int balance,
+    required bool isCash,
+  }) {
+    final dateText = _formatEventDate(event['created_at']);
+    final description = (event['description']?.toString() ?? '').trim();
+    if (isCash) {
+      if (description.isNotEmpty) {
+        return '$dateText - $description';
+      }
+      return dateText;
+    }
+    if (balance > 0) {
+      return '$dateText - Solde: $balance pts';
+    }
+    return dateText;
+  }
+
+  String _formatCurrency(num value) {
+    final rounded = value.round();
+    return '${rounded.toString()} XOF';
   }
 
   String _formatEventDate(dynamic rawDate) {
@@ -115,5 +147,12 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
       return value.toInt();
     }
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  num _numValue(dynamic value) {
+    if (value is num) {
+      return value;
+    }
+    return num.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

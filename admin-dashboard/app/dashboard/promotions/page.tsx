@@ -403,6 +403,14 @@ export default function PromotionsPage() {
           { key: "rewarded_users", label: "Récompensés" },
           { key: "pending_reward_users", label: "En attente de récompense" },
         ];
+        const moneyKeys = [
+          { key: "referral_bonus_paid_total_xof", label: "Bonus versés (total)" },
+          { key: "referral_bonus_paid_last_30_days_xof", label: "Bonus versés (30 jours)" },
+        ];
+        const txKeys = [
+          { key: "referral_bonus_transactions_total", label: "Transactions bonus (total)" },
+          { key: "referral_bonus_transactions_last_30_days", label: "Transactions bonus (30 jours)" },
+        ];
         return (
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -418,6 +426,32 @@ export default function PromotionsPage() {
                     <div className="mt-1 text-xl font-bold">
                       {rs[key] ?? 0}
                     </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {moneyKeys.map(({ key, label }) => (
+                <Card key={key}>
+                  <CardContent className="p-5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {label}
+                    </div>
+                    <div className="mt-1 text-xl font-bold">
+                      {xof.format(Number(rs[key] ?? 0))} XOF
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {txKeys.map(({ key, label }) => (
+                <Card key={key}>
+                  <CardContent className="p-5">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {label}
+                    </div>
+                    <div className="mt-1 text-xl font-bold">{Number(rs[key] ?? 0)}</div>
                   </CardContent>
                 </Card>
               ))}

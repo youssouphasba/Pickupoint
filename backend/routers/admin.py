@@ -2759,6 +2759,8 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
 async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
+    now = datetime.now(timezone.utc)
+    last_30_days = now - timedelta(days=30)
 
     # Aggregation pipeline — no full user scan
     pipeline = [
@@ -2810,6 +2812,37 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
         totals["override_on"] += row["override_enabled"]
         totals["override_off"] += row["override_disabled"]
 
+    referral_tx_total = await db.wallet_transactions.count_documents(
+        {"type": "referral_bonus"}
+    )
+    referral_tx_last_30_days = await db.wallet_transactions.count_documents(
+        {
+            "type": "referral_bonus",
+            "created_at": {"$gte": last_30_days},
+        }
+    )
+    referral_aggregate = await db.wallet_transactions.aggregate(
+        [
+            {"$match": {"type": "referral_bonus"}},
+            {"$group": {"_id": None, "total_paid_xof": {"$sum": "$amount"}}},
+        ]
+    ).to_list(length=1)
+    referral_last_30_aggregate = await db.wallet_transactions.aggregate(
+        [
+            {
+                "$match": {
+                    "type": "referral_bonus",
+                    "created_at": {"$gte": last_30_days},
+                }
+            },
+            {"$group": {"_id": None, "total_paid_xof": {"$sum": "$amount"}}},
+        ]
+    ).to_list(length=1)
+    referral_paid_total_xof = int((referral_aggregate[0] if referral_aggregate else {}).get("total_paid_xof", 0))
+    referral_paid_last_30_days_xof = int(
+        (referral_last_30_aggregate[0] if referral_last_30_aggregate else {}).get("total_paid_xof", 0)
+    )
+
     return {
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
@@ -2837,6 +2870,10 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
         "referred_users": totals["referred"],
         "rewarded_users": totals["rewarded"],
         "pending_reward_users": totals["pending"],
+        "referral_bonus_transactions_total": referral_tx_total,
+        "referral_bonus_transactions_last_30_days": referral_tx_last_30_days,
+        "referral_bonus_paid_total_xof": referral_paid_total_xof,
+        "referral_bonus_paid_last_30_days_xof": referral_paid_last_30_days_xof,
         "stats_by_role": stats_by_role,
     }
 
