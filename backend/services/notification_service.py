@@ -216,14 +216,57 @@ async def _find_user_by_phone(phone: str | None) -> dict | None:
     return await db.users.find_one({"phone": {"$in": values}}, {"user_id": 1})
 
 
+async def _resolve_recipient_relay(parcel: dict) -> dict | None:
+    """Récupère le point relais pertinent pour le destinataire :
+    redirect_relay_id si présent (livraison redirigée), sinon destination_relay_id."""
+    relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
+    if not relay_id:
+        return None
+    return await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+
+
+def _relay_label_parts(relay: dict | None) -> tuple[str, str]:
+    """Renvoie (nom, adresse) du relais pour les templates v4. Fallback safe."""
+    if not relay:
+        return "Point relais Denkma", "Adresse à confirmer"
+    name = (relay.get("name") or "Point relais Denkma").strip()
+    addr = relay.get("address") or {}
+    label = (addr.get("label") or "").strip()
+    city = (addr.get("city") or "").strip()
+    if label and city and city.lower() not in label.lower():
+        full_addr = f"{label}, {city}"
+    else:
+        full_addr = label or city or "Adresse à confirmer"
+    return name, full_addr
+
+
+def _is_v4_template(template_name: Optional[str]) -> bool:
+    return bool(template_name) and template_name.endswith("_v4")
+
+
 def _created_recipient_template_payload(
     parcel: dict,
     tracking_code: str,
     tracking_url: str,
     app_url: str,
+    relay: dict | None = None,
 ) -> tuple[list[str], list[str]]:
     parcel_code, _ = _recipient_access_code(parcel)
-    if _is_relay_delivery(parcel) and RECIPIENT_CREATED_RELAY_TEMPLATE:
+    template = RECIPIENT_CREATED_RELAY_TEMPLATE if _is_relay_delivery(parcel) else None
+    if template and _is_v4_template(template):
+        # parcel_created_recipient_relay_v4 : 7 vars (avec nom + adresse relais)
+        relay_name, relay_addr = _relay_label_parts(relay)
+        return [
+            _first_name(parcel.get("recipient_name")),
+            parcel.get("sender_name") or "l'expéditeur",
+            relay_name,
+            relay_addr,
+            tracking_code,
+            str(parcel_code or "à confirmer"),
+            tracking_url,
+        ], []
+    if template:
+        # v3 : 5 vars
         return [
             _first_name(parcel.get("recipient_name")),
             parcel.get("sender_name") or "l'expéditeur",
@@ -255,6 +298,7 @@ def _relay_status_template_vars(
     first_name: str,
     tracking_code: str,
     tracking_url: str,
+    relay: dict | None = None,
 ) -> list[str]:
     relay_templates = {
         value
@@ -267,6 +311,11 @@ def _relay_status_template_vars(
     if not template_name or template_name not in relay_templates:
         return _template_vars(template_name, first_name, tracking_code, tracking_url)
     code, _ = _recipient_access_code(parcel)
+    if _is_v4_template(template_name):
+        # parcel_relay_ready_v4 / parcel_relay_redirected_v4 : 6 vars
+        relay_name, relay_addr = _relay_label_parts(relay)
+        return [first_name, tracking_code, relay_name, relay_addr, str(code or "à confirmer"), tracking_url]
+    # v3 : 4 vars
     return [first_name, tracking_code, str(code or "à confirmer"), tracking_url]
 
 
@@ -377,12 +426,15 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     recipient_first = _first_name(parcel.get("recipient_name"))
     recipient_body = _body_with_recipient_code(recipient_body_base, parcel)
     recipient_template = template_name
+    # On résout le relais une fois pour éviter les requêtes en double
+    recipient_relay = await _resolve_recipient_relay(parcel) if _is_relay_delivery(parcel) else None
     template_vars_recipient = _relay_status_template_vars(
         template_name,
         parcel,
         recipient_first,
         tracking_code,
         tracking_url,
+        relay=recipient_relay,
     )
     recipient_button_vars: list[str] = []
     if new_status == ParcelStatus.CREATED:
@@ -392,6 +444,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             tracking_code,
             tracking_url,
             app_url,
+            relay=recipient_relay,
         )
 
     if recipient_user_id:
@@ -428,7 +481,14 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
                 await _send_whatsapp_template(
                     recipient_phone,
                     template_name,
-                    _relay_status_template_vars(template_name, parcel, recipient_first, tracking_code, tracking_url),
+                    _relay_status_template_vars(
+                        template_name,
+                        parcel,
+                        recipient_first,
+                        tracking_code,
+                        tracking_url,
+                        relay=recipient_relay,
+                    ),
                 )
         else:
             await _send_whatsapp(recipient_phone, recipient_body)
