@@ -796,13 +796,24 @@ async def admin_unsuspend_parcel(
     Relance le colis vers un statut actif (ex: CREATED, OUT_FOR_DELIVERY).
     """
     from services.parcel_service import transition_status
+    from services.notification_service import notify_driver_mission_resumed
     actor = {"actor_id": _admin["user_id"] if isinstance(_admin, dict) else "admin_system", "actor_role": "admin"}
-    
+
+    parcel_before = await db.parcels.find_one({"parcel_id": parcel_id}, {"assigned_driver_id": 1, "tracking_code": 1, "status": 1})
+
     await transition_status(
         parcel_id, to_status,
         notes=f"Suspension levée vers {to_status.value}",
         **actor
     )
+
+    # Si le colis était bien suspendu et qu'un livreur lui était affecté,
+    # le prévenir explicitement que sa mission peut reprendre. La transition
+    # vers un statut actif lance déjà une notif de statut générique mais elle
+    # ne lui parle pas spécifiquement de la levée de pause.
+    if parcel_before and parcel_before.get("status") == ParcelStatus.SUSPENDED.value and parcel_before.get("assigned_driver_id"):
+        await notify_driver_mission_resumed(parcel_before, to_status)
+
     return {"message": f"Suspension levée vers {to_status.value}"}
 
 

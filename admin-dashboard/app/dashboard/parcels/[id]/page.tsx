@@ -127,6 +127,8 @@ export default function ParcelDetailPage() {
   const [suspendOpen, setSuspendOpen] = React.useState(false);
   const [unsuspendOpen, setUnsuspendOpen] = React.useState(false);
   const [overrideOpen, setOverrideOpen] = React.useState(false);
+  const [overrideNotes, setOverrideNotes] = React.useState("");
+  const [overrideError, setOverrideError] = React.useState<string | null>(null);
   const [incidentOpen, setIncidentOpen] = React.useState(false);
   const [selectedStatus, setSelectedStatus] = React.useState("created");
   const [incidentAction, setIncidentAction] = React.useState<"reassign" | "return" | "cancel">("reassign");
@@ -531,13 +533,30 @@ export default function ParcelDetailPage() {
               ))}
             </div>
             <textarea
-              id="override-notes"
-              className="mb-3 w-full rounded-md border p-2 text-sm"
+              value={overrideNotes}
+              onChange={(e) => {
+                setOverrideNotes(e.target.value);
+                if (overrideError) setOverrideError(null);
+              }}
+              className="mb-2 w-full rounded-md border p-2 text-sm"
               rows={2}
-              placeholder="Motif de l'intervention…"
+              placeholder="Motif de l'intervention (3 caractères minimum)…"
             />
+            {overrideError && (
+              <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {overrideError}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setOverrideOpen(false)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setOverrideOpen(false);
+                  setOverrideError(null);
+                  setOverrideNotes("");
+                }}
+              >
                 Annuler
               </Button>
               <Button
@@ -545,10 +564,21 @@ export default function ParcelDetailPage() {
                 variant="destructive"
                 disabled={overrideMut.isPending}
                 onClick={async () => {
-                  const notes = (document.getElementById("override-notes") as HTMLTextAreaElement)?.value ?? "";
-                  if (notes.trim().length < 3) return;
-                  await overrideMut.mutateAsync({ status: selectedStatus, notes: notes.trim() });
-                  setOverrideOpen(false);
+                  const notes = overrideNotes.trim();
+                  if (notes.length < 3) {
+                    setOverrideError("Le motif doit contenir au moins 3 caractères.");
+                    return;
+                  }
+                  try {
+                    await overrideMut.mutateAsync({ status: selectedStatus, notes });
+                    setOverrideOpen(false);
+                    setOverrideError(null);
+                    setOverrideNotes("");
+                  } catch (err: any) {
+                    setOverrideError(
+                      err?.response?.data?.detail ?? "Erreur lors du forçage du statut."
+                    );
+                  }
                 }}
               >
                 {overrideMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

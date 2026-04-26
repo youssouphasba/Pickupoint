@@ -68,6 +68,7 @@ STATUS_MESSAGES = {
     ParcelStatus.CANCELLED:               "Votre colis a été annulé.",
     ParcelStatus.EXPIRED:                 "Le délai de retrait de votre colis est expiré.",
     ParcelStatus.RETURNED:                "Votre colis a été retourné à l'expéditeur.",
+    ParcelStatus.SUSPENDED:               "Votre colis a été suspendu par l'administration. Vous serez prévenu lorsque son traitement reprendra.",
 }
 
 
@@ -85,6 +86,17 @@ SENDER_STATUS_MESSAGES = {
     ParcelStatus.CANCELLED:               "Votre colis {tracking_code} a été annulé.",
     ParcelStatus.EXPIRED:                 "Le délai de retrait du colis {tracking_code} est expiré.",
     ParcelStatus.RETURNED:                "Votre colis {tracking_code} vous a été retourné.",
+    ParcelStatus.SUSPENDED:               "Votre colis {tracking_code} a été suspendu par l'administration. Nous vous tiendrons informé.",
+}
+
+# Statuts pour lesquels le code (PIN/retrait/livraison) doit être inclus dans
+# le message du destinataire. Pour tout autre statut (annulation, expiration,
+# retour, suspension, etc.), le code n'est plus pertinent et serait trompeur.
+_RECIPIENT_CODE_STATUSES = {
+    ParcelStatus.CREATED,
+    ParcelStatus.AVAILABLE_AT_RELAY,
+    ParcelStatus.OUT_FOR_DELIVERY,
+    ParcelStatus.REDIRECTED_TO_RELAY,
 }
 
 # Mapping ParcelStatus -> template WhatsApp approuvé (notifs proactives).
@@ -183,7 +195,9 @@ def _is_relay_delivery(parcel: dict) -> bool:
     return mode.endswith("_to_relay") or bool(parcel.get("redirect_relay_id"))
 
 
-def _body_with_recipient_code(body: str, parcel: dict) -> str:
+def _body_with_recipient_code(body: str, parcel: dict, status: ParcelStatus) -> str:
+    if status not in _RECIPIENT_CODE_STATUSES:
+        return body
     code, label = _recipient_access_code(parcel)
     if not code or not label:
         return body
@@ -347,6 +361,30 @@ _RECIPIENT_SKIP_STATUSES = {
     ParcelStatus.AT_DESTINATION_RELAY,
 }
 
+# Statuts qui impactent directement la mission active du livreur : on le
+# prévient explicitement (pause, clôture forcée). Les autres transitions sont
+# déjà visibles dans son flux de mission ou l'app le re-synchronisera.
+_DRIVER_NOTIFY_STATUSES = {
+    ParcelStatus.SUSPENDED,
+    ParcelStatus.CANCELLED,
+    ParcelStatus.RETURNED,
+}
+
+_DRIVER_STATUS_MESSAGES = {
+    ParcelStatus.SUSPENDED: (
+        "Mission suspendue",
+        "La mission pour le colis {tracking_code} est suspendue par l'administration. Aucune action n'est possible pour le moment.",
+    ),
+    ParcelStatus.CANCELLED: (
+        "Mission annulée",
+        "La mission pour le colis {tracking_code} a été annulée. Vous pouvez la retirer de votre liste.",
+    ),
+    ParcelStatus.RETURNED: (
+        "Mission clôturée",
+        "Le colis {tracking_code} est marqué comme retourné à l'expéditeur. La mission est clôturée.",
+    ),
+}
+
 
 def _should_notify_sender(parcel: dict, status: ParcelStatus) -> bool:
     if status in _SENDER_SKIP_STATUSES:
@@ -373,8 +411,51 @@ def _should_notify_recipient(parcel: dict, status: ParcelStatus) -> bool:
     return True
 
 
+async def _notify_driver_parcel_change(parcel: dict, new_status: ParcelStatus) -> None:
+    """Notifie le livreur affecté quand le colis change d'état d'une manière
+    qui impacte sa mission (suspension, annulation, retour)."""
+    if new_status not in _DRIVER_NOTIFY_STATUSES:
+        return
+    driver_id = parcel.get("assigned_driver_id")
+    if not driver_id:
+        return
+    title, body_template = _DRIVER_STATUS_MESSAGES[new_status]
+    tracking_code = parcel.get("tracking_code") or parcel.get("parcel_id") or ""
+    body = body_template.format(tracking_code=tracking_code)
+    await _store_and_send(
+        user_id=driver_id,
+        title=title,
+        body=body,
+        ref_type="parcel",
+        ref_id=parcel.get("parcel_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+    )
+
+
+async def notify_driver_mission_resumed(parcel: dict, new_status: ParcelStatus) -> None:
+    """Notifie le livreur quand la suspension est levée et qu'il peut reprendre."""
+    driver_id = parcel.get("assigned_driver_id")
+    if not driver_id:
+        return
+    tracking_code = parcel.get("tracking_code") or parcel.get("parcel_id") or ""
+    body = (
+        f"La suspension du colis {tracking_code} est levée. "
+        "Vous pouvez reprendre la mission depuis votre app."
+    )
+    await _store_and_send(
+        user_id=driver_id,
+        title="Mission reprise",
+        body=body,
+        ref_type="parcel",
+        ref_id=parcel.get("parcel_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+    )
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
-    """Notifie l'expéditeur et le destinataire du changement de statut."""
+    """Notifie l'expéditeur, le destinataire et le livreur affecté du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
     relay_pin = parcel.get("relay_pin", "—")
     recipient_body_base = _status_body(STATUS_MESSAGES, new_status, tracking_code, relay_pin)
@@ -386,6 +467,10 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
 
     notify_sender = _should_notify_sender(parcel, new_status)
     notify_recipient = _should_notify_recipient(parcel, new_status)
+
+    # Notifier le livreur si la transition impacte directement sa mission
+    # (suspension, annulation, retour). Ne dépend ni du sender ni du recipient.
+    await _notify_driver_parcel_change(parcel, new_status)
 
     # Notifier expéditeur — règle : un seul WhatsApp à la création (template
     # parcel_created avec lien de tracking). Tous les autres changements de
@@ -424,7 +509,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             recipient_user_id = user["user_id"]
 
     recipient_first = _first_name(parcel.get("recipient_name"))
-    recipient_body = _body_with_recipient_code(recipient_body_base, parcel)
+    recipient_body = _body_with_recipient_code(recipient_body_base, parcel, new_status)
     recipient_template = template_name
     # On résout le relais une fois pour éviter les requêtes en double
     recipient_relay = await _resolve_recipient_relay(parcel) if _is_relay_delivery(parcel) else None

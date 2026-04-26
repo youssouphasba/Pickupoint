@@ -46,21 +46,18 @@ async def settle_driver_cod(driver_id: str, amount: float = None) -> dict:
 async def override_parcel_status(parcel_id: str, new_status: ParcelStatus, notes: str) -> dict:
     """
     Force le changement de statut d'un colis (SuperAdmin).
+    transition_status() lève une exception en cas d'échec (colis introuvable, etc.) ;
+    on la laisse remonter naturellement.
     """
     from services.parcel_service import transition_status
-    
-    # On utilise le transition_status normal pour garder les logs d'events
-    # Mais ici c'est une intervention manuelle
-    success = await transition_status(
-        parcel_id, 
-        new_status, 
-        actor_id="ADMIN_OVERRIDE", 
-        actor_role="admin", 
+
+    await transition_status(
+        parcel_id,
+        new_status,
+        actor_id="ADMIN_OVERRIDE",
+        actor_role="admin",
         notes=f"FORCE OVERRIDE: {notes}",
-        force=True
+        force=True,
     )
-    
-    if not success:
-        raise bad_request_exception("Transition de statut impossible (même en override)")
-        
-    return {"parcel_id": parcel_id, "new_status": new_status, "notes": notes}
+
+    return {"parcel_id": parcel_id, "new_status": new_status.value, "notes": notes}
