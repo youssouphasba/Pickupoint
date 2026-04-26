@@ -1009,6 +1009,34 @@ async def transition_status(
 
                 await _check_referral_bonus(mission["driver_id"])
 
+    elif new_status in (ParcelStatus.CANCELLED, ParcelStatus.RETURNED):
+        # Toute mission encore active devient orpheline si on ne la clôture pas ici.
+        # CANCELLED → mission cancelled. RETURNED → mission failed (livraison non aboutie).
+        target_mission_status = (
+            MissionStatus.CANCELLED.value
+            if new_status == ParcelStatus.CANCELLED
+            else MissionStatus.FAILED.value
+        )
+        active_mission = await db.delivery_missions.find_one({
+            "parcel_id": parcel_id,
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value, MissionStatus.INCIDENT_REPORTED.value]}
+        })
+        if active_mission:
+            close_now = datetime.now(timezone.utc)
+            await db.delivery_missions.update_one(
+                {"mission_id": active_mission["mission_id"]},
+                {"$set": {
+                    "status": target_mission_status,
+                    "failure_reason": f"parcel_{new_status.value}",
+                    "completed_at": close_now,
+                    "updated_at": close_now,
+                }},
+            )
+            logger.info(
+                "Mission %s clôturée (%s) suite au passage du colis %s en %s",
+                active_mission["mission_id"], target_mission_status, parcel_id, new_status.value,
+            )
+
     elif new_status == ParcelStatus.DELIVERY_FAILED:
         mission = await db.delivery_missions.find_one({
             "parcel_id": parcel_id,
