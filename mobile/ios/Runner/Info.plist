@@ -59,6 +59,16 @@
 				<string>denkma</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.33763391931-firebase</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>app-1-33763391931-ios-0e03206739dfff31892c9e</string>
+			</array>
+		</dict>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
