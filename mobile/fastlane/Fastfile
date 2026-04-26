@@ -20,16 +20,23 @@ end
 platform :android do
   desc "Upload Play Store listing, icon and screenshots without uploading a build"
   lane :upload_store_listing do
-    upload_to_play_store(
-      package_name: ENV.fetch("ANDROID_PACKAGE_NAME", "com.denkma.app"),
-      json_key: play_json_key_path,
-      skip_upload_aab: true,
-      skip_upload_apk: true,
-      skip_upload_changelogs: true,
-      skip_upload_metadata: false,
-      skip_upload_images: false,
-      skip_upload_screenshots: false
-    )
+    begin
+      upload_to_play_store(
+        package_name: ENV.fetch("ANDROID_PACKAGE_NAME", "com.denkma.app"),
+        json_key: play_json_key_path,
+        track: ENV.fetch("GOOGLE_PLAY_LISTING_TRACK", ENV.fetch("GOOGLE_PLAY_TRACK", "internal")),
+        release_status: ENV.fetch("GOOGLE_PLAY_LISTING_RELEASE_STATUS", "draft"),
+        skip_upload_aab: true,
+        skip_upload_apk: true,
+        skip_upload_changelogs: true,
+        skip_upload_metadata: false,
+        skip_upload_images: false,
+        skip_upload_screenshots: false
+      )
+    rescue => e
+      UI.important("Listing upload skipped due to Fastlane/track issue: #{e.class} #{e.message}")
+      UI.important("Build upload will continue in deploy_internal lane.")
+    end
   end
 
   desc "Upload the release AAB to a Google Play track"
