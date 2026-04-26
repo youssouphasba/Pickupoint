@@ -279,6 +279,51 @@ async def _send_recipient_access_code(parcel: dict, recipient_phone: str | None)
     await _send_whatsapp_auth_code(recipient_phone, str(code))
 
 
+# ── Régles métier : qui doit recevoir une notif pour quel statut ─────────────
+#
+# Principe : un acteur ne reçoit une notif QUE sur les évènements qui le
+# concernent, en tenant compte du mode de livraison. Les statuts opérationnels
+# internes (transit, transfert relais) ne génèrent pas de bruit côté client.
+
+# Sender ne reçoit jamais ces statuts (purement côté recipient)
+_SENDER_SKIP_STATUSES = {
+    ParcelStatus.AT_DESTINATION_RELAY,
+    ParcelStatus.AVAILABLE_AT_RELAY,
+}
+
+# Recipient ne reçoit jamais ces statuts (purement opérationnels)
+_RECIPIENT_SKIP_STATUSES = {
+    ParcelStatus.DROPPED_AT_ORIGIN_RELAY,
+    ParcelStatus.IN_TRANSIT,
+    ParcelStatus.AT_DESTINATION_RELAY,
+}
+
+
+def _should_notify_sender(parcel: dict, status: ParcelStatus) -> bool:
+    if status in _SENDER_SKIP_STATUSES:
+        return False
+    mode = parcel.get("delivery_mode", "") or ""
+    # DROPPED_AT_ORIGIN_RELAY n'a de sens que pour les modes relay_to_*
+    if status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
+        return mode.startswith("relay_")
+    # OUT_FOR_DELIVERY côté sender = livreur en route pour collecter chez lui,
+    # donc seulement pour les modes home_to_*
+    if status == ParcelStatus.OUT_FOR_DELIVERY:
+        return mode.startswith("home_")
+    return True
+
+
+def _should_notify_recipient(parcel: dict, status: ParcelStatus) -> bool:
+    if status in _RECIPIENT_SKIP_STATUSES:
+        return False
+    mode = parcel.get("delivery_mode", "") or ""
+    # OUT_FOR_DELIVERY côté recipient = livreur en route chez lui, donc
+    # uniquement pour les modes *_to_home
+    if status == ParcelStatus.OUT_FOR_DELIVERY:
+        return mode.endswith("_to_home")
+    return True
+
+
 async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     """Notifie l'expéditeur et le destinataire du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
@@ -290,11 +335,14 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
     tracking_url = _tracking_url(tracking_code)
     app_url = _app_url(parcel)
 
+    notify_sender = _should_notify_sender(parcel, new_status)
+    notify_recipient = _should_notify_recipient(parcel, new_status)
+
     # Notifier expéditeur — règle : un seul WhatsApp à la création (template
     # parcel_created avec lien de tracking). Tous les autres changements de
-    # statut restent en push + in-app uniquement.
+    # statut pertinents restent en push + in-app uniquement.
     sender_id = parcel.get("sender_user_id")
-    if sender_id:
+    if sender_id and notify_sender:
         sender_first = _first_name(parcel.get("sender_name"))
         is_creation = (new_status == ParcelStatus.CREATED)
         sender_template = settings.WHATSAPP_TEMPLATE_PARCEL_CREATED if is_creation else None
@@ -315,6 +363,9 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         )
 
     # Notifier destinataire
+    if not notify_recipient:
+        return
+
     recipient_phone = parcel.get("recipient_phone")
     recipient_user_id = parcel.get("recipient_user_id")
     if not recipient_user_id and recipient_phone:
