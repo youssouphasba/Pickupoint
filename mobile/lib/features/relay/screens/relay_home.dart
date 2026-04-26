@@ -10,6 +10,7 @@ import '../../../core/models/parcel.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
+import '../../../shared/notifications/notifications_bell_button.dart';
 import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -42,6 +43,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
         title: Text(user?.name ?? 'Mon relais'),
         actions: [
           const AccountSwitcherButton(),
+          const NotificationsBellButton(route: '/relay/notifications'),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => context.push('/relay/profile'),

@@ -20,6 +20,7 @@ import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
 import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
+import '../../shared/notifications/notifications_inbox_screen.dart';
 import '../../features/relay/screens/relay_home.dart';
 import '../../features/relay/screens/relay_profile_screen.dart';
 import '../../features/relay/screens/scan_in_screen.dart';
@@ -344,6 +345,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const FavoriteAddressesScreen()),
           GoRoute(
               path: '/client/notifications',
+              builder: (_, __) => const NotificationsInboxScreen(
+                    settingsRoute: '/client/notifications/settings',
+                    parcelDetailsRoutePrefix: '/client/parcel',
+                  )),
+          GoRoute(
+              path: '/client/notifications/settings',
               builder: (_, __) => const NotificationSettingsScreen()),
         ],
       ),
@@ -372,6 +379,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/relay/wallet',
               builder: (_, __) => const RelayWalletScreen()),
+          GoRoute(
+              path: '/relay/notifications',
+              builder: (_, __) => const NotificationsInboxScreen()),
         ],
       ),
 
@@ -393,6 +403,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/driver/performance',
               builder: (_, __) => const DriverPerformanceScreen()),
+          GoRoute(
+              path: '/driver/notifications',
+              builder: (_, __) => const NotificationsInboxScreen()),
         ],
       ),
 
@@ -575,8 +588,8 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 10,
-        intervalDuration: Duration(seconds: 15),
-        foregroundNotificationConfig: ForegroundNotificationConfig(
+        intervalDuration: const Duration(seconds: 15),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Denkma suit votre livraison',
           notificationText:
               'Votre position est partagée en continu pendant la course.',
