@@ -95,7 +95,36 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
         accessToken: accessToken,
         refreshToken: refreshToken,
       );
-    } catch (_) {
+    } catch (e) {
+      if (e is DioException &&
+          e.response?.statusCode == 401 &&
+          refreshToken != null) {
+        try {
+          final refreshClient = ApiClient();
+          final refreshRes = await refreshClient.refreshToken(refreshToken);
+          final data = refreshRes.data as Map<String, dynamic>;
+          final newAccessRaw = data['access_token'];
+          if (newAccessRaw == null) {
+            throw Exception("Jeton d'accès manquant lors du rafraîchissement.");
+          }
+          final newAccess = newAccessRaw.toString();
+
+          await _storage.saveTokens(
+            accessToken: newAccess,
+            refreshToken: refreshToken,
+          );
+
+          final meClient = ApiClient(token: newAccess);
+          final meRes = await meClient.getMe();
+          final user = User.fromJson(meRes.data as Map<String, dynamic>);
+          return AuthState(
+            status: AuthStatus.authenticated,
+            user: user,
+            accessToken: newAccess,
+            refreshToken: refreshToken,
+          );
+        } catch (_) {}
+      }
       await _storage.clearTokens();
       return const AuthState(status: AuthStatus.unauthenticated);
     }
@@ -112,9 +141,21 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final user = User.fromJson(res.data as Map<String, dynamic>);
       state = AsyncData(current.copyWith(user: user));
     } catch (e) {
-      // Si erreur auth, on déconnecte
-      if (e.toString().contains('401')) {
-        await logout();
+      if (e is DioException && e.response?.statusCode == 401) {
+        await refreshAccessToken();
+        final refreshed = state.valueOrNull;
+        if (refreshed == null || !refreshed.isAuthenticated) {
+          return;
+        }
+        try {
+          final retryClient = ApiClient(token: refreshed.accessToken);
+          final retryRes = await retryClient.getMe();
+          final retryUser =
+              User.fromJson(retryRes.data as Map<String, dynamic>);
+          state = AsyncData(refreshed.copyWith(user: retryUser));
+        } catch (_) {
+          await logout();
+        }
       }
     }
   }

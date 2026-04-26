@@ -6,6 +6,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
+import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
@@ -23,6 +24,7 @@ class ClientHome extends ConsumerWidget {
         title: const Text('Mes colis'),
         actions: [
           const AccountSwitcherButton(),
+          const NotificationsBellButton(route: '/client/notifications'),
           IconButton(
             icon: const Icon(Icons.handshake_outlined),
             tooltip: 'Devenir partenaire',

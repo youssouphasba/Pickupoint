@@ -10,6 +10,7 @@ import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/notifications/notifications_bell_button.dart';
 
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
@@ -69,7 +70,8 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -218,6 +220,7 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
               ),
             ),
             if (!hasLockedMission) const AccountSwitcherButton(),
+            const NotificationsBellButton(route: '/driver/notifications'),
             // Badge Niveau (Phase 8)
             if (ref.watch(authProvider).value?.user != null)
               GestureDetector(

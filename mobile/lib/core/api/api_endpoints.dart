@@ -169,6 +169,13 @@ class ApiEndpoints {
   static String adminRelayDetail(String id) =>
       '$_base/api/admin/relay-points/$id/detail';
 
+  // ─── Notifications in-app ────────────────────────────────────────────────
+  static const notifications = '$_base/api/notifications';
+  static const notificationsUnreadCount = '$_base/api/notifications/unread-count';
+  static const notificationsReadAll = '$_base/api/notifications/read-all';
+  static String notificationRead(String notifId) =>
+      '$_base/api/notifications/$notifId/read';
+
   // ─── Candidatures ─────────────────────────────────────────────────────────
   static const applyDriver = '$_base/api/applications/driver';
   static const applyRelay = '$_base/api/applications/relay';

@@ -492,6 +492,23 @@ class ApiClient {
   Future<Response> updateRelayPoint(String id, Map<String, dynamic> data) =>
       _dio.put(ApiEndpoints.relayPoint(id), data: data);
 
+  // ─── Notifications in-app ────────────────────────────────────────────────
+  Future<Response> getNotifications({int skip = 0, int limit = 30, bool unreadOnly = false}) =>
+      _dio.get(ApiEndpoints.notifications, queryParameters: {
+        'skip': skip,
+        'limit': limit,
+        if (unreadOnly) 'unread_only': true,
+      });
+
+  Future<Response> getUnreadNotificationsCount() =>
+      _dio.get(ApiEndpoints.notificationsUnreadCount);
+
+  Future<Response> markNotificationRead(String notifId) =>
+      _dio.post(ApiEndpoints.notificationRead(notifId));
+
+  Future<Response> markAllNotificationsRead() =>
+      _dio.post(ApiEndpoints.notificationsReadAll);
+
   // ─── Candidatures ─────────────────────────────────────────────────────────
   Future<Response> applyDriver(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.applyDriver, data: body);
