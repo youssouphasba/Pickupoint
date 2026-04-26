@@ -12,6 +12,7 @@ import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
+import '../../../core/location/location_tracking_service.dart';
 
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
@@ -30,6 +31,10 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
   void initState() {
     super.initState();
     _fetchDriverLocation();
+    // Initialiser le tracking global pour les missions actives
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(locationTrackingServiceProvider);
+    });
   }
 
   /// Capture la position du livreur pour filtrer les missions par proximité.

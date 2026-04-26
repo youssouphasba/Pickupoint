@@ -31,7 +31,6 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
 
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   bool _isProcessing = false;
-  StreamSubscription<Position>? _positionStream;
   DateTime? _lastBackendUpdate;
   GoogleMapController? _mapController;
   String? _proofBase64;
@@ -45,12 +44,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _startLocationUpdates();
   }
 
   @override
   void dispose() {
-    _positionStream?.cancel();
     _callStatusTimer?.cancel();
     _callPeerConnection?.close();
     _callLocalStream?.getTracks().forEach((track) => track.stop());
@@ -96,51 +93,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     return true;
   }
 
-  // ── GPS streaming (Temps Réel) ──────────────────────────────────────────
-  Future<void> _startLocationUpdates() async {
-    final gpsReady = await _ensureGpsReady();
-    if (!gpsReady) {
-      return;
-    }
-
-    final LocationSettings locationSettings;
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: "Suivi de livraison en cours",
-          notificationText: "Votre position est partagee avec le client.",
-          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
-          enableWakeLock: true,
-        ),
-      );
-    } else {
-      locationSettings = AppleSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        pauseLocationUpdatesAutomatically: true,
-      );
-    }
-
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen((pos) async {
-      final now = DateTime.now();
-      if (_lastBackendUpdate == null ||
-          now.difference(_lastBackendUpdate!).inSeconds > 30) {
-        _lastBackendUpdate = now;
-        try {
-          await ref.read(apiClientProvider).updateLocation(widget.id, {
-            'lat': pos.latitude,
-            'lng': pos.longitude,
-            'accuracy': pos.accuracy,
-          });
-          ref.invalidate(missionProvider(widget.id));
-        } catch (_) {}
-      }
-    });
-  }
 
   // ── Scan QR ou saisie manuelle → retourne le code saisi ──────────────────
   Future<String?> _showCodeDialog({
