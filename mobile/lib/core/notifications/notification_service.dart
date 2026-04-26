@@ -47,12 +47,19 @@ class NotificationService {
       }
     });
 
-    // 4. Configurer les notifications locales pour le premier plan
+    // 4. Configurer l'affichage natif au premier plan pour iOS
+    await _fcm.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // 5. Configurer les notifications locales pour Android
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initSettings = InitializationSettings(android: androidInit);
     await _localNotifs.initialize(initSettings);
 
-    // 5. Gérer les messages en premier plan
+    // 6. Gérer les messages en premier plan
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
     });
