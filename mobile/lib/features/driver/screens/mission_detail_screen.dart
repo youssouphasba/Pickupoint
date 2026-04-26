@@ -103,13 +103,29 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       return;
     }
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    final LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // Update every 10 meters
-      ),
+        distanceFilter: 10,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "Suivi de livraison en cours",
+          notificationText: "Votre position est partagee avec le client.",
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          enableWakeLock: true,
+        ),
+      );
+    } else {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+        pauseLocationUpdatesAutomatically: true,
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((pos) async {
-      // 1. Update backend (Throttled: every 30s)
       final now = DateTime.now();
       if (_lastBackendUpdate == null ||
           now.difference(_lastBackendUpdate!).inSeconds > 30) {
@@ -120,7 +136,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             'lng': pos.longitude,
             'accuracy': pos.accuracy,
           });
-          // Auto-refresh mission data to get new ETA from backend
           ref.invalidate(missionProvider(widget.id));
         } catch (_) {}
       }
