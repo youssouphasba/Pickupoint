@@ -43,6 +43,7 @@ Thumbs.db
 
 # Firebase / credentials
 google-services*.json
+!mobile/android/app/google-services.json
 GoogleService-Info.plist
 firebase-service-account.json
 *-adminsdk-*.json
