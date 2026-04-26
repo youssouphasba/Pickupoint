@@ -11,6 +11,7 @@ import '../../../shared/widgets/account_switcher.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
+import '../../../shared/notifications/notification_permission_banner.dart';
 
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
@@ -264,33 +265,40 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
             ),
           ],
         ),
-        body: _gpsLoading
-            ? const Center(
-                child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 12),
-                      Text('Localisation en cours…',
-                          style: TextStyle(color: Colors.grey)),
-                    ]),
-              )
-            : TabBarView(
-                children: [
-                  _MissionsList(
-                    asyncValue: availableAsync,
-                    isAvailable: true,
-                    driverLoc: _driverLoc,
-                    ensureGpsReady: _ensureGpsReady,
-                  ),
-                  _MissionsList(
-                    asyncValue: myMissionsAsync,
-                    isAvailable: false,
-                    driverLoc: _driverLoc,
-                    ensureGpsReady: _ensureGpsReady,
-                  ),
-                ],
-              ),
+        body: Column(
+          children: [
+            const NotificationPermissionBanner(),
+            Expanded(
+              child: _gpsLoading
+                  ? const Center(
+                      child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 12),
+                            Text('Localisation en cours…',
+                                style: TextStyle(color: Colors.grey)),
+                          ]),
+                    )
+                  : TabBarView(
+                      children: [
+                        _MissionsList(
+                          asyncValue: availableAsync,
+                          isAvailable: true,
+                          driverLoc: _driverLoc,
+                          ensureGpsReady: _ensureGpsReady,
+                        ),
+                        _MissionsList(
+                          asyncValue: myMissionsAsync,
+                          isAvailable: false,
+                          driverLoc: _driverLoc,
+                          ensureGpsReady: _ensureGpsReady,
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

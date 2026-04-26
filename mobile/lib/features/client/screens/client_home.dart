@@ -7,6 +7,7 @@ import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
+import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
@@ -36,29 +37,36 @@ class ClientHome extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.refresh(parcelsProvider.future),
-        child: parcelsAsync.when(
-          data: (parcels) {
-            if (parcels.isEmpty) {
-              return _buildEmptyState(context);
-            }
-            return ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: parcels.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final parcel = parcels[index];
-                return _ParcelCard(parcel: parcel);
-              },
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, _) => ErrorStateView(
-            message: err.toString(),
-            onRetry: () => ref.invalidate(parcelsProvider),
+      body: Column(
+        children: [
+          const NotificationPermissionBanner(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => ref.refresh(parcelsProvider.future),
+              child: parcelsAsync.when(
+                data: (parcels) {
+                  if (parcels.isEmpty) {
+                    return _buildEmptyState(context);
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: parcels.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final parcel = parcels[index];
+                      return _ParcelCard(parcel: parcel);
+                    },
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (err, _) => ErrorStateView(
+                  message: err.toString(),
+                  onRetry: () => ref.invalidate(parcelsProvider),
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/client/create'),
@@ -274,3 +282,4 @@ class _MetaChip extends StatelessWidget {
     );
   }
 }
+

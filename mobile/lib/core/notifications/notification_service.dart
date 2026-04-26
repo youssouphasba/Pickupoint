@@ -6,6 +6,10 @@ import '../../../core/auth/auth_provider.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
 
+final notificationSettingsProvider = FutureProvider<NotificationSettings>((ref) {
+  return FirebaseMessaging.instance.getNotificationSettings();
+});
+
 class NotificationService {
   final Ref _ref;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
@@ -113,5 +117,15 @@ class NotificationService {
         ),
       );
     }
+  }
+
+  Future<void> requestPermission() async {
+    await _fcm.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    // On peut invalider le provider pour rafraîchir l'UI
+    _ref.invalidate(notificationSettingsProvider);
   }
 }
