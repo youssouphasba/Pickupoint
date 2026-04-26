@@ -23,9 +23,12 @@
     h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.15; margin: 10px 0 18px; letter-spacing: -0.04em; }
     h2 { margin-top: 42px; font-size: 24px; }
     p, li { color: var(--muted); font-size: 16px; }
+    ul { padding-left: 22px; }
+    .updated { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
     .card { margin-top: 28px; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--soft); }
     a { color: var(--primary); }
     footer { border-top: 1px solid var(--border); padding: 28px 0; color: var(--muted); font-size: 14px; }
+    .skeleton { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -41,34 +44,12 @@
 
   <main class="container">
     <div class="eyebrow">Conditions</div>
-    <h1>Conditions d'utilisation</h1>
-    <p>Dernière mise à jour : 17 avril 2026.</p>
-    <p>Denkma met en relation des expéditeurs, destinataires, livreurs et points relais afin de faciliter la livraison, le suivi et le retrait de colis au Sénégal.</p>
+    <h1 id="legal-title">Conditions d'utilisation</h1>
+    <p id="legal-updated" class="updated"></p>
 
-    <section>
-      <h2>Utilisation du service</h2>
-      <p>L'utilisateur doit fournir des informations exactes pour la création d'un compte, l'envoi d'un colis, la livraison ou le retrait. Les livreurs et points relais doivent respecter les règles opérationnelles, les contrôles d'identité et les procédures de remise.</p>
-    </section>
-
-    <section>
-      <h2>Colis interdits ou sensibles</h2>
-      <p>Les colis dangereux, illégaux, frauduleux, mal déclarés ou incompatibles avec le transport peuvent être refusés, suspendus ou signalés. Denkma peut demander des informations complémentaires en cas de doute ou de litige.</p>
-    </section>
-
-    <section>
-      <h2>Prix, paiements et commissions</h2>
-      <p>Les prix peuvent dépendre du mode de livraison, de la distance, des options et des règles tarifaires en vigueur. Les commissions des livreurs et points relais sont calculées selon les conditions configurées dans le service.</p>
-    </section>
-
-    <section>
-      <h2>Suivi, retrait et preuves</h2>
-      <p>Les événements de suivi, codes de retrait, confirmations, photos et journaux d'audit peuvent être utilisés pour sécuriser la remise du colis, vérifier une opération ou résoudre une contestation.</p>
-    </section>
-
-    <section>
-      <h2>Suspension et sécurité</h2>
-      <p>Un compte peut être limité, suspendu ou contrôlé lorsqu'une activité présente un risque pour les utilisateurs, les colis, les paiements, les livreurs, les points relais ou la plateforme.</p>
-    </section>
+    <div id="legal-content">
+      <p class="skeleton">Chargement du contenu…</p>
+    </div>
 
     <div class="card">
       <strong>Besoin d'aide ?</strong>
@@ -79,6 +60,45 @@
   <footer>
     <div class="container">© <span id="y"></span> Denkma. Tous droits réservés.</div>
   </footer>
-  <script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    (function loadLegal() {
+      var titleEl = document.getElementById('legal-title');
+      var updatedEl = document.getElementById('legal-updated');
+      var contentEl = document.getElementById('legal-content');
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      fetch('https://api.denkma.com/api/legal/cgu', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (data) {
+          if (data.title) {
+            titleEl.textContent = data.title;
+            document.title = data.title + ' | Denkma';
+          }
+          if (data.updated_at) {
+            try {
+              var d = new Date(data.updated_at);
+              updatedEl.textContent = 'Dernière mise à jour : ' + d.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' });
+            } catch (_) {}
+          }
+          var html = data.content || '';
+          if (!/<[a-z][\s\S]*>/i.test(html)) {
+            html = html.split(/\n{2,}/).map(function (p) {
+              return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+            }).join('');
+          }
+          contentEl.innerHTML = html;
+        })
+        .catch(function () {
+          contentEl.innerHTML = '<p>Le contenu n\'a pas pu être chargé. Pour toute question : <a href="mailto:contact@denkma.com">contact@denkma.com</a>.</p>';
+        });
+    })();
+  </script>
 </body>
 </html>
