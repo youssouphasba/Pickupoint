@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,22 +20,29 @@ class NotificationService {
       alert: true,
       badge: true,
       sound: true,
+      provisional: false,
     );
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      // 2. Récupérer le token et l'envoyer au backend si l'utilisateur est connecté
+    // 2. Sur iOS, on peut essayer de forcer la récupération du token APNs
+    if (Platform.isIOS) {
+      await _fcm.getAPNSToken();
+    }
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized || 
+        settings.authorizationStatus == AuthorizationStatus.provisional) {
+      // 3. Récupérer le token et l'envoyer au backend si l'utilisateur est connecté
       String? token = await _fcm.getToken();
       if (token != null) {
         await _uploadToken(token);
       }
     }
 
-    // 3. Écouter le rafraîchissement du token
+    // 4. Écouter le rafraîchissement du token
     _fcm.onTokenRefresh.listen((token) {
       _uploadToken(token);
     });
 
-    // 3bis. Réessayer dès qu'un utilisateur se connecte.
+    // 5. Réessayer dès qu'un utilisateur se connecte.
     _ref.listen(authProvider, (_, next) async {
       final authState = next.valueOrNull;
       if (authState?.accessToken == null) {
@@ -47,19 +55,27 @@ class NotificationService {
       }
     });
 
-    // 4. Configurer l'affichage natif au premier plan pour iOS
+    // 6. Configurer l'affichage natif au premier plan pour iOS
     await _fcm.setForegroundNotificationPresentationOptions(
       alert: true,
       badge: true,
       sound: true,
     );
 
-    // 5. Configurer les notifications locales pour Android
+    // 7. Configurer les notifications locales
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidInit);
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
+    );
     await _localNotifs.initialize(initSettings);
 
-    // 6. Gérer les messages en premier plan
+    // 8. Gérer les messages en premier plan
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
     });
