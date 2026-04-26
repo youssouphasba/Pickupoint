@@ -23,9 +23,12 @@
     h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.15; margin: 10px 0 18px; letter-spacing: -0.04em; }
     h2 { margin-top: 42px; font-size: 24px; }
     p, li { color: var(--muted); font-size: 16px; }
+    ul { padding-left: 22px; }
+    .updated { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
     .card { margin-top: 28px; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--soft); }
     a { color: var(--primary); }
     footer { border-top: 1px solid var(--border); padding: 28px 0; color: var(--muted); font-size: 14px; }
+    .skeleton { color: var(--muted); }
   </style>
 </head>
 <body>
@@ -41,40 +44,12 @@
 
   <main class="container">
     <div class="eyebrow">Confidentialité</div>
-    <h1>Politique de confidentialité</h1>
-    <p>Dernière mise à jour : 17 avril 2026.</p>
-    <p>Denkma traite les données nécessaires pour permettre la création, le suivi, la livraison et le retrait de colis. Cette page explique les informations utilisées et les mesures prévues pour protéger les utilisateurs.</p>
+    <h1 id="legal-title">Politique de confidentialité</h1>
+    <p id="legal-updated" class="updated"></p>
 
-    <section>
-      <h2>Données pouvant être collectées</h2>
-      <ul>
-        <li>Informations de compte : nom, numéro de téléphone, rôle utilisateur et préférences de notification.</li>
-        <li>Informations de livraison : adresses, points relais, destinataire, statut du colis, code de retrait et événements de suivi.</li>
-        <li>Données liées aux livreurs et points relais : identité, disponibilité, missions, justificatifs KYC et informations nécessaires au contrôle administratif.</li>
-        <li>Données techniques : appareil, jeton de notification, journaux de sécurité, historique de connexion et informations utiles au diagnostic.</li>
-        <li>Données de paiement : statut de paiement, montant, référence de transaction et informations transmises par les prestataires de paiement.</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>Utilisation des données</h2>
-      <p>Les données sont utilisées pour gérer les comptes, calculer les prix, affecter les missions, suivre les colis, prévenir les abus, notifier les utilisateurs, traiter les paiements, contrôler les opérations et améliorer la sécurité du service.</p>
-    </section>
-
-    <section>
-      <h2>Localisation et suivi</h2>
-      <p>La localisation peut être utilisée lorsqu'elle est nécessaire au suivi d'une mission, à la confirmation d'une adresse ou à la preuve opérationnelle d'une livraison. Elle doit servir au fonctionnement du service et au contrôle des litiges.</p>
-    </section>
-
-    <section>
-      <h2>Sécurité et conservation</h2>
-      <p>Denkma limite l'accès aux informations sensibles aux personnes autorisées et conserve les données pendant la durée nécessaire au service, à la sécurité, à l'audit, aux obligations légales et à la résolution des litiges.</p>
-    </section>
-
-    <section>
-      <h2>Vos droits</h2>
-      <p>Vous pouvez demander l'accès, la correction ou la suppression de certaines données lorsque cela est applicable. Pour toute demande, contactez <a href="mailto:contact@denkma.com">contact@denkma.com</a>.</p>
-    </section>
+    <div id="legal-content">
+      <p class="skeleton">Chargement du contenu…</p>
+    </div>
 
     <div class="card">
       <strong>Contact confidentialité</strong>
@@ -85,6 +60,46 @@
   <footer>
     <div class="container">© <span id="y"></span> Denkma. Tous droits réservés.</div>
   </footer>
-  <script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    (function loadLegal() {
+      var titleEl = document.getElementById('legal-title');
+      var updatedEl = document.getElementById('legal-updated');
+      var contentEl = document.getElementById('legal-content');
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      fetch('https://api.denkma.com/api/legal/privacy_policy', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (data) {
+          if (data.title) {
+            titleEl.textContent = data.title;
+            document.title = data.title + ' | Denkma';
+          }
+          if (data.updated_at) {
+            try {
+              var d = new Date(data.updated_at);
+              updatedEl.textContent = 'Dernière mise à jour : ' + d.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' });
+            } catch (_) {}
+          }
+          var html = data.content || '';
+          if (!/<[a-z][\s\S]*>/i.test(html)) {
+            // Plain text → split paragraphs by blank lines
+            html = html.split(/\n{2,}/).map(function (p) {
+              return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+            }).join('');
+          }
+          contentEl.innerHTML = html;
+        })
+        .catch(function () {
+          contentEl.innerHTML = '<p>Le contenu n\'a pas pu être chargé. Pour toute question : <a href="mailto:contact@denkma.com">contact@denkma.com</a>.</p>';
+        });
+    })();
+  </script>
 </body>
 </html>

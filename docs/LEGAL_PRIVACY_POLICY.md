@@ -1,153 +1,73 @@
 POLITIQUE DE CONFIDENTIALITÉ — DENKMA
 
-Dernière mise à jour : [À COMPLÉTER: date de mise en ligne]
-Version : 1.0
+Dernière mise à jour : 26 avril 2026
+Version : 2.0
 
 1. PRÉAMBULE
 
-La présente Politique de Confidentialité décrit comment Denkma (« nous ») collecte, utilise, conserve et protège vos données personnelles lorsque vous utilisez notre plateforme (site denkma.com, application mobile, API). Elle est conforme à la Loi sénégalaise n° 2008-12 du 25 janvier 2008 sur la protection des données à caractère personnel, sous contrôle de la Commission des Données Personnelles (CDP) du Sénégal.
+Denkma collecte et utilise les données strictement nécessaires au fonctionnement de la plateforme : création de compte, livraison de colis, suivi, paiement et support. Cette politique est conforme à la Loi sénégalaise n° 2008-12 du 25 janvier 2008 sur la protection des données à caractère personnel.
 
 2. RESPONSABLE DU TRAITEMENT
 
-[À COMPLÉTER: raison sociale], immatriculée au RCCM sous le numéro [À COMPLÉTER: RCCM], dont le siège est situé [À COMPLÉTER: adresse], Sénégal.
-Contact : privacy@denkma.com
-Déclaration CDP : [À COMPLÉTER: numéro de récépissé CDP lorsque disponible]
+Denkma — Sénégal. Contact : contact@denkma.com.
 
 3. DONNÉES COLLECTÉES
 
-Selon votre rôle (client, livreur, point relais, administrateur), nous collectons :
+- Compte : nom, numéro de téléphone, rôle, code PIN (haché), photo de profil.
+- Livraison : adresses (texte et GPS), description du colis, contact destinataire, photos et notes vocales liées à la livraison.
+- Livreurs et points relais : pièces justificatives (KYC) fournies lors de la validation du compte.
+- Paiement : statut, montant, référence de transaction transmise par le prestataire de paiement. Denkma ne conserve aucun numéro de compte complet.
+- Technique : appareil, jeton de notification, journaux de connexion et d'audit.
 
-3.1. Données d'identification
-- Nom, prénom, téléphone, email (admin), date de naissance, photo de profil.
-- Pour livreurs et points relais : pièce d'identité, permis de conduire, carte grise, justificatif de local, numéro d'agrément le cas échéant (données KYC).
+4. UTILISATION
 
-3.2. Données de compte
-- Code PIN (haché), jetons d'authentification (JWT), historique de connexion.
-
-3.3. Données de livraison
-- Adresse de collecte et de livraison (texte + GPS), poids et description du colis, destinataire, notes vocales, photos à la livraison.
-
-3.4. Données de géolocalisation
-- Position en temps réel du livreur pendant les missions actives.
-- Position GPS de l'expéditeur au moment de la création et de la confirmation du colis.
-
-3.5. Données financières
-- Historique des paiements et des virements (reçus et envoyés).
-- Coordonnées de paiement fournies à notre prestataire Flutterwave (Wave, Orange Money, Free Money). Denkma ne stocke pas les numéros de compte bancaire complets.
-- Demandes de retrait (payouts) avec numéro mobile money ou compte bancaire destinataire.
-
-3.6. Données techniques
-- Adresse IP, modèle d'appareil, système d'exploitation, identifiants de notification (Firebase FCM), données d'usage de l'application.
-
-3.7. Données de support
-- Messages échangés avec le service client, signalements, litiges.
-
-4. FINALITÉS DU TRAITEMENT
-
-Nous utilisons vos données pour :
-- créer et gérer votre compte ;
-- authentifier vos connexions (OTP par SMS/WhatsApp) ;
-- exécuter les missions de livraison et mettre en relation expéditeurs, livreurs, points relais, destinataires ;
-- calculer les tarifs, commissions et versements ;
-- traiter les paiements via Flutterwave ;
-- assurer le suivi GPS et envoyer des notifications push ;
-- prévenir la fraude et sécuriser la plateforme ;
-- améliorer nos services (analytics internes, modèles ML de pricing dynamique) ;
-- respecter nos obligations légales et fiscales ;
-- communiquer des informations de service, et, avec votre consentement explicite, des offres promotionnelles.
+Les données servent à créer le compte, authentifier l'utilisateur (OTP), affecter et suivre les missions, calculer les prix et commissions, traiter les paiements, prévenir la fraude, notifier les utilisateurs et résoudre les litiges.
 
 5. BASES LÉGALES
 
-- Exécution du contrat : création de compte, livraisons, paiements, support.
-- Obligation légale : conservation fiscale et comptable, KYC livreur/relais, réponse aux autorités.
-- Intérêt légitime : prévention de la fraude, sécurité, amélioration des services.
-- Consentement : notifications marketing, collecte de géolocalisation en arrière-plan, envois WhatsApp non transactionnels.
+- Exécution du contrat : création de compte, livraison, paiement.
+- Obligation légale : comptabilité, KYC, réponses aux autorités compétentes.
+- Intérêt légitime : sécurité et prévention de la fraude.
+- Consentement : notifications non transactionnelles, géolocalisation pendant les missions.
 
-6. DESTINATAIRES DES DONNÉES
+6. DESTINATAIRES
 
-Vos données sont partagées uniquement avec :
-- Les autres utilisateurs nécessaires à la livraison (livreur, point relais, destinataire) — téléphones masqués lorsque non indispensables.
-- Nos sous-traitants techniques :
-  • Railway (hébergement backend) — [À COMPLÉTER: localisation serveur, ex. USA/Europe]
-  • MongoDB Atlas (base de données) — [À COMPLÉTER: région, ex. Frankfurt]
-  • Cloudflare (CDN, hébergement dashboard)
-  • Firebase / Google (authentification, notifications push, Maps)
-  • Flutterwave (paiements)
-  • Firebase Authentication (Google) — envoi de l'OTP SMS à l'inscription
-  • Meta/WhatsApp Business API — notifications de suivi colis
-  • Amazon S3 ou stockage local (photos profil, KYC, notes vocales) — [À COMPLÉTER: préciser fournisseur et région]
-- Les autorités compétentes, uniquement sur demande légale valide.
+Les données sont accessibles aux parties à la livraison (livreur, point relais, destinataire), aux administrateurs Denkma, et aux prestataires techniques nécessaires au service (hébergement, notifications, paiement). Les numéros de téléphone sont masqués lorsqu'ils ne sont pas indispensables. Denkma ne vend jamais les données.
 
-Nous ne vendons jamais vos données à des tiers.
+7. CONSERVATION
 
-7. TRANSFERTS HORS DU SÉNÉGAL
+- Compte actif : pendant toute la durée d'utilisation.
+- Données de livraison : 5 ans après la dernière mission (obligation comptable).
+- Documents KYC : 5 ans après résiliation.
+- Journaux techniques : jusqu'à 12 mois.
+- Compte supprimé : anonymisation sous 30 jours, hors obligations légales contraires.
 
-Certains prestataires (Railway, MongoDB Atlas, Firebase, Cloudflare) hébergent des données hors du Sénégal. Ces transferts sont encadrés par les engagements contractuels de ces prestataires et, le cas échéant, par des clauses-types de protection reconnues internationalement (équivalent CCT). Vous pouvez obtenir une copie de ces garanties sur simple demande.
+8. VOS DROITS
 
-8. DURÉES DE CONSERVATION
+Conformément à la Loi 2008-12, vous disposez d'un droit d'accès, de rectification, d'effacement, d'opposition et de retrait du consentement. Pour les exercer : contact@denkma.com (réponse sous 30 jours). Vous pouvez également saisir la Commission des Données Personnelles du Sénégal (www.cdp.sn).
 
-- Compte actif : tant que le compte est ouvert.
-- Données de livraison : 5 ans après la dernière livraison (obligation comptable).
-- Données KYC (livreur/relais) : 5 ans après résiliation.
-- Historique de géolocalisation par mission : [À COMPLÉTER: durée, ex. 90 jours] après clôture.
-- Journaux techniques : 12 mois.
-- Compte supprimé : anonymisation sous 30 jours, sauf obligations légales contraires.
+9. SÉCURITÉ
 
-9. VOS DROITS
+Les échanges sont chiffrés (TLS), les codes PIN et jetons sont hachés, l'accès est contrôlé par rôle, des journaux d'audit et des sauvegardes régulières sont en place. Aucun système n'étant infaillible, l'utilisateur est invité à protéger son code PIN et son téléphone.
 
-Conformément à la Loi 2008-12, vous disposez des droits suivants :
-- droit d'accès à vos données ;
-- droit de rectification des données inexactes ;
-- droit d'effacement (« droit à l'oubli ») ;
-- droit d'opposition au traitement ;
-- droit à la portabilité ;
-- droit de limitation du traitement ;
-- droit de retirer votre consentement à tout moment ;
-- droit d'introduire une réclamation auprès de la CDP Sénégal (www.cdp.sn).
+10. GÉOLOCALISATION, PHOTOS, VOIX
 
-Pour exercer ces droits, contactez-nous à privacy@denkma.com en joignant une copie d'un justificatif d'identité. Nous répondrons sous 30 jours.
-
-10. SÉCURITÉ
-
-Nous mettons en œuvre des mesures techniques et organisationnelles :
-- chiffrement TLS 1.2+ pour tous les échanges ;
-- hashage des codes PIN (bcrypt) et des jetons ;
-- authentification par JWT signés ;
-- contrôles d'accès par rôle côté API ;
-- audit logs de toutes les opérations sensibles ;
-- sauvegardes régulières de la base de données.
-
-Aucun système n'étant infaillible, nous vous invitons à protéger votre code PIN et votre téléphone.
+- La géolocalisation du livreur n'est active que pendant une mission acceptée.
+- Les photos de livraison et notes vocales sont liées au colis et accessibles aux parties à la livraison.
+- Les documents KYC ne sont consultables que par les administrateurs.
 
 11. COOKIES ET TRACEURS
 
-11.1. Application mobile : nous utilisons des identifiants techniques (token FCM, token d'authentification) strictement nécessaires au fonctionnement.
-
-11.2. Site web (denkma.com, admin.denkma.com) : nous utilisons des cookies :
-- strictement nécessaires (session d'authentification admin) ;
-- [À COMPLÉTER: de mesure d'audience, ex. Plausible Analytics, si activé] ;
-Aucun cookie publicitaire tiers.
+Le site denkma.com ne dépose ni cookie publicitaire, ni cookie de mesure d'audience tiers. Les seuls identifiants techniques utilisés (jeton d'authentification, jeton de notification) sont strictement nécessaires au fonctionnement du service.
 
 12. MINEURS
 
-Denkma n'est pas destinée aux personnes de moins de 18 ans. Nous ne collectons pas sciemment de données de mineurs. Si vous constatez qu'un mineur nous a transmis des données, contactez-nous pour suppression immédiate.
+Denkma est réservée aux personnes majeures (18 ans révolus).
 
-13. VOIX, IMAGES, GÉOLOCALISATION
+13. MODIFICATIONS
 
-- Les notes vocales (pickup_voice_note, delivery_voice_note) sont associées au colis concerné et accessibles aux parties à la livraison.
-- Les photos de profil sont visibles des autres parties à la livraison.
-- Les documents KYC ne sont accessibles qu'aux administrateurs de Denkma pour validation de compte.
-- La géolocalisation en arrière-plan du livreur n'est active que pendant les missions acceptées.
+Cette politique peut être mise à jour. Toute modification est publiée dans l'application et sur denkma.com. La date de la dernière mise à jour figure en tête du document.
 
-14. MODIFICATIONS
+14. CONTACT
 
-Nous pouvons modifier cette politique pour refléter les évolutions légales ou fonctionnelles. Toute modification substantielle sera notifiée dans l'application et par email (admins). La date de mise à jour figure en haut de la politique.
-
-15. CONTACT
-
-Pour toute question relative à vos données :
-Email : privacy@denkma.com
-Courrier : Denkma — Délégué à la Protection des Données
-[À COMPLÉTER: adresse siège], Sénégal
-
-Autorité de contrôle : Commission des Données Personnelles du Sénégal (CDP) — www.cdp.sn
+Pour toute question relative à vos données : contact@denkma.com.
