@@ -18,7 +18,12 @@ async def get_legal_content(doc_type: LegalDocumentType):
     doc = await db.legal_contents.find_one({"document_type": doc_type.value}, {"_id": 0})
     if not doc:
         # Si le document n'existe pas encore, on renvoie une coquille vide pour ne pas casser l'app
-        default_title = "Politique de confidentialité" if doc_type == LegalDocumentType.PRIVACY_POLICY else "Conditions Générales d'Utilisation"
+        default_titles = {
+            LegalDocumentType.PRIVACY_POLICY: "Politique de confidentialité",
+            LegalDocumentType.CGU: "Conditions Générales d'Utilisation",
+            LegalDocumentType.MENTIONS_LEGALES: "Mentions légales",
+        }
+        default_title = default_titles[doc_type]
         return LegalContent(
             document_type=doc_type,
             title=default_title,
@@ -60,7 +65,12 @@ async def update_legal_content(
     doc = await db.legal_contents.find_one({"document_type": doc_type.value}, {"_id": 0})
     
     if "title" not in doc:
-         default_title = "Politique de confidentialité" if doc_type == LegalDocumentType.PRIVACY_POLICY else "Conditions Générales d'Utilisation"
+         default_titles = {
+             LegalDocumentType.PRIVACY_POLICY: "Politique de confidentialité",
+             LegalDocumentType.CGU: "Conditions Générales d'Utilisation",
+             LegalDocumentType.MENTIONS_LEGALES: "Mentions légales",
+         }
+         default_title = default_titles[doc_type]
          await db.legal_contents.update_one(
              {"document_type": doc_type.value},
              {"$set": {"title": default_title}}

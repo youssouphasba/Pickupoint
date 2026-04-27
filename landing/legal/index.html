@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mentions légales | Denkma</title>
+  <meta name="description" content="Mentions légales de Denkma : éditeur, hébergeur, responsable de la publication." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://denkma.com/legal/" />
+  <link rel="icon" type="image/png" href="/assets/logo.png" />
+  <style>
+    :root { --primary: #0b8a5f; --text: #1a1a1a; --muted: #555; --border: #e8ece9; --soft: #f4faf7; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text); line-height: 1.7; background: #fff; }
+    header { border-bottom: 1px solid var(--border); background: #fff; }
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+    .nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
+    .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 800; font-size: 20px; }
+    .brand img { width: 42px; height: 42px; object-fit: contain; }
+    .home { color: var(--primary); font-weight: 700; text-decoration: none; }
+    main { padding: 64px 0 80px; }
+    .eyebrow { color: var(--primary); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; font-size: 13px; }
+    h1 { font-size: clamp(32px, 5vw, 48px); line-height: 1.15; margin: 10px 0 18px; letter-spacing: -0.04em; }
+    h2 { margin-top: 42px; font-size: 24px; }
+    p, li { color: var(--muted); font-size: 16px; }
+    ul { padding-left: 22px; }
+    .updated { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    .card { margin-top: 28px; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--soft); }
+    a { color: var(--primary); }
+    footer { border-top: 1px solid var(--border); padding: 28px 0; color: var(--muted); font-size: 14px; }
+    .skeleton { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container nav">
+      <a class="brand" href="/">
+        <img src="/assets/logo.png" alt="Denkma" />
+        <span>Denkma</span>
+      </a>
+      <a class="home" href="/">Retour à l'accueil</a>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="eyebrow">Informations légales</div>
+    <h1 id="legal-title">Mentions légales</h1>
+    <p id="legal-updated" class="updated"></p>
+
+    <div id="legal-content">
+      <p class="skeleton">Chargement du contenu…</p>
+    </div>
+
+    <div class="card">
+      <strong>Contact</strong>
+      <p>Pour toute question relative à l'éditeur ou au site, écrivez à <a href="mailto:contact@denkma.com">contact@denkma.com</a>.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">© <span id="y"></span> Denkma. Tous droits réservés.</div>
+  </footer>
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+
+    (function loadLegal() {
+      var titleEl = document.getElementById('legal-title');
+      var updatedEl = document.getElementById('legal-updated');
+      var contentEl = document.getElementById('legal-content');
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      fetch('https://api.denkma.com/api/legal/mentions_legales', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (data) {
+          if (data.title) {
+            titleEl.textContent = data.title;
+            document.title = data.title + ' | Denkma';
+          }
+          if (data.updated_at) {
+            try {
+              var d = new Date(data.updated_at);
+              updatedEl.textContent = 'Dernière mise à jour : ' + d.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' });
+            } catch (_) {}
+          }
+          var html = data.content || '';
+          if (!/<[a-z][\s\S]*>/i.test(html)) {
+            // Plain text → split paragraphs by blank lines
+            html = html.split(/\n{2,}/).map(function (p) {
+              return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>';
+            }).join('');
+          }
+          contentEl.innerHTML = html;
+        })
+        .catch(function () {
+          contentEl.innerHTML = '<p>Le contenu n\'a pas pu être chargé. Pour toute question : <a href="mailto:contact@denkma.com">contact@denkma.com</a>.</p>';
+        });
+    })();
+  </script>
+</body>
+</html>

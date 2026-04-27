@@ -7,6 +7,7 @@ from enum import Enum
 class LegalDocumentType(str, Enum):
     PRIVACY_POLICY = "privacy_policy"
     CGU = "cgu"
+    MENTIONS_LEGALES = "mentions_legales"
 
 
 class LegalContent(BaseModel):
