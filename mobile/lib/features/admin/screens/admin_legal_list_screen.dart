@@ -24,6 +24,13 @@ class AdminLegalListScreen extends StatelessWidget {
             docType: 'cgu',
             icon: Icons.gavel_outlined,
           ),
+          const SizedBox(height: 12),
+          _buildItem(
+            context,
+            title: 'Mentions légales',
+            docType: 'mentions_legales',
+            icon: Icons.business_outlined,
+          ),
         ],
       ),
     );

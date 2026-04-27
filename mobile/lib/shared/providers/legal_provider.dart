@@ -4,6 +4,7 @@ import '../../core/models/legal_content.dart';
 
 final legalContentProvider = FutureProvider.family<LegalContent, String>((ref, docType) async {
   final client = ref.read(apiClientProvider);
-  final res = await client.getLegal(docType);
+  final apiDocType = docType == 'privacy' ? 'privacy_policy' : docType;
+  final res = await client.getLegal(apiDocType);
   return LegalContent.fromJson(res.data);
 });

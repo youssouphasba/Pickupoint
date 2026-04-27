@@ -3,6 +3,17 @@ CONDITIONS GÉNÉRALES D'UTILISATION ET DE VENTE — DENKMA
 Dernière mise à jour : 26 avril 2026
 Version : 2.0
 
+MENTIONS LÉGALES
+
+Éditeur : Stockman Pro — Entreprise individuelle.
+Adresse du siège : 19 rue de Vez, 60800 Crépy-en-Valois, France.
+SIREN : [SIREN] — RCS Compiègne.
+Directeur de la publication : [Prénom NOM].
+Contact : contact@denkma.com.
+Hébergeur du site denkma.com : Cloudflare, Inc., 101 Townsend Street, San Francisco, CA 94107, USA — cloudflare.com.
+Hébergeur de l'API et des données : Railway Corp., 548 Market Street, San Francisco, CA 94104, USA — railway.app.
+L'application Denkma, disponible sur denkma.com, le Google Play Store et l'App Store, est éditée et exploitée par Stockman Pro.
+
 1. OBJET
 
 Les présentes Conditions Générales d'Utilisation et de Vente régissent l'accès et l'utilisation de la plateforme Denkma (site denkma.com, application mobile, dashboard administrateur) au Sénégal. En utilisant la plateforme, l'utilisateur accepte sans réserve les présentes conditions.

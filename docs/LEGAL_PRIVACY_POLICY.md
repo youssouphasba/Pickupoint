@@ -9,7 +9,15 @@ Denkma collecte et utilise les données strictement nécessaires au fonctionneme
 
 2. RESPONSABLE DU TRAITEMENT
 
-Denkma — Sénégal. Contact : contact@denkma.com.
+Le présent traitement de données à caractère personnel est mis en œuvre par :
+
+Stockman Pro — Entreprise individuelle, éditeur et exploitant de l'application Denkma.
+Adresse : 19 rue de Vez, 60800 Crépy-en-Valois, France.
+SIREN : [SIREN] — RCS Compiègne.
+Représentant légal / Directeur de la publication : [Prénom NOM].
+Contact (vie privée) : contact@denkma.com.
+
+L'utilisateur peut exercer ses droits d'accès, de rectification, d'effacement, d'opposition, de limitation et de portabilité, ainsi que retirer son consentement à tout moment, en écrivant à l'adresse ci-dessus ou par e-mail.
 
 3. DONNÉES COLLECTÉES
 

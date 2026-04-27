@@ -13,6 +13,7 @@ import { Loader2, Pencil, Save, X } from "lucide-react";
 const DOC_TYPES = [
   { key: "privacy_policy", label: "Politique de confidentialité" },
   { key: "cgu", label: "Conditions générales" },
+  { key: "mentions_legales", label: "Mentions légales" },
 ] as const;
 
 export default function LegalPage() {
