@@ -30,6 +30,7 @@ from services.whatsapp_call_service import (
     connect_driver_whatsapp_call,
     ensure_driver_call_permission_request,
     get_driver_call_permission,
+    terminate_driver_whatsapp_call,
 )
 from core.limiter import limiter
 from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, mask_phone, phone_suffix
@@ -843,6 +844,46 @@ async def get_driver_whatsapp_call_status(
         "latest_event": latest,
         "events": events,
     }
+
+
+@router.post("/{mission_id}/calls/{call_id}/terminate", summary="Terminer un appel WhatsApp en cours")
+@limiter.limit("10/minute")
+async def terminate_whatsapp_call(
+    mission_id: str,
+    call_id: str,
+    request: Request,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    """Termine côté Meta un appel WhatsApp précédemment lancé par le livreur."""
+    request_doc = await db.driver_call_requests.find_one(
+        {"mission_id": mission_id, "whatsapp_call_id": call_id},
+        {"_id": 0},
+    )
+    if not request_doc:
+        raise not_found_exception("Appel WhatsApp")
+
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if not is_admin and request_doc.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Accès refusé à cet appel")
+
+    result = await terminate_driver_whatsapp_call(call_id)
+    await _record_event(
+        parcel_id=request_doc.get("parcel_id"),
+        event_type="DRIVER_WHATSAPP_CALL_TERMINATED",
+        actor_id=current_user.get("user_id"),
+        actor_role=current_user.get("role"),
+        notes="Appel WhatsApp terminé par le livreur" if result.get("terminated") else "Échec terminaison appel WhatsApp",
+        metadata={
+            "mission_id": mission_id,
+            "whatsapp_call_id": call_id,
+            "terminated": bool(result.get("terminated")),
+            "reason": result.get("reason"),
+            "status_code": result.get("status_code"),
+        },
+    )
+    return result
 
 
 @router.post("/{mission_id}/release", summary="Libérer une mission (driver)")

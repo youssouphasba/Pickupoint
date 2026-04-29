@@ -109,6 +109,12 @@ workflows:
           # echo "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/android/app/google-services.json"
           echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/GoogleService-Info.plist"
+
+          if [ -z "${GOOGLE_MAPS_IOS_KEY:-}" ]; then
+            echo "ERROR: GOOGLE_MAPS_IOS_KEY est vide ou absent du group 'google_maps' sur Codemagic." >&2
+            echo "Sans cette clé, le SDK Google Maps fait planter l'app dès qu'une page avec carte s'ouvre." >&2
+            exit 1
+          fi
           plutil -replace GoogleMapsApiKey -string "$GOOGLE_MAPS_IOS_KEY" "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
           plutil -lint "$CM_BUILD_DIR/$PROJECT_PATH/ios/Runner/Info.plist"
       - name: Install dependencies
@@ -121,6 +127,15 @@ workflows:
         script: |
           #!/usr/bin/env bash
           set -euo pipefail
+
+          keychain initialize
+
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+          keychain add-certificates
+
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           xcode-project use-profiles
       - name: Build IPA

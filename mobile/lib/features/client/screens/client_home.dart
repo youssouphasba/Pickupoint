@@ -20,69 +20,130 @@ class ClientHome extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final parcelsAsync = ref.watch(parcelsProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes colis'),
-        actions: [
-          const AccountSwitcherButton(),
-          const NotificationsBellButton(route: '/client/notifications'),
-          IconButton(
-            icon: const Icon(Icons.handshake_outlined),
-            tooltip: 'Devenir partenaire',
-            onPressed: () => context.push('/client/partnership'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => ref.read(authProvider.notifier).logout(),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          const NotificationPermissionBanner(),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => ref.refresh(parcelsProvider.future),
-              child: parcelsAsync.when(
-                data: (parcels) {
-                  if (parcels.isEmpty) {
-                    return _buildEmptyState(context);
-                  }
-                  return ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: parcels.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final parcel = parcels[index];
-                      return _ParcelCard(parcel: parcel);
-                    },
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => ErrorStateView(
-                  message: err.toString(),
-                  onRetry: () => ref.invalidate(parcelsProvider),
-                ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Mes colis'),
+          actions: [
+            const AccountSwitcherButton(),
+            const NotificationsBellButton(route: '/client/notifications'),
+            IconButton(
+              icon: const Icon(Icons.handshake_outlined),
+              tooltip: 'Devenir partenaire',
+              onPressed: () => context.push('/client/partnership'),
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => ref.read(authProvider.notifier).logout(),
+            ),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(48),
+            child: parcelsAsync.maybeWhen(
+              data: (parcels) {
+                final active = parcels.where((p) => !_isTerminal(p.status)).length;
+                final done = parcels.where((p) => _isTerminal(p.status)).length;
+                return TabBar(
+                  tabs: [
+                    Tab(text: 'En cours${active > 0 ? ' ($active)' : ''}'),
+                    Tab(text: 'Terminés${done > 0 ? ' ($done)' : ''}'),
+                  ],
+                );
+              },
+              orElse: () => const TabBar(
+                tabs: [Tab(text: 'En cours'), Tab(text: 'Terminés')],
               ),
             ),
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/client/create'),
-        label: const Text('Envoyer un colis'),
-        icon: const Icon(Icons.add),
+        ),
+        body: Column(
+          children: [
+            const NotificationPermissionBanner(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => ref.refresh(parcelsProvider.future),
+                child: parcelsAsync.when(
+                  data: (parcels) {
+                    final active = parcels.where((p) => !_isTerminal(p.status)).toList();
+                    final done = parcels.where((p) => _isTerminal(p.status)).toList();
+                    return TabBarView(
+                      children: [
+                        _ParcelList(
+                          parcels: active,
+                          emptyTitle: 'Aucun colis en cours',
+                          emptySubtitle: 'Vos envois et réceptions actifs apparaîtront ici.',
+                        ),
+                        _ParcelList(
+                          parcels: done,
+                          emptyTitle: 'Aucun colis terminé',
+                          emptySubtitle: 'L\'historique de vos livraisons s\'affichera ici.',
+                        ),
+                      ],
+                    );
+                  },
+                  loading: () => const Center(child: CircularProgressIndicator()),
+                  error: (err, _) => ErrorStateView(
+                    message: err.toString(),
+                    onRetry: () => ref.invalidate(parcelsProvider),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () => context.push('/client/create'),
+          label: const Text('Envoyer un colis'),
+          icon: const Icon(Icons.add),
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
-    return EmptyStateView(
-      icon: Icons.inventory_2_outlined,
-      title: 'Aucun colis trouve',
-      subtitle: 'Envoyez votre premier colis des maintenant.',
-      actionLabel: 'Creer un colis',
-      onAction: () => context.push('/client/create'),
+  static bool _isTerminal(String status) {
+    return const {
+      'delivered',
+      'cancelled',
+      'expired',
+      'disputed',
+      'returned',
+    }.contains(status);
+  }
+
+}
+
+class _ParcelList extends StatelessWidget {
+  const _ParcelList({
+    required this.parcels,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+  });
+
+  final List<Parcel> parcels;
+  final String emptyTitle;
+  final String emptySubtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    if (parcels.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 80),
+          EmptyStateView(
+            icon: Icons.inventory_2_outlined,
+            title: emptyTitle,
+            subtitle: emptySubtitle,
+          ),
+        ],
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: parcels.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (_, index) => _ParcelCard(parcel: parcels[index]),
     );
   }
 }

@@ -764,6 +764,15 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   Future<void> _hangUpWhatsappCall() async {
+    final callId = _activeWhatsappCallId;
+    final missionId = widget.id;
+    if (callId != null) {
+      try {
+        await ref.read(apiClientProvider).terminateMissionCall(missionId, callId);
+      } catch (_) {
+        // L'erreur réseau ne doit pas bloquer la fermeture locale.
+      }
+    }
     await _closeWhatsappCallSession();
     if (!mounted) return;
     setState(() {

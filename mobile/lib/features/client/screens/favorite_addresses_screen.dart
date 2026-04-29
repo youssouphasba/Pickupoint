@@ -148,7 +148,7 @@ class _FavoriteAddressesScreenState
                 const SizedBox(height: 16),
                 InkWell(
                   onTap: () async {
-                    final result = await showModalBottomSheet<LatLng>(
+                    final result = await showModalBottomSheet<MapPickerResult>(
                       context: dialogContext,
                       isScrollControlled: true,
                       backgroundColor: Colors.transparent,
@@ -157,7 +157,12 @@ class _FavoriteAddressesScreenState
                       ),
                     );
                     if (result != null) {
-                      setDialogState(() => selectedLatLng = result);
+                      setDialogState(() {
+                        selectedLatLng = result.position;
+                        if (result.address != null && result.address!.isNotEmpty) {
+                          addrCtrl.text = result.address!;
+                        }
+                      });
                     }
                   },
                   child: Container(

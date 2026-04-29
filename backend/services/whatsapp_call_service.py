@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 DRIVER_CALL_PERMISSION_TEMPLATE = "driver_call_permission"
 WHATSAPP_CALL_CONNECT_ACTION = "connect"
+WHATSAPP_CALL_TERMINATE_ACTION = "terminate"
 WHATSAPP_CALL_PERMISSION_ACTION = "call_permission_request"
 
 
@@ -362,4 +363,43 @@ async def connect_driver_whatsapp_call(
         "requested_at": _now(),
         "action": WHATSAPP_CALL_CONNECT_ACTION,
         "raw": data,
+    }
+
+
+async def terminate_driver_whatsapp_call(call_id: str) -> dict[str, Any]:
+    """Termine un appel WhatsApp en cours côté Meta."""
+    if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+        return {
+            "terminated": False,
+            "reason": "whatsapp_not_configured",
+        }
+    if not call_id:
+        return {
+            "terminated": False,
+            "reason": "missing_call_id",
+        }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "call_id": call_id,
+        "action": WHATSAPP_CALL_TERMINATE_ACTION,
+    }
+    url = f"{_call_api_base_url()}/calls"
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(url, headers=_graph_headers(), json=payload)
+
+    if response.status_code != 200:
+        logger.warning("Termination appel WhatsApp refusée: %s %s", response.status_code, response.text)
+        return {
+            "terminated": False,
+            "status_code": response.status_code,
+            "reason": "whatsapp_terminate_failed",
+            "meta_error": response.text,
+        }
+    return {
+        "terminated": True,
+        "call_id": call_id,
+        "action": WHATSAPP_CALL_TERMINATE_ACTION,
+        "raw": response.json(),
     }

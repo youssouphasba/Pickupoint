@@ -270,6 +270,9 @@ class ApiClient {
   Future<Response> getMissionCallStatus(String missionId, String callId) =>
       _dio.get(ApiEndpoints.missionCallStatus(missionId, callId));
 
+  Future<Response> terminateMissionCall(String missionId, String callId) =>
+      _dio.post(ApiEndpoints.terminateMissionCall(missionId, callId));
+
   Future<Response> toggleAvailability() =>
       _dio.put(ApiEndpoints.myAvailability);
 

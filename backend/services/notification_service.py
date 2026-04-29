@@ -124,6 +124,7 @@ def _category_pref_key(category: Optional[str]) -> str | None:
     return {
         "parcel_updates": "parcel_updates",
         "promotions": "promotions",
+        "messages": "messages",
     }.get(category)
 
 
@@ -1005,6 +1006,40 @@ async def notify_new_mission_ping(user_id: str, mission: dict):
         ref_type="mission",
         ref_id=mission.get("mission_id"),
     )
+
+
+async def notify_new_parcel_message(parcel: dict, sender_id: str, sender_name: str, message_text: str):
+    """Notifie les autres participants du colis (sender, recipient, driver) qu'un nouveau message est arrivé.
+
+    Push + in-app uniquement (pas de WhatsApp pour éviter le spam — la conversation reste dans l'app).
+    """
+    parcel_id = parcel.get("parcel_id")
+    tracking_code = parcel.get("tracking_code", "")
+    participants = {
+        parcel.get("sender_user_id"),
+        parcel.get("recipient_user_id"),
+        parcel.get("assigned_driver_id"),
+    }
+    participants.discard(None)
+    participants.discard(sender_id)
+
+    title = f"Nouveau message — {tracking_code}" if tracking_code else "Nouveau message"
+    preview = (message_text or "").strip()
+    if len(preview) > 120:
+        preview = preview[:117] + "…"
+    name = (sender_name or "").strip() or "Quelqu'un"
+    body = f"{name} : {preview}" if preview else f"{name} vous a envoyé un message."
+
+    for uid in participants:
+        await _store_and_send(
+            user_id=uid,
+            title=title,
+            body=body,
+            ref_type="parcel",
+            ref_id=parcel_id,
+            category="messages",
+            skip_whatsapp=True,
+        )
 
 
 async def send_location_confirmation_prompt(
