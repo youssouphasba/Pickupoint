@@ -68,7 +68,7 @@ class LocationTrackingService {
     ).listen((pos) async {
       final now = DateTime.now();
       if (_lastUpdate == null ||
-          now.difference(_lastUpdate!).inSeconds > 30) {
+          now.difference(_lastUpdate!).inSeconds >= 10) {
         _lastUpdate = now;
         try {
           await _ref.read(apiClientProvider).updateLocation(missionId, {

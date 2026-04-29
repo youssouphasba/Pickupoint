@@ -53,7 +53,7 @@ from services.parcel_service import (
     sync_active_mission_with_parcel,
 )
 from services.pricing_service import calculate_price, _haversine_km
-from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived
+from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
 from services.wallet_service import credit_wallet, debit_wallet
 from config import UPLOADS_DIR, settings
 
@@ -525,6 +525,10 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel["driver_photo_url"] = parcel.get("driver_photo_url") or driver.get("profile_picture_url")
 
     parcel["delivery_blocked_by_payment"] = False
+
+    # Numéro du livreur masqué après livraison (sauf admin)
+    if not is_admin and parcel.get("status") == "delivered":
+        parcel.pop("driver_phone", None)
 
     if not is_admin:
         # Sécurité des codes :
@@ -1523,6 +1527,10 @@ async def send_parcel_message(
         "created_at":  datetime.now(timezone.utc),
     }
     await db.parcel_messages.insert_one(msg)
+    try:
+        await notify_new_parcel_message(parcel, uid, current_user.get("name", ""), text)
+    except Exception:
+        pass
     return _serialize_parcel_message(msg)
 
 
@@ -1603,4 +1611,8 @@ async def send_parcel_voice(
         "created_at":  datetime.now(timezone.utc),
     }
     await db.parcel_messages.insert_one(msg)
+    try:
+        await notify_new_parcel_message(parcel, uid, current_user.get("name", ""), "🎤 Note vocale")
+    except Exception:
+        pass
     return _serialize_parcel_message(msg)

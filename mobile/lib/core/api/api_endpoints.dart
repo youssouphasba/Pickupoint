@@ -91,6 +91,8 @@ class ApiEndpoints {
       '$_base/api/deliveries/$id/call-recipient';
   static String missionCallStatus(String missionId, String callId) =>
       '$_base/api/deliveries/$missionId/calls/$callId';
+  static String terminateMissionCall(String missionId, String callId) =>
+      '$_base/api/deliveries/$missionId/calls/$callId/terminate';
   static String arriveAtDestination(String parcelId) =>
       '$_base/api/parcels/$parcelId/arrive-at-destination';
   static const rankings = '$_base/api/deliveries/rankings';

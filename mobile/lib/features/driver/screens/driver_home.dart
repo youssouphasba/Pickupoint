@@ -147,7 +147,8 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Espace Livreur'),
+          title: const SizedBox.shrink(),
+          titleSpacing: 0,
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(72),
             child: Column(

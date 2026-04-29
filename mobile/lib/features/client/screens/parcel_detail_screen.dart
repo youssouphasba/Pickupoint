@@ -38,10 +38,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   bool _driverOnline = false;
   GoogleMapController? _mapController;
   bool _isConfirmingLocation = false;
-  final _voiceNoteController = TextEditingController();
   String? _liveEtaText;
   String? _liveDistanceText;
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
+  final GlobalKey _chatKey = GlobalKey();
 
   @override
   void initState() {
@@ -52,7 +52,6 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
-    _voiceNoteController.dispose();
     super.dispose();
   }
 
@@ -189,6 +188,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
                 // ── Messagerie temporaire ────────────────────────────────────
                 ParcelChatWidget(
+                  key: _chatKey,
                   parcelId: parcel.id,
                   isClosed: [
                     'delivered',
@@ -288,19 +288,6 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             style: TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _voiceNoteController,
-            maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Instructions pour le livreur (optionnel)',
-              hintText: 'Ex: Sonner 2 fois, 2e étage à gauche…',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.note_alt_outlined),
-              filled: true,
-              fillColor: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: LoadingButton(
@@ -309,8 +296,28 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               onPressed: _confirmLocation,
             ),
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _scrollToChat,
+              icon: const Icon(Icons.chat_bubble_outline, size: 16),
+              label: const Text('Envoyer un message au livreur'),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  void _scrollToChat() {
+    final ctx = _chatKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+      alignment: 0.0,
     );
   }
 
@@ -337,8 +344,6 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         'lng': pos.longitude,
         'accuracy': pos.accuracy,
       };
-      final note = _voiceNoteController.text.trim();
-      if (note.isNotEmpty) body['voice_note'] = note;
       final response = await api.updateDeliveryAddress(widget.id, body);
       final data = response.data as Map<String, dynamic>;
       if (data['requires_acceptance'] == true) {
@@ -922,6 +927,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final driverPhotoUrl = parcel.driverPhotoUrl as String?;
     final driverName = (parcel.driverName as String?)?.trim();
     final driverPhone = (parcel.driverPhone as String?)?.trim();
+    final isDelivered = (parcel.status as String?) == 'delivered';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -955,9 +961,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Livreur en charge',
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                Text(
+                  isDelivered ? 'Livreur (livraison terminée)' : 'Livreur en charge',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
                 Text(
                   driverName != null && driverName.isNotEmpty
@@ -968,7 +974,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (driverPhone != null && driverPhone.isNotEmpty)
+                if (!isDelivered && driverPhone != null && driverPhone.isNotEmpty)
                   Text(
                     driverPhone,
                     style: const TextStyle(
@@ -979,10 +985,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.phone_in_talk, color: Colors.green),
-            onPressed: () => _callDriver(parcel.driverPhone),
-          ),
+          if (!isDelivered)
+            IconButton(
+              icon: const Icon(Icons.phone_in_talk, color: Colors.green),
+              onPressed: () => _callDriver(parcel.driverPhone),
+            ),
         ],
       ),
     );

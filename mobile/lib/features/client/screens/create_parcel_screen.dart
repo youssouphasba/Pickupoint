@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
+import '../../../core/models/user.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../widgets/relay_selector_modal.dart';
@@ -873,6 +874,29 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     };
   }
 
+  Future<void> _onFavoriteTap(FavoriteAddress fav) async {
+    if (_currentStep != 1) return;
+    if (_originMode != _OriginMode.gps) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Les favoris servent à indiquer votre point de départ. Choisissez "Domicile" comme origine.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _originLat = fav.lat;
+      _originLng = fav.lng;
+      _originAccuracy = 0;
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Favori "${fav.name}" appliqué à l\'origine')),
+    );
+  }
+
   Widget _buildFavoriteSelector() {
     final user = ref.watch(authProvider).valueOrNull?.user;
     final favorites = user?.favoriteAddresses ?? [];
@@ -892,26 +916,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             itemBuilder: (context, index) {
               final fav = favorites[index];
               return InkWell(
-                onTap: () {
-                  setState(() {
-                    if (_currentStep == 1) {
-                      // We can use favorite for Origin OR Destination
-                      // Let's bias towards Destination if mode is fixed,
-                      // or ask? For now, we fill the "current" relevant section.
-                      if (_destMode == _DestMode.home) {
-                        _addressLabelController.text = fav.address;
-                        _addressDistrictController.text = fav.name;
-                      } else if (_originMode == _OriginMode.gps) {
-                        _originLat = fav.lat;
-                        _originLng = fav.lng;
-                        _originAccuracy = 0; // Precise from map
-                      }
-                    }
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Favori "${fav.name}" appliqué')),
-                  );
-                },
+                onTap: () => _onFavoriteTap(fav),
                 child: Container(
                   width: 140,
                   padding: const EdgeInsets.all(12),
