@@ -30,7 +30,8 @@ export default function StaleParcelsPage() {
     refetchInterval: 60_000,
   });
 
-  const parcels = (data?.categories.stale_parcels.items ?? []) as unknown as StaleParcel[];
+  const parcels = (data?.categories.stale_parcels.items ??
+    []) as unknown as StaleParcel[];
 
   const columns = React.useMemo<ColumnDef<StaleParcel, any>[]>(
     () => [
