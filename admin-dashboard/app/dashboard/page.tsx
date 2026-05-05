@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { ActionCenterSection } from "@/components/action-center-section";
+import { useActionCenter } from "@/lib/use-action-center";
 import {
   Package,
   CheckCircle2,
@@ -122,6 +123,7 @@ export default function DashboardHome() {
     queryFn: fetchDashboard,
     refetchInterval: 30_000,
   });
+  const { data: actionCenter } = useActionCenter();
 
   if (isLoading) {
     return (
@@ -138,6 +140,15 @@ export default function DashboardHome() {
       </div>
     );
   }
+
+  const actionCounts = {
+    payouts: actionCenter?.categories.payouts.count ?? data.pending_payouts,
+    paymentBlocked:
+      actionCenter?.categories.payment_blocked.count ??
+      data.payment_blocked_parcels,
+    anomalies: actionCenter?.categories.anomalies.count ?? data.signal_lost,
+    stale: actionCenter?.categories.stale_parcels.count ?? data.stale_parcels,
+  };
 
   return (
     <div className="space-y-6 p-8">
@@ -202,7 +213,7 @@ export default function DashboardHome() {
           />
           <KpiCard
             label="Paiements en attente"
-            value={data.payment_blocked_parcels}
+            value={actionCounts.paymentBlocked}
             Icon={Banknote}
             tone="warning"
             hint="Colis bloqués pour paiement"
@@ -210,7 +221,7 @@ export default function DashboardHome() {
           />
           <KpiCard
             label="Demandes de retrait"
-            value={data.pending_payouts}
+            value={actionCounts.payouts}
             Icon={Wallet}
             tone="warning"
             href="/dashboard/payouts"
@@ -252,12 +263,12 @@ export default function DashboardHome() {
             href="/dashboard/fleet?filter=live"
           />
           <KpiCard
-            label="Signal perdu"
-            value={data.signal_lost}
+            label="Anomalies flotte"
+            value={actionCounts.anomalies}
             Icon={RadioTower}
-            tone={data.signal_lost > 0 ? "danger" : "neutral"}
-            hint="Plus de 20 min sans GPS"
-            href="/dashboard/fleet?filter=signal_lost"
+            tone={actionCounts.anomalies > 0 ? "danger" : "neutral"}
+            hint="GPS perdu ou mission trop longue"
+            href="/dashboard/anomalies"
           />
         </div>
       </section>
@@ -272,13 +283,13 @@ export default function DashboardHome() {
             value={data.critical_delay}
             Icon={TimerOff}
             tone={data.critical_delay > 0 ? "danger" : "neutral"}
-            href="/dashboard/stale"
+            href="/dashboard/anomalies"
           />
           <KpiCard
             label="Colis stagnants"
-            value={data.stale_parcels}
+            value={actionCounts.stale}
             Icon={Clock}
-            tone={data.stale_parcels > 0 ? "warning" : "neutral"}
+            tone={actionCounts.stale > 0 ? "warning" : "neutral"}
             hint="Plus de 7 jours en relais"
             href="/dashboard/stale"
           />

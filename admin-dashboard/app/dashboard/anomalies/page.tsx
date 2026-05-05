@@ -1,10 +1,11 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { fetchActionCenter } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 
 type Anomaly = {
   id: string;
@@ -19,6 +20,7 @@ type Anomaly = {
   relay_name?: string;
   age_hours?: number;
   message?: string;
+  href?: string;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -110,6 +112,15 @@ export default function AnomaliesPage() {
                     </span>
                   )}
                 </div>
+                {a.href && (
+                  <Link
+                    href={a.href}
+                    className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                  >
+                    Ouvrir le contrôle
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                )}
               </div>
             </CardContent>
           </Card>

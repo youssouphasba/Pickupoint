@@ -364,6 +364,44 @@ async def _download_whatsapp_media(media_id: str | None) -> dict | None:
     }
 
 
+async def ensure_whatsapp_support_media_file(filename: str) -> tuple[Path, str] | None:
+    path = (PRIVATE_WHATSAPP_DIR / filename).resolve()
+    base = PRIVATE_WHATSAPP_DIR.resolve()
+    if base in path.parents and path.is_file():
+        media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        return path, media_type
+
+    escaped_filename = re.escape(filename)
+    message = await db.whatsapp_support_messages.find_one(
+        {
+            "$or": [
+                {"media.download_url": {"$regex": escaped_filename}},
+                {"media.storage_path": {"$regex": escaped_filename}},
+            ]
+        },
+        {"_id": 0, "media": 1},
+    )
+    media_id = ((message or {}).get("media") or {}).get("media_id")
+    restored = await _download_whatsapp_media(media_id)
+    if not restored:
+        return None
+
+    await db.whatsapp_support_messages.update_many(
+        {"media.media_id": media_id},
+        {"$set": {"media": restored}},
+    )
+    await db.whatsapp_support_conversations.update_many(
+        {"last_media.media_id": media_id},
+        {"$set": {"last_media": restored}},
+    )
+
+    restored_path = Path(restored["storage_path"]).resolve()
+    if base not in restored_path.parents or not restored_path.is_file():
+        return None
+    media_type = restored.get("mime_type") or mimetypes.guess_type(str(restored_path))[0] or "application/octet-stream"
+    return restored_path, media_type
+
+
 async def _find_related_user(phone: str) -> dict | None:
     return await db.users.find_one(
         {"phone": phone},

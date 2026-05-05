@@ -16,17 +16,19 @@ class RelayWalletScreen extends ConsumerStatefulWidget {
 }
 
 class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
+  String? _period = _monthValue(DateTime.now());
+
   @override
   Widget build(BuildContext context) {
     final walletAsync = ref.watch(relayWalletProvider);
-    final transactionsAsync = ref.watch(relayTransactionsProvider);
+    final transactionsAsync = ref.watch(relayTransactionsProvider(_period));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Mes Gains')),
       body: RefreshIndicator(
         onRefresh: () => Future.wait([
           ref.refresh(relayWalletProvider.future),
-          ref.refresh(relayTransactionsProvider.future),
+          ref.refresh(relayTransactionsProvider(_period).future),
         ]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -36,9 +38,17 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
             children: [
               _buildBalanceCard(context, walletAsync),
               const SizedBox(height: 32),
-              const Text(
-                'Dernieres transactions',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Dernières transactions',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  SizedBox(width: 180, child: _buildPeriodFilter()),
+                ],
               ),
               const SizedBox(height: 16),
               _buildTransactionsList(transactionsAsync),
@@ -46,6 +56,29 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPeriodFilter() {
+    final options = <String?>[null, ..._monthOptions()];
+
+    return DropdownButtonFormField<String?>(
+      initialValue: _period,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Période',
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: options
+          .map(
+            (value) => DropdownMenuItem<String?>(
+              value: value,
+              child: Text(value == null ? 'Tout' : _monthLabel(value)),
+            ),
+          )
+          .toList(),
+      onChanged: (value) => setState(() => _period = value),
     );
   }
 
@@ -208,7 +241,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
                     ),
                   );
                   ref.invalidate(relayWalletProvider);
-                  ref.invalidate(relayTransactionsProvider);
+                  ref.invalidate(relayTransactionsProvider(_period));
                 } catch (e) {
                   if (!ctx.mounted) {
                     return;
@@ -225,4 +258,43 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
       ),
     );
   }
+}
+
+List<String> _monthOptions() {
+  final now = DateTime.now();
+  return List.generate(18, (index) {
+    final date = DateTime(now.year, now.month - index);
+    return _monthValue(date);
+  });
+}
+
+String _monthValue(DateTime date) {
+  return '${date.year}-${date.month.toString().padLeft(2, '0')}';
+}
+
+String _monthLabel(String value) {
+  final parts = value.split('-');
+  if (parts.length != 2) {
+    return value;
+  }
+  final month = int.tryParse(parts[1]);
+  final year = parts[0];
+  const names = [
+    'Janvier',
+    'Février',
+    'Mars',
+    'Avril',
+    'Mai',
+    'Juin',
+    'Juillet',
+    'Août',
+    'Septembre',
+    'Octobre',
+    'Novembre',
+    'Décembre',
+  ];
+  if (month == null || month < 1 || month > 12) {
+    return value;
+  }
+  return '${names[month - 1]} $year';
 }

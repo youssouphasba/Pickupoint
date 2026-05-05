@@ -12,8 +12,11 @@ class DriverPerformanceScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authProvider).valueOrNull?.user;
-    if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    final transactionsAsync = ref.watch(relayTransactionsProvider);
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final transactionsAsync =
+        ref.watch(relayTransactionsProvider(_currentMonthPeriod()));
 
     // XP progress
     const xpPerLevel = 100;
@@ -215,7 +218,8 @@ class DriverPerformanceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatCard(IconData icon, String label, String value, Color color, {String? subtitle}) {
+  Widget _buildStatCard(IconData icon, String label, String value, Color color,
+      {String? subtitle}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -235,9 +239,11 @@ class DriverPerformanceScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                Text(label,
+                    style: const TextStyle(color: Colors.grey, fontSize: 13)),
                 if (subtitle != null)
-                  Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  Text(subtitle,
+                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
               ],
             ),
           ),
@@ -273,18 +279,23 @@ class DriverPerformanceScreen extends ConsumerWidget {
                   const Expanded(
                     child: Text(
                       'CLASSEMENT DU MOIS',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5),
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          letterSpacing: 0.5),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.amber.shade700,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       '#${ranking.rank}',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -293,10 +304,12 @@ class DriverPerformanceScreen extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _rankingStat('Succès', '${(ranking.successRate * 100).toStringAsFixed(0)}%'),
+                  _rankingStat('Succès',
+                      '${(ranking.successRate * 100).toStringAsFixed(0)}%'),
                   _rankingStat('Volume', '${ranking.deliveriesTotal}'),
                   if (ranking.bonusPaid != null && ranking.bonusPaid! > 0)
-                    _rankingStat('Bonus', formatXof(ranking.bonusPaid!), isHighlight: true),
+                    _rankingStat('Bonus', formatXof(ranking.bonusPaid!),
+                        isHighlight: true),
                 ],
               ),
             ],
@@ -327,7 +340,8 @@ class DriverPerformanceScreen extends ConsumerWidget {
 
   Widget _buildGainsChart(AsyncValue<List<WalletTransaction>> txAsync) {
     return txAsync.when(
-      loading: () => const SizedBox(height: 180, child: Center(child: CircularProgressIndicator())),
+      loading: () => const SizedBox(
+          height: 180, child: Center(child: CircularProgressIndicator())),
       error: (_, __) => const SizedBox.shrink(),
       data: (txs) {
         final now = DateTime.now();
@@ -387,7 +401,8 @@ class DriverPerformanceScreen extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text(
                     labels[index],
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.bold),
                   ),
                 ],
               );
@@ -397,4 +412,9 @@ class DriverPerformanceScreen extends ConsumerWidget {
       },
     );
   }
+}
+
+String _currentMonthPeriod() {
+  final now = DateTime.now();
+  return '${now.year}-${now.month.toString().padLeft(2, '0')}';
 }

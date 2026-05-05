@@ -145,6 +145,12 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           flutter build ipa --release
+      - name: Scan iOS private and deprecated APIs
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          bash "$CM_BUILD_DIR/scripts/scan_ios_review_apis.sh"
     artifacts:
       - mobile/build/ios/ipa/*.ipa
+      - ios-review-scan/report.txt
       - /tmp/xcodebuild_logs/*.log

@@ -215,7 +215,7 @@ async def _fetch_mission_anomalies(now: datetime) -> list[dict[str, Any]]:
             "age_hours": round(age_h, 2),
             "urgency": _urgency(age_h, delay_sla),
             "mission_status": m.get("status"),
-            "href": "/dashboard/stale",
+            "href": "/dashboard/anomalies",
         }
 
     items = list(seen.values())

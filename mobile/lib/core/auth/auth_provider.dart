@@ -65,7 +65,11 @@ final authProvider = AsyncNotifierProvider<AuthNotifier, AuthState>(
 /// Raccourci : provider de l'API client configuré avec le token courant.
 final apiClientProvider = Provider<ApiClient>((ref) {
   final auth = ref.watch(authProvider).valueOrNull;
-  return ApiClient(token: auth?.accessToken);
+  return ApiClient(
+    token: auth?.accessToken,
+    refreshToken: () =>
+        ref.read(authProvider.notifier).refreshAndGetAccessToken(),
+  );
 });
 
 class AuthNotifier extends AsyncNotifier<AuthState> {
@@ -364,8 +368,12 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
   /// Rafraîchit le token d'accès.
   Future<void> refreshAccessToken() async {
+    await refreshAndGetAccessToken();
+  }
+
+  Future<String?> refreshAndGetAccessToken() async {
     final current = state.valueOrNull;
-    if (current?.refreshToken == null) return;
+    if (current?.refreshToken == null) return null;
 
     try {
       final client = ApiClient();
@@ -383,8 +391,10 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       );
 
       state = AsyncData(current.copyWith(accessToken: newAccess));
+      return newAccess;
     } catch (_) {
       await logout();
+      return null;
     }
   }
 

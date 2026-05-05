@@ -8,6 +8,7 @@ from services.user_service import (
     get_referral_metric_count,
     get_referral_role_config,
 )
+from services.wallet_service import credit_wallet
 
 logger = logging.getLogger(__name__)
 
@@ -134,20 +135,13 @@ async def _check_referral_bonus(user_id: str):
 
 
 async def _add_to_wallet(user_id: str, amount: float, tx_type: str, description: str, now: datetime):
-    await db.wallets.update_one(
-        {"user_id": user_id},
-        {"$inc": {"balance": amount}},
-        upsert=True,
-    )
-    await db.wallet_transactions.insert_one(
-        {
-            "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
-            "user_id": user_id,
-            "type": tx_type,
-            "amount": amount,
-            "description": description,
-            "created_at": now,
-        }
+    user = await db.users.find_one({"user_id": user_id}, {"role": 1})
+    await credit_wallet(
+        owner_id=user_id,
+        owner_type=(user or {}).get("role", "client"),
+        amount=amount,
+        description=description,
+        reference=f"{tx_type}:{uuid.uuid4().hex[:12]}",
     )
 
 
@@ -160,28 +154,15 @@ async def _add_to_wallet_once(
     now: datetime,
     tx_id: str,
 ):
-    result = await db.wallet_transactions.update_one(
-        {"tx_id": tx_id},
-        {
-            "$setOnInsert": {
-                "tx_id": tx_id,
-                "user_id": user_id,
-                "type": tx_type,
-                "amount": amount,
-                "description": description,
-                "created_at": now,
-            }
-        },
-        upsert=True,
-    )
-    if result.upserted_id is None:
+    existing = await db.wallet_transactions.find_one({"reference": tx_id}, {"_id": 0})
+    if existing:
         return
 
-    await db.wallets.update_one(
-        {"user_id": user_id},
-        {
-            "$inc": {"balance": amount},
-            "$set": {"updated_at": now},
-        },
-        upsert=True,
+    user = await db.users.find_one({"user_id": user_id}, {"role": 1})
+    await credit_wallet(
+        owner_id=user_id,
+        owner_type=(user or {}).get("role", "client"),
+        amount=amount,
+        description=description,
+        reference=tx_id,
     )
