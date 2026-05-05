@@ -880,11 +880,40 @@ async def admin_drivers(
         query["is_active"] = active
     cursor = db.users.find(query, {"_id": 0}).sort("created_at", -1)
     drivers = await cursor.to_list(length=200)
-    # Enrichir avec nb de missions
+    driver_ids = [d["user_id"] for d in drivers if d.get("user_id")]
+    mission_counts = {}
+    if driver_ids:
+        mission_count_rows = await db.delivery_missions.aggregate([
+            {"$match": {"driver_id": {"$in": driver_ids}}},
+            {"$group": {"_id": "$driver_id", "count": {"$sum": 1}}},
+        ]).to_list(length=len(driver_ids))
+        mission_counts = {row["_id"]: row["count"] for row in mission_count_rows}
+
+    active_missions = {}
+    if driver_ids:
+        active_cursor = db.delivery_missions.find(
+            {"driver_id": {"$in": driver_ids}, "status": {"$in": ["assigned", "in_progress", "incident_reported"]}},
+            {
+                "_id": 0,
+                "mission_id": 1,
+                "parcel_id": 1,
+                "driver_id": 1,
+                "status": 1,
+                "tracking_code": 1,
+                "location_updated_at": 1,
+                "updated_at": 1,
+            },
+        ).sort("updated_at", -1)
+        async for mission in active_cursor:
+            driver_id = mission.get("driver_id")
+            if driver_id and driver_id not in active_missions:
+                active_missions[driver_id] = mission
+
     for d in drivers:
-        d["missions_count"] = await db.delivery_missions.count_documents(
-            {"driver_id": d["user_id"]}
-        )
+        driver_id = d.get("user_id")
+        d["missions_count"] = mission_counts.get(driver_id, 0)
+        d["profile_picture_status"] = _profile_picture_status(d)
+        d["active_mission"] = active_missions.get(driver_id)
     return {"drivers": drivers}
 
 

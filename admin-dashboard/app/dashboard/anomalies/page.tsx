@@ -49,7 +49,8 @@ export default function AnomaliesPage() {
     refetchInterval: 60_000,
   });
 
-  const alerts = (data?.categories.anomalies.items ?? []) as unknown as Anomaly[];
+  const alerts = (data?.categories.anomalies.items ??
+    []) as unknown as Anomaly[];
 
   return (
     <div className="space-y-5 p-8">

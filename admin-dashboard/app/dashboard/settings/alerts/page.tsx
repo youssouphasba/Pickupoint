@@ -57,7 +57,7 @@ const EVENT_TYPES: EventTypeDescriptor[] = [
   {
     key: "signal_lost",
     label: "Perte de signal GPS",
-    description: "Un livreur n'émet plus sa position pendant >20 min.",
+    description: "Un livreur n'émet plus sa position pendant plus de 20 minutes.",
     severity: "warning",
   },
   {
@@ -107,8 +107,7 @@ const EVENT_TYPES: EventTypeDescriptor[] = [
 const SEVERITY_DESCRIPTORS = {
   critical: {
     label: "Critique",
-    description:
-      "Incidents, litiges — événements qui réclament une action immédiate.",
+    description: "Incidents et litiges qui réclament une action immédiate.",
     Icon: ShieldAlert,
     chip: "bg-red-50 text-red-700",
   },
@@ -127,13 +126,13 @@ const SEVERITY_DESCRIPTORS = {
 } as const;
 
 function useBrowserPermission() {
-  const [permission, setPermission] = React.useState<NotificationPermission | "unsupported">(
-    () => {
-      if (typeof window === "undefined") return "default";
-      if (typeof Notification === "undefined") return "unsupported";
-      return Notification.permission;
-    }
-  );
+  const [permission, setPermission] = React.useState<
+    NotificationPermission | "unsupported"
+  >(() => {
+    if (typeof window === "undefined") return "default";
+    if (typeof Notification === "undefined") return "unsupported";
+    return Notification.permission;
+  });
 
   const request = React.useCallback(async () => {
     if (typeof Notification === "undefined") return "unsupported" as const;
@@ -199,9 +198,7 @@ export default function AdminAlertsPage() {
     update({ ...prefs, mutedTypes: next });
   }
 
-  if (!hydrated) {
-    return null;
-  }
+  if (!hydrated) return null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -238,7 +235,7 @@ export default function AdminAlertsPage() {
                   : permission === "denied"
                     ? "Autorisation bloquée dans ce navigateur. Déverrouillez-la depuis les réglages du site."
                     : permission === "granted"
-                      ? "Autorisation accordée. Les events critiques resteront affichés jusqu'à clic."
+                      ? "Autorisation accordée. Les événements critiques resteront affichés jusqu'au clic."
                       : "Vous serez invité à autoriser les notifications à l'activation."}
               </p>
             </div>
@@ -352,7 +349,7 @@ export default function AdminAlertsPage() {
               return;
             }
             new Notification("Denkma Admin", {
-              body: "Test de notification — tout est opérationnel.",
+              body: "Test de notification - tout est opérationnel.",
               icon: "/favicon.ico",
             });
           }}

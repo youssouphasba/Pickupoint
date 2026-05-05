@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
@@ -10,14 +11,22 @@ import {
   triggerMonthlyRewards,
 } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
+import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { formatDate } from "@/lib/utils";
-import { Award, Eye, Loader2, Trophy } from "lucide-react";
-import Link from "next/link";
+import { Award, Eye, Loader2, MapPin, RadioTower, Trophy } from "lucide-react";
+
+type ActiveMission = {
+  mission_id?: string | null;
+  parcel_id?: string | null;
+  tracking_code?: string | null;
+  status?: string | null;
+  location_updated_at?: string | null;
+};
 
 type Driver = {
   user_id: string;
@@ -26,14 +35,73 @@ type Driver = {
   name?: string | null;
   is_active: boolean;
   is_banned?: boolean;
+  is_available?: boolean;
+  kyc_status?: string | null;
+  profile_picture_url?: string | null;
+  profile_picture_status?: string | null;
+  last_driver_location?: { lat?: number; lng?: number } | null;
+  last_driver_location_at?: string | null;
   average_rating?: number;
   deliveries_completed?: number;
   total_earned?: number;
   missions_count?: number;
+  active_mission?: ActiveMission | null;
   created_at?: string;
 };
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+const PHOTO_LABELS: Record<string, string> = {
+  approved: "Photo approuvée",
+  pending: "Photo à vérifier",
+  rejected: "Photo rejetée",
+  missing: "Photo manquante",
+};
+
+const PHOTO_TONES: Record<string, "success" | "warning" | "danger" | "default"> = {
+  approved: "success",
+  pending: "warning",
+  rejected: "danger",
+  missing: "default",
+};
+
+function driverName(driver: Driver) {
+  return driver.name ?? driver.full_name ?? "Livreur sans nom";
+}
+
+function missionLabel(status?: string | null) {
+  if (status === "assigned") return "Assignée";
+  if (status === "in_progress") return "En cours";
+  if (status === "incident_reported") return "Incident";
+  return status ?? "Aucune";
+}
+
+function missionTone(status?: string | null) {
+  if (status === "in_progress") return "success";
+  if (status === "assigned") return "info";
+  if (status === "incident_reported") return "danger";
+  return "default";
+}
+
+function locationTone(lastSeen?: string | null) {
+  if (!lastSeen) return "danger";
+  const ageMs = Date.now() - new Date(lastSeen).getTime();
+  if (!Number.isFinite(ageMs)) return "danger";
+  if (ageMs <= 20 * 60 * 1000) return "success";
+  if (ageMs <= 60 * 60 * 1000) return "warning";
+  return "danger";
+}
+
+function locationLabel(lastSeen?: string | null) {
+  if (!lastSeen) return "Aucune position";
+  const ageMs = Date.now() - new Date(lastSeen).getTime();
+  if (!Number.isFinite(ageMs)) return "Position invalide";
+  const minutes = Math.max(0, Math.round(ageMs / 60000));
+  if (minutes < 1) return "À l’instant";
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  return `Il y a ${hours} h`;
+}
 
 export default function DriversPage() {
   const { toast } = useToast();
@@ -45,7 +113,6 @@ export default function DriversPage() {
     queryFn: () => fetchDrivers(activeOnly ? { active: true } : undefined),
   });
 
-  // Monthly rewards
   const [period, setPeriod] = React.useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -72,18 +139,25 @@ export default function DriversPage() {
       {
         id: "name",
         header: "Livreur",
-        accessorFn: (d) => d.name ?? d.full_name ?? "—",
+        accessorFn: (d) => driverName(d),
         cell: ({ row }) => {
           const d = row.original;
           return (
             <Link
               href={`/dashboard/users/${d.user_id}`}
-              className="group flex flex-col"
+              className="group flex items-center gap-3"
             >
-              <span className="font-medium group-hover:text-primary group-hover:underline">
-                {d.name ?? d.full_name ?? "—"}
+              <SecureProfileImage
+                src={d.profile_picture_url}
+                alt={driverName(d)}
+                className="h-10 w-10 border"
+              />
+              <span className="flex flex-col">
+                <span className="font-medium group-hover:text-primary group-hover:underline">
+                  {driverName(d)}
+                </span>
+                <span className="text-xs text-muted-foreground">{d.phone}</span>
               </span>
-              <span className="text-xs text-muted-foreground">{d.phone}</span>
             </Link>
           );
         },
@@ -95,7 +169,68 @@ export default function DriversPage() {
           const d = row.original;
           if (d.is_banned) return <Badge tone="danger">Suspendu</Badge>;
           if (!d.is_active) return <Badge tone="default">Inactif</Badge>;
-          return <Badge tone="success">Actif</Badge>;
+          if (d.is_available) return <Badge tone="success">Disponible</Badge>;
+          return <Badge tone="info">Actif</Badge>;
+        },
+      },
+      {
+        id: "photo",
+        header: "Photo",
+        accessorFn: (d) => d.profile_picture_status ?? "missing",
+        cell: ({ row }) => {
+          const status = row.original.profile_picture_status ?? "missing";
+          return (
+            <Badge tone={PHOTO_TONES[status] ?? "default"}>
+              {PHOTO_LABELS[status] ?? status}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "gps",
+        header: "GPS",
+        accessorFn: (d) => d.last_driver_location_at ?? "",
+        cell: ({ row }) => {
+          const lastSeen = row.original.last_driver_location_at;
+          const hasPoint = Boolean(row.original.last_driver_location);
+          return (
+            <div className="flex flex-col gap-1 text-sm">
+              <span className="inline-flex items-center gap-1">
+                {hasPoint ? (
+                  <MapPin className="h-3.5 w-3.5 text-green-600" />
+                ) : (
+                  <RadioTower className="h-3.5 w-3.5 text-amber-700" />
+                )}
+                <Badge tone={locationTone(lastSeen)}>
+                  {locationLabel(lastSeen)}
+                </Badge>
+              </span>
+              {lastSeen && (
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(lastSeen)}
+                </span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: "active_mission",
+        header: "Mission active",
+        accessorFn: (d) => d.active_mission?.status ?? "",
+        cell: ({ row }) => {
+          const mission = row.original.active_mission;
+          if (!mission) return <span className="text-muted-foreground">Aucune</span>;
+          return (
+            <div className="flex flex-col gap-1">
+              <Badge tone={missionTone(mission.status)}>
+                {missionLabel(mission.status)}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {mission.tracking_code ?? mission.mission_id}
+              </span>
+            </div>
+          );
         },
       },
       {
@@ -107,21 +242,13 @@ export default function DriversPage() {
         ),
       },
       {
-        id: "deliveries",
-        header: "Livraisons",
-        accessorKey: "deliveries_completed",
-        cell: ({ getValue }) => (
-          <span className="font-medium">{(getValue() as number) ?? 0}</span>
-        ),
-      },
-      {
         id: "rating",
         header: "Note",
         accessorKey: "average_rating",
         cell: ({ getValue }) => {
           const r = (getValue() as number) ?? 0;
           return (
-            <span className={r >= 4 ? "text-green-600 font-medium" : ""}>
+            <span className={r >= 4 ? "font-medium text-green-600" : ""}>
               {r > 0 ? r.toFixed(1) : "—"}
             </span>
           );
@@ -161,7 +288,7 @@ export default function DriversPage() {
         <div>
           <h1 className="text-2xl font-bold">Livreurs</h1>
           <p className="text-sm text-muted-foreground">
-            Suivi des performances, missions et gains de chaque livreur.
+            Suivi des statuts, photos, positions GPS, missions et gains de chaque livreur.
             {activeOnly ? " Filtre actif : livreurs actifs uniquement." : ""}
           </p>
         </div>
@@ -180,7 +307,6 @@ export default function DriversPage() {
         </div>
       </div>
 
-      {/* Monthly rewards panel */}
       {rewardsOpen && (
         <Card>
           <CardHeader>
@@ -286,7 +412,7 @@ export default function DriversPage() {
 
             {driverStats.data?.stats?.length === 0 && (
               <div className="text-sm text-muted-foreground">
-                Aucune statistique pour cette période. Lancez le calcul d'abord.
+                Aucune statistique pour cette période. Lancez le calcul d’abord.
               </div>
             )}
           </CardContent>
@@ -309,7 +435,7 @@ export default function DriversPage() {
           data={drivers}
           searchPlaceholder="Nom, téléphone, ID…"
           globalFilterFn={(d, q) =>
-            (d.name ?? d.full_name ?? "").toLowerCase().includes(q) ||
+            driverName(d).toLowerCase().includes(q) ||
             (d.phone ?? "").toLowerCase().includes(q) ||
             (d.user_id ?? "").toLowerCase().includes(q)
           }
