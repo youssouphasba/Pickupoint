@@ -414,6 +414,19 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     ));
   }
 
+  Future<void> deleteAccount() async {
+    final current = state.valueOrNull;
+    if (current == null || !current.isAuthenticated) return;
+
+    state = const AsyncLoading();
+    try {
+      final client = ApiClient(token: current.accessToken);
+      await client.deleteAccount();
+    } finally {
+      await logout();
+    }
+  }
+
   Future<void> logout() async {
     try {
       await fb.FirebaseAuth.instance.signOut();

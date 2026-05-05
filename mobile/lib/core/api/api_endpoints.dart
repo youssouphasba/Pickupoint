@@ -31,6 +31,7 @@ class ApiEndpoints {
   static const me = '$_base/api/auth/me';
   static const profile = '$_base/api/auth/profile';
   static const updateFcm = '$_base/api/users/me/fcm-token';
+  static const deleteAccount = '$_base/api/users/me';
   static const loyaltyStats = '$_base/api/users/me/loyalty';
   static const userStats = '$_base/api/users/me/stats';
   static const userAvatar = '$_base/api/users/me/avatar';
@@ -173,7 +174,8 @@ class ApiEndpoints {
 
   // ─── Notifications in-app ────────────────────────────────────────────────
   static const notifications = '$_base/api/notifications';
-  static const notificationsUnreadCount = '$_base/api/notifications/unread-count';
+  static const notificationsUnreadCount =
+      '$_base/api/notifications/unread-count';
   static const notificationsReadAll = '$_base/api/notifications/read-all';
   static String notificationRead(String notifId) =>
       '$_base/api/notifications/$notifId/read';

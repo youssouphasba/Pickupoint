@@ -55,10 +55,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "com.denkma.app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk 24
         targetSdk androidTargetSdk
         versionCode flutter.versionCode
@@ -70,6 +67,12 @@ android {
     lintOptions {
         checkReleaseBuilds false
         abortOnError false
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
     }
 
     signingConfigs {
