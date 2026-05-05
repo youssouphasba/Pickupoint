@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { fetchActionCenter } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -37,11 +38,21 @@ export default function StaleParcelsPage() {
         id: "tracking",
         header: "Tracking",
         accessorKey: "tracking_code",
-        cell: ({ getValue }) => (
-          <span className="font-mono text-xs font-semibold">
-            {getValue() as string}
-          </span>
-        ),
+        cell: ({ row, getValue }) => {
+          const trackingCode = getValue() as string;
+          return row.original.parcel_id ? (
+            <Link
+              href={`/dashboard/parcels/${row.original.parcel_id}`}
+              className="font-mono text-xs font-semibold hover:text-primary hover:underline"
+            >
+              {trackingCode}
+            </Link>
+          ) : (
+            <span className="font-mono text-xs font-semibold">
+              {trackingCode}
+            </span>
+          );
+        },
       },
       {
         id: "status",
@@ -65,8 +76,8 @@ export default function StaleParcelsPage() {
         header: "Jours",
         accessorKey: "age_days",
         cell: ({ getValue }) => {
-          const d = (getValue() as number) ?? 0;
-          return <Badge tone={d > 14 ? "danger" : "warning"}>{d} j</Badge>;
+          const days = (getValue() as number) ?? 0;
+          return <Badge tone={days > 14 ? "danger" : "warning"}>{days} j</Badge>;
         },
       },
       {
@@ -115,10 +126,10 @@ export default function StaleParcelsPage() {
           columns={columns}
           data={parcels}
           searchPlaceholder="Code suivi, relais, expéditeur..."
-          globalFilterFn={(p, q) =>
-            (p.tracking_code ?? "").toLowerCase().includes(q) ||
-            (p.relay_name ?? "").toLowerCase().includes(q) ||
-            (p.sender_name ?? "").toLowerCase().includes(q)
+          globalFilterFn={(parcel, query) =>
+            (parcel.tracking_code ?? "").toLowerCase().includes(query) ||
+            (parcel.relay_name ?? "").toLowerCase().includes(query) ||
+            (parcel.sender_name ?? "").toLowerCase().includes(query)
           }
           emptyLabel="Aucun colis stagnant. Tout est fluide."
         />

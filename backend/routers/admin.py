@@ -2,8 +2,10 @@
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import mimetypes
+from calendar import monthrange
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
@@ -24,6 +26,7 @@ from services.admin_events_service import AdminEventType, record_admin_event
 from core.date_filters import date_range_query
 from services.whatsapp_support_service import (
     MAX_WHATSAPP_MEDIA_BYTES,
+    ensure_whatsapp_support_media_file,
     send_support_audio_reply,
     send_support_text_reply,
     serialize_support_doc,
@@ -48,6 +51,17 @@ from services.wallet_service import record_wallet_transaction
 router = APIRouter()
 
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
+
+
+def _month_bounds(period: str) -> tuple[datetime, datetime]:
+    if not re.fullmatch(r"\d{4}-\d{2}", period or ""):
+        raise bad_request_exception("Période invalide")
+    year, month = map(int, period.split("-"))
+    if not 1 <= month <= 12:
+        raise bad_request_exception("Période invalide")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    end = datetime(year, month, monthrange(year, month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc)
+    return start, end
 
 
 class PaymentOverrideRequest(BaseModel):
@@ -176,8 +190,14 @@ async def get_whatsapp_support_media(
         raise not_found_exception("Média WhatsApp")
     path = (WHATSAPP_MEDIA_DIR / filename).resolve()
     base = WHATSAPP_MEDIA_DIR.resolve()
-    if base not in path.parents or not path.is_file():
+    if base not in path.parents:
         raise not_found_exception("Média WhatsApp")
+    if not path.is_file():
+        restored = await ensure_whatsapp_support_media_file(filename)
+        if not restored:
+            raise not_found_exception("Média WhatsApp")
+        restored_path, restored_media_type = restored
+        return FileResponse(path=restored_path, media_type=restored_media_type, filename=restored_path.name)
 
     media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
     return FileResponse(path=path, media_type=media_type, filename=filename)
@@ -2173,6 +2193,84 @@ async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     ]
     drivers_cash = await db.users.aggregate(pipeline).to_list(length=100)
     return {"entities": drivers_cash}
+
+
+@router.get("/finance/monthly-summary", summary="Synthèse financière mensuelle")
+async def get_finance_monthly_summary(
+    period: str = Query(..., description="Format YYYY-MM"),
+    _admin=Depends(require_admin_dep),
+):
+    start, end = _month_bounds(period)
+    date_query = {"$gte": start, "$lte": end}
+
+    parcel_stats = await db.parcels.aggregate([
+        {"$match": {"created_at": date_query}},
+        {"$group": {
+            "_id": None,
+            "created_count": {"$sum": 1},
+            "delivered_count": {
+                "$sum": {"$cond": [{"$eq": ["$status", ParcelStatus.DELIVERED.value]}, 1, 0]}
+            },
+            "quoted_sales_xof": {"$sum": {"$ifNull": ["$quoted_price", 0]}},
+            "paid_sales_xof": {"$sum": {"$ifNull": ["$paid_price", 0]}},
+        }},
+    ]).to_list(length=1)
+
+    wallet_stats = await db.wallet_transactions.aggregate([
+        {"$match": {"created_at": date_query}},
+        {"$group": {
+            "_id": "$tx_type",
+            "amount": {"$sum": {"$ifNull": ["$amount", 0]}},
+            "count": {"$sum": 1},
+        }},
+    ]).to_list(length=10)
+
+    payout_stats = await db.payout_requests.aggregate([
+        {"$match": {"created_at": date_query}},
+        {"$group": {
+            "_id": "$status",
+            "amount": {"$sum": {"$ifNull": ["$amount", 0]}},
+            "count": {"$sum": 1},
+        }},
+    ]).to_list(length=10)
+
+    parcel_summary = parcel_stats[0] if parcel_stats else {}
+    wallet_by_type = {item["_id"]: item for item in wallet_stats if item.get("_id")}
+    payout_by_status = {item["_id"]: item for item in payout_stats if item.get("_id")}
+
+    sales_xof = float(parcel_summary.get("paid_sales_xof") or parcel_summary.get("quoted_sales_xof") or 0)
+    commissions_xof = float(wallet_by_type.get(TransactionType.CREDIT.value, {}).get("amount", 0) or 0)
+    payouts_approved_xof = float(payout_by_status.get("approved", {}).get("amount", 0) or 0)
+    payouts_pending_xof = float(payout_by_status.get("pending", {}).get("amount", 0) or 0)
+
+    return {
+        "period": period,
+        "from": start,
+        "to": end,
+        "sales_xof": round(sales_xof, 2),
+        "quoted_sales_xof": round(float(parcel_summary.get("quoted_sales_xof", 0) or 0), 2),
+        "paid_sales_xof": round(float(parcel_summary.get("paid_sales_xof", 0) or 0), 2),
+        "commissions_xof": round(commissions_xof, 2),
+        "payouts_approved_xof": round(payouts_approved_xof, 2),
+        "payouts_pending_xof": round(payouts_pending_xof, 2),
+        "net_after_commissions_xof": round(sales_xof - commissions_xof, 2),
+        "parcels_created": int(parcel_summary.get("created_count", 0) or 0),
+        "parcels_delivered": int(parcel_summary.get("delivered_count", 0) or 0),
+        "wallet_transactions": {
+            "credit": {
+                "count": int(wallet_by_type.get(TransactionType.CREDIT.value, {}).get("count", 0) or 0),
+                "amount": round(commissions_xof, 2),
+            },
+            "debit": {
+                "count": int(wallet_by_type.get(TransactionType.DEBIT.value, {}).get("count", 0) or 0),
+                "amount": round(float(wallet_by_type.get(TransactionType.DEBIT.value, {}).get("amount", 0) or 0), 2),
+            },
+            "pending": {
+                "count": int(wallet_by_type.get(TransactionType.PENDING.value, {}).get("count", 0) or 0),
+                "amount": round(float(wallet_by_type.get(TransactionType.PENDING.value, {}).get("amount", 0) or 0), 2),
+            },
+        },
+    }
 
 
 @router.get("/finance/reconciliation", summary="Rapport de reconciliation finance et operations")

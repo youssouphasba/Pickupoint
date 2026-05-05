@@ -2,7 +2,9 @@
 Router wallets : wallet personnel, transactions, demandes de retrait.
 """
 import uuid
-from datetime import datetime, timezone
+from calendar import monthrange
+from datetime import datetime, timedelta, timezone
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -23,6 +25,27 @@ def _payout_id() -> str:
     return f"pay_{uuid.uuid4().hex[:12]}"
 
 
+def _transaction_period_filter(period: Optional[str]) -> dict:
+    if not period:
+        return {}
+
+    now = datetime.now(timezone.utc)
+    if period == "week":
+        return {"created_at": {"$gte": now - timedelta(days=7)}}
+    if period == "month":
+        return {"created_at": {"$gte": now - timedelta(days=30)}}
+
+    if re.fullmatch(r"\d{4}-\d{2}", period):
+        year, month = map(int, period.split("-"))
+        if not 1 <= month <= 12:
+            raise bad_request_exception("Période invalide")
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        end = datetime(year, month, monthrange(year, month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc)
+        return {"created_at": {"$gte": start, "$lte": end}}
+
+    raise bad_request_exception("Période invalide")
+
+
 @router.get("/me", summary="Mon wallet")
 async def get_my_wallet(current_user: dict = Depends(get_current_user)):
     owner_type = current_user.get("role", "client")
@@ -34,7 +57,7 @@ async def get_my_wallet(current_user: dict = Depends(get_current_user)):
 async def get_my_transactions(
     skip: int = 0,
     limit: int = 50,
-    period: Optional[str] = Query(None, description="Filtre: 'week' ou 'month'"),
+    period: Optional[str] = Query(None, description="Filtre: 'week', 'month' ou 'YYYY-MM'"),
     current_user: dict = Depends(get_current_user),
 ):
     wallet = await db.wallets.find_one({"owner_id": current_user["user_id"]}, {"_id": 0})
@@ -42,14 +65,7 @@ async def get_my_transactions(
         return {"transactions": [], "total": 0}
 
     query: dict = {"wallet_id": wallet["wallet_id"]}
-    if period:
-        from datetime import datetime, timedelta, timezone
-
-        now = datetime.now(timezone.utc)
-        if period == "week":
-            query["created_at"] = {"$gte": now - timedelta(days=7)}
-        elif period == "month":
-            query["created_at"] = {"$gte": now - timedelta(days=30)}
+    query.update(_transaction_period_filter(period))
 
     cursor = (
         db.wallet_transactions.find(query, {"_id": 0})

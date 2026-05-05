@@ -1029,6 +1029,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
 .leaflet-popup-content-wrapper{border-radius:12px !important;box-shadow:0 8px 20px rgba(0,0,0,.12) !important}
 .leaflet-popup-content{margin:10px 14px !important;font-size:13px !important;color:#0f1b17}
 .leaflet-popup-content strong{color:var(--primary);font-weight:800}
+.leaflet-control-attribution{display:none !important}
 .denkma-marker{background:var(--primary);color:#fff;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 0 0 3px rgba(11,138,95,.25);transition:transform .15s}
 .denkma-marker.hub{width:18px;height:18px;box-shadow:0 0 0 5px rgba(11,138,95,.3)}
 .denkma-marker:hover{transform:scale(1.2)}
@@ -2350,9 +2351,9 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
       zoom: 7,
       scrollWheelZoom: false,
       zoomControl: true,
-      attributionControl: true
+      attributionControl: false
     });
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 19

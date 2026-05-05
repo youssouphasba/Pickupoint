@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchCodMonitoring,
   fetchDrivers,
+  fetchFinanceMonthlySummary,
   fetchFinanceReconciliation,
   settleCod,
 } from "@/lib/api";
@@ -17,6 +18,38 @@ import { Banknote, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+function monthValue(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthOptions() {
+  const now = new Date();
+  return Array.from({ length: 18 }, (_, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
+    const value = monthValue(date);
+    return { value, label: monthLabel(value) };
+  });
+}
+
+function monthLabel(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  const labels = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+  ];
+  return `${labels[month - 1] ?? value} ${year}`;
+}
 
 const SUMMARY_LABELS: Record<string, string> = {
   wallets_checked: "Wallets vérifiés",
@@ -32,10 +65,16 @@ const SUMMARY_LABELS: Record<string, string> = {
 export default function FinancePage() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [period, setPeriod] = React.useState(() => monthValue(new Date()));
 
   const recon = useQuery({
     queryKey: ["finance-recon"],
     queryFn: fetchFinanceReconciliation,
+  });
+
+  const monthly = useQuery({
+    queryKey: ["finance-monthly", period],
+    queryFn: () => fetchFinanceMonthlySummary(period),
   });
 
   const cod = useQuery({
@@ -48,10 +87,9 @@ export default function FinancePage() {
     queryFn: () => fetchDrivers(),
   });
 
-  const loading = recon.isLoading || cod.isLoading;
-  const error = recon.isError || cod.isError;
+  const loading = recon.isLoading || cod.isLoading || monthly.isLoading;
+  const error = recon.isError || cod.isError || monthly.isError;
 
-  // COD settle state
   const [settleOpen, setSettleOpen] = React.useState(false);
   const [settleDriverId, setSettleDriverId] = React.useState("");
   const [settleAmount, setSettleAmount] = React.useState("");
@@ -75,6 +113,7 @@ export default function FinancePage() {
 
   const summary = recon.data?.summary;
   const codEntities = cod.data?.entities ?? [];
+  const monthlySummary = monthly.data;
 
   return (
     <div className="space-y-6 p-8">
@@ -85,17 +124,105 @@ export default function FinancePage() {
             Réconciliation financière et suivi du cash en circulation.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setSettleOpen(!settleOpen)}
-        >
-          <Banknote className="h-4 w-4" />
-          Encaisser COD
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          >
+            {monthOptions().map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSettleOpen(!settleOpen)}
+          >
+            <Banknote className="h-4 w-4" />
+            Encaisser COD
+          </Button>
+        </div>
       </div>
 
-      {/* COD Settle form */}
+      {monthlySummary && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Synthèse {monthLabel(period)}
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="p-5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Ventes
+                </div>
+                <div className="mt-1 text-xl font-bold">
+                  {xof.format(monthlySummary.sales_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Dépenses
+                </div>
+                <div className="mt-1 text-xl font-bold">
+                  {xof.format(monthlySummary.commissions_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Net estimé
+                </div>
+                <div className="mt-1 text-xl font-bold">
+                  {xof.format(monthlySummary.net_after_commissions_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Colis livrés
+                </div>
+                <div className="mt-1 text-xl font-bold">
+                  {monthlySummary.parcels_delivered ?? 0} / {monthlySummary.parcels_created ?? 0}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Paiements reçus</div>
+                <div className="mt-1 font-semibold">
+                  {xof.format(monthlySummary.paid_sales_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Retraits validés</div>
+                <div className="mt-1 font-semibold">
+                  {xof.format(monthlySummary.payouts_approved_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Retraits en attente</div>
+                <div className="mt-1 font-semibold">
+                  {xof.format(monthlySummary.payouts_pending_xof ?? 0)} XOF
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+      )}
+
       {settleOpen && (
         <Card>
           <CardHeader>
@@ -185,7 +312,6 @@ export default function FinancePage() {
             ))}
           </div>
 
-          {/* Issues detail */}
           {recon.data && (() => {
             const issues = [
               { key: "wallet_pending_mismatches", label: "Écarts pending wallet" },
@@ -226,7 +352,6 @@ export default function FinancePage() {
         </section>
       )}
 
-      {/* COD monitoring */}
       {codEntities.length > 0 && (
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">

@@ -27,7 +27,7 @@ class DriverWalletScreen extends ConsumerStatefulWidget {
 }
 
 class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
-  String? _period; // null = tout, 'week', 'month'
+  String? _period = _monthValue(DateTime.now());
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +55,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
-                  _buildPeriodFilter(),
+                  SizedBox(width: 180, child: _buildPeriodFilter()),
                 ],
               ),
               const SizedBox(height: 16),
@@ -68,19 +68,25 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
   }
 
   Widget _buildPeriodFilter() {
-    return SegmentedButton<String?>(
-      segments: const [
-        ButtonSegment(value: null, label: Text('Tout')),
-        ButtonSegment(value: 'week', label: Text('7j')),
-        ButtonSegment(value: 'month', label: Text('30j')),
-      ],
-      selected: {_period},
-      onSelectionChanged: (v) => setState(() => _period = v.first),
-      style: SegmentedButton.styleFrom(
-        selectedBackgroundColor: Colors.blue.shade100,
-        textStyle: const TextStyle(fontSize: 12),
-        visualDensity: VisualDensity.compact,
+    final options = <String?>[null, ..._monthOptions()];
+
+    return DropdownButtonFormField<String?>(
+      initialValue: _period,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Période',
+        border: OutlineInputBorder(),
+        isDense: true,
       ),
+      items: options
+          .map(
+            (value) => DropdownMenuItem<String?>(
+              value: value,
+              child: Text(value == null ? 'Tout' : _monthLabel(value)),
+            ),
+          )
+          .toList(),
+      onChanged: (value) => setState(() => _period = value),
     );
   }
 
@@ -185,8 +191,8 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                     }
                   } catch (e) {
                     if (ctx.mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(friendlyError(e))));
                     }
                   }
                 },
@@ -226,4 +232,43 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
       error: (e, __) => Text(friendlyError(e)),
     );
   }
+}
+
+List<String> _monthOptions() {
+  final now = DateTime.now();
+  return List.generate(18, (index) {
+    final date = DateTime(now.year, now.month - index);
+    return _monthValue(date);
+  });
+}
+
+String _monthValue(DateTime date) {
+  return '${date.year}-${date.month.toString().padLeft(2, '0')}';
+}
+
+String _monthLabel(String value) {
+  final parts = value.split('-');
+  if (parts.length != 2) {
+    return value;
+  }
+  final month = int.tryParse(parts[1]);
+  final year = parts[0];
+  const names = [
+    'Janvier',
+    'Février',
+    'Mars',
+    'Avril',
+    'Mai',
+    'Juin',
+    'Juillet',
+    'Août',
+    'Septembre',
+    'Octobre',
+    'Novembre',
+    'Décembre',
+  ];
+  if (month == null || month < 1 || month > 12) {
+    return value;
+  }
+  return '${names[month - 1]} $year';
 }

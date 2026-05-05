@@ -73,6 +73,10 @@ ios_replacements.txt
 mobile/.dart_tool/
 mobile/.gradle-user-home/
 mobile/build/
+*.ipa
+*.app.zip
+.codex-ipa-scan/
+.codex-video-review/
 mobile/analysis*.txt
 mobile/analyze*.txt
 mobile/build_*.txt

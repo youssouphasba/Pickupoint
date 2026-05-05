@@ -406,6 +406,13 @@ export async function fetchFinanceReconciliation() {
   return data;
 }
 
+export async function fetchFinanceMonthlySummary(period: string) {
+  const { data } = await api.get("/api/admin/finance/monthly-summary", {
+    params: { period },
+  });
+  return data;
+}
+
 export async function fetchCodMonitoring() {
   const { data } = await api.get("/api/admin/finance/cod-monitoring");
   return data;

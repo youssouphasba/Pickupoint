@@ -43,9 +43,10 @@ final relayHistoryProvider = FutureProvider<List<Parcel>>((ref) async {
 
 /// Provider pour les transactions du portefeuille.
 final relayTransactionsProvider =
-    FutureProvider<List<WalletTransaction>>((ref) async {
+    FutureProvider.family<List<WalletTransaction>, String?>(
+        (ref, period) async {
   final api = ref.watch(apiClientProvider);
-  final res = await api.getTransactions();
+  final res = await api.getTransactions(period: period);
   final data = res.data as Map<String, dynamic>;
   return (data['transactions'] as List? ?? [])
       .map((e) => WalletTransaction.fromJson(e as Map<String, dynamic>))
