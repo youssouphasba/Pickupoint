@@ -31,7 +31,6 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
 
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   bool _isProcessing = false;
-  DateTime? _lastBackendUpdate;
   GoogleMapController? _mapController;
   String? _proofBase64;
   RTCPeerConnection? _callPeerConnection;

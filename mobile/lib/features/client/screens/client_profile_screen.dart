@@ -52,6 +52,8 @@ class ClientProfileScreen extends ConsumerWidget {
                     _buildActionsList(context, ref, user, referralAsync),
                     const SizedBox(height: 40),
                     _buildLogoutButton(ref),
+                    const SizedBox(height: 12),
+                    _buildDeleteAccountButton(context, ref),
                   ],
                 ),
               ),
@@ -632,6 +634,100 @@ class ClientProfileScreen extends ConsumerWidget {
       icon: const Icon(Icons.logout),
       label: const Text('Se déconnecter'),
     );
+  }
+
+  Widget _buildDeleteAccountButton(BuildContext context, WidgetRef ref) {
+    return Center(
+      child: TextButton.icon(
+        style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
+        onPressed: () => _confirmDeleteAccount(context, ref),
+        icon: const Icon(Icons.delete_forever_outlined),
+        label: const Text('Supprimer mon compte'),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteAccount(
+      BuildContext context, WidgetRef ref) async {
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer le compte ?'),
+        content: const Text(
+          'Cette action supprimera votre accès, effacera vos sessions et anonymisera vos informations personnelles. Elle ne peut pas être annulée.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Continuer'),
+          ),
+        ],
+      ),
+    );
+
+    if (firstConfirm != true || !context.mounted) return;
+
+    final controller = TextEditingController();
+    final secondConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmation finale'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tapez SUPPRIMER pour confirmer la suppression.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'SUPPRIMER',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
+            child: const Text('Supprimer définitivement'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (secondConfirm != true || !context.mounted) return;
+
+    try {
+      await ref.read(authProvider.notifier).deleteAccount();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Compte supprimé.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _pickAndUploadImage(BuildContext context, WidgetRef ref) async {

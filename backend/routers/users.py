@@ -46,6 +46,8 @@ MAX_KYC_SIZE = 10 * 1024 * 1024
 PRIVATE_UPLOADS_DIR = UPLOADS_DIR.parent / "private_uploads"
 PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+ACTIVE_DRIVER_MISSION_STATUSES = {"assigned", "in_progress", "incident_reported"}
+FINAL_PARCEL_STATUSES = {"delivered", "cancelled", "expired", "returned"}
 
 
 async def _build_referral_payload(user_doc: dict) -> dict:
@@ -308,6 +310,137 @@ async def update_fcm_token(
         {"$set": {"fcm_token": token, "updated_at": datetime.now(timezone.utc)}},
     )
     return {"message": "Token FCM mis a jour"}
+
+
+@router.delete("/me", summary="Supprimer son compte")
+async def delete_my_account(current_user: dict = Depends(get_current_user)):
+    user_id = current_user["user_id"]
+    now = datetime.now(timezone.utc)
+    deletion_ref = uuid.uuid4().hex[:10]
+    previous_phone = current_user.get("phone")
+    previous_email = current_user.get("email")
+    role = current_user.get("role")
+    relay_id = current_user.get("relay_point_id")
+
+    if role == UserRole.DRIVER.value:
+        active_missions = await db.delivery_missions.count_documents(
+            {
+                "driver_id": user_id,
+                "status": {"$in": list(ACTIVE_DRIVER_MISSION_STATUSES)},
+            }
+        )
+        if active_missions > 0:
+            raise bad_request_exception(
+                "Vous devez terminer ou libérer vos courses en cours avant de supprimer votre compte."
+            )
+
+    if role == UserRole.RELAY_AGENT.value and relay_id:
+        relay_parcels = await db.parcels.count_documents(
+            {
+                "status": {"$nin": list(FINAL_PARCEL_STATUSES)},
+                "$or": [
+                    {"origin_relay_id": relay_id},
+                    {"destination_relay_id": relay_id},
+                    {"redirect_relay_id": relay_id},
+                    {"transit_relay_id": relay_id},
+                ],
+            }
+        )
+        if relay_parcels > 0:
+            raise bad_request_exception(
+                "Votre relais contient encore des colis à traiter. Terminez ou transférez ces colis avant de supprimer votre compte."
+            )
+
+    normalized_phone = None
+    if previous_phone:
+        try:
+            normalized_phone = normalize_phone(previous_phone)
+        except Exception:
+            normalized_phone = previous_phone
+
+    user_update = {
+        "name": "Compte supprimé",
+        "email": f"deleted-{user_id}-{deletion_ref}@denkma.local",
+        "phone": f"+000{deletion_ref[:9]}",
+        "bio": None,
+        "fcm_token": None,
+        "is_active": False,
+        "is_available": False,
+        "is_banned": True,
+        "is_phone_verified": False,
+        "deleted_account": True,
+        "deleted_at": now,
+        "updated_at": now,
+        "account_status": "deleted",
+        "profile_picture_url": None,
+        "profile_picture_status": "deleted",
+        "profile_picture_rejected_reason": None,
+        "profile_picture_reviewed_by": None,
+        "profile_picture_reviewed_at": None,
+        "profile_picture_approved_at": None,
+        "favorite_addresses": [],
+        "notification_prefs": {
+            "push": False,
+            "email": False,
+            "whatsapp": False,
+            "parcel_updates": False,
+            "promotions": False,
+        },
+        "kyc_status": "deleted",
+        "kyc_id_card_url": None,
+        "kyc_license_url": None,
+        "kyc_id_card_path": None,
+        "kyc_license_path": None,
+        "kyc_id_card_content_type": None,
+        "kyc_license_content_type": None,
+    }
+
+    unset_fields = {
+        "pin_hash": "",
+        "pin_failed_attempts": "",
+        "pin_locked_until": "",
+        "referral_code": "",
+        "referred_by": "",
+        "driver_application": "",
+        "relay_application": "",
+    }
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": user_update, "$unset": unset_fields},
+    )
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.notifications.delete_many({"user_id": user_id})
+
+    otp_filters = [{"user_id": user_id}]
+    if previous_phone:
+        otp_filters.append({"phone": previous_phone})
+    if normalized_phone and normalized_phone != previous_phone:
+        otp_filters.append({"phone": normalized_phone})
+    if previous_email:
+        otp_filters.append({"email": previous_email})
+    await db.otps.delete_many({"$or": otp_filters})
+
+    for path_field in ("kyc_id_card_path", "kyc_license_path"):
+        stored_path = current_user.get(path_field)
+        if not stored_path:
+            continue
+        try:
+            path = Path(stored_path)
+            if path.is_file():
+                path.unlink()
+        except OSError:
+            pass
+
+    await _record_event(
+        event_type="USER_ACCOUNT_DELETED",
+        actor_id=user_id,
+        actor_role=current_user.get("role", "client"),
+        notes="Compte supprimé par l'utilisateur",
+        metadata={"user_id": user_id},
+    )
+
+    return {"message": "Compte supprimé"}
 
 
 @router.put("/me/profile", summary="Mise a jour profil (Bio, Email, Prefs)")

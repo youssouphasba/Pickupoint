@@ -100,6 +100,8 @@ class ApiClient {
   Future<Response> updateFcmToken(String token) =>
       _dio.put(ApiEndpoints.updateFcm, data: {'fcm_token': token});
 
+  Future<Response> deleteAccount() => _dio.delete(ApiEndpoints.deleteAccount);
+
   Future<Response> getLoyalty() => _dio.get(ApiEndpoints.loyaltyStats);
 
   Future<Response> getFavoriteAddresses() =>
