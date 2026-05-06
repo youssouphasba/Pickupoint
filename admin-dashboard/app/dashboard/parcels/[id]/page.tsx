@@ -103,7 +103,7 @@ async function fetchParcelDetail(parcelId: string) {
 function formatAddress(address: any): string | null {
   if (!address || typeof address !== "object") return null;
   const seen = new Set<string>();
-  const parts = [
+  const richKeys = [
     "label",
     "formatted_address",
     "address",
@@ -113,9 +113,9 @@ function formatAddress(address: any): string | null {
     "display_name",
     "street",
     "district",
-    "city",
     "notes",
-  ]
+  ];
+  const parts = richKeys
     .map((key) => address[key])
     .filter((value) => typeof value === "string" && value.trim())
     .map((value) => value.trim())
@@ -124,7 +124,18 @@ function formatAddress(address: any): string | null {
       seen.add(value);
       return true;
     });
-  return parts.length ? parts.join(", ") : null;
+  const city = address.city;
+  if (parts.length && typeof city === "string" && city.trim()) {
+    const value = city.trim();
+    if (!seen.has(value)) parts.push(value);
+  }
+  if (parts.length) return parts.join(", ");
+  const lat = address.geopin?.lat;
+  const lng = address.geopin?.lng;
+  if (typeof lat === "number" && typeof lng === "number") {
+    return `Position GPS confirmée (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+  }
+  return null;
 }
 
 function formatRelay(relay: any): string | null {

@@ -31,7 +31,7 @@ def _format_address_label(address: dict | None) -> str | None:
     if not isinstance(address, dict):
         return None
     parts: list[str] = []
-    for key in (
+    rich_keys = (
         "label",
         "formatted_address",
         "address",
@@ -41,14 +41,19 @@ def _format_address_label(address: dict | None) -> str | None:
         "display_name",
         "street",
         "district",
-        "city",
         "notes",
-    ):
+    )
+    for key in rich_keys:
         value = address.get(key)
         if isinstance(value, str) and value.strip():
             value = value.strip()
             if value not in parts:
                 parts.append(value)
+    city = address.get("city")
+    if parts and isinstance(city, str):
+        city = city.strip()
+        if city and city not in parts:
+            parts.append(city)
     return ", ".join(parts) if parts else None
 
 
