@@ -106,6 +106,18 @@ class _AdminParcelAuditScreenState
                       value:
                           '${parcel['recipient_name'] ?? "Inconnu"} (${parcel['recipient_phone'] ?? "-"})',
                     ),
+                    _InfoLine(
+                      label: 'Adresse expéditeur',
+                      value: parcel['origin_address_label'] as String? ??
+                          _locationLabel(parcel['origin_location']) ??
+                          'Non renseignée',
+                    ),
+                    _InfoLine(
+                      label: 'Adresse destinataire',
+                      value: parcel['destination_address_label'] as String? ??
+                          _locationLabel(parcel['delivery_address']) ??
+                          'Non renseignée',
+                    ),
                     if (_locationLabel(parcel['origin_relay']) != null)
                       _InfoLine(
                         label: 'Relais origine',
@@ -120,6 +132,11 @@ class _AdminParcelAuditScreenState
                       _InfoLine(
                         label: 'Relais de repli',
                         value: _locationLabel(parcel['redirect_relay'])!,
+                      ),
+                    if (_locationLabel(parcel['transit_relay']) != null)
+                      _InfoLine(
+                        label: 'Relais de transit',
+                        value: _locationLabel(parcel['transit_relay'])!,
                       ),
                   ],
                 ),
@@ -717,9 +734,28 @@ String? _locationLabel(Object? location) {
   if (location is! Map) {
     return null;
   }
+  final name = location['name'] as String?;
+  final addressLabel = location['address_label'] as String?;
+  if (name != null &&
+      name.isNotEmpty &&
+      addressLabel != null &&
+      addressLabel.isNotEmpty) {
+    return '$name - $addressLabel';
+  }
+  if (addressLabel != null && addressLabel.isNotEmpty) {
+    return addressLabel;
+  }
   final label = location['label'] as String?;
   if (label != null && label.isNotEmpty) {
     return label;
+  }
+  final parts = ['district', 'city']
+      .map((key) => location[key] as String?)
+      .whereType<String>()
+      .where((value) => value.isNotEmpty)
+      .toList();
+  if (parts.isNotEmpty) {
+    return parts.join(', ');
   }
   final relay = location['relay'];
   if (relay is Map) {

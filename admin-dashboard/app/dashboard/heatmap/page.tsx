@@ -1,57 +1,140 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchHeatmap } from "@/lib/api";
-import { Card, CardContent } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Loader2,
+  MapPin,
+  PackageSearch,
+  RadioTower,
+  Route,
+} from "lucide-react";
+import { formatDate } from "@/lib/utils";
 
-type RawPoint = { lat: number; lng: number };
-type Zone = { lat: number; lng: number; count: number; label: string };
+type HeatmapPointType =
+  | "home_pickups"
+  | "home_deliveries"
+  | "relay_points"
+  | "redirect_points"
+  | "transit_points";
 
-/** Group raw GPS points into zones by rounding to ~1 km grid */
-function clusterPoints(points: RawPoint[]): Zone[] {
-  const buckets = new Map<string, { lat: number; lng: number; count: number }>();
-  for (const p of points) {
-    // Round to 2 decimals ≈ ~1km grid
-    const keyLat = Math.round(p.lat * 100) / 100;
-    const keyLng = Math.round(p.lng * 100) / 100;
-    const key = `${keyLat},${keyLng}`;
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.count++;
-      existing.lat = (existing.lat + p.lat) / 2;
-      existing.lng = (existing.lng + p.lng) / 2;
-    } else {
-      buckets.set(key, { lat: p.lat, lng: p.lng, count: 1 });
-    }
-  }
-  return Array.from(buckets.entries()).map(([, v], i) => ({
-    ...v,
-    label: `Zone ${i + 1}`,
-  }));
+type HeatmapParcel = {
+  parcel_id?: string;
+  tracking_code?: string;
+  delivery_mode?: string;
+  created_at?: string;
+};
+
+type HeatmapHotspot = {
+  lat: number;
+  lng: number;
+  label?: string;
+  count: number;
+  type_counts?: Partial<Record<HeatmapPointType, number>>;
+  parcels?: HeatmapParcel[];
+  latest_created_at?: string;
+};
+
+type HeatmapSummary = {
+  parcels_considered?: number;
+  total_points?: number;
+  home_pickups?: number;
+  home_deliveries?: number;
+  relay_points?: number;
+  redirect_points?: number;
+  transit_points?: number;
+};
+
+const POINT_LABELS: Record<HeatmapPointType, string> = {
+  home_pickups: "Collectes domicile",
+  home_deliveries: "Livraisons domicile",
+  relay_points: "Relais",
+  redirect_points: "Redirections relais",
+  transit_points: "Transit relais",
+};
+
+const MODE_LABELS: Record<string, string> = {
+  relay_to_relay: "Relais → Relais",
+  relay_to_home: "Relais → Domicile",
+  home_to_relay: "Domicile → Relais",
+  home_to_home: "Domicile → Domicile",
+};
+
+function plural(value: number, singular: string, pluralLabel: string) {
+  return `${value} ${value > 1 ? pluralLabel : singular}`;
+}
+
+function formatCoordinate(value?: number) {
+  return typeof value === "number" ? value.toFixed(4) : "—";
+}
+
+function dominantType(hotspot: HeatmapHotspot) {
+  const entries = Object.entries(hotspot.type_counts ?? {}) as [
+    HeatmapPointType,
+    number,
+  ][];
+  if (!entries.length) return null;
+  return entries.sort((a, b) => b[1] - a[1])[0][0];
+}
+
+function summaryCards(summary: HeatmapSummary) {
+  return [
+    {
+      label: "Colis analysés",
+      value: summary.parcels_considered ?? 0,
+      icon: PackageSearch,
+      tone: "text-blue-700",
+    },
+    {
+      label: "Points exploitables",
+      value: summary.total_points ?? 0,
+      icon: MapPin,
+      tone: "text-emerald-700",
+    },
+    {
+      label: "Points domicile",
+      value: (summary.home_pickups ?? 0) + (summary.home_deliveries ?? 0),
+      icon: Route,
+      tone: "text-amber-700",
+    },
+    {
+      label: "Points relais",
+      value:
+        (summary.relay_points ?? 0) +
+        (summary.redirect_points ?? 0) +
+        (summary.transit_points ?? 0),
+      icon: RadioTower,
+      tone: "text-purple-700",
+    },
+  ];
 }
 
 export default function HeatmapPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["heatmap"],
+    queryKey: ["heatmap-rich"],
     queryFn: fetchHeatmap,
   });
 
-  const zones = React.useMemo(() => {
-    const raw: RawPoint[] = data?.points ?? [];
-    return clusterPoints(raw).sort((a, b) => b.count - a.count);
-  }, [data]);
-
-  const totalPoints = data?.points?.length ?? 0;
+  const summary: HeatmapSummary = data?.summary ?? {};
+  const hotspots: HeatmapHotspot[] = React.useMemo(
+    () =>
+      (data?.top_hotspots ?? [])
+        .slice()
+        .sort((a: HeatmapHotspot, b: HeatmapHotspot) => b.count - a.count),
+    [data],
+  );
 
   return (
-    <div className="space-y-5 p-8">
-      <div>
+    <div className="space-y-6 p-8">
+      <div className="space-y-1">
         <h1 className="text-2xl font-bold">Heatmap des demandes</h1>
         <p className="text-sm text-muted-foreground">
-          Densité géographique des demandes de livraison pour optimiser le réseau
-          de relais.
+          Vue des secteurs où les collectes, livraisons et relais concentrent le
+          plus d’activité sur les 30 derniers jours.
         </p>
       </div>
 
@@ -60,46 +143,177 @@ export default function HeatmapPage() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       )}
+
       {isError && (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           Erreur de chargement de la heatmap.
         </div>
       )}
 
-      {zones.length === 0 && !isLoading && !isError && (
-        <Card>
-          <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Pas assez de données pour générer la heatmap.
-          </CardContent>
-        </Card>
-      )}
-
-      {zones.length > 0 && (
+      {!isLoading && !isError && (
         <>
-          <p className="text-sm text-muted-foreground">
-            {totalPoints} point{totalPoints > 1 ? "s" : ""} GPS regroupés en{" "}
-            {zones.length} zone{zones.length > 1 ? "s" : ""}. Top zones par
-            volume :
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {zones.slice(0, 20).map((z, i) => (
-              <Card key={i}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{z.label}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {z.lat.toFixed(4)}, {z.lng.toFixed(4)}
-                      </div>
-                    </div>
-                    <div className="text-2xl font-bold text-primary">
-                      {z.count}
-                    </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {summaryCards(summary).map(({ label, value, icon: Icon, tone }) => (
+              <Card key={label}>
+                <CardContent className="flex items-center justify-between p-5">
+                  <div>
+                    <div className="text-sm text-muted-foreground">{label}</div>
+                    <div className="mt-1 text-2xl font-bold">{value}</div>
                   </div>
+                  <Icon className={`h-8 w-8 ${tone}`} />
                 </CardContent>
               </Card>
             ))}
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Répartition par type de point
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-5">
+                {(Object.keys(POINT_LABELS) as HeatmapPointType[]).map(
+                  (key) => (
+                    <div
+                      key={key}
+                      className="rounded-xl border bg-muted/20 p-4"
+                    >
+                      <div className="text-xs text-muted-foreground">
+                        {POINT_LABELS[key]}
+                      </div>
+                      <div className="mt-1 text-xl font-semibold">
+                        {summary[key] ?? 0}
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {hotspots.length === 0 ? (
+            <Card>
+              <CardContent className="p-10 text-center text-sm text-muted-foreground">
+                Aucune donnée GPS exploitable sur les 30 derniers jours.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  Secteurs les plus actifs
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Les secteurs sont nommés à partir des adresses ou relais
+                  connus. Quand aucun nom n’est disponible, les coordonnées
+                  servent de repère.
+                </p>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {hotspots.map((hotspot, index) => {
+                  const type = dominantType(hotspot);
+                  const label =
+                    hotspot.label ||
+                    `${formatCoordinate(hotspot.lat)}, ${formatCoordinate(hotspot.lng)}`;
+                  return (
+                    <Card key={`${hotspot.lat}-${hotspot.lng}-${index}`}>
+                      <CardContent className="space-y-4 p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Badge tone="info">Secteur {index + 1}</Badge>
+                              {type && (
+                                <Badge tone="default">
+                                  {POINT_LABELS[type]}
+                                </Badge>
+                              )}
+                            </div>
+                            <h3 className="mt-2 text-base font-semibold">
+                              {label}
+                            </h3>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {formatCoordinate(hotspot.lat)},{" "}
+                              {formatCoordinate(hotspot.lng)}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-3xl font-bold text-primary">
+                              {hotspot.count}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {plural(hotspot.count, "point", "points")}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {(
+                            Object.entries(hotspot.type_counts ?? {}) as [
+                              HeatmapPointType,
+                              number,
+                            ][]
+                          ).map(([key, value]) => (
+                            <span
+                              key={key}
+                              className="rounded-full bg-muted px-3 py-1 text-xs"
+                            >
+                              {POINT_LABELS[key]} : {value}
+                            </span>
+                          ))}
+                        </div>
+
+                        {(hotspot.parcels?.length ?? 0) > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              Colis récents liés
+                            </div>
+                            <div className="space-y-2">
+                              {hotspot.parcels!.map((parcel) => (
+                                <div
+                                  key={parcel.parcel_id ?? parcel.tracking_code}
+                                  className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm"
+                                >
+                                  <div>
+                                    {parcel.parcel_id ? (
+                                      <Link
+                                        href={`/dashboard/parcels/${parcel.parcel_id}`}
+                                        className="font-mono font-semibold text-primary underline"
+                                      >
+                                        {parcel.tracking_code ??
+                                          parcel.parcel_id}
+                                      </Link>
+                                    ) : (
+                                      <span className="font-mono font-semibold">
+                                        {parcel.tracking_code ?? "Colis"}
+                                      </span>
+                                    )}
+                                    <div className="text-xs text-muted-foreground">
+                                      {MODE_LABELS[
+                                        parcel.delivery_mode ?? ""
+                                      ] ??
+                                        parcel.delivery_mode ??
+                                        "Mode inconnu"}
+                                    </div>
+                                  </div>
+                                  <div className="text-right text-xs text-muted-foreground">
+                                    {parcel.created_at
+                                      ? formatDate(parcel.created_at)
+                                      : "—"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

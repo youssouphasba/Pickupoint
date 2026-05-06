@@ -61,6 +61,28 @@ router = APIRouter()
 PRIVATE_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
 
 
+def _generate_return_code() -> str:
+    return f"{random.randint(100000, 999999)}"
+
+
+async def _ensure_return_code_for_incident(parcel: dict, active_mission: Optional[dict]) -> None:
+    if parcel.get("return_code"):
+        return
+    if parcel.get("status") != ParcelStatus.INCIDENT_REPORTED.value:
+        return
+    if (active_mission or {}).get("status") != "incident_reported":
+        return
+
+    return_code = _generate_return_code()
+    now = datetime.now(timezone.utc)
+    await db.parcels.update_one(
+        {"parcel_id": parcel["parcel_id"]},
+        {"$set": {"return_code": return_code, "updated_at": now}},
+    )
+    parcel["return_code"] = return_code
+    parcel["updated_at"] = now
+
+
 def _is_admin(user: dict) -> bool:
     return user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
 
@@ -75,6 +97,84 @@ def _relay_matches_parcel(parcel: dict, current_user: dict) -> bool:
         parcel.get("redirect_relay_id"),
         parcel.get("transit_relay_id"),
     }
+
+
+def _address_label(address: dict | None) -> Optional[str]:
+    if not isinstance(address, dict):
+        return None
+    parts: list[str] = []
+    for key in ("label", "district", "city"):
+        value = address.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+            if value and value not in parts:
+                parts.append(value)
+    return ", ".join(parts) if parts else None
+
+
+def _relay_detail(relay: dict | None) -> Optional[dict]:
+    if not relay:
+        return None
+    address = relay.get("address") if isinstance(relay.get("address"), dict) else None
+    address_label = _address_label(address)
+    name = relay.get("name")
+    label = None
+    if isinstance(name, str) and name.strip():
+        label = name.strip()
+        if address_label:
+            label = f"{label} - {address_label}"
+    else:
+        label = address_label
+    return {
+        "relay_id": relay.get("relay_id"),
+        "name": relay.get("name"),
+        "phone": relay.get("phone"),
+        "address": address,
+        "address_label": address_label,
+        "label": label,
+    }
+
+
+async def _enrich_admin_parcel_addresses(parcel: dict, active_mission: Optional[dict] = None) -> None:
+    origin_address = parcel.get("origin_location")
+    delivery_address = parcel.get("delivery_address")
+    parcel["origin_address_label"] = _address_label(origin_address)
+    parcel["destination_address_label"] = _address_label(delivery_address)
+
+    if active_mission:
+        parcel["active_pickup_label"] = active_mission.get("pickup_label")
+        parcel["active_delivery_label"] = active_mission.get("delivery_label")
+        parcel["active_pickup_geopin"] = active_mission.get("pickup_geopin")
+        parcel["active_delivery_geopin"] = active_mission.get("delivery_geopin")
+
+    relay_ids = [
+        parcel.get("origin_relay_id"),
+        parcel.get("destination_relay_id"),
+        parcel.get("redirect_relay_id"),
+        parcel.get("transit_relay_id"),
+        (active_mission or {}).get("pickup_relay_id"),
+        (active_mission or {}).get("delivery_relay_id"),
+    ]
+    unique_ids = sorted({relay_id for relay_id in relay_ids if relay_id})
+    if not unique_ids:
+        return
+
+    relays = await db.relay_points.find(
+        {"relay_id": {"$in": unique_ids}},
+        {"_id": 0, "relay_id": 1, "name": 1, "phone": 1, "address": 1},
+    ).to_list(length=len(unique_ids))
+    lookup = {relay["relay_id"]: relay for relay in relays}
+    mapping = {
+        "origin_relay": parcel.get("origin_relay_id"),
+        "destination_relay": parcel.get("destination_relay_id"),
+        "redirect_relay": parcel.get("redirect_relay_id"),
+        "transit_relay": parcel.get("transit_relay_id"),
+        "active_pickup_relay": (active_mission or {}).get("pickup_relay_id"),
+        "active_delivery_relay": (active_mission or {}).get("delivery_relay_id"),
+    }
+    for key, relay_id in mapping.items():
+        if relay_id:
+            parcel[key] = _relay_detail(lookup.get(relay_id))
 
 
 def _build_confirmed_location_payload(payload: LocationConfirmPayload | AddressChangePreviewRequest | AddressChangeApplyRequest, *, source: str) -> dict:
@@ -488,6 +588,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         {
             "_id": 0,
             "driver_id": 1,
+            "status": 1,
             "driver_location": 1,
             "eta_text": 1,
             "distance_text": 1,
@@ -498,8 +599,15 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             "who_pays": 1,
             "pickup_voice_note": 1,
             "delivery_voice_note": 1,
+            "pickup_label": 1,
+            "delivery_label": 1,
+            "pickup_geopin": 1,
+            "delivery_geopin": 1,
+            "pickup_relay_id": 1,
+            "delivery_relay_id": 1,
         },
     )
+    await _ensure_return_code_for_incident(parcel, active_mission)
     if active_mission:
         parcel["driver_location"] = active_mission.get("driver_location")
         parcel["eta_text"] = active_mission.get("eta_text")
@@ -510,6 +618,9 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         parcel["who_pays"] = active_mission.get("who_pays") or parcel.get("who_pays")
         parcel["pickup_voice_note"] = active_mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         parcel["delivery_voice_note"] = active_mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
+
+    if is_admin:
+        await _enrich_admin_parcel_addresses(parcel, active_mission)
 
     driver_id = parcel.get("assigned_driver_id")
     if not driver_id and active_mission:
@@ -1350,6 +1461,12 @@ async def get_parcel_codes(
         raise forbidden_exception("AccÃ¨s refusÃ© Ã  ce colis")
 
     # L'expéditeur ou le relais origine voient le pickup_code
+    active_mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel_id, "status": "incident_reported"},
+        {"_id": 0, "status": 1},
+    )
+    await _ensure_return_code_for_incident(parcel, active_mission)
+
     can_see_pickup = (
         is_admin
         or parcel.get("sender_user_id") == user_id

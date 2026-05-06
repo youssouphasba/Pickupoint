@@ -57,7 +57,10 @@ const STATUS_LABELS: Record<string, string> = {
   suspended: "Suspendu",
 };
 
-const STATUS_TONE: Record<string, "default" | "info" | "success" | "warning" | "danger"> = {
+const STATUS_TONE: Record<
+  string,
+  "default" | "info" | "success" | "warning" | "danger"
+> = {
   delivered: "success",
   in_transit: "info",
   out_for_delivery: "info",
@@ -97,6 +100,29 @@ async function fetchParcelDetail(parcelId: string) {
   return data;
 }
 
+function formatAddress(address: any): string | null {
+  if (!address || typeof address !== "object") return null;
+  const seen = new Set<string>();
+  const parts = ["label", "district", "city"]
+    .map((key) => address[key])
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim())
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  return parts.length ? parts.join(", ") : null;
+}
+
+function formatRelay(relay: any): string | null {
+  if (!relay || typeof relay !== "object") return null;
+  const name = typeof relay.name === "string" ? relay.name.trim() : "";
+  const address = relay.address_label ?? formatAddress(relay.address);
+  if (name && address) return `${name} - ${address}`;
+  return name || address || null;
+}
+
 export default function ParcelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -131,7 +157,9 @@ export default function ParcelDetailPage() {
   const [overrideError, setOverrideError] = React.useState<string | null>(null);
   const [incidentOpen, setIncidentOpen] = React.useState(false);
   const [selectedStatus, setSelectedStatus] = React.useState("created");
-  const [incidentAction, setIncidentAction] = React.useState<"reassign" | "return" | "cancel">("reassign");
+  const [incidentAction, setIncidentAction] = React.useState<
+    "reassign" | "return" | "cancel"
+  >("reassign");
   const [reassignOpen, setReassignOpen] = React.useState(false);
   const [reassignDriverId, setReassignDriverId] = React.useState("");
 
@@ -143,39 +171,67 @@ export default function ParcelDetailPage() {
 
   const confirmPayMut = useMutation({
     mutationFn: () => confirmPayment(id),
-    onSuccess: () => { invalidate(); toast("Paiement confirmé."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Paiement confirmé.");
+    },
   });
 
   const overridePayMut = useMutation({
     mutationFn: (reason: string) => paymentOverride(id, reason),
-    onSuccess: () => { invalidate(); toast("Blocage paiement levé."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Blocage paiement levé.");
+    },
   });
 
   const suspendMut = useMutation({
     mutationFn: () => suspendParcel(id),
-    onSuccess: () => { invalidate(); toast("Colis suspendu."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Colis suspendu.");
+    },
   });
 
   const unsuspendMut = useMutation({
     mutationFn: (toStatus: string) => unsuspendParcel(id, toStatus),
-    onSuccess: () => { invalidate(); toast("Suspension levée."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Suspension levée.");
+    },
   });
 
   const overrideMut = useMutation({
     mutationFn: ({ status, notes }: { status: string; notes: string }) =>
       overrideParcelStatus(id, status, notes),
-    onSuccess: () => { invalidate(); toast("Statut forcé."); },
+    onSuccess: () => {
+      invalidate();
+      toast("Statut forcé.");
+    },
   });
 
   const incidentMut = useMutation({
-    mutationFn: ({ action, notes }: { action: "reassign" | "return" | "cancel"; notes: string }) =>
-      resolveIncident(id, action, notes),
-    onSuccess: () => { invalidate(); toast("Incident résolu."); },
+    mutationFn: ({
+      action,
+      notes,
+    }: {
+      action: "reassign" | "return" | "cancel";
+      notes: string;
+    }) => resolveIncident(id, action, notes),
+    onSuccess: () => {
+      invalidate();
+      toast("Incident résolu.");
+    },
   });
 
   const reassignMut = useMutation({
-    mutationFn: ({ missionId, driverId }: { missionId: string; driverId: string }) =>
-      reassignMission(missionId, driverId),
+    mutationFn: ({
+      missionId,
+      driverId,
+    }: {
+      missionId: string;
+      driverId: string;
+    }) => reassignMission(missionId, driverId),
     onSuccess: () => {
       invalidate();
       toast("Mission r��assignée.");
@@ -222,46 +278,74 @@ export default function ParcelDetailPage() {
             </Badge>
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {MODE_LABELS[parcel.delivery_mode] ?? parcel.delivery_mode} •
-            Créé le {formatDate(parcel.created_at)} • ID: {parcel.parcel_id}
+            {MODE_LABELS[parcel.delivery_mode] ?? parcel.delivery_mode} • Créé
+            le {formatDate(parcel.created_at)} • ID: {parcel.parcel_id}
           </div>
         </div>
       </div>
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => setConfirmPayOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setConfirmPayOpen(true)}
+        >
           <CreditCard className="h-4 w-4" />
           Confirmer paiement
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setOverridePayOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOverridePayOpen(true)}
+        >
           <CheckCircle2 className="h-4 w-4" />
           Lever blocage paiement
         </Button>
         {parcel.status !== "suspended" ? (
-          <Button variant="destructive" size="sm" onClick={() => setSuspendOpen(true)}>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setSuspendOpen(true)}
+          >
             <Ban className="h-4 w-4" />
             Suspendre
           </Button>
         ) : (
-          <Button variant="outline" size="sm" onClick={() => setUnsuspendOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setUnsuspendOpen(true)}
+          >
             <Play className="h-4 w-4" />
             Lever suspension
           </Button>
         )}
         {parcel.status === "incident_reported" && (
-          <Button variant="outline" size="sm" onClick={() => setIncidentOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIncidentOpen(true)}
+          >
             <ShieldAlert className="h-4 w-4" />
             Résoudre incident
           </Button>
         )}
         {parcel.assigned_driver_id && (
-          <Button variant="outline" size="sm" onClick={() => setReassignOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setReassignOpen(true)}
+          >
             <RefreshCw className="h-4 w-4" />
             Réassigner mission
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={() => setOverrideOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setOverrideOpen(true)}
+        >
           <Zap className="h-4 w-4" />
           Forcer statut
         </Button>
@@ -275,13 +359,26 @@ export default function ParcelDetailPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <Row label="Expéditeur" value={parcel.sender_name ?? "—"} />
-            <Row label="Destinataire" value={parcel.recipient_name ?? parcel.recipient_phone ?? "—"} />
-            <Row label="Tél. destinataire" value={parcel.recipient_phone ?? "—"} />
+            <Row
+              label="Destinataire"
+              value={parcel.recipient_name ?? parcel.recipient_phone ?? "—"}
+            />
+            <Row
+              label="Tél. destinataire"
+              value={parcel.recipient_phone ?? "—"}
+            />
             <Row label="Créé le" value={formatDate(parcel.created_at)} />
-            <Row label="Mode" value={MODE_LABELS[parcel.delivery_mode] ?? "—"} />
+            <Row
+              label="Mode"
+              value={MODE_LABELS[parcel.delivery_mode] ?? "—"}
+            />
             {parcel.is_express && <Row label="Express" value="Oui" />}
-            {parcel.weight_kg != null && <Row label="Poids" value={`${parcel.weight_kg} kg`} />}
-            {parcel.description && <Row label="Description" value={parcel.description} />}
+            {parcel.weight_kg != null && (
+              <Row label="Poids" value={`${parcel.weight_kg} kg`} />
+            )}
+            {parcel.description && (
+              <Row label="Description" value={parcel.description} />
+            )}
           </CardContent>
         </Card>
 
@@ -292,11 +389,17 @@ export default function ParcelDetailPage() {
           <CardContent className="space-y-2 text-sm">
             <Row
               label="Prix devis"
-              value={parcel.quoted_price ? `${xof.format(parcel.quoted_price)} XOF` : "—"}
+              value={
+                parcel.quoted_price
+                  ? `${xof.format(parcel.quoted_price)} XOF`
+                  : "—"
+              }
             />
             <Row
               label="Prix payé"
-              value={parcel.paid_price ? `${xof.format(parcel.paid_price)} XOF` : "—"}
+              value={
+                parcel.paid_price ? `${xof.format(parcel.paid_price)} XOF` : "—"
+              }
             />
             <Row label="Statut paiement" value={parcel.payment_status ?? "—"} />
             <Row
@@ -312,9 +415,83 @@ export default function ParcelDetailPage() {
             <CardTitle className="text-base">Relais</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row label="Relais origine" value={parcel.origin_relay_id ?? "—"} />
-            <Row label="Relais destination" value={parcel.destination_relay_id ?? "—"} />
-            {parcel.relay_pin && <Row label="PIN relais" value={parcel.relay_pin} />}
+            <Row
+              label="Relais origine"
+              value={
+                formatRelay(parcel.origin_relay) ??
+                parcel.origin_relay_id ??
+                "—"
+              }
+            />
+            <Row
+              label="Relais destination"
+              value={
+                formatRelay(parcel.destination_relay) ??
+                parcel.destination_relay_id ??
+                "—"
+              }
+            />
+            <Row
+              label="Relais de repli"
+              value={
+                formatRelay(parcel.redirect_relay) ??
+                parcel.redirect_relay_id ??
+                "—"
+              }
+            />
+            <Row
+              label="Relais de transit"
+              value={
+                formatRelay(parcel.transit_relay) ??
+                parcel.transit_relay_id ??
+                "—"
+              }
+            />
+            {parcel.relay_pin && (
+              <Row label="PIN relais" value={parcel.relay_pin} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Adresses</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Row
+              label="Adresse expéditeur"
+              value={
+                parcel.origin_address_label ??
+                formatAddress(parcel.origin_location) ??
+                parcel.active_pickup_label ??
+                "—"
+              }
+            />
+            <Row
+              label="Adresse destinataire"
+              value={
+                parcel.destination_address_label ??
+                formatAddress(parcel.delivery_address) ??
+                parcel.active_delivery_label ??
+                "—"
+              }
+            />
+            <Row
+              label="Point de collecte actif"
+              value={
+                parcel.active_pickup_label ??
+                formatRelay(parcel.active_pickup_relay) ??
+                "—"
+              }
+            />
+            <Row
+              label="Point de livraison actif"
+              value={
+                parcel.active_delivery_label ??
+                formatRelay(parcel.active_delivery_relay) ??
+                "—"
+              }
+            />
           </CardContent>
         </Card>
 
@@ -324,10 +501,19 @@ export default function ParcelDetailPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <Row label="Code de collecte" value={parcel.pickup_code ?? "—"} />
-            <Row label="Code de livraison" value={parcel.delivery_code ?? "—"} />
+            <Row
+              label="Code de livraison"
+              value={parcel.delivery_code ?? "—"}
+            />
             <Row label="Code retrait relais" value={parcel.relay_pin ?? "—"} />
-            <Row label="Code de retour expéditeur" value={parcel.return_code ?? "—"} />
-            <Row label="Lien destinataire" value={parcel.recipient_confirm_url ?? "—"} />
+            <Row
+              label="Code de retour expéditeur"
+              value={parcel.return_code ?? "—"}
+            />
+            <Row
+              label="Lien destinataire"
+              value={parcel.recipient_confirm_url ?? "—"}
+            />
           </CardContent>
         </Card>
 
@@ -351,7 +537,14 @@ export default function ParcelDetailPage() {
                 )
               }
             />
-            <Row label="Revenus livreur" value={parcel.earn_amount ? `${xof.format(parcel.earn_amount)} XOF` : "—"} />
+            <Row
+              label="Revenus livreur"
+              value={
+                parcel.earn_amount
+                  ? `${xof.format(parcel.earn_amount)} XOF`
+                  : "—"
+              }
+            />
           </CardContent>
         </Card>
       </div>
@@ -372,15 +565,24 @@ export default function ParcelDetailPage() {
                   <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <Badge tone={STATUS_TONE[ev.new_status ?? ev.status] ?? "default"}>
-                        {(ev.event_type ?? ev.new_status ?? "").replace(/_/g, " ")}
+                      <Badge
+                        tone={
+                          STATUS_TONE[ev.new_status ?? ev.status] ?? "default"
+                        }
+                      >
+                        {(ev.event_type ?? ev.new_status ?? "").replace(
+                          /_/g,
+                          " ",
+                        )}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
                         {formatDate(ev.created_at)}
                       </span>
                     </div>
                     {ev.notes && (
-                      <div className="mt-0.5 text-xs text-muted-foreground">{ev.notes}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {ev.notes}
+                      </div>
                     )}
                     {ev.actor_name && (
                       <div className="text-xs text-muted-foreground">
@@ -404,12 +606,11 @@ export default function ParcelDetailPage() {
           <CardContent>
             <div className="max-h-96 space-y-2 overflow-y-auto">
               {audit.data.events.map((ev: any, i: number) => (
-                <div
-                  key={i}
-                  className="rounded-md border p-3 text-sm"
-                >
+                <div key={i} className="rounded-md border p-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <Badge tone="info">{ev.event_type?.replace(/_/g, " ")}</Badge>
+                    <Badge tone="info">
+                      {ev.event_type?.replace(/_/g, " ")}
+                    </Badge>
                     <span className="text-xs text-muted-foreground">
                       {formatDate(ev.created_at)}
                     </span>
@@ -420,7 +621,9 @@ export default function ParcelDetailPage() {
                     </div>
                   )}
                   {ev.notes && (
-                    <div className="mt-1 text-xs text-muted-foreground">{ev.notes}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {ev.notes}
+                    </div>
                   )}
                   {ev.metadata && (
                     <details className="mt-1">
@@ -446,7 +649,9 @@ export default function ParcelDetailPage() {
         title="Confirmer le paiement manuellement"
         description={`Le statut paiement sera forcé à "paid" pour le colis ${parcel.tracking_code}.`}
         confirmLabel="Confirmer paiement"
-        onConfirm={async () => { await confirmPayMut.mutateAsync(); }}
+        onConfirm={async () => {
+          await confirmPayMut.mutateAsync();
+        }}
       />
 
       <ActionModal
@@ -458,7 +663,9 @@ export default function ParcelDetailPage() {
         inputPlaceholder="Ex: paiement reçu hors-ligne, webhook échoué…"
         inputType="textarea"
         confirmLabel="Lever blocage"
-        onConfirm={async (reason) => { await overridePayMut.mutateAsync(reason); }}
+        onConfirm={async (reason) => {
+          await overridePayMut.mutateAsync(reason);
+        }}
       />
 
       <ConfirmModal
@@ -468,14 +675,18 @@ export default function ParcelDetailPage() {
         description="Toutes les actions (collecte, livraison) seront bloquées."
         confirmLabel="Suspendre"
         confirmVariant="destructive"
-        onConfirm={async () => { await suspendMut.mutateAsync(); }}
+        onConfirm={async () => {
+          await suspendMut.mutateAsync();
+        }}
       />
 
       {unsuspendOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-sm rounded-lg border bg-background p-6 shadow-lg">
             <h3 className="mb-2 text-lg font-semibold">Lever la suspension</h3>
-            <p className="mb-4 text-sm text-muted-foreground">Choisir le statut de destination :</p>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Choisir le statut de destination :
+            </p>
             <div className="mb-4 flex flex-wrap gap-2">
               {["created", "out_for_delivery", "in_transit"].map((s) => (
                 <button
@@ -492,7 +703,11 @@ export default function ParcelDetailPage() {
               ))}
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setUnsuspendOpen(false)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setUnsuspendOpen(false)}
+              >
                 Annuler
               </Button>
               <Button
@@ -503,7 +718,9 @@ export default function ParcelDetailPage() {
                   setUnsuspendOpen(false);
                 }}
               >
-                {unsuspendMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {unsuspendMut.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
                 Confirmer
               </Button>
             </div>
@@ -514,7 +731,9 @@ export default function ParcelDetailPage() {
       {overrideOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-lg border bg-background p-6 shadow-lg">
-            <h3 className="mb-2 text-lg font-semibold">Forcer un changement de statut</h3>
+            <h3 className="mb-2 text-lg font-semibold">
+              Forcer un changement de statut
+            </h3>
             <p className="mb-3 text-sm text-muted-foreground">
               Action SuperAdmin. Choisir le nouveau statut :
             </p>
@@ -567,22 +786,30 @@ export default function ParcelDetailPage() {
                 onClick={async () => {
                   const notes = overrideNotes.trim();
                   if (notes.length < 3) {
-                    setOverrideError("Le motif doit contenir au moins 3 caractères.");
+                    setOverrideError(
+                      "Le motif doit contenir au moins 3 caractères.",
+                    );
                     return;
                   }
                   try {
-                    await overrideMut.mutateAsync({ status: selectedStatus, notes });
+                    await overrideMut.mutateAsync({
+                      status: selectedStatus,
+                      notes,
+                    });
                     setOverrideOpen(false);
                     setOverrideError(null);
                     setOverrideNotes("");
                   } catch (err: any) {
                     setOverrideError(
-                      err?.response?.data?.detail ?? "Erreur lors du forçage du statut."
+                      err?.response?.data?.detail ??
+                        "Erreur lors du forçage du statut.",
                     );
                   }
                 }}
               >
-                {overrideMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {overrideMut.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
                 Forcer
               </Button>
             </div>
@@ -593,7 +820,9 @@ export default function ParcelDetailPage() {
       {reassignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-lg border bg-background p-6 shadow-lg">
-            <h3 className="mb-2 text-lg font-semibold">Réassigner la mission</h3>
+            <h3 className="mb-2 text-lg font-semibold">
+              Réassigner la mission
+            </h3>
             <p className="mb-3 text-sm text-muted-foreground">
               Choisir un nouveau livreur pour ce colis.
             </p>
@@ -607,12 +836,17 @@ export default function ParcelDetailPage() {
                 .filter((d: any) => d.user_id !== parcel.assigned_driver_id)
                 .map((d: any) => (
                   <option key={d.user_id} value={d.user_id}>
-                    {d.name ?? d.full_name ?? d.phone} — {d.missions_count ?? 0} missions
+                    {d.name ?? d.full_name ?? d.phone} — {d.missions_count ?? 0}{" "}
+                    missions
                   </option>
                 ))}
             </select>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setReassignOpen(false)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReassignOpen(false)}
+              >
                 Annuler
               </Button>
               <Button
@@ -620,7 +854,8 @@ export default function ParcelDetailPage() {
                 disabled={!reassignDriverId || reassignMut.isPending}
                 onClick={async () => {
                   const activeMission = audit.data?.missions?.find(
-                    (m: any) => m.status === "assigned" || m.status === "in_progress"
+                    (m: any) =>
+                      m.status === "assigned" || m.status === "in_progress",
                   );
                   if (!activeMission) {
                     toast("Aucune mission active trouvée.", "error");
@@ -632,13 +867,16 @@ export default function ParcelDetailPage() {
                   });
                 }}
               >
-                {reassignMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {reassignMut.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
                 Réassigner
               </Button>
             </div>
             {reassignMut.isError && (
               <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {(reassignMut.error as any)?.response?.data?.detail ?? "Erreur lors de la réassignation."}
+                {(reassignMut.error as any)?.response?.data?.detail ??
+                  "Erreur lors de la réassignation."}
               </div>
             )}
           </div>
@@ -660,7 +898,11 @@ export default function ParcelDetailPage() {
                       : "border-input bg-background hover:bg-accent"
                   }`}
                 >
-                  {a === "reassign" ? "Réassigner" : a === "return" ? "Retour envoyeur" : "Annuler"}
+                  {a === "reassign"
+                    ? "Réassigner"
+                    : a === "return"
+                      ? "Retour envoyeur"
+                      : "Annuler"}
                 </button>
               ))}
             </div>
@@ -671,19 +913,33 @@ export default function ParcelDetailPage() {
               placeholder="Notes…"
             />
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setIncidentOpen(false)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIncidentOpen(false)}
+              >
                 Annuler
               </Button>
               <Button
                 size="sm"
                 disabled={incidentMut.isPending}
                 onClick={async () => {
-                  const notes = (document.getElementById("incident-notes") as HTMLTextAreaElement)?.value ?? "";
-                  await incidentMut.mutateAsync({ action: incidentAction, notes: notes.trim() });
+                  const notes =
+                    (
+                      document.getElementById(
+                        "incident-notes",
+                      ) as HTMLTextAreaElement
+                    )?.value ?? "";
+                  await incidentMut.mutateAsync({
+                    action: incidentAction,
+                    notes: notes.trim(),
+                  });
                   setIncidentOpen(false);
                 }}
               >
-                {incidentMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {incidentMut.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
                 Résoudre
               </Button>
             </div>

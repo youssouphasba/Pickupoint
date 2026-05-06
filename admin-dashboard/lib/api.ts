@@ -1,8 +1,6 @@
 import axios from "axios";
 
-const baseURL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.denkma.com";
+const baseURL = process.env.NEXT_PUBLIC_API_URL || "https://api.denkma.com";
 
 const TOKEN_KEY = "denkma_admin_token";
 
@@ -43,7 +41,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 export type AdminMe = {
@@ -105,7 +103,7 @@ export async function fetchUsers(params: {
 }) {
   const { data } = await api.get<{ users: AdminUser[]; total: number }>(
     "/api/admin/users",
-    { params }
+    { params },
   );
   return data;
 }
@@ -132,7 +130,7 @@ export async function unbanUser(userId: string, reason: string) {
 export async function moderateProfilePhoto(
   userId: string,
   status: "approved" | "rejected" | "pending",
-  reason?: string
+  reason?: string,
 ) {
   const { data } = await api.patch(`/api/admin/users/${userId}/profile-photo`, {
     status,
@@ -173,7 +171,7 @@ export async function fetchParcels(params: {
 }) {
   const { data } = await api.get<{ parcels: AdminParcel[]; total: number }>(
     "/api/admin/parcels",
-    { params }
+    { params },
   );
   return data;
 }
@@ -196,7 +194,7 @@ export async function fetchPendingPayouts(params?: {
 }) {
   const { data } = await api.get<{ payouts: AdminPayout[] }>(
     "/api/admin/wallets/payouts",
-    { params }
+    { params },
   );
   return data;
 }
@@ -204,7 +202,7 @@ export async function fetchPendingPayouts(params?: {
 export async function approvePayout(payoutId: string, note?: string) {
   const { data } = await api.put(
     `/api/admin/wallets/payouts/${payoutId}/approve`,
-    note ? { note } : {}
+    note ? { note } : {},
   );
   return data;
 }
@@ -212,7 +210,7 @@ export async function approvePayout(payoutId: string, note?: string) {
 export async function rejectPayout(payoutId: string, reason: string) {
   const { data } = await api.put(
     `/api/admin/wallets/payouts/${payoutId}/reject`,
-    { reason }
+    { reason },
   );
   return data;
 }
@@ -285,10 +283,9 @@ export async function fetchWhatsappSupportConversations(params?: {
   q?: string;
   limit?: number;
 }) {
-  const { data } = await api.get<{ conversations: WhatsAppSupportConversation[] }>(
-    "/api/admin/support/whatsapp/conversations",
-    { params }
-  );
+  const { data } = await api.get<{
+    conversations: WhatsAppSupportConversation[];
+  }>("/api/admin/support/whatsapp/conversations", { params });
   return data;
 }
 
@@ -302,29 +299,29 @@ export async function fetchWhatsappSupportConversation(conversationId: string) {
 
 export async function updateWhatsappSupportConversationStatus(
   conversationId: string,
-  status: "open" | "pending" | "resolved"
+  status: "open" | "pending" | "resolved",
 ) {
   const { data } = await api.patch(
     `/api/admin/support/whatsapp/conversations/${conversationId}/status`,
-    { status }
+    { status },
   );
   return data;
 }
 
 export async function sendWhatsappSupportTextReply(
   conversationId: string,
-  text: string
+  text: string,
 ) {
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/reply`,
-    { text }
+    { text },
   );
   return data;
 }
 
 export async function sendWhatsappSupportVoiceReply(
   conversationId: string,
-  blob: Blob
+  blob: Blob,
 ) {
   const formData = new FormData();
   const extension = blob.type.includes("ogg") ? "ogg" : "webm";
@@ -332,7 +329,7 @@ export async function sendWhatsappSupportVoiceReply(
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/voice`,
     formData,
-    { headers: { "Content-Type": "multipart/form-data" } }
+    { headers: { "Content-Type": "multipart/form-data" } },
   );
   return data;
 }
@@ -343,7 +340,9 @@ export type AdminRelay = {
   relay_id: string;
   name: string;
   city?: string;
-  address?: string | { label?: string; city?: string; geopin?: { lat: number; lng: number } };
+  address?:
+    | string
+    | { label?: string; city?: string; geopin?: { lat: number; lng: number } };
   latitude?: number;
   longitude?: number;
   is_active: boolean;
@@ -357,7 +356,7 @@ export type AdminRelay = {
 export async function fetchRelays(params?: { active?: boolean }) {
   const { data } = await api.get<{ relay_points: AdminRelay[]; total: number }>(
     "/api/admin/relay-points",
-    { params: { limit: 500, ...params } }
+    { params: { limit: 500, ...params } },
   );
   return data;
 }
@@ -370,10 +369,9 @@ export async function verifyRelay(relayId: string) {
 // ───────────────────────── Drivers ─────────────────────────
 
 export async function fetchDrivers(params?: { active?: boolean }) {
-  const { data } = await api.get<{ drivers: (AdminUser & { missions_count?: number })[] }>(
-    "/api/admin/drivers",
-    { params }
-  );
+  const { data } = await api.get<{
+    drivers: (AdminUser & { missions_count?: number })[];
+  }>("/api/admin/drivers", { params });
   return data;
 }
 
@@ -390,7 +388,7 @@ export async function fetchAnomalies() {
 }
 
 export async function fetchHeatmap() {
-  const { data } = await api.get("/api/admin/analytics/heatmap");
+  const { data } = await api.get("/api/admin/analytics/heatmap-rich");
   return data;
 }
 
@@ -469,7 +467,7 @@ export type OperationalSettingsPayload = {
 };
 
 export async function updateOperationalSettings(
-  body: OperationalSettingsPayload
+  body: OperationalSettingsPayload,
 ) {
   const { data } = await api.put("/api/admin/settings/operational", body);
   return data;
@@ -504,7 +502,7 @@ export type ReferralRoleConfig = {
 
 export async function confirmPayment(parcelId: string) {
   const { data } = await api.post(
-    `/api/admin/parcels/${parcelId}/confirm-payment`
+    `/api/admin/parcels/${parcelId}/confirm-payment`,
   );
   return data;
 }
@@ -512,15 +510,13 @@ export async function confirmPayment(parcelId: string) {
 export async function paymentOverride(parcelId: string, reason: string) {
   const { data } = await api.post(
     `/api/admin/parcels/${parcelId}/payment-override`,
-    { reason }
+    { reason },
   );
   return data;
 }
 
 export async function suspendParcel(parcelId: string) {
-  const { data } = await api.post(
-    `/api/admin/parcels/${parcelId}/suspend`
-  );
+  const { data } = await api.post(`/api/admin/parcels/${parcelId}/suspend`);
   return data;
 }
 
@@ -528,7 +524,7 @@ export async function unsuspendParcel(parcelId: string, toStatus: string) {
   const { data } = await api.post(
     `/api/admin/parcels/${parcelId}/unsuspend`,
     null,
-    { params: { to_status: toStatus } }
+    { params: { to_status: toStatus } },
   );
   return data;
 }
@@ -536,20 +532,18 @@ export async function unsuspendParcel(parcelId: string, toStatus: string) {
 export async function overrideParcelStatus(
   parcelId: string,
   newStatus: string,
-  notes: string
+  notes: string,
 ) {
   const { data } = await api.post(
     `/api/admin/parcels/${parcelId}/override`,
     null,
-    { params: { new_status: newStatus, notes } }
+    { params: { new_status: newStatus, notes } },
   );
   return data;
 }
 
 export async function fetchParcelAudit(parcelId: string) {
-  const { data } = await api.get(
-    `/api/admin/parcels/${parcelId}/audit-rich`
-  );
+  const { data } = await api.get(`/api/admin/parcels/${parcelId}/audit-rich`);
   return data;
 }
 
@@ -558,12 +552,12 @@ export async function fetchParcelAudit(parcelId: string) {
 export async function reassignMission(
   missionId: string,
   newDriverId: string,
-  reason?: string
+  reason?: string,
 ) {
-  const { data } = await api.post(
-    `/api/admin/missions/${missionId}/reassign`,
-    { new_driver_id: newDriverId, reason }
-  );
+  const { data } = await api.post(`/api/admin/missions/${missionId}/reassign`, {
+    new_driver_id: newDriverId,
+    reason,
+  });
   return data;
 }
 
@@ -572,12 +566,12 @@ export async function reassignMission(
 export async function resolveIncident(
   parcelId: string,
   action: "reassign" | "return" | "cancel",
-  notes?: string
+  notes?: string,
 ) {
-  const { data } = await api.post(
-    `/api/admin/incidents/${parcelId}/resolve`,
-    { action, notes }
-  );
+  const { data } = await api.post(`/api/admin/incidents/${parcelId}/resolve`, {
+    action,
+    notes,
+  });
   return data;
 }
 
@@ -611,21 +605,18 @@ export async function assignRelayPoint(userId: string, relayId: string) {
 
 export async function setReferralAccess(
   userId: string,
-  enabledOverride: boolean | null
+  enabledOverride: boolean | null,
 ) {
-  const { data } = await api.put(
-    `/api/admin/users/${userId}/referral-access`,
-    { enabled_override: enabledOverride }
-  );
+  const { data } = await api.put(`/api/admin/users/${userId}/referral-access`, {
+    enabled_override: enabledOverride,
+  });
   return data;
 }
 
 // ───────────────────────── Relay detail ─────────────────────────
 
 export async function fetchRelayDetail(relayId: string) {
-  const { data } = await api.get(
-    `/api/admin/relay-points/${relayId}/detail`
-  );
+  const { data } = await api.get(`/api/admin/relay-points/${relayId}/detail`);
   return data;
 }
 
@@ -638,7 +629,7 @@ export async function fetchLegalDoc(docType: string) {
 
 export async function updateLegalDoc(
   docType: string,
-  body: { title?: string; content: string }
+  body: { title?: string; content: string },
 ) {
   const { data } = await api.put(`/api/legal/${docType}`, body);
   return data;
@@ -647,9 +638,13 @@ export async function updateLegalDoc(
 // ───────────────────────── Rewards ─────────────────────────
 
 export async function triggerMonthlyRewards(period: string) {
-  const { data } = await api.post("/api/admin/recompenses/trigger-monthly", null, {
-    params: { period },
-  });
+  const { data } = await api.post(
+    "/api/admin/recompenses/trigger-monthly",
+    null,
+    {
+      params: { period },
+    },
+  );
   return data;
 }
 
@@ -731,20 +726,22 @@ export type AdminEventsFeed = {
   unread_count: number;
 };
 
-export async function fetchAdminEvents(params: {
-  limit?: number;
-  before?: string;
-  from_date?: string;
-  to_date?: string;
-  unread_only?: boolean;
-} = {}): Promise<AdminEventsFeed> {
+export async function fetchAdminEvents(
+  params: {
+    limit?: number;
+    before?: string;
+    from_date?: string;
+    to_date?: string;
+    unread_only?: boolean;
+  } = {},
+): Promise<AdminEventsFeed> {
   const { data } = await api.get("/api/admin/events", { params });
   return data as AdminEventsFeed;
 }
 
 export async function fetchAdminEventsUnreadCount(): Promise<number> {
   const { data } = await api.get<{ unread_count: number }>(
-    "/api/admin/events/unread-count"
+    "/api/admin/events/unread-count",
   );
   return data.unread_count;
 }

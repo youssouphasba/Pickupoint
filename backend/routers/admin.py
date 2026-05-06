@@ -376,12 +376,14 @@ def _relay_snapshot(relay: dict | None) -> dict | None:
     geopin = _normalize_address_geopin((relay or {}).get("address"))
     if not relay:
         return None
+    address = relay.get("address")
     return {
         "relay_id": relay.get("relay_id"),
         "name": relay.get("name"),
         "phone": relay.get("phone"),
         "opening_hours": relay.get("opening_hours"),
-        "address": relay.get("address"),
+        "address": address,
+        "address_label": _address_label(address),
         "label": _relay_label(relay),
         "geopin": geopin,
     }
@@ -404,6 +406,28 @@ async def _load_relay_lookup(relay_ids: list[str]) -> dict[str, dict[str, Any]]:
     )
     relays = await cursor.to_list(length=len(unique_ids))
     return {relay["relay_id"]: relay for relay in relays}
+
+
+async def _enrich_parcel_addresses(parcel: dict) -> dict[str, dict[str, Any]]:
+    parcel["origin_address_label"] = _address_label(parcel.get("origin_location"))
+    parcel["destination_address_label"] = _address_label(parcel.get("delivery_address"))
+    relay_ids = [
+        parcel.get("origin_relay_id"),
+        parcel.get("destination_relay_id"),
+        parcel.get("redirect_relay_id"),
+        parcel.get("transit_relay_id"),
+    ]
+    relay_lookup = await _load_relay_lookup([relay_id for relay_id in relay_ids if relay_id])
+    mapping = {
+        "origin_relay": parcel.get("origin_relay_id"),
+        "destination_relay": parcel.get("destination_relay_id"),
+        "redirect_relay": parcel.get("redirect_relay_id"),
+        "transit_relay": parcel.get("transit_relay_id"),
+    }
+    for key, relay_id in mapping.items():
+        if relay_id:
+            parcel[key] = _relay_snapshot(relay_lookup.get(relay_id))
+    return relay_lookup
 
 
 def _build_location_snapshot(
@@ -1580,15 +1604,7 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
         if sender:
             parcel["sender_name"] = sender["name"]
 
-    if parcel.get("origin_relay_id"):
-        relay = await db.relay_points.find_one({"relay_id": parcel["origin_relay_id"]}, {"_id": 0, "name": 1})
-        if relay:
-            parcel["origin_relay_name"] = relay["name"]
-
-    if parcel.get("destination_relay_id"):
-        relay = await db.relay_points.find_one({"relay_id": parcel["destination_relay_id"]}, {"_id": 0, "name": 1})
-        if relay:
-            parcel["destination_relay_name"] = relay["name"]
+    relay_lookup = await _enrich_parcel_addresses(parcel)
 
     timeline = await get_parcel_timeline(parcel_id)
     # Enrichir la timeline avec les noms des acteurs si possible
@@ -1609,6 +1625,16 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
             driver = await db.users.find_one({"user_id": m["driver_id"]}, {"_id": 0, "name": 1})
             if driver:
                 m["driver_name"] = driver["name"]
+        for relay_id in [m.get("pickup_relay_id"), m.get("delivery_relay_id")]:
+            if relay_id and relay_id not in relay_lookup:
+                relay = await db.relay_points.find_one(
+                    {"relay_id": relay_id},
+                    {"_id": 0, "relay_id": 1, "name": 1, "phone": 1, "opening_hours": 1, "address": 1},
+                )
+                if relay:
+                    relay_lookup[relay_id] = relay
+        m["pickup"] = _resolve_mission_pickup(parcel, m, relay_lookup)
+        m["delivery"] = _resolve_mission_delivery(parcel, m, relay_lookup)
     
     return {
         "parcel": parcel,
@@ -1868,7 +1894,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
     relay_lookup = await _load_relay_lookup(relay_ids)
 
     points: list[dict[str, Any]] = []
-    hotspots: dict[tuple[float, float, str], dict[str, Any]] = {}
+    hotspots: dict[tuple[float, float], dict[str, Any]] = {}
     summary = {
         "parcels_considered": len(parcels),
         "total_points": 0,
@@ -1882,13 +1908,14 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
     def add_point(*, geopin: dict | None, label: str | None, point_type: str, source: str, parcel: dict, relay: dict | None = None):
         if not geopin:
             return
+        point_label = label or "Point de demande"
         summary["total_points"] += 1
         if point_type in summary:
             summary[point_type] += 1
         point = {
             "lat": geopin["lat"],
             "lng": geopin["lng"],
-            "label": label or "Point demande",
+            "label": point_label,
             "point_type": point_type,
             "source": source,
             "parcel_id": parcel.get("parcel_id"),
@@ -1901,18 +1928,40 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
             point["relay"] = relay_data
         points.append(point)
 
-        key = (round(geopin["lat"], 3), round(geopin["lng"], 3), point_type)
+        key = (round(geopin["lat"], 3), round(geopin["lng"], 3))
         hotspot = hotspots.setdefault(
             key,
             {
                 "lat": geopin["lat"],
                 "lng": geopin["lng"],
-                "label": label or "Zone demande",
-                "point_type": point_type,
+                "label": point_label,
                 "count": 0,
+                "type_counts": {},
+                "sources": {},
+                "parcels": [],
+                "latest_created_at": None,
             },
         )
         hotspot["count"] += 1
+        hotspot["type_counts"][point_type] = hotspot["type_counts"].get(point_type, 0) + 1
+        hotspot["sources"][source] = hotspot["sources"].get(source, 0) + 1
+        if point_label and hotspot.get("label") == "Point de demande":
+            hotspot["label"] = point_label
+        created_at = parcel.get("created_at")
+        if created_at and (
+            hotspot["latest_created_at"] is None
+            or created_at > hotspot["latest_created_at"]
+        ):
+            hotspot["latest_created_at"] = created_at
+        if len(hotspot["parcels"]) < 5:
+            hotspot["parcels"].append(
+                {
+                    "parcel_id": parcel.get("parcel_id"),
+                    "tracking_code": parcel.get("tracking_code"),
+                    "delivery_mode": parcel.get("delivery_mode"),
+                    "created_at": created_at,
+                }
+            )
 
     for parcel in parcels:
         origin_home = _normalize_address_geopin(parcel.get("origin_location"))
