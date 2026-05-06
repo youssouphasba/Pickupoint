@@ -196,6 +196,77 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     );
   }
 
+  Future<void> _deleteAccount() async {
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer le compte ?'),
+        content: const Text(
+          'Cette action supprimera votre accès, effacera vos sessions et anonymisera vos informations personnelles. Elle ne peut pas être annulée.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Continuer'),
+          ),
+        ],
+      ),
+    );
+    if (firstConfirm != true || !mounted) return;
+
+    final controller = TextEditingController();
+    final secondConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmation finale'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tapez SUPPRIMER pour confirmer la suppression.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'SUPPRIMER',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
+            child: const Text('Supprimer définitivement'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (secondConfirm != true || !mounted) return;
+
+    try {
+      await ref.read(authProvider.notifier).deleteAccount();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
@@ -391,6 +462,24 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ),
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                        onPressed: () => ref.read(authProvider.notifier).logout(),
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Se déconnecter'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade800,
+                        ),
+                        onPressed: _deleteAccount,
+                        icon: const Icon(Icons.delete_forever_outlined),
+                        label: const Text('Supprimer mon compte'),
                       ),
                     ],
                   ),

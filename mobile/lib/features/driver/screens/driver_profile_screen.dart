@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/models/delivery_mission.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
@@ -192,6 +193,109 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       _snack('Préférences mises à jour.');
     } catch (e) {
       _snack('Impossible de mettre à jour les préférences: $e', error: true);
+    }
+  }
+
+  bool _hasActiveMission(List<DeliveryMission> missions) {
+    return missions.any((mission) =>
+        mission.status == 'assigned' ||
+        mission.status == 'in_progress' ||
+        mission.status == 'incident_reported');
+  }
+
+  Future<bool> _canLeaveAccount() async {
+    try {
+      final missions = await ref.refresh(myMissionsProvider.future);
+      if (_hasActiveMission(missions)) {
+        _snack(
+          'Terminez ou libérez votre course active avant de quitter votre compte.',
+          error: true,
+        );
+        return false;
+      }
+      return true;
+    } catch (_) {
+      _snack(
+        'Impossible de vérifier vos courses en cours. Réessayez dans un instant.',
+        error: true,
+      );
+      return false;
+    }
+  }
+
+  Future<void> _logout() async {
+    if (!await _canLeaveAccount()) return;
+    if (!mounted) return;
+    await ref.read(authProvider.notifier).logout();
+  }
+
+  Future<void> _deleteAccount() async {
+    if (!await _canLeaveAccount()) return;
+    if (!mounted) return;
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Supprimer le compte ?'),
+        content: const Text(
+          'Cette action supprimera votre accès, effacera vos sessions et anonymisera vos informations personnelles. Elle ne peut pas être annulée.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Continuer'),
+          ),
+        ],
+      ),
+    );
+    if (firstConfirm != true || !mounted) return;
+
+    final controller = TextEditingController();
+    final secondConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmation finale'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tapez SUPPRIMER pour confirmer la suppression.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'SUPPRIMER',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext)
+                .pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
+            child: const Text('Supprimer définitivement'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (secondConfirm != true || !mounted) return;
+
+    try {
+      await ref.read(authProvider.notifier).deleteAccount();
+    } catch (e) {
+      _snack(friendlyError(e), error: true);
     }
   }
 
@@ -484,9 +588,16 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             const SizedBox(height: 16),
             TextButton.icon(
               style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: () => ref.read(authProvider.notifier).logout(),
+              onPressed: _logout,
               icon: const Icon(Icons.logout),
-              label: const Text('Se deconnecter'),
+              label: const Text('Se déconnecter'),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
+              onPressed: _deleteAccount,
+              icon: const Icon(Icons.delete_forever_outlined),
+              label: const Text('Supprimer mon compte'),
             ),
           ],
         ),
