@@ -422,8 +422,10 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     try {
       final client = ApiClient(token: current.accessToken);
       await client.deleteAccount();
-    } finally {
       await logout();
+    } catch (e) {
+      state = AsyncData(current.copyWith(error: _extractError(e)));
+      rethrow;
     }
   }
 
