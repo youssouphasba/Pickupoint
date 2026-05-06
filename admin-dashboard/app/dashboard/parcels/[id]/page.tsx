@@ -103,7 +103,19 @@ async function fetchParcelDetail(parcelId: string) {
 function formatAddress(address: any): string | null {
   if (!address || typeof address !== "object") return null;
   const seen = new Set<string>();
-  const parts = ["label", "district", "city"]
+  const parts = [
+    "label",
+    "formatted_address",
+    "address",
+    "address_line",
+    "full_address",
+    "place_name",
+    "display_name",
+    "street",
+    "district",
+    "city",
+    "notes",
+  ]
     .map((key) => address[key])
     .filter((value) => typeof value === "string" && value.trim())
     .map((value) => value.trim())
@@ -461,8 +473,8 @@ export default function ParcelDetailPage() {
             <Row
               label="Adresse expéditeur"
               value={
-                parcel.origin_address_label ??
                 formatAddress(parcel.origin_location) ??
+                parcel.origin_address_label ??
                 parcel.active_pickup_label ??
                 "—"
               }
@@ -470,8 +482,8 @@ export default function ParcelDetailPage() {
             <Row
               label="Adresse destinataire"
               value={
-                parcel.destination_address_label ??
                 formatAddress(parcel.delivery_address) ??
+                parcel.destination_address_label ??
                 parcel.active_delivery_label ??
                 "—"
               }

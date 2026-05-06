@@ -30,12 +30,26 @@ def _serialize_public_event(event: dict) -> dict:
 def _format_address_label(address: dict | None) -> str | None:
     if not isinstance(address, dict):
         return None
-    return (
-        address.get("label")
-        or address.get("district")
-        or address.get("city")
-        or address.get("notes")
-    )
+    parts: list[str] = []
+    for key in (
+        "label",
+        "formatted_address",
+        "address",
+        "address_line",
+        "full_address",
+        "place_name",
+        "display_name",
+        "street",
+        "district",
+        "city",
+        "notes",
+    ):
+        value = address.get(key)
+        if isinstance(value, str) and value.strip():
+            value = value.strip()
+            if value not in parts:
+                parts.append(value)
+    return ", ".join(parts) if parts else None
 
 
 def _format_dimensions(dimensions: dict | None) -> str | None:

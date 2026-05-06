@@ -350,11 +350,26 @@ def _normalize_address_geopin(address: dict | None) -> dict | None:
 def _address_label(address: dict | None) -> str | None:
     if not isinstance(address, dict):
         return None
-    for key in ("label", "district", "city"):
+    parts: list[str] = []
+    for key in (
+        "label",
+        "formatted_address",
+        "address",
+        "address_line",
+        "full_address",
+        "place_name",
+        "display_name",
+        "street",
+        "district",
+        "city",
+        "notes",
+    ):
         value = address.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+            value = value.strip()
+            if value not in parts:
+                parts.append(value)
+    return ", ".join(parts) if parts else None
 
 
 def _relay_label(relay: dict | None) -> str | None:

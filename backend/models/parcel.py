@@ -192,6 +192,10 @@ class LocationConfirmPayload(BaseModel):
     lng:       float = Field(..., ge=-180, le=180)
     accuracy:  Optional[float] = Field(None, ge=0)
     voice_note: Optional[str]  = None
+    label: Optional[str] = None
+    district: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class AddressChangePreviewRequest(BaseModel):
@@ -199,6 +203,10 @@ class AddressChangePreviewRequest(BaseModel):
     lng: float = Field(..., ge=-180, le=180)
     accuracy: Optional[float] = Field(None, ge=0)
     voice_note: Optional[str] = None
+    label: Optional[str] = None
+    district: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class AddressChangeApplyRequest(AddressChangePreviewRequest):

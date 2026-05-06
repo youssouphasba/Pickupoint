@@ -103,7 +103,19 @@ def _address_label(address: dict | None) -> Optional[str]:
     if not isinstance(address, dict):
         return None
     parts: list[str] = []
-    for key in ("label", "district", "city"):
+    for key in (
+        "label",
+        "formatted_address",
+        "address",
+        "address_line",
+        "full_address",
+        "place_name",
+        "display_name",
+        "street",
+        "district",
+        "city",
+        "notes",
+    ):
         value = address.get(key)
         if isinstance(value, str):
             value = value.strip()
@@ -177,12 +189,39 @@ async def _enrich_admin_parcel_addresses(parcel: dict, active_mission: Optional[
             parcel[key] = _relay_detail(lookup.get(relay_id))
 
 
-def _build_confirmed_location_payload(payload: LocationConfirmPayload | AddressChangePreviewRequest | AddressChangeApplyRequest, *, source: str) -> dict:
+def _payload_text(
+    payload: LocationConfirmPayload | AddressChangePreviewRequest | AddressChangeApplyRequest,
+    key: str,
+) -> Optional[str]:
+    value = getattr(payload, key, None)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _existing_text(address: dict | None, key: str) -> Optional[str]:
+    if not isinstance(address, dict):
+        return None
+    value = address.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _build_confirmed_location_payload(
+    payload: LocationConfirmPayload | AddressChangePreviewRequest | AddressChangeApplyRequest,
+    *,
+    source: str,
+    previous_address: dict | None = None,
+) -> dict:
+    notes = (
+        _payload_text(payload, "notes")
+        or _payload_text(payload, "voice_note")
+        or _existing_text(previous_address, "notes")
+    )
     return {
-        "label": None,
-        "district": None,
-        "city": "Dakar",
-        "notes": None,
+        "label": _payload_text(payload, "label")
+        or _existing_text(previous_address, "label"),
+        "district": _payload_text(payload, "district")
+        or _existing_text(previous_address, "district"),
+        "city": _payload_text(payload, "city") or _existing_text(previous_address, "city"),
+        "notes": notes,
         "geopin": {
             "lat": payload.lat,
             "lng": payload.lng,
@@ -731,7 +770,11 @@ async def confirm_location_authenticated(
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut confirmer la position de livraison")
 
-    location = _build_confirmed_location_payload(payload, source="app_recipient")
+    location = _build_confirmed_location_payload(
+        payload,
+        source="app_recipient",
+        previous_address=parcel.get("delivery_address"),
+    )
 
     updates = {
         "delivery_location":  location,
@@ -801,7 +844,11 @@ async def apply_delivery_address_change(
     if preview["requires_acceptance"] and not payload.accept_surcharge:
         raise bad_request_exception("Ce changement nécessite l'acceptation du surcoût avant application")
 
-    location = _build_confirmed_location_payload(payload, source="app_recipient")
+    location = _build_confirmed_location_payload(
+        payload,
+        source="app_recipient",
+        previous_address=parcel.get("delivery_address"),
+    )
     now = datetime.now(timezone.utc)
     updates = {
         "delivery_location": location,
@@ -883,7 +930,11 @@ async def update_delivery_address(
             **preview,
         }
 
-    location = _build_confirmed_location_payload(payload, source="app_recipient")
+    location = _build_confirmed_location_payload(
+        payload,
+        source="app_recipient",
+        previous_address=parcel.get("delivery_address"),
+    )
     updates = {
         "delivery_location":  location,
         "delivery_address":   location,
@@ -985,7 +1036,16 @@ async def change_delivery_mode(
         updates["delivery_mode"] = new_mode
         updates["destination_relay_id"] = None
         updates["redirect_relay_id"] = None
+        current_delivery_address = (
+            parcel.get("delivery_address")
+            if isinstance(parcel.get("delivery_address"), dict)
+            else {}
+        )
         updates["delivery_address"] = {
+            "label": current_delivery_address.get("label"),
+            "district": current_delivery_address.get("district"),
+            "city": current_delivery_address.get("city"),
+            "notes": current_delivery_address.get("notes"),
             "geopin": {"lat": body.lat, "lng": body.lng},
             "source": "app_recipient_mode_change",
             "confirmed": True,

@@ -3,6 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import {
+  APIProvider,
+  AdvancedMarker,
+  InfoWindow,
+  Map,
+} from "@vis.gl/react-google-maps";
 import { fetchHeatmap } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -79,6 +85,11 @@ const PERIOD_OPTIONS = [
 ];
 
 const LIMIT_OPTIONS = [10, 20, 50, 100];
+const DEFAULT_MAP_CENTER = {
+  lat: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LAT ?? "14.7167"),
+  lng: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LNG ?? "-17.4677"),
+};
+const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "denkma-heatmap";
 
 const MODE_LABELS: Record<string, string> = {
   relay_to_relay: "Relais → Relais",
@@ -143,10 +154,67 @@ function periodLabel(days: number) {
   );
 }
 
+function HeatmapPopup({ hotspot }: { hotspot: HeatmapHotspot }) {
+  const type = dominantType(hotspot);
+  const label =
+    hotspot.label ||
+    `${formatCoordinate(hotspot.lat)}, ${formatCoordinate(hotspot.lng)}`;
+
+  return (
+    <div className="min-w-[260px] space-y-3 p-1 text-sm">
+      <div>
+        <div className="font-semibold text-slate-950">{label}</div>
+        <div className="mt-1 text-xs text-slate-500">
+          {formatCoordinate(hotspot.lat)}, {formatCoordinate(hotspot.lng)}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {type && (
+          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+            {POINT_LABELS[type]}
+          </span>
+        )}
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+          {plural(hotspot.count, "point", "points")}
+        </span>
+      </div>
+      {(hotspot.parcels?.length ?? 0) > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Colis liés
+          </div>
+          <div className="space-y-1">
+            {hotspot.parcels!.slice(0, 3).map((parcel) =>
+              parcel.parcel_id ? (
+                <Link
+                  key={parcel.parcel_id}
+                  href={`/dashboard/parcels/${parcel.parcel_id}`}
+                  className="block rounded-md border border-slate-200 px-2 py-1 font-mono text-xs font-semibold text-blue-700 underline"
+                >
+                  {parcel.tracking_code ?? parcel.parcel_id}
+                </Link>
+              ) : (
+                <div
+                  key={parcel.tracking_code}
+                  className="rounded-md border border-slate-200 px-2 py-1 font-mono text-xs font-semibold text-slate-700"
+                >
+                  {parcel.tracking_code ?? "Colis"}
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HeatmapPage() {
   const [days, setDays] = React.useState(30);
   const [pointType, setPointType] = React.useState<HeatmapPointFilter>("all");
   const [limit, setLimit] = React.useState(20);
+  const [selectedHotspot, setSelectedHotspot] =
+    React.useState<HeatmapHotspot | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["heatmap-rich", days, pointType, limit],
@@ -169,6 +237,10 @@ export default function HeatmapPage() {
   const selectedPointLabel =
     POINT_FILTER_OPTIONS.find((option) => option.value === pointType)?.label ??
     "Tous les points";
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+  const mapCenter = hotspots[0]
+    ? { lat: hotspots[0].lat, lng: hotspots[0].lng }
+    : DEFAULT_MAP_CENTER;
 
   return (
     <div className="space-y-6 p-8">
@@ -244,6 +316,65 @@ export default function HeatmapPage() {
 
       {!isLoading && !isError && (
         <>
+          {!mapsApiKey ? (
+            <Card>
+              <CardContent className="p-6 text-sm text-amber-700">
+                Clé Google Maps manquante : définissez{" "}
+                <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">
+                  NEXT_PUBLIC_GOOGLE_MAPS_KEY
+                </code>{" "}
+                dans l’environnement du dashboard pour afficher la carte.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="overflow-hidden rounded-xl border bg-white">
+              <div className="h-[540px] w-full">
+                <APIProvider apiKey={mapsApiKey}>
+                  <Map
+                    key={`heatmap:${days}:${pointType}:${limit}:${mapCenter.lat}:${mapCenter.lng}`}
+                    mapId={MAP_ID}
+                    defaultCenter={mapCenter}
+                    defaultZoom={hotspots.length ? 11 : 6}
+                    gestureHandling="greedy"
+                    disableDefaultUI={false}
+                  >
+                    {hotspots.map((hotspot, index) => {
+                      const type = dominantType(hotspot);
+                      return (
+                        <AdvancedMarker
+                          key={`hotspot:${hotspot.lat}:${hotspot.lng}:${index}`}
+                          position={{ lat: hotspot.lat, lng: hotspot.lng }}
+                          onClick={() => setSelectedHotspot(hotspot)}
+                        >
+                          <div className="flex h-12 min-w-12 items-center justify-center rounded-full border-2 border-white bg-primary px-3 text-sm font-bold text-primary-foreground shadow-lg">
+                            {hotspot.count}
+                          </div>
+                          {type && (
+                            <div className="mt-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium shadow">
+                              {POINT_LABELS[type]}
+                            </div>
+                          )}
+                        </AdvancedMarker>
+                      );
+                    })}
+
+                    {selectedHotspot && (
+                      <InfoWindow
+                        position={{
+                          lat: selectedHotspot.lat,
+                          lng: selectedHotspot.lng,
+                        }}
+                        onCloseClick={() => setSelectedHotspot(null)}
+                      >
+                        <HeatmapPopup hotspot={selectedHotspot} />
+                      </InfoWindow>
+                    )}
+                  </Map>
+                </APIProvider>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {summaryCards(summary).map(({ label, value, icon: Icon, tone }) => (
               <Card key={label}>
