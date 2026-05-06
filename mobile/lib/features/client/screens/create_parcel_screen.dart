@@ -51,7 +51,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   // ── Adresse domicile destination (relay_to_home / home_to_home) ──────────────
   final _addressLabelController = TextEditingController();
   final _addressDistrictController = TextEditingController();
-  String _addressCity = 'Dakar';
+  String? _addressCity;
 
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
   final _weightController = TextEditingController(text: '1.0');
@@ -197,7 +197,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           'district': _addressDistrictController.text.trim().isEmpty
               ? null
               : _addressDistrictController.text.trim(),
-          'city': _addressCity,
+          if (_addressCity != null && _addressCity!.trim().isNotEmpty)
+            'city': _addressCity!.trim(),
         };
       }
 
@@ -209,8 +210,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             'lat': _originLat,
             'lng': _originLng,
             'accuracy': _originAccuracy,
-          },
-          'city': 'Dakar',
+          }
         };
       }
 
@@ -641,13 +641,14 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               initialValue: _addressCity,
               decoration: const InputDecoration(
                 labelText: 'Ville',
+                hintText: 'Sélectionner une ville',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.location_city),
               ),
               items: ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack']
                   .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                   .toList(),
-              onChanged: (v) => setState(() => _addressCity = v ?? 'Dakar'),
+              onChanged: (v) => setState(() => _addressCity = v),
             ),
             const SizedBox(height: 24),
           ],
@@ -879,7 +880,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     if (_originMode != _OriginMode.gps) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Les favoris servent à indiquer votre point de départ. Choisissez "Domicile" comme origine.'),
+          content: Text(
+              'Les favoris servent à indiquer votre point de départ. Choisissez "Domicile" comme origine.'),
         ),
       );
       return;
@@ -1064,5 +1066,4 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       ),
     );
   }
-
 }

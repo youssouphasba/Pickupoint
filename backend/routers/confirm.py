@@ -26,6 +26,7 @@ from models.parcel import ParcelQuote
 from services.parcel_service import _record_event
 from services.pricing_service import calculate_price
 from services.payment_service import create_payment_link
+from services.google_maps_service import reverse_geocode
 
 router = APIRouter()
 
@@ -588,11 +589,22 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     field_prefix = "delivery" if is_recipient else "pickup"
     reminder_role = "recipient" if is_recipient else "sender"
 
+    previous_location = (
+        parcel.get("delivery_address") if is_recipient else parcel.get("origin_location")
+    ) or {}
+    if not isinstance(previous_location, dict):
+        previous_location = {}
+
+    def _clean_text(value):
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    reverse_address = await reverse_geocode(payload.lat, payload.lng)
+
     location = {
-        "label":    None,
-        "district": None,
-        "city":     "Dakar",
-        "notes":    None,
+        "label":    _clean_text(previous_location.get("label")),
+        "district": _clean_text(previous_location.get("district")),
+        "city":     _clean_text(previous_location.get("city")),
+        "notes":    _clean_text(previous_location.get("notes")),
         "geopin": {
             "lat":      payload.lat,
             "lng":      payload.lng,
@@ -601,6 +613,12 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
         "source":    "gps_recipient" if is_recipient else "gps_sender",
         "confirmed": True,
     }
+    if reverse_address:
+        for key in ("formatted_address", "city", "district", "country", "place_id"):
+            value = _clean_text(reverse_address.get(key))
+            if value and not location.get(key):
+                location[key] = value
+        location["reverse_geocode_source"] = reverse_address.get("source")
 
     updates = {
         f"{field_prefix}_location":  location,

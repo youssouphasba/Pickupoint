@@ -20,6 +20,7 @@ from services.wallet_service import distribute_delivery_revenue
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
 from services.payment_service import create_payment_link
 from services.admin_events_service import AdminEventType, record_admin_event
+from services.google_maps_service import reverse_geocode
 
 import random
 logger = logging.getLogger(__name__)
@@ -32,6 +33,30 @@ def _generate_code() -> str:
 def _generate_delivery_code() -> str:
     """Génère un code numérique à 6 chiffres (delivery_code destinataire domicile)."""
     return f"{random.randint(100000, 999999)}"
+
+
+async def _enrich_location_from_geopin(location: Optional[dict]) -> Optional[dict]:
+    if not isinstance(location, dict):
+        return location
+    geopin = location.get("geopin")
+    if not isinstance(geopin, dict):
+        return location
+    lat = geopin.get("lat")
+    lng = geopin.get("lng")
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return location
+
+    reverse_address = await reverse_geocode(float(lat), float(lng))
+    if not reverse_address:
+        return location
+
+    enriched = dict(location)
+    for key in ("formatted_address", "city", "district", "country", "place_id"):
+        value = reverse_address.get(key)
+        if isinstance(value, str) and value.strip():
+            enriched[key] = value.strip()
+    enriched["reverse_geocode_source"] = reverse_address.get("source")
+    return enriched
 
 # ── Machine d'états ───────────────────────────────────────────────────────────
 ALLOWED_TRANSITIONS: dict[ParcelStatus, list[ParcelStatus]] = {
@@ -331,7 +356,7 @@ async def sync_active_mission_with_parcel(
         or mission.get("delivery_label")
         or "Adresse destinataire"
     )
-    delivery_city = delivery_source.get("city") or mission.get("delivery_city") or "Dakar"
+    delivery_city = delivery_source.get("city") or mission.get("delivery_city") or ""
 
     update_doc = {
         "delivery_geopin": delivery_geopin,
@@ -464,7 +489,7 @@ async def preview_address_change(parcel: dict, lat: float, lng: float, accuracy:
     proposed_location = {
         "label": None,
         "district": None,
-        "city": "Dakar",
+        "city": None,
         "notes": None,
         "geopin": {"lat": lat, "lng": lng, "accuracy": accuracy},
         "source": "app_recipient",
@@ -602,6 +627,10 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     requires_recipient_relay_choice = data.delivery_mode.value.endswith("_to_relay")
     delivery_confirmed = data.delivery_mode.value.endswith("_to_relay")
     pickup_confirmed = has_origin_gps if data.delivery_mode.value.startswith("home_to_") else False
+    delivery_address = data.delivery_address.model_dump() if data.delivery_address else None
+    origin_location = data.origin_location.model_dump() if data.origin_location else None
+    delivery_address = await _enrich_location_from_geopin(delivery_address)
+    origin_location = await _enrich_location_from_geopin(origin_location)
 
     parcel_doc = {
         "parcel_id":             parcel_id,
@@ -616,8 +645,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "origin_relay_id":       data.origin_relay_id,
         "destination_relay_id":  data.destination_relay_id,
         "transit_relay_id":      data.transit_relay_id,
-        "delivery_address":      data.delivery_address.model_dump() if data.delivery_address else None,
-        "origin_location":       data.origin_location.model_dump() if data.origin_location else None,
+        "delivery_address":      delivery_address,
+        "origin_location":       origin_location,
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
@@ -1058,7 +1087,7 @@ async def transition_status(
                             "delivery_type":    "relay",
                             "delivery_relay_id": rid,
                             "delivery_label":   relay.get("name", "Relais de repli"),
-                            "delivery_city":    (relay.get("address") or {}).get("city", "Dakar"),
+                            "delivery_city":    (relay.get("address") or {}).get("city") or "",
                             "delivery_geopin":  (relay.get("address") or {}).get("geopin"),
                             "updated_at":       now
                         }}
@@ -1201,7 +1230,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_type  = "relay"
         pickup_relay_id   = relay_id
         pickup_label = relay["name"] if relay else "Relais de destination"
-        pickup_city  = (relay or {}).get("address", {}).get("city", "Dakar") if relay else "Dakar"
+        pickup_city  = ((relay or {}).get("address") or {}).get("city") or ""
         pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
     elif from_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
         # Livreur vient chercher au relais d'origine (relay_to_home)
@@ -1210,7 +1239,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_type  = "relay"
         pickup_relay_id   = relay_id
         pickup_label = relay["name"] if relay else "Relais d'origine"
-        pickup_city  = (relay or {}).get("address", {}).get("city", "Dakar") if relay else "Dakar"
+        pickup_city  = ((relay or {}).get("address") or {}).get("city") or ""
         pickup_geopin = ((relay or {}).get("address") or {}).get("geopin") if relay else None
     else:
         # Livreur va chercher chez l'expéditeur (HOME_TO_*)
@@ -1218,13 +1247,13 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         pickup_type  = "gps"
         pickup_relay_id   = None
         pickup_label = (pickup_loc.get("label") or pickup_loc.get("notes") or "Position expéditeur")
-        pickup_city  = pickup_loc.get("city", "Dakar")
+        pickup_city  = pickup_loc.get("city") or ""
         pickup_geopin = pickup_loc.get("geopin")
 
     # ── Point de livraison ────────────────────────────────────────────────────
     delivery_addr = _current_delivery_location(parcel)
     delivery_label = (delivery_addr.get("label") or delivery_addr.get("notes") or "Adresse destinataire")
-    delivery_city  = delivery_addr.get("city", "Dakar")
+    delivery_city  = delivery_addr.get("city") or ""
     delivery_geopin = delivery_addr.get("geopin")
     delivery_type   = "gps"
     delivery_relay_id = None
@@ -1242,7 +1271,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             delivery_type   = "relay"
             delivery_relay_id = transit_relay_id
             delivery_label  = f"Transit : {transit_relay['name']}"
-            delivery_city   = (transit_relay.get("address") or {}).get("city", "Dakar")
+            delivery_city   = (transit_relay.get("address") or {}).get("city") or ""
             delivery_geopin = (transit_relay.get("address") or {}).get("geopin")
             logger.info(f"Cible mission : Transit Relay {transit_relay_id}")
 
@@ -1254,7 +1283,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             delivery_type   = "relay"
             delivery_relay_id = dest_relay_id
             delivery_label  = dest_relay.get("name") or "Relais destination"
-            delivery_city   = (dest_relay.get("address") or {}).get("city", "Dakar")
+            delivery_city   = (dest_relay.get("address") or {}).get("city") or ""
             delivery_geopin = (dest_relay.get("address") or {}).get("geopin")
     
     # ── Sécurité : Pour les livraisons à DOMICILE, il faut la confirmation GPS ──

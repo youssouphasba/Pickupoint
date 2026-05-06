@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 from config import settings
 
 GOOGLE_DIRECTIONS_API_URL = "https://maps.googleapis.com/maps/api/directions/json"
+GOOGLE_GEOCODE_API_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 API_KEY = settings.GOOGLE_DIRECTIONS_API_KEY
 
 async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> Optional[Dict]:
@@ -43,4 +44,64 @@ async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: flo
                 return None
     except Exception as e:
         logger.error(f"Failed to call Google Directions API: {e}")
+        return None
+
+
+def _component_value(components: list[dict], *types: str) -> Optional[str]:
+    for component in components:
+        component_types = component.get("types") or []
+        if any(t in component_types for t in types):
+            value = component.get("long_name")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+async def reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
+    if not API_KEY:
+        logger.info("GOOGLE_DIRECTIONS_API_KEY not set — skipping reverse geocoding")
+        return None
+
+    params = {
+        "latlng": f"{lat},{lng}",
+        "language": "fr",
+        "key": API_KEY,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(GOOGLE_GEOCODE_API_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("status") != "OK" or not data.get("results"):
+            logger.warning("Google Geocoding API error: %s", data.get("status"))
+            return None
+
+        result = data["results"][0]
+        components = result.get("address_components") or []
+        city = (
+            _component_value(components, "locality", "postal_town")
+            or _component_value(components, "administrative_area_level_2")
+            or _component_value(components, "administrative_area_level_1")
+        )
+        district = _component_value(
+            components,
+            "sublocality",
+            "sublocality_level_1",
+            "neighborhood",
+        )
+        country = _component_value(components, "country")
+        formatted = result.get("formatted_address")
+
+        return {
+            "formatted_address": formatted.strip() if isinstance(formatted, str) else None,
+            "city": city,
+            "district": district,
+            "country": country,
+            "place_id": result.get("place_id"),
+            "source": "google_reverse_geocode",
+        }
+    except Exception as e:
+        logger.warning("Failed to reverse geocode GPS position: %s", e)
         return None

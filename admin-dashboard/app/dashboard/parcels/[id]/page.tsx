@@ -138,6 +138,61 @@ function formatAddress(address: any): string | null {
   return null;
 }
 
+function formatAddressSummary(address: any): string | null {
+  if (!address || typeof address !== "object") return null;
+  const seen = new Set<string>();
+  const keys = [
+    "formatted_address",
+    "address",
+    "address_line",
+    "full_address",
+    "place_name",
+    "display_name",
+    "label",
+    "street",
+    "district",
+    "city",
+    "country",
+  ];
+  const parts = keys
+    .map((key) => address[key])
+    .filter((value) => typeof value === "string" && value.trim())
+    .map((value) => value.trim())
+    .filter((value) => {
+      const lower = value.toLowerCase();
+      if (seen.has(lower)) return false;
+      seen.add(lower);
+      return true;
+    });
+  if (parts.length === 1 && parts[0] === address.city && address.geopin) {
+    return null;
+  }
+  return parts.length ? parts.join(", ") : null;
+}
+
+function formatGeoPin(geopin: any): string | null {
+  if (!geopin || typeof geopin !== "object") return null;
+  const lat = geopin.lat;
+  const lng = geopin.lng;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function formatAddressLabel(label: any, address: any): string | null {
+  if (typeof label !== "string" || !label.trim()) return null;
+  const value = label.trim();
+  const city = typeof address?.city === "string" ? address.city.trim() : "";
+  const hasPreciseAddress = Boolean(formatAddressSummary(address));
+  if (
+    !hasPreciseAddress &&
+    city &&
+    value.toLowerCase() === city.toLowerCase()
+  ) {
+    return null;
+  }
+  return value;
+}
+
 function formatRelay(relay: any): string | null {
   if (!relay || typeof relay !== "object") return null;
   const name = typeof relay.name === "string" ? relay.name.trim() : "";
@@ -484,8 +539,11 @@ export default function ParcelDetailPage() {
             <Row
               label="Adresse expéditeur"
               value={
-                formatAddress(parcel.origin_location) ??
-                parcel.origin_address_label ??
+                formatAddressSummary(parcel.origin_location) ??
+                formatAddressLabel(
+                  parcel.origin_address_label,
+                  parcel.origin_location,
+                ) ??
                 parcel.active_pickup_label ??
                 "—"
               }
@@ -493,8 +551,11 @@ export default function ParcelDetailPage() {
             <Row
               label="Adresse destinataire"
               value={
-                formatAddress(parcel.delivery_address) ??
-                parcel.destination_address_label ??
+                formatAddressSummary(parcel.delivery_address) ??
+                formatAddressLabel(
+                  parcel.destination_address_label,
+                  parcel.delivery_address,
+                ) ??
                 parcel.active_delivery_label ??
                 "—"
               }
@@ -502,16 +563,16 @@ export default function ParcelDetailPage() {
             <Row
               label="Point de collecte actif"
               value={
-                parcel.active_pickup_label ??
-                formatRelay(parcel.active_pickup_relay) ??
+                formatGeoPin(parcel.active_pickup_geopin) ??
+                formatGeoPin(parcel.origin_location?.geopin) ??
                 "—"
               }
             />
             <Row
               label="Point de livraison actif"
               value={
-                parcel.active_delivery_label ??
-                formatRelay(parcel.active_delivery_relay) ??
+                formatGeoPin(parcel.active_delivery_geopin) ??
+                formatGeoPin(parcel.delivery_address?.geopin) ??
                 "—"
               }
             />

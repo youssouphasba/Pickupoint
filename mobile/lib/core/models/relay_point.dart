@@ -22,7 +22,7 @@ class RelayPoint {
   final String phone;
   final String? description;
   final Map<String, dynamic>? openingHours;
-  final String addressLabel; // address.label ou address.district
+  final String addressLabel;
   final String city;
   final String agentId;
   final double? lat;
@@ -34,7 +34,6 @@ class RelayPoint {
   final bool isActive;
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
-    // address est un objet { label, city, district, geopin: {lat, lng} }
     final rawAddress = json['address'];
     final addr = rawAddress is Map<String, dynamic>
         ? rawAddress
@@ -57,7 +56,7 @@ class RelayPoint {
           addr['district'] as String? ??
           addr['city'] as String? ??
           '',
-      city: addr['city'] as String? ?? 'Dakar',
+      city: addr['city'] as String? ?? '',
       district: addr['district'] as String?,
       agentId: json['owner_user_id'] as String? ?? '',
       lat: (geopin?['lat'] as num?)?.toDouble(),
@@ -72,7 +71,11 @@ class RelayPoint {
   int get availableSlots => capacity - currentStock;
   bool get isFull => currentStock >= capacity;
 
-  /// Affichage dans les dropdowns
-  String get displayName =>
-      district != null ? '$name — $district, $city' : '$name — $city';
+  String get displayName {
+    final parts = [
+      if (district != null && district!.trim().isNotEmpty) district!.trim(),
+      if (city.trim().isNotEmpty) city.trim(),
+    ];
+    return parts.isEmpty ? name : '$name — ${parts.join(', ')}';
+  }
 }

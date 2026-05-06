@@ -51,6 +51,6 @@ class GeoPin(BaseModel):
 class Address(BaseModel):
     label:    Optional[str]    = None   # "Quartier Plateau, près de la mairie"
     geopin:   Optional[GeoPin] = None   # obligatoire pour livraison domicile
-    city:     str              = "Dakar"
+    city:     Optional[str]    = None
     district: Optional[str]   = None   # quartier
     notes:    Optional[str]   = None   # instructions livreur

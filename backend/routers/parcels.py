@@ -55,6 +55,7 @@ from services.parcel_service import (
 from services.pricing_service import calculate_price, _haversine_km
 from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
 from services.wallet_service import credit_wallet, debit_wallet
+from services.google_maps_service import reverse_geocode
 from config import UPLOADS_DIR, settings
 
 router = APIRouter()
@@ -235,6 +236,26 @@ def _build_confirmed_location_payload(
         "source": source,
         "confirmed": True,
     }
+
+
+async def _enrich_confirmed_location(location: dict) -> dict:
+    geopin = location.get("geopin")
+    if not isinstance(geopin, dict):
+        return location
+    lat = geopin.get("lat")
+    lng = geopin.get("lng")
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return location
+    reverse_address = await reverse_geocode(float(lat), float(lng))
+    if not reverse_address:
+        return location
+    enriched = dict(location)
+    for key in ("formatted_address", "city", "district", "country", "place_id"):
+        value = reverse_address.get(key)
+        if isinstance(value, str) and value.strip():
+            enriched[key] = value.strip()
+    enriched["reverse_geocode_source"] = reverse_address.get("source")
+    return enriched
 
 
 def _ensure_relay_action_allowed(parcel: dict, current_user: dict, *allowed_relay_ids: Optional[str]) -> None:
@@ -780,6 +801,7 @@ async def confirm_location_authenticated(
         source="app_recipient",
         previous_address=parcel.get("delivery_address"),
     )
+    location = await _enrich_confirmed_location(location)
 
     updates = {
         "delivery_location":  location,
@@ -854,6 +876,7 @@ async def apply_delivery_address_change(
         source="app_recipient",
         previous_address=parcel.get("delivery_address"),
     )
+    location = await _enrich_confirmed_location(location)
     now = datetime.now(timezone.utc)
     updates = {
         "delivery_location": location,
@@ -940,6 +963,7 @@ async def update_delivery_address(
         source="app_recipient",
         previous_address=parcel.get("delivery_address"),
     )
+    location = await _enrich_confirmed_location(location)
     updates = {
         "delivery_location":  location,
         "delivery_address":   location,
