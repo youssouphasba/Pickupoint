@@ -326,6 +326,7 @@ export default function ParcelDetailPage() {
             <Row label="Code de collecte" value={parcel.pickup_code ?? "—"} />
             <Row label="Code de livraison" value={parcel.delivery_code ?? "—"} />
             <Row label="Code retrait relais" value={parcel.relay_pin ?? "—"} />
+            <Row label="Code de retour expéditeur" value={parcel.return_code ?? "—"} />
             <Row label="Lien destinataire" value={parcel.recipient_confirm_url ?? "—"} />
           </CardContent>
         </Card>

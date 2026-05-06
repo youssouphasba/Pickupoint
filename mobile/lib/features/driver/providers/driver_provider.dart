@@ -7,6 +7,23 @@ import '../../../core/models/wallet.dart';
 /// Utiliser `(lat: null, lng: null)` si GPS indisponible (fallback = toutes les missions).
 typedef DriverLocation = ({double? lat, double? lng});
 
+const activeDriverMissionStatuses = {
+  'assigned',
+  'in_progress',
+  'incident_reported',
+};
+
+bool hasActiveDriverMission(List<DeliveryMission> missions) {
+  return missions.any(
+    (mission) => activeDriverMissionStatuses.contains(mission.status),
+  );
+}
+
+Future<bool> canLeaveDriverAccount(WidgetRef ref) async {
+  final missions = await ref.refresh(myMissionsProvider.future);
+  return !hasActiveDriverMission(missions);
+}
+
 /// Provider pour les missions disponibles, filtrées par proximité si GPS fourni.
 final availableMissionsProvider =
     FutureProvider.family<List<DeliveryMission>, DriverLocation>(

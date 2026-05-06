@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
+import '../../driver/providers/driver_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -51,7 +52,7 @@ class ClientProfileScreen extends ConsumerWidget {
                     const SizedBox(height: 24),
                     _buildActionsList(context, ref, user, referralAsync),
                     const SizedBox(height: 40),
-                    _buildLogoutButton(ref),
+                    _buildLogoutButton(context, ref),
                     const SizedBox(height: 12),
                     _buildDeleteAccountButton(context, ref),
                   ],
@@ -627,10 +628,50 @@ class ClientProfileScreen extends ConsumerWidget {
     }
   }
 
-  Widget _buildLogoutButton(WidgetRef ref) {
+  Future<bool> _canLeaveClientAccount(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final user = ref.read(authProvider).valueOrNull?.user;
+    if (user?.role != 'driver') return true;
+
+    try {
+      final canLeave = await canLeaveDriverAccount(ref);
+      if (canLeave) return true;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Terminez ou libérez votre course active avant de quitter votre compte.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossible de vérifier vos courses en cours. Réessayez dans un instant.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
+  Widget _buildLogoutButton(BuildContext context, WidgetRef ref) {
     return TextButton.icon(
       style: TextButton.styleFrom(foregroundColor: Colors.red),
-      onPressed: () => ref.read(authProvider.notifier).logout(),
+      onPressed: () async {
+        if (!await _canLeaveClientAccount(context, ref)) return;
+        if (!context.mounted) return;
+        await ref.read(authProvider.notifier).logout();
+      },
       icon: const Icon(Icons.logout),
       label: const Text('Se déconnecter'),
     );
@@ -649,6 +690,9 @@ class ClientProfileScreen extends ConsumerWidget {
 
   Future<void> _confirmDeleteAccount(
       BuildContext context, WidgetRef ref) async {
+    if (!await _canLeaveClientAccount(context, ref)) return;
+    if (!context.mounted) return;
+
     final firstConfirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(

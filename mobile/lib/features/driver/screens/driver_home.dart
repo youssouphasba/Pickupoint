@@ -125,14 +125,6 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
 
   DriverLocation get _driverLoc => (lat: _driverLat, lng: _driverLng);
 
-  bool _hasLockedMission(List<DeliveryMission> missions) {
-    return missions.any(
-      (mission) =>
-          mission.status == 'in_progress' ||
-          mission.status == 'incident_reported',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isAvailable =
@@ -140,7 +132,7 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
     final availableAsync = ref.watch(availableMissionsProvider(_driverLoc));
     final myMissionsAsync = ref.watch(myMissionsProvider);
     final myMissions = myMissionsAsync.valueOrNull ?? const <DeliveryMission>[];
-    final hasLockedMission = _hasLockedMission(myMissions);
+    final hasLockedMission = hasActiveDriverMission(myMissions);
     final hasGps = _driverLat != null;
 
     return DefaultTabController(
@@ -184,6 +176,10 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
                     ]),
                   ),
                 const TabBar(
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  indicatorWeight: 3,
                   tabs: [
                     Tab(icon: Icon(Icons.inbox), text: 'Disponibles'),
                     Tab(icon: Icon(Icons.local_shipping), text: 'Mes missions'),

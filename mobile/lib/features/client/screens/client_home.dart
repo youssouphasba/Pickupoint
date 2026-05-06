@@ -42,9 +42,14 @@ class ClientHome extends ConsumerWidget {
             preferredSize: const Size.fromHeight(48),
             child: parcelsAsync.maybeWhen(
               data: (parcels) {
-                final active = parcels.where((p) => !_isTerminal(p.status)).length;
+                final active =
+                    parcels.where((p) => !_isTerminal(p.status)).length;
                 final done = parcels.where((p) => _isTerminal(p.status)).length;
                 return TabBar(
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  indicatorWeight: 3,
                   tabs: [
                     Tab(text: 'En cours${active > 0 ? ' ($active)' : ''}'),
                     Tab(text: 'Terminés${done > 0 ? ' ($done)' : ''}'),
@@ -52,6 +57,10 @@ class ClientHome extends ConsumerWidget {
                 );
               },
               orElse: () => const TabBar(
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.white,
+                indicatorWeight: 3,
                 tabs: [Tab(text: 'En cours'), Tab(text: 'Terminés')],
               ),
             ),
@@ -65,24 +74,29 @@ class ClientHome extends ConsumerWidget {
                 onRefresh: () => ref.refresh(parcelsProvider.future),
                 child: parcelsAsync.when(
                   data: (parcels) {
-                    final active = parcels.where((p) => !_isTerminal(p.status)).toList();
-                    final done = parcels.where((p) => _isTerminal(p.status)).toList();
+                    final active =
+                        parcels.where((p) => !_isTerminal(p.status)).toList();
+                    final done =
+                        parcels.where((p) => _isTerminal(p.status)).toList();
                     return TabBarView(
                       children: [
                         _ParcelList(
                           parcels: active,
                           emptyTitle: 'Aucun colis en cours',
-                          emptySubtitle: 'Vos envois et réceptions actifs apparaîtront ici.',
+                          emptySubtitle:
+                              'Vos envois et réceptions actifs apparaîtront ici.',
                         ),
                         _ParcelList(
                           parcels: done,
                           emptyTitle: 'Aucun colis terminé',
-                          emptySubtitle: 'L\'historique de vos livraisons s\'affichera ici.',
+                          emptySubtitle:
+                              'L\'historique de vos livraisons s\'affichera ici.',
                         ),
                       ],
                     );
                   },
-                  loading: () => const Center(child: CircularProgressIndicator()),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
                   error: (err, _) => ErrorStateView(
                     message: err.toString(),
                     onRetry: () => ref.invalidate(parcelsProvider),
@@ -110,7 +124,6 @@ class ClientHome extends ConsumerWidget {
       'returned',
     }.contains(status);
   }
-
 }
 
 class _ParcelList extends StatelessWidget {
@@ -343,4 +356,3 @@ class _MetaChip extends StatelessWidget {
     );
   }
 }
-

@@ -9,7 +9,6 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/models/delivery_mission.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
@@ -196,17 +195,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     }
   }
 
-  bool _hasActiveMission(List<DeliveryMission> missions) {
-    return missions.any((mission) =>
-        mission.status == 'assigned' ||
-        mission.status == 'in_progress' ||
-        mission.status == 'incident_reported');
-  }
-
   Future<bool> _canLeaveAccount() async {
     try {
-      final missions = await ref.refresh(myMissionsProvider.future);
-      if (_hasActiveMission(missions)) {
+      if (!await canLeaveDriverAccount(ref)) {
         _snack(
           'Terminez ou libérez votre course active avant de quitter votre compte.',
           error: true,

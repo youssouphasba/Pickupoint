@@ -41,6 +41,10 @@ class _PartnershipScreenState extends ConsumerState<PartnershipScreen>
         title: const Text('Devenir partenaire'),
         bottom: TabBar(
           controller: _tabCtrl,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
           tabs: const [
             Tab(icon: Icon(Icons.delivery_dining), text: 'Livreur'),
             Tab(icon: Icon(Icons.store), text: 'Point Relais'),
