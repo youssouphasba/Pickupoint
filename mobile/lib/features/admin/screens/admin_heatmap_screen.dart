@@ -66,58 +66,52 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
             _fitBoundsIfNeeded(hotspotPoints);
           });
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: _HeatmapSummary(summary: summary),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildFilters(),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: points.isEmpty
-                    ? _buildEmptyState()
-                    : Column(
-                        children: [
-                          SizedBox(
-                            height: 300,
-                            child: Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              child: _buildMap(filteredHotspots),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: filteredHotspots.isEmpty
-                                ? const Center(
-                                    child: Text(
-                                      'Aucun point ne correspond à ce filtre.',
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      16,
-                                    ),
-                                    itemCount: filteredHotspots.length,
-                                    separatorBuilder: (_, __) =>
-                                        const SizedBox(height: 10),
-                                    itemBuilder: (context, index) {
-                                      final hotspot = filteredHotspots[index];
-                                      return _HotspotCard(hotspot: hotspot);
-                                    },
-                                  ),
-                          ),
-                        ],
+          if (points.isEmpty) {
+            return _buildEmptyState();
+          }
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final mapHeight =
+                  (constraints.maxHeight * 0.42).clamp(260.0, 360.0);
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  _HeatmapSummary(summary: summary),
+                  const SizedBox(height: 12),
+                  _buildFilters(),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: mapHeight,
+                    child: _buildMap(filteredHotspots),
+                  ),
+                  const SizedBox(height: 16),
+                  if (filteredHotspots.isEmpty)
+                    const _AdminInfoPanel(
+                      icon: Icons.filter_alt_off,
+                      title: 'Aucun point pour ce filtre',
+                      subtitle:
+                          'Changez le type de point pour retrouver les zones actives.',
+                    )
+                  else ...[
+                    Text(
+                      '${filteredHotspots.length} zone(s) affichée(s)',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
                       ),
-              ),
-            ],
+                    ),
+                    const SizedBox(height: 10),
+                    ...filteredHotspots.map(
+                      (hotspot) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _HotspotCard(hotspot: hotspot),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -232,7 +226,8 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
       child: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: CameraPosition(target: cameraTarget, zoom: 12),
+            initialCameraPosition:
+                CameraPosition(target: cameraTarget, zoom: 12),
             onMapCreated: (controller) {
               _mapController = controller;
               final points = hotspots
@@ -247,7 +242,9 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
             myLocationButtonEnabled: false,
             zoomControlsEnabled: true,
             gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-              Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+              Factory<OneSequenceGestureRecognizer>(
+                () => ScaleGestureRecognizer(),
+              ),
             },
           ),
           Positioned(
@@ -264,7 +261,8 @@ class _AdminHeatmapScreenState extends ConsumerState<AdminHeatmapScreen> {
                     .toList();
                 _fitBoundsIfNeeded(points);
               },
-              child: const Icon(Icons.center_focus_strong, color: Colors.black87),
+              child:
+                  const Icon(Icons.center_focus_strong, color: Colors.black87),
             ),
           ),
         ],
@@ -400,6 +398,53 @@ class _HeatmapSummary extends StatelessWidget {
             ),
           )
           .toList(),
+    );
+  }
+}
+
+class _AdminInfoPanel extends StatelessWidget {
+  const _AdminInfoPanel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.black54),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -77,71 +77,70 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
             _fitBoundsIfNeeded(visiblePoints);
           });
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: _FleetSummary(summary: summary),
-              ),
-              Expanded(
-                child: (fleet.isEmpty && idleDrivers.isEmpty)
-                    ? _buildGlobalEmptyState()
-                    : Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _buildSelectionHeader(selectedMission),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            height: 290,
-                            child: Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 16),
-                              child: _buildMap(
-                                fleet,
-                                idleDrivers,
-                                selectedMission,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              itemCount: fleet.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final mission = fleet[index];
-                                return _MissionCard(
-                                  mission: mission,
-                                  isSelected: mission['mission_id'] ==
-                                      _selectedMissionId,
-                                  onSelect: () {
-                                    setState(() {
-                                      _selectedMissionId =
-                                          mission['mission_id'] as String?;
-                                      _lastCameraKey = null;
-                                    });
-                                  },
-                                  onAudit: () {
-                                    final parcelId =
-                                        mission['parcel_id'] as String?;
-                                    if (parcelId == null || parcelId.isEmpty) {
-                                      return;
-                                    }
-                                    context
-                                        .push('/admin/parcels/$parcelId/audit');
-                                  },
-                                );
-                              },
-                            ),
-                          ),
-                        ],
+          if (fleet.isEmpty && idleDrivers.isEmpty) {
+            return _buildGlobalEmptyState();
+          }
+
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final mapHeight =
+                  (constraints.maxHeight * 0.4).clamp(260.0, 350.0);
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  _FleetSummary(summary: summary),
+                  const SizedBox(height: 12),
+                  _buildSelectionHeader(selectedMission),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: mapHeight,
+                    child: _buildMap(fleet, idleDrivers, selectedMission),
+                  ),
+                  const SizedBox(height: 16),
+                  if (fleet.isEmpty)
+                    const _AdminInfoPanel(
+                      icon: Icons.route,
+                      title: 'Aucune mission active',
+                      subtitle:
+                          'Les livreurs hors course restent visibles sur la carte quand leur position est disponible.',
+                    )
+                  else ...[
+                    Text(
+                      '${fleet.length} mission(s) active(s)',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
                       ),
-              ),
-            ],
+                    ),
+                    const SizedBox(height: 10),
+                    ...fleet.map(
+                      (mission) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _MissionCard(
+                          mission: mission,
+                          isSelected:
+                              mission['mission_id'] == _selectedMissionId,
+                          onSelect: () {
+                            setState(() {
+                              _selectedMissionId =
+                                  mission['mission_id'] as String?;
+                              _lastCameraKey = null;
+                            });
+                          },
+                          onAudit: () {
+                            final parcelId = mission['parcel_id'] as String?;
+                            if (parcelId == null || parcelId.isEmpty) {
+                              return;
+                            }
+                            context.push('/admin/parcels/$parcelId/audit');
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -407,7 +406,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
             mapToolbarEnabled: true,
             gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
               Factory<OneSequenceGestureRecognizer>(
-                () => EagerGestureRecognizer(),
+                () => ScaleGestureRecognizer(),
               ),
             },
           ),
@@ -433,7 +432,8 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                 _lastCameraKey = null;
                 _fitBoundsIfNeeded(seedPoints);
               },
-              child: const Icon(Icons.center_focus_strong, color: Colors.black87),
+              child:
+                  const Icon(Icons.center_focus_strong, color: Colors.black87),
             ),
           ),
         ],
@@ -607,6 +607,53 @@ class _FleetSummary extends StatelessWidget {
             ),
           )
           .toList(),
+    );
+  }
+}
+
+class _AdminInfoPanel extends StatelessWidget {
+  const _AdminInfoPanel({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.black54),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1014,10 +1061,9 @@ class _DriverDetailsSheet extends StatelessWidget {
                   CircleAvatar(
                     radius: 26,
                     backgroundColor: Colors.grey.shade200,
-                    backgroundImage:
-                        (photoUrl != null && photoUrl.isNotEmpty)
-                            ? NetworkImage(photoUrl)
-                            : null,
+                    backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                        ? NetworkImage(photoUrl)
+                        : null,
                     child: (photoUrl == null || photoUrl.isEmpty)
                         ? Text(
                             name.isNotEmpty ? name[0].toUpperCase() : '?',
@@ -1075,14 +1121,14 @@ class _DriverDetailsSheet extends StatelessWidget {
                 _SheetRow(
                   icon: Icons.person,
                   label: 'Destinataire : $recipientName',
-                  trailing: (recipientPhone != null &&
-                          recipientPhone.isNotEmpty)
-                      ? IconButton(
-                          onPressed: () => _callNumber(recipientPhone),
-                          icon: const Icon(Icons.call, size: 18),
-                          tooltip: 'Appeler le destinataire',
-                        )
-                      : null,
+                  trailing:
+                      (recipientPhone != null && recipientPhone.isNotEmpty)
+                          ? IconButton(
+                              onPressed: () => _callNumber(recipientPhone),
+                              icon: const Icon(Icons.call, size: 18),
+                              tooltip: 'Appeler le destinataire',
+                            )
+                          : null,
                 ),
               if (!isIdle && (eta != null || distance != null))
                 _SheetRow(
