@@ -387,8 +387,14 @@ export async function fetchAnomalies() {
   return data;
 }
 
-export async function fetchHeatmap() {
-  const { data } = await api.get("/api/admin/analytics/heatmap-rich");
+export async function fetchHeatmap(params?: {
+  days?: number;
+  point_type?: string;
+  limit?: number;
+}) {
+  const { data } = await api.get("/api/admin/analytics/heatmap-rich", {
+    params,
+  });
   return data;
 }
 

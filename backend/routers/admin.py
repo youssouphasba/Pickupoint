@@ -1859,12 +1859,28 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
 
 
 @router.get("/analytics/heatmap-rich", summary="Donnees heatmap des demandes (enrichi)")
-async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
+async def get_heatmap_data_rich(
+    days: int = Query(30, ge=0, le=3650),
+    point_type: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    _admin=Depends(require_admin_dep),
+):
     """Retourne les points GPS utiles, y compris les flux avec relais."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    allowed_point_types = {
+        "home_pickups",
+        "home_deliveries",
+        "relay_points",
+        "redirect_points",
+        "transit_points",
+    }
+    if point_type and point_type not in allowed_point_types:
+        raise bad_request_exception("Type de point heatmap invalide")
 
+    query: dict[str, Any] = {}
+    if days > 0:
+        query["created_at"] = {"$gte": datetime.now(timezone.utc) - timedelta(days=days)}
     parcels_cursor = db.parcels.find(
-        {"created_at": {"$gte": cutoff}},
+        query,
         {
             "_id": 0,
             "parcel_id": 1,
@@ -1895,6 +1911,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
 
     points: list[dict[str, Any]] = []
     hotspots: dict[tuple[float, float], dict[str, Any]] = {}
+    point_type_filter = point_type or "all"
     summary = {
         "parcels_considered": len(parcels),
         "total_points": 0,
@@ -1903,20 +1920,24 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
         "relay_points": 0,
         "redirect_points": 0,
         "transit_points": 0,
+        "days": days,
+        "point_type": point_type_filter,
     }
 
-    def add_point(*, geopin: dict | None, label: str | None, point_type: str, source: str, parcel: dict, relay: dict | None = None):
+    def add_point(*, geopin: dict | None, label: str | None, point_kind: str, source: str, parcel: dict, relay: dict | None = None):
         if not geopin:
+            return
+        if point_type_filter != "all" and point_type_filter != point_kind:
             return
         point_label = label or "Point de demande"
         summary["total_points"] += 1
-        if point_type in summary:
-            summary[point_type] += 1
+        if point_kind in summary:
+            summary[point_kind] += 1
         point = {
             "lat": geopin["lat"],
             "lng": geopin["lng"],
             "label": point_label,
-            "point_type": point_type,
+            "point_type": point_kind,
             "source": source,
             "parcel_id": parcel.get("parcel_id"),
             "tracking_code": parcel.get("tracking_code"),
@@ -1943,7 +1964,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
             },
         )
         hotspot["count"] += 1
-        hotspot["type_counts"][point_type] = hotspot["type_counts"].get(point_type, 0) + 1
+        hotspot["type_counts"][point_kind] = hotspot["type_counts"].get(point_kind, 0) + 1
         hotspot["sources"][source] = hotspot["sources"].get(source, 0) + 1
         if point_label and hotspot.get("label") == "Point de demande":
             hotspot["label"] = point_label
@@ -1969,7 +1990,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
             add_point(
                 geopin=origin_home,
                 label=_address_label(parcel.get("origin_location")) or "Collecte domicile",
-                point_type="home_pickups",
+                point_kind="home_pickups",
                 source="origin_location",
                 parcel=parcel,
             )
@@ -1979,12 +2000,12 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
             add_point(
                 geopin=delivery_home,
                 label=_address_label(parcel.get("delivery_address")) or "Livraison domicile",
-                point_type="home_deliveries",
+                point_kind="home_deliveries",
                 source="delivery_address",
                 parcel=parcel,
             )
 
-        for relay_id, point_type, source in [
+        for relay_id, relay_point_kind, source in [
             (parcel.get("origin_relay_id"), "relay_points", "origin_relay"),
             (parcel.get("destination_relay_id"), "relay_points", "destination_relay"),
             (parcel.get("redirect_relay_id"), "redirect_points", "redirect_relay"),
@@ -1994,7 +2015,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
             add_point(
                 geopin=_normalize_address_geopin((relay or {}).get("address")),
                 label=_relay_label(relay),
-                point_type=point_type,
+                point_kind=relay_point_kind,
                 source=source,
                 parcel=parcel,
                 relay=relay,
@@ -2004,7 +2025,7 @@ async def get_heatmap_data_rich(_admin=Depends(require_admin_dep)):
         hotspots.values(),
         key=lambda item: item["count"],
         reverse=True,
-    )[:12]
+    )[:limit]
 
     return {"points": points, "summary": summary, "top_hotspots": top_hotspots}
 

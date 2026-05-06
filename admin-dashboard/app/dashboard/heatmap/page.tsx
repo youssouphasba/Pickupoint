@@ -22,6 +22,8 @@ type HeatmapPointType =
   | "redirect_points"
   | "transit_points";
 
+type HeatmapPointFilter = HeatmapPointType | "all";
+
 type HeatmapParcel = {
   parcel_id?: string;
   tracking_code?: string;
@@ -47,6 +49,8 @@ type HeatmapSummary = {
   relay_points?: number;
   redirect_points?: number;
   transit_points?: number;
+  days?: number;
+  point_type?: HeatmapPointFilter;
 };
 
 const POINT_LABELS: Record<HeatmapPointType, string> = {
@@ -56,6 +60,25 @@ const POINT_LABELS: Record<HeatmapPointType, string> = {
   redirect_points: "Redirections relais",
   transit_points: "Transit relais",
 };
+
+const POINT_FILTER_OPTIONS: { value: HeatmapPointFilter; label: string }[] = [
+  { value: "all", label: "Tous les points" },
+  { value: "home_pickups", label: POINT_LABELS.home_pickups },
+  { value: "home_deliveries", label: POINT_LABELS.home_deliveries },
+  { value: "relay_points", label: POINT_LABELS.relay_points },
+  { value: "redirect_points", label: POINT_LABELS.redirect_points },
+  { value: "transit_points", label: POINT_LABELS.transit_points },
+];
+
+const PERIOD_OPTIONS = [
+  { value: 7, label: "7 derniers jours" },
+  { value: 30, label: "30 derniers jours" },
+  { value: 90, label: "90 derniers jours" },
+  { value: 365, label: "12 derniers mois" },
+  { value: 0, label: "Tout l’historique" },
+];
+
+const LIMIT_OPTIONS = [10, 20, 50, 100];
 
 const MODE_LABELS: Record<string, string> = {
   relay_to_relay: "Relais → Relais",
@@ -84,7 +107,7 @@ function dominantType(hotspot: HeatmapHotspot) {
 function summaryCards(summary: HeatmapSummary) {
   return [
     {
-      label: "Colis analysés",
+      label: "Colis pris en compte",
       value: summary.parcels_considered ?? 0,
       icon: PackageSearch,
       tone: "text-blue-700",
@@ -113,10 +136,26 @@ function summaryCards(summary: HeatmapSummary) {
   ];
 }
 
+function periodLabel(days: number) {
+  return (
+    PERIOD_OPTIONS.find((option) => option.value === days)?.label ??
+    `${days} jours`
+  );
+}
+
 export default function HeatmapPage() {
+  const [days, setDays] = React.useState(30);
+  const [pointType, setPointType] = React.useState<HeatmapPointFilter>("all");
+  const [limit, setLimit] = React.useState(20);
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["heatmap-rich"],
-    queryFn: fetchHeatmap,
+    queryKey: ["heatmap-rich", days, pointType, limit],
+    queryFn: () =>
+      fetchHeatmap({
+        days,
+        limit,
+        point_type: pointType === "all" ? undefined : pointType,
+      }),
   });
 
   const summary: HeatmapSummary = data?.summary ?? {};
@@ -127,6 +166,9 @@ export default function HeatmapPage() {
         .sort((a: HeatmapHotspot, b: HeatmapHotspot) => b.count - a.count),
     [data],
   );
+  const selectedPointLabel =
+    POINT_FILTER_OPTIONS.find((option) => option.value === pointType)?.label ??
+    "Tous les points";
 
   return (
     <div className="space-y-6 p-8">
@@ -134,9 +176,59 @@ export default function HeatmapPage() {
         <h1 className="text-2xl font-bold">Heatmap des demandes</h1>
         <p className="text-sm text-muted-foreground">
           Vue des secteurs où les collectes, livraisons et relais concentrent le
-          plus d’activité sur les 30 derniers jours.
+          plus d’activité. Filtre actif : {periodLabel(days).toLowerCase()},
+          {` ${selectedPointLabel.toLowerCase()}`}.
         </p>
       </div>
+
+      <Card>
+        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Période</span>
+            <select
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              {PERIOD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Type de point</span>
+            <select
+              value={pointType}
+              onChange={(event) =>
+                setPointType(event.target.value as HeatmapPointFilter)
+              }
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              {POINT_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Secteurs affichés</span>
+            <select
+              value={limit}
+              onChange={(event) => setLimit(Number(event.target.value))}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              {LIMIT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  Top {option}
+                </option>
+              ))}
+            </select>
+          </label>
+        </CardContent>
+      </Card>
 
       {isLoading && (
         <div className="flex h-40 items-center justify-center">
@@ -196,7 +288,7 @@ export default function HeatmapPage() {
           {hotspots.length === 0 ? (
             <Card>
               <CardContent className="p-10 text-center text-sm text-muted-foreground">
-                Aucune donnée GPS exploitable sur les 30 derniers jours.
+                Aucune donnée GPS exploitable pour les filtres sélectionnés.
               </CardContent>
             </Card>
           ) : (
