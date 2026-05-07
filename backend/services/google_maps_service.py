@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -105,3 +105,81 @@ async def reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
     except Exception as e:
         logger.warning("Failed to reverse geocode GPS position: %s", e)
         return None
+
+
+def _suggestion_from_geocode_result(result: dict[str, Any]) -> Optional[dict[str, Any]]:
+    geometry = result.get("geometry") or {}
+    location = geometry.get("location") or {}
+    lat = location.get("lat")
+    lng = location.get("lng")
+    formatted = result.get("formatted_address")
+    if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+        return None
+    if not isinstance(formatted, str) or not formatted.strip():
+        return None
+
+    components = result.get("address_components") or []
+    city = (
+        _component_value(components, "locality", "postal_town")
+        or _component_value(components, "administrative_area_level_2")
+        or _component_value(components, "administrative_area_level_1")
+    )
+    country = _component_value(components, "country")
+    label = formatted.strip()
+    subtitle_parts = [value for value in (city, country) if value]
+
+    return {
+        "label": label,
+        "subtitle": ", ".join(subtitle_parts) if subtitle_parts else None,
+        "lat": float(lat),
+        "lng": float(lng),
+        "place_id": result.get("place_id"),
+        "source": "google_geocode",
+    }
+
+
+async def geocode_address_suggestions(
+    query: str,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    if not API_KEY:
+        logger.info("GOOGLE_DIRECTIONS_API_KEY not set — skipping address suggestions")
+        return []
+
+    cleaned_query = query.strip()
+    if len(cleaned_query) < 3:
+        return []
+
+    params: dict[str, Any] = {
+        "address": cleaned_query,
+        "language": "fr",
+        "key": API_KEY,
+    }
+    if lat is not None and lng is not None:
+        params["bounds"] = f"{lat - 0.5},{lng - 0.5}|{lat + 0.5},{lng + 0.5}"
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(GOOGLE_GEOCODE_API_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        if data.get("status") not in ("OK", "ZERO_RESULTS"):
+            logger.warning(
+                "Google address suggestions error: %s - %s",
+                data.get("status"),
+                data.get("error_message"),
+            )
+            return []
+
+        suggestions = []
+        for result in (data.get("results") or [])[:limit]:
+            suggestion = _suggestion_from_geocode_result(result)
+            if suggestion:
+                suggestions.append(suggestion)
+        return suggestions
+    except Exception as e:
+        logger.warning("Failed to fetch Google address suggestions: %s", e)
+        return []

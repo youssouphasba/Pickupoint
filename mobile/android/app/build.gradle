@@ -33,7 +33,13 @@ if (flutterVersionName == null) {
 
 def mapsApiKey = localProperties.getProperty("google.maps.android.key")
 if (mapsApiKey == null) {
-    mapsApiKey = System.getenv("GOOGLE_MAPS_ANDROID_KEY") ?: ""
+    mapsApiKey = System.getenv("GOOGLE_MAPS_ANDROID_KEY")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY_ANDROID")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY")
+        ?: ""
+}
+if (mapsApiKey.trim().isEmpty()) {
+    throw new GradleException("Google Maps Android key is missing. Set google.maps.android.key in android/local.properties or GOOGLE_MAPS_ANDROID_KEY in the build environment.")
 }
 
 def androidCompileSdk = (System.getenv("ANDROID_COMPILE_SDK") ?: "36").toInteger()

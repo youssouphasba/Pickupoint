@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../core/api/api_endpoints.dart';
+
 class MapPickerResult {
   final LatLng position;
   final String? address;
@@ -35,7 +37,9 @@ class _MapPickerModalState extends State<MapPickerModal> {
 
   final _searchCtrl = TextEditingController();
   final _searchFocus = FocusNode();
-  final _dio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 5), receiveTimeout: const Duration(seconds: 5)));
+  final _dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 5),
+      receiveTimeout: const Duration(seconds: 5)));
   Timer? _debounce;
   List<_PlaceSuggestion> _suggestions = [];
   bool _searching = false;
@@ -73,7 +77,8 @@ class _MapPickerModalState extends State<MapPickerModal> {
         permission = await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+      if (permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse) {
         final pos = await Geolocator.getCurrentPosition();
         _selectedPosition = LatLng(pos.latitude, pos.longitude);
       } else {
@@ -96,16 +101,65 @@ class _MapPickerModalState extends State<MapPickerModal> {
       });
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 350), () => _fetchSuggestions(query));
+    _debounce = Timer(
+        const Duration(milliseconds: 350), () => _fetchSuggestions(query));
   }
 
   Future<void> _fetchSuggestions(String query) async {
     _searchCancel?.cancel();
     _searchCancel = CancelToken();
     setState(() => _searching = true);
+    final biasLat = _selectedPosition?.latitude ?? 14.6928;
+    final biasLon = _selectedPosition?.longitude ?? -17.4467;
     try {
-      final biasLat = _selectedPosition?.latitude ?? 14.6928;
-      final biasLon = _selectedPosition?.longitude ?? -17.4467;
+      final res = await _dio.get(
+        ApiEndpoints.addressSuggestions,
+        queryParameters: {
+          'q': query,
+          'limit': 6,
+          'lat': biasLat,
+          'lng': biasLon,
+        },
+        cancelToken: _searchCancel,
+      );
+      final suggestions = (res.data['suggestions'] as List?) ?? [];
+      final list = suggestions
+          .map<_PlaceSuggestion?>(
+              (s) => _PlaceSuggestion.tryParse(s as Map<String, dynamic>))
+          .whereType<_PlaceSuggestion>()
+          .toList();
+      if (list.isEmpty) {
+        final fallbackList =
+            await _fetchPhotonSuggestions(query, biasLat, biasLon);
+        if (!mounted) return;
+        setState(() {
+          _suggestions = fallbackList;
+          _searching = false;
+        });
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _suggestions = list;
+        _searching = false;
+      });
+    } catch (_) {
+      final fallbackList =
+          await _fetchPhotonSuggestions(query, biasLat, biasLon);
+      if (!mounted) return;
+      setState(() {
+        _suggestions = fallbackList;
+        _searching = false;
+      });
+    }
+  }
+
+  Future<List<_PlaceSuggestion>> _fetchPhotonSuggestions(
+    String query,
+    double biasLat,
+    double biasLon,
+  ) async {
+    try {
       final res = await _dio.get(
         'https://photon.komoot.io/api/',
         queryParameters: {
@@ -115,24 +169,15 @@ class _MapPickerModalState extends State<MapPickerModal> {
           'lat': biasLat,
           'lon': biasLon,
         },
-        cancelToken: _searchCancel,
       );
       final features = (res.data['features'] as List?) ?? [];
-      final list = features
-          .map<_PlaceSuggestion?>((f) => _PlaceSuggestion.tryParse(f as Map<String, dynamic>))
+      return features
+          .map<_PlaceSuggestion?>(
+              (f) => _PlaceSuggestion.tryParse(f as Map<String, dynamic>))
           .whereType<_PlaceSuggestion>()
           .toList();
-      if (!mounted) return;
-      setState(() {
-        _suggestions = list;
-        _searching = false;
-      });
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _suggestions = [];
-        _searching = false;
-      });
+      return [];
     }
   }
 
@@ -156,11 +201,16 @@ class _MapPickerModalState extends State<MapPickerModal> {
     try {
       final res = await _dio.get(
         'https://photon.komoot.io/reverse',
-        queryParameters: {'lat': pos.latitude, 'lon': pos.longitude, 'lang': 'fr'},
+        queryParameters: {
+          'lat': pos.latitude,
+          'lon': pos.longitude,
+          'lang': 'fr'
+        },
       );
       final features = (res.data['features'] as List?) ?? [];
       if (features.isEmpty) return null;
-      final s = _PlaceSuggestion.tryParse(features.first as Map<String, dynamic>);
+      final s =
+          _PlaceSuggestion.tryParse(features.first as Map<String, dynamic>);
       if (s == null) return null;
       return s.subtitle == null || s.subtitle!.isEmpty
           ? s.label
@@ -206,7 +256,8 @@ class _MapPickerModalState extends State<MapPickerModal> {
                       Expanded(
                         child: Text(
                           widget.title,
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ),
                       IconButton(
@@ -232,7 +283,8 @@ class _MapPickerModalState extends State<MapPickerModal> {
                               child: SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               ),
                             )
                           : (_searchCtrl.text.isNotEmpty
@@ -244,8 +296,10 @@ class _MapPickerModalState extends State<MapPickerModal> {
                                   icon: const Icon(Icons.clear),
                                 )
                               : null),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 0),
                     ),
                   ),
                 ),
@@ -270,7 +324,8 @@ class _MapPickerModalState extends State<MapPickerModal> {
                         myLocationButtonEnabled: true,
                         mapToolbarEnabled: false,
                         zoomControlsEnabled: false,
-                        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                        gestureRecognizers: <Factory<
+                            OneSequenceGestureRecognizer>>{
                           Factory<OneSequenceGestureRecognizer>(
                             () => EagerGestureRecognizer(),
                           ),
@@ -300,17 +355,26 @@ class _MapPickerModalState extends State<MapPickerModal> {
                               constraints: const BoxConstraints(maxHeight: 280),
                               child: ListView.separated(
                                 shrinkWrap: true,
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 4),
                                 itemCount: _suggestions.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
                                 itemBuilder: (_, i) {
                                   final s = _suggestions[i];
                                   return ListTile(
                                     dense: true,
-                                    leading: const Icon(Icons.place_outlined, size: 20),
-                                    title: Text(s.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    leading: const Icon(Icons.place_outlined,
+                                        size: 20),
+                                    title: Text(s.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis),
                                     subtitle: s.subtitle != null
-                                        ? Text(s.subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))
+                                        ? Text(s.subtitle!,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style:
+                                                const TextStyle(fontSize: 12))
                                         : null,
                                     onTap: () => _selectSuggestion(s),
                                   );
@@ -330,13 +394,15 @@ class _MapPickerModalState extends State<MapPickerModal> {
                       onPressed: _confirming ? null : _onConfirm,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                       child: _confirming
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
                             )
                           : const Text('Confirmer cette position'),
                     ),
@@ -354,9 +420,31 @@ class _PlaceSuggestion {
   final double lat;
   final double lng;
 
-  _PlaceSuggestion({required this.label, this.subtitle, required this.lat, required this.lng});
+  _PlaceSuggestion(
+      {required this.label,
+      this.subtitle,
+      required this.lat,
+      required this.lng});
 
   static _PlaceSuggestion? tryParse(Map<String, dynamic> feature) {
+    final directLat = feature['lat'];
+    final directLng = feature['lng'];
+    final directLabel = feature['label'];
+    if (directLat is num &&
+        directLng is num &&
+        directLabel is String &&
+        directLabel.trim().isNotEmpty) {
+      final subtitle = feature['subtitle'];
+      return _PlaceSuggestion(
+        label: directLabel.trim(),
+        subtitle: subtitle is String && subtitle.trim().isNotEmpty
+            ? subtitle.trim()
+            : null,
+        lat: directLat.toDouble(),
+        lng: directLng.toDouble(),
+      );
+    }
+
     final geom = feature['geometry'] as Map<String, dynamic>?;
     final coords = geom?['coordinates'] as List?;
     if (coords == null || coords.length < 2) return null;

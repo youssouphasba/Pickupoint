@@ -202,6 +202,7 @@ class ApiEndpoints {
 
   // ─── App Settings (public/admin) ─────────────────────────────────────────
   static const publicSettings = '$_base/api/settings';
+  static const addressSuggestions = '$_base/api/geo/address-suggestions';
 
   // ─── App Settings (admin) ─────────────────────────────────────────────────
   static const adminSettings = '$_base/api/admin/settings';

@@ -17,7 +17,7 @@ from database import connect_db, close_db, db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, legal, app_settings, notifications as notifications_router
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, legal, app_settings, geo, notifications as notifications_router
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -478,6 +478,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(confirm.router, prefix="/confirm", tags=["Confirmation GPS"])  # lien SMS/WhatsApp
 app.include_router(legal.router, prefix="/api/legal", tags=["Legal"])
 app.include_router(app_settings.router, prefix="/api/settings", tags=["App Settings"])
+app.include_router(geo.router, prefix="/api/geo", tags=["Geo"])
 
 # Routers — avec auth
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])

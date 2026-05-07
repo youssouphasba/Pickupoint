@@ -55,12 +55,12 @@ class _FavoriteAddressesScreenState
           ),
           const SizedBox(height: 16),
           Text(
-            'Aucune adresse enregistree',
+            'Aucune adresse enregistrée',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
           ),
           const SizedBox(height: 8),
           const Text(
-            'Gardez vos adresses frequentes pour gagner du temps a la creation.',
+            'Gardez vos adresses fréquentes pour gagner du temps à la création.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey, fontSize: 13),
           ),
@@ -116,15 +116,15 @@ class _FavoriteAddressesScreenState
   void _openAddressDialog({FavoriteAddress? existing}) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final addrCtrl = TextEditingController(text: existing?.address ?? '');
-    LatLng? selectedLatLng = existing == null
-        ? null
-        : LatLng(existing.lat, existing.lng);
+    LatLng? selectedLatLng =
+        existing == null ? null : LatLng(existing.lat, existing.lng);
 
     showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(existing == null ? 'Nouvelle adresse' : 'Modifier l adresse'),
+          title: Text(
+              existing == null ? 'Nouvelle adresse' : 'Modifier l’adresse'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -141,7 +141,7 @@ class _FavoriteAddressesScreenState
                   controller: addrCtrl,
                   maxLines: 2,
                   decoration: const InputDecoration(
-                    labelText: 'Adresse complete',
+                    labelText: 'Adresse complète',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -152,14 +152,16 @@ class _FavoriteAddressesScreenState
                       context: dialogContext,
                       isScrollControlled: true,
                       backgroundColor: Colors.transparent,
-                      builder: (_) => const MapPickerModal(
-                        title: 'Localiser l adresse',
+                      builder: (_) => MapPickerModal(
+                        title: 'Localiser l’adresse',
+                        initialPosition: selectedLatLng,
                       ),
                     );
                     if (result != null) {
                       setDialogState(() {
                         selectedLatLng = result.position;
-                        if (result.address != null && result.address!.isNotEmpty) {
+                        if (result.address != null &&
+                            result.address!.isNotEmpty) {
                           addrCtrl.text = result.address!;
                         }
                       });
@@ -169,10 +171,12 @@ class _FavoriteAddressesScreenState
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: selectedLatLng != null ? Colors.green : Colors.grey,
+                        color:
+                            selectedLatLng != null ? Colors.green : Colors.grey,
                       ),
                       borderRadius: BorderRadius.circular(8),
-                      color: selectedLatLng != null ? Colors.green.shade50 : null,
+                      color:
+                          selectedLatLng != null ? Colors.green.shade50 : null,
                     ),
                     child: Row(
                       children: [
@@ -180,15 +184,16 @@ class _FavoriteAddressesScreenState
                           selectedLatLng != null
                               ? Icons.location_on
                               : Icons.map_outlined,
-                          color:
-                              selectedLatLng != null ? Colors.green : Colors.grey,
+                          color: selectedLatLng != null
+                              ? Colors.green
+                              : Colors.grey,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
                             selectedLatLng != null
-                                ? 'Position selectionnee'
-                                : 'Selectionner sur la carte',
+                                ? 'Position sélectionnée'
+                                : 'Sélectionner sur la carte',
                             style: TextStyle(
                               color: selectedLatLng != null
                                   ? Colors.green.shade700
@@ -232,7 +237,7 @@ class _FavoriteAddressesScreenState
                   _updateAddress(existing.name, name, address, selectedLatLng!);
                 }
               },
-              child: Text(existing == null ? 'Enregistrer' : 'Mettre a jour'),
+              child: Text(existing == null ? 'Enregistrer' : 'Mettre à jour'),
             ),
           ],
         ),
@@ -255,7 +260,7 @@ class _FavoriteAddressesScreenState
       await ref.read(authProvider.notifier).fetchMe();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Adresse "$name" ajoutee')),
+        SnackBar(content: Text('Adresse "$name" ajoutée')),
       );
     } catch (e) {
       _showError(e);
@@ -279,7 +284,7 @@ class _FavoriteAddressesScreenState
       await ref.read(authProvider.notifier).fetchMe();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Adresse "$name" mise a jour')),
+        SnackBar(content: Text('Adresse "$name" mise à jour')),
       );
     } catch (e) {
       _showError(e);
@@ -290,7 +295,7 @@ class _FavoriteAddressesScreenState
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Supprimer l adresse ?'),
+        title: const Text('Supprimer l’adresse ?'),
         content: Text('Voulez-vous vraiment supprimer "${addr.name}" ?'),
         actions: [
           TextButton(
@@ -319,7 +324,7 @@ class _FavoriteAddressesScreenState
       await ref.read(authProvider.notifier).fetchMe();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Adresse "${addr.name}" supprimee')),
+        SnackBar(content: Text('Adresse "${addr.name}" supprimée')),
       );
     } catch (e) {
       _showError(e);
