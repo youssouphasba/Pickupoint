@@ -49,12 +49,16 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           flutter pub get
-      - name: Build Android App Bundle
+      - name: Build Android Shorebird release
         script: |
           #!/usr/bin/env bash
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          flutter build appbundle --release --no-tree-shake-icons
+          if [ -n "${SHOREBIRD_FLUTTER_VERSION:-}" ]; then
+            shorebird release android --flutter-version="$SHOREBIRD_FLUTTER_VERSION" -- --no-tree-shake-icons
+          else
+            shorebird release android -- --no-tree-shake-icons
+          fi
       - name: Build Android APK
         script: |
           #!/usr/bin/env bash
