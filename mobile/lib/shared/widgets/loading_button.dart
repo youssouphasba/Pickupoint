@@ -16,6 +16,13 @@ class LoadingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final foregroundColor = color == null
+        ? null
+        : ThemeData.estimateBrightnessForColor(color!) == Brightness.light
+            ? colorScheme.primary
+            : Colors.white;
+
     return SizedBox(
       width: double.infinity,
       height: 50,
@@ -23,6 +30,9 @@ class LoadingButton extends StatelessWidget {
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
+          foregroundColor: foregroundColor,
+          disabledBackgroundColor: color?.withOpacity(0.85),
+          disabledForegroundColor: foregroundColor?.withOpacity(0.55),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
