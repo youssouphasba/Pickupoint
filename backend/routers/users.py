@@ -725,6 +725,7 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
 
     merged_history = []
     for event in loyalty_events:
+        event.pop("_id", None)
         merged_history.append(
             {
                 **event,
