@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from gridfs.errors import NoFile
@@ -57,6 +59,13 @@ def _profile_photos_bucket() -> AsyncIOMotorGridFSBucket:
     if database is None:
         raise RuntimeError("Database not connected")
     return AsyncIOMotorGridFSBucket(database, bucket_name="profile_photos")
+
+
+def _kyc_documents_bucket() -> AsyncIOMotorGridFSBucket:
+    database = get_db()
+    if database is None:
+        raise RuntimeError("Database not connected")
+    return AsyncIOMotorGridFSBucket(database, bucket_name="kyc_documents")
 
 
 def _image_content_type(ext: str) -> str:
@@ -185,16 +194,44 @@ def _kyc_fields(doc_type: Literal["id_card", "license"]) -> tuple[str, str, str]
     return "kyc_license_url", "kyc_license_path", "kyc_license_content_type"
 
 
-def _resolve_kyc_file(
+def _kyc_file_id_field(doc_type: Literal["id_card", "license"]) -> str:
+    if doc_type == "id_card":
+        return "kyc_id_card_file_id"
+    return "kyc_license_file_id"
+
+
+async def _resolve_kyc_response(
     user_doc: dict,
     doc_type: Literal["id_card", "license"],
-) -> tuple[Path, str | None]:
+) -> Response:
     _, path_field, content_type_field = _kyc_fields(doc_type)
+    media_type = user_doc.get(content_type_field)
+    file_id = user_doc.get(_kyc_file_id_field(doc_type))
+    if file_id:
+        try:
+            grid_file = await _kyc_documents_bucket().open_download_stream(ObjectId(file_id))
+            content = await grid_file.read()
+            metadata = grid_file.metadata or {}
+            filename = grid_file.filename or f"{doc_type}"
+            return Response(
+                content=content,
+                media_type=metadata.get("content_type") or media_type or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{filename}"'},
+            )
+        except (NoFile, InvalidId):
+            pass
+
     stored_path = user_doc.get(path_field)
     if stored_path:
         candidate = Path(stored_path)
         if candidate.is_file():
-            return candidate, user_doc.get(content_type_field)
+            guessed_type = (
+                media_type
+                or mimetypes.guess_type(str(candidate))[0]
+                or "application/octet-stream"
+            )
+            filename = f"{doc_type}{candidate.suffix}"
+            return FileResponse(path=candidate, media_type=guessed_type, filename=filename)
 
     raise not_found_exception("Document KYC")
 
@@ -212,14 +249,7 @@ async def _serve_kyc_file(
     if not user_doc:
         raise not_found_exception("Utilisateur")
 
-    absolute_path, media_type = _resolve_kyc_file(user_doc, doc_type)
-    guessed_type = (
-        media_type
-        or mimetypes.guess_type(str(absolute_path))[0]
-        or "application/octet-stream"
-    )
-    filename = f"{doc_type}{absolute_path.suffix}"
-    return FileResponse(path=absolute_path, media_type=guessed_type, filename=filename)
+    return await _resolve_kyc_response(user_doc, doc_type)
 
 
 @router.get("", summary="Liste utilisateurs (admin)")
@@ -411,6 +441,10 @@ async def delete_my_account(current_user: dict = Depends(get_current_user)):
         "kyc_license_path": None,
         "kyc_id_card_content_type": None,
         "kyc_license_content_type": None,
+        "kyc_id_card_file_id": None,
+        "kyc_license_file_id": None,
+        "kyc_id_card_storage": None,
+        "kyc_license_storage": None,
     }
 
     unset_fields = {
@@ -438,6 +472,16 @@ async def delete_my_account(current_user: dict = Depends(get_current_user)):
     if previous_email:
         otp_filters.append({"email": previous_email})
     await db.otps.delete_many({"$or": otp_filters})
+
+    for file_id_field in ("profile_picture_file_id", "kyc_id_card_file_id", "kyc_license_file_id"):
+        file_id = current_user.get(file_id_field)
+        if not file_id:
+            continue
+        try:
+            bucket = _profile_photos_bucket() if file_id_field == "profile_picture_file_id" else _kyc_documents_bucket()
+            await bucket.delete(ObjectId(file_id))
+        except (NoFile, InvalidId):
+            pass
 
     for path_field in ("kyc_id_card_path", "kyc_license_path"):
         stored_path = current_user.get(path_field)
@@ -635,18 +679,27 @@ async def upload_kyc(
     ext, content_type = _validate_kyc_upload(file, content)
 
     filename = f"kyc_{doc_type}_{uuid.uuid4().hex}{ext}"
-    absolute_path = PRIVATE_KYC_DIR / filename
-    absolute_path.parent.mkdir(parents=True, exist_ok=True)
-    absolute_path.write_bytes(content)
+    file_id = await _kyc_documents_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": content_type,
+            "user_id": current_user["user_id"],
+            "doc_type": doc_type,
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
 
     field_to_update, field_path, field_content_type = _kyc_fields(doc_type)
-    doc_url = f"{settings.BASE_URL}/api/users/me/kyc/{doc_type}"
+    doc_url = f"{settings.BASE_URL.rstrip('/')}/api/users/me/kyc/{doc_type}"
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {
             field_to_update: doc_url,
-            field_path: str(absolute_path),
+            field_path: None,
             field_content_type: content_type,
+            _kyc_file_id_field(doc_type): str(file_id),
+            f"kyc_{doc_type}_storage": "gridfs",
             "kyc_status": "pending",
             "updated_at": datetime.now(timezone.utc),
         }},
