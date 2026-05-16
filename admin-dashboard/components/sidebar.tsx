@@ -21,6 +21,7 @@ import {
   LogOut,
   MessageCircle,
   Settings,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout, type ActionCategory } from "@/lib/api";
@@ -47,6 +48,7 @@ const items: Item[] = [
   { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/dashboard/parcels", label: "Colis", Icon: Package, badge: "incidents_payment" },
   { href: "/dashboard/users", label: "Utilisateurs", Icon: Users },
+  { href: "/dashboard/notifications", label: "Notifications", Icon: Bell },
   { href: "/dashboard/applications", label: "Candidatures", Icon: FileText, badge: "applications" },
   { href: "/dashboard/payouts", label: "Retraits", Icon: Wallet, badge: "payouts" },
   { href: "/dashboard/relays", label: "Relais", Icon: Store },

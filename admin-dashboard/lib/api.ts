@@ -139,6 +139,27 @@ export async function moderateProfilePhoto(
   return data;
 }
 
+export type TargetedNotificationPayload = {
+  title: string;
+  body: string;
+  user_ids: string[];
+  category?: "admin" | "messages" | "promotions" | "parcel_updates";
+  ref_type?: string | null;
+  ref_id?: string | null;
+};
+
+export async function sendTargetedNotification(
+  payload: TargetedNotificationPayload,
+) {
+  const { data } = await api.post("/api/admin/notifications/send", payload);
+  return data as {
+    ok: boolean;
+    matched: number;
+    sent: number;
+    missing_user_ids: string[];
+  };
+}
+
 // ───────────────────────── Parcels ─────────────────────────
 
 export type AdminParcel = {

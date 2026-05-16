@@ -21,7 +21,7 @@ from models.common import UserRole, ParcelStatus
 from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
 from services.pricing_service import get_pricing_settings
-from services.notification_service import notify_payout_result
+from services.notification_service import notify_payout_result, send_targeted_notifications
 from services.admin_events_service import AdminEventType, record_admin_event
 from core.date_filters import date_range_query
 from services.whatsapp_support_service import (
@@ -113,6 +113,17 @@ class SupportTextReplyRequest(BaseModel):
 class ProfilePhotoModerationRequest(BaseModel):
     status: str = Field(..., pattern="^(approved|rejected|pending)$")
     reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class TargetedNotificationRequest(BaseModel):
+    title: str = Field(..., min_length=2, max_length=90)
+    body: str = Field(..., min_length=3, max_length=600)
+    user_ids: list[str] = Field(default_factory=list, max_length=500)
+    role: Optional[str] = Field(default=None, pattern="^(client|driver|relay_agent|admin|superadmin)$")
+    include_inactive: bool = False
+    category: str = Field(default="admin", pattern="^(admin|messages|promotions|parcel_updates)$")
+    ref_type: Optional[str] = Field(default=None, max_length=64)
+    ref_id: Optional[str] = Field(default=None, max_length=128)
 
 
 WHATSAPP_MEDIA_DIR = Path(__file__).resolve().parents[1] / "private_uploads" / "whatsapp"
@@ -1151,6 +1162,55 @@ async def admin_list_users(
     total = await db.users.count_documents(query)
     
     return {"users": users, "total": total}
+
+
+@router.post("/notifications/send", summary="Envoyer une notification ciblée")
+async def admin_send_targeted_notification(
+    body: TargetedNotificationRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    user_ids = [user_id.strip() for user_id in body.user_ids if user_id.strip()]
+    if not user_ids and not body.role:
+        raise bad_request_exception("Sélectionnez au moins un utilisateur ou un rôle")
+
+    query: dict[str, Any] = {}
+    if user_ids:
+        query["user_id"] = {"$in": list(dict.fromkeys(user_ids))}
+    if body.role:
+        query["role"] = body.role
+    if not body.include_inactive:
+        query["is_active"] = True
+        query["is_banned"] = {"$ne": True}
+
+    users = await db.users.find(
+        query,
+        {"_id": 0, "user_id": 1, "role": 1, "is_active": 1, "is_banned": 1},
+    ).to_list(length=500)
+    if not users:
+        raise bad_request_exception("Aucun utilisateur éligible pour cette notification")
+
+    matched_ids = [user["user_id"] for user in users]
+    result = await send_targeted_notifications(
+        user_ids=matched_ids,
+        title=body.title.strip(),
+        body=body.body.strip(),
+        category=body.category,
+        ref_type=body.ref_type,
+        ref_id=body.ref_id,
+        metadata={
+            "source": "admin_manual",
+            "admin_user_id": admin_user.get("user_id"),
+            "target_role": body.role,
+        },
+    )
+
+    missing_ids = sorted(set(user_ids) - set(matched_ids)) if user_ids else []
+    return {
+        "ok": True,
+        "matched": len(matched_ids),
+        "sent": result["sent"],
+        "missing_user_ids": missing_ids,
+    }
 
 
 @router.patch("/users/{user_id}/profile-photo", summary="Moderer la photo de profil d'un utilisateur")

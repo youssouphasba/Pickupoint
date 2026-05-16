@@ -660,6 +660,7 @@ async def _store_and_send(
     whatsapp_variables: Optional[list[str]] = None,
     whatsapp_button_variables: Optional[list[str]] = None,
     skip_whatsapp: bool = False,
+    metadata: Optional[dict] = None,
 ):
     """Stocke la notification en base et tente l'envoi.
 
@@ -680,6 +681,7 @@ async def _store_and_send(
         body=body,
         ref_type=ref_type,
         ref_id=ref_id,
+        metadata=metadata,
     )
 
     await _send_push(
@@ -1040,6 +1042,45 @@ async def notify_new_parcel_message(parcel: dict, sender_id: str, sender_name: s
             category="messages",
             skip_whatsapp=True,
         )
+
+
+async def send_targeted_notifications(
+    *,
+    user_ids: list[str],
+    title: str,
+    body: str,
+    category: str = "admin",
+    ref_type: Optional[str] = None,
+    ref_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    unique_user_ids = []
+    seen = set()
+    for user_id in user_ids:
+        clean_id = (user_id or "").strip()
+        if clean_id and clean_id not in seen:
+            seen.add(clean_id)
+            unique_user_ids.append(clean_id)
+
+    sent = 0
+    for user_id in unique_user_ids:
+        await _store_and_send(
+            user_id=user_id,
+            title=title,
+            body=body,
+            ref_type=ref_type,
+            ref_id=ref_id,
+            category=category,
+            skip_whatsapp=True,
+            metadata=metadata,
+        )
+        sent += 1
+
+    return {
+        "requested": len(user_ids),
+        "deduplicated": len(unique_user_ids),
+        "sent": sent,
+    }
 
 
 async def send_location_confirmation_prompt(
