@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from gridfs.errors import NoFile
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from pydantic import BaseModel, Field
 
 from config import UPLOADS_DIR, settings
@@ -18,7 +20,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import bad_request_exception, forbidden_exception, not_found_exception
 from core.limiter import limiter
 from core.utils import normalize_phone
-from database import db
+from database import db, get_db
 from models.common import UserRole
 from models.user import FavoriteAddress, ProfileUpdate, User
 from services.parcel_service import _record_event
@@ -48,6 +50,22 @@ PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ACTIVE_DRIVER_MISSION_STATUSES = {"assigned", "in_progress", "incident_reported"}
 FINAL_PARCEL_STATUSES = {"delivered", "cancelled", "expired", "returned"}
+
+
+def _profile_photos_bucket() -> AsyncIOMotorGridFSBucket:
+    database = get_db()
+    if database is None:
+        raise RuntimeError("Database not connected")
+    return AsyncIOMotorGridFSBucket(database, bucket_name="profile_photos")
+
+
+def _image_content_type(ext: str) -> str:
+    return {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }.get(ext.lower(), "application/octet-stream")
 
 
 async def _build_referral_payload(user_doc: dict) -> dict:
@@ -549,6 +567,14 @@ async def get_profile_photo(
     (parties prenantes d'une livraison active) peut être ajouté plus tard."""
     if "/" in filename or "\\" in filename or ".." in filename:
         raise bad_request_exception("Nom de fichier invalide")
+    try:
+        grid_file = await _profile_photos_bucket().open_download_stream_by_name(filename, revision=-1)
+        content = await grid_file.read()
+        media_type = (grid_file.metadata or {}).get("content_type")
+        return Response(content=content, media_type=media_type or "application/octet-stream")
+    except NoFile:
+        pass
+
     file_path = UPLOADS_DIR / "profiles" / filename
     if not file_path.is_file():
         raise not_found_exception("Photo")
@@ -566,18 +592,26 @@ async def upload_avatar(
     """Enregistre une nouvelle photo de profil."""
     content = await _read_upload_bytes(file, MAX_AVATAR_SIZE)
     ext = _validate_image_upload(file, content)
+    content_type = _image_content_type(ext)
 
     filename = f"profile_{uuid.uuid4().hex}{ext}"
-    relative_path = Path("profiles") / filename
-    absolute_path = UPLOADS_DIR / relative_path
-    absolute_path.parent.mkdir(parents=True, exist_ok=True)
-    absolute_path.write_bytes(content)
+    file_id = await _profile_photos_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": content_type,
+            "user_id": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
 
-    profile_url = f"{settings.BASE_URL}/api/users/photo/{filename}"
+    profile_url = f"{settings.BASE_URL.rstrip('/')}/api/users/photo/{filename}"
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {
             "profile_picture_url": profile_url,
+            "profile_picture_file_id": str(file_id),
+            "profile_picture_storage": "gridfs",
             "profile_picture_status": "pending",
             "profile_picture_rejected_reason": None,
             "profile_picture_reviewed_by": None,
