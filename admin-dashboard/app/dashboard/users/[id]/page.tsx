@@ -120,10 +120,21 @@ function applicationStatusTone(status: unknown): BadgeTone {
 }
 
 async function openSecureDocument(url: string) {
-  const response = await api.get(url, { responseType: "blob" });
-  const objectUrl = URL.createObjectURL(response.data);
-  window.open(objectUrl, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  const popup = window.open("about:blank", "_blank");
+  try {
+    const response = await api.get(url, { responseType: "blob" });
+    const objectUrl = URL.createObjectURL(response.data);
+    if (popup) {
+      popup.opener = null;
+      popup.location.href = objectUrl;
+    } else {
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    popup?.close();
+    throw error;
+  }
 }
 
 function InfoLine({
@@ -458,7 +469,11 @@ export default function UserDetailPage() {
                           key={document.label}
                           size="sm"
                           variant="outline"
-                          onClick={() => openSecureDocument(document.url!)}
+                          onClick={() => {
+                            void openSecureDocument(document.url!).catch(() => {
+                              toast("Impossible d'ouvrir le document.");
+                            });
+                          }}
                         >
                           Voir {document.label.toLowerCase()}
                         </Button>

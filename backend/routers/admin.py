@@ -311,9 +311,25 @@ def _relay_identity_snapshot(relay: dict | None) -> dict | None:
     }
 
 
-def _application_snapshot(application: dict | None) -> dict | None:
+def _admin_kyc_document_url(user_id: str | None, doc_type: str) -> str | None:
+    if not user_id:
+        return None
+    return f"{settings.BASE_URL.rstrip('/')}/api/users/{user_id}/kyc/{doc_type}"
+
+
+def _application_snapshot(
+    application: dict | None,
+    user: dict | None = None,
+) -> dict | None:
     if not application:
         return None
+    data = dict(application.get("data") or {})
+    user_id = application.get("user_id") or (user or {}).get("user_id")
+    if application.get("type") == "driver" and user_id:
+        if data.get("id_card_url") or (user or {}).get("kyc_id_card_path"):
+            data["id_card_url"] = _admin_kyc_document_url(user_id, "id_card")
+        if data.get("license_url") or (user or {}).get("kyc_license_path"):
+            data["license_url"] = _admin_kyc_document_url(user_id, "license")
     return {
         "application_id": application.get("application_id"),
         "user_id": application.get("user_id"),
@@ -321,11 +337,47 @@ def _application_snapshot(application: dict | None) -> dict | None:
         "user_name": application.get("user_name"),
         "type": application.get("type"),
         "status": application.get("status"),
-        "data": application.get("data") or {},
+        "data": data,
         "admin_notes": application.get("admin_notes"),
         "created_at": application.get("created_at"),
         "updated_at": application.get("updated_at"),
     }
+
+
+def _looks_like_masked_phone(value: Any) -> bool:
+    return isinstance(value, str) and ("•" in value or "*" in value)
+
+
+async def _restore_admin_parcel_phones(parcels: list[dict]) -> None:
+    user_ids: set[str] = set()
+    for parcel in parcels:
+        if _looks_like_masked_phone(parcel.get("recipient_phone")) and parcel.get("recipient_user_id"):
+            user_ids.add(parcel["recipient_user_id"])
+        if _looks_like_masked_phone(parcel.get("sender_phone")) and parcel.get("sender_user_id"):
+            user_ids.add(parcel["sender_user_id"])
+
+    if not user_ids:
+        return
+
+    users = await db.users.find(
+        {"user_id": {"$in": list(user_ids)}},
+        {"_id": 0, "user_id": 1, "phone": 1},
+    ).to_list(length=len(user_ids))
+    phone_by_user_id = {
+        user.get("user_id"): user.get("phone")
+        for user in users
+        if user.get("user_id") and user.get("phone")
+    }
+
+    for parcel in parcels:
+        if _looks_like_masked_phone(parcel.get("recipient_phone")):
+            recipient_phone = phone_by_user_id.get(parcel.get("recipient_user_id"))
+            if recipient_phone:
+                parcel["recipient_phone"] = recipient_phone
+        if _looks_like_masked_phone(parcel.get("sender_phone")):
+            sender_phone = phone_by_user_id.get(parcel.get("sender_user_id"))
+            if sender_phone:
+                parcel["sender_phone"] = sender_phone
 
 
 def _normalize_geopin(value: dict | None) -> dict | None:
@@ -743,7 +795,9 @@ async def admin_list_parcels(
         .limit(safe_limit)
     )
     total = await db.parcels.count_documents(query)
-    return {"parcels": await cursor.to_list(length=safe_limit), "total": total}
+    parcels = await cursor.to_list(length=safe_limit)
+    await _restore_admin_parcel_phones(parcels)
+    return {"parcels": parcels, "total": total}
 
 
 @router.post("/parcels/{parcel_id}/confirm-payment", summary="Valider manuellement le paiement (Admin)")
@@ -1258,7 +1312,7 @@ async def admin_user_detail(
         "recent_events": recent_events,
         "applications": [
             snapshot
-            for snapshot in (_application_snapshot(application) for application in applications)
+            for snapshot in (_application_snapshot(application, user) for application in applications)
             if snapshot
         ],
         "referral": {
@@ -2058,6 +2112,7 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
+    await _restore_admin_parcel_phones([parcel])
 
     if parcel.get("sender_user_id") and not parcel.get("sender_name"):
         sender = await db.users.find_one({"user_id": parcel["sender_user_id"]}, {"_id": 0, "name": 1})

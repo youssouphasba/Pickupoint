@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 import re
 
+from config import settings
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception
 from core.date_filters import date_range_query
@@ -19,6 +20,42 @@ from models.common import UserRole, GeoPin
 from services.admin_events_service import AdminEventType, record_admin_event
 
 router = APIRouter()
+
+
+def _admin_kyc_document_url(user_id: str | None, doc_type: str) -> str | None:
+    if not user_id:
+        return None
+    return f"{settings.BASE_URL.rstrip('/')}/api/users/{user_id}/kyc/{doc_type}"
+
+
+async def _normalize_admin_application_documents(applications: list[dict]) -> None:
+    user_ids = [
+        application.get("user_id")
+        for application in applications
+        if application.get("type") == "driver" and application.get("user_id")
+    ]
+    users_by_id: dict[str, dict] = {}
+    if user_ids:
+        unique_user_ids = list(set(user_ids))
+        users = await db.users.find(
+            {"user_id": {"$in": unique_user_ids}},
+            {"_id": 0, "user_id": 1, "kyc_id_card_path": 1, "kyc_license_path": 1},
+        ).to_list(length=len(unique_user_ids))
+        users_by_id = {user["user_id"]: user for user in users if user.get("user_id")}
+
+    for application in applications:
+        if application.get("type") != "driver":
+            continue
+        user_id = application.get("user_id")
+        if not user_id:
+            continue
+        data = dict(application.get("data") or {})
+        user = users_by_id.get(user_id) or {}
+        if data.get("id_card_url") or user.get("kyc_id_card_path"):
+            data["id_card_url"] = _admin_kyc_document_url(user_id, "id_card")
+        if data.get("license_url") or user.get("kyc_license_path"):
+            data["license_url"] = _admin_kyc_document_url(user_id, "license")
+        application["data"] = data
 
 
 # ── Modèles ──────────────────────────────────────────────────────────────────
@@ -282,7 +319,9 @@ async def list_applications(
     query.update(date_range_query(from_date, to_date, field="created_at"))
     cursor = db.applications.find(query, {"_id": 0}).sort("created_at", 1).skip(skip).limit(limit)
     total = await db.applications.count_documents(query)
-    return {"applications": await cursor.to_list(length=limit), "total": total}
+    applications = await cursor.to_list(length=limit)
+    await _normalize_admin_application_documents(applications)
+    return {"applications": applications, "total": total}
 
 
 @router.put("/{application_id}/approve", summary="Approuver candidature")
