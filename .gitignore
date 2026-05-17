@@ -63,6 +63,10 @@ docs/tutorial_video_real/
 .env*
 !.env.example
 !backend/.env.example
+*_B64.txt
+ANDROID_KEYSTORE_B64.txt
+GOOGLE_SERVICES_JSON_B64.txt
+GOOGLE_SERVICE_INFO_PLIST_B64.txt
 backend/.env.railway
 mobile/fastlane/google-play-service-account.json
 

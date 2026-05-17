@@ -31,8 +31,8 @@ class LoadingButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: foregroundColor,
-          disabledBackgroundColor: color?.withOpacity(0.85),
-          disabledForegroundColor: foregroundColor?.withOpacity(0.55),
+          disabledBackgroundColor: color?.withValues(alpha: 0.85),
+          disabledForegroundColor: foregroundColor?.withValues(alpha: 0.55),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),

@@ -26,7 +26,7 @@ from database import db, get_db
 from models.common import UserRole
 from models.user import FavoriteAddress, ProfileUpdate, User
 from services.parcel_service import _record_event
-from services.referral_service import refresh_referral_progress, upsert_referral_record
+from services.referral_service import ensure_referral_record_for_user, refresh_referral_progress, upsert_referral_record
 from services.user_service import (
     build_referral_share_message,
     build_referral_url,
@@ -101,6 +101,7 @@ async def _build_referral_payload(user_doc: dict) -> dict:
     apply_current_count = await get_referral_metric_count(user_doc.get("user_id", ""), apply_metric)
     received_referral = None
     if user_doc.get("referred_by"):
+        await ensure_referral_record_for_user(user_doc, settings_doc, source="legacy_profile_view")
         received_referral = await refresh_referral_progress(user_doc.get("user_id", ""), settings_doc)
     can_apply_now = (
         referred_enabled

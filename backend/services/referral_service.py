@@ -47,6 +47,38 @@ async def upsert_referral_record(
     )
 
 
+async def ensure_referral_record_for_user(
+    user_doc: dict,
+    settings_doc: dict | None,
+    source: str = "legacy",
+) -> dict | None:
+    referred_user_id = user_doc.get("user_id")
+    sponsor_user_id = user_doc.get("referred_by")
+    if not referred_user_id or not sponsor_user_id:
+        return None
+
+    existing = await db.referrals.find_one({"referred_user_id": referred_user_id}, {"_id": 0})
+    if existing:
+        return existing
+
+    sponsor = await db.users.find_one(
+        {"user_id": sponsor_user_id},
+        {"_id": 0, "referral_code": 1},
+    )
+    referral_code = str((sponsor or {}).get("referral_code") or user_doc.get("referral_code_used") or "")
+    created_at = user_doc.get("referral_applied_at") or user_doc.get("created_at")
+    await upsert_referral_record(
+        sponsor_user_id=sponsor_user_id,
+        referred_user_id=referred_user_id,
+        referred_role=str(user_doc.get("role") or "client"),
+        referral_code=referral_code,
+        source=source,
+        settings_doc=settings_doc,
+        created_at=created_at,
+    )
+    return await db.referrals.find_one({"referred_user_id": referred_user_id}, {"_id": 0})
+
+
 async def refresh_referral_progress(user_id: str, settings_doc: dict | None = None) -> dict | None:
     referral = await db.referrals.find_one({"referred_user_id": user_id}, {"_id": 0})
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "role": 1})

@@ -3,7 +3,11 @@ import uuid
 from datetime import datetime, timezone
 
 from database import db
-from services.referral_service import mark_referral_rewarded, refresh_referral_progress
+from services.referral_service import (
+    ensure_referral_record_for_user,
+    mark_referral_rewarded,
+    refresh_referral_progress,
+)
 from services.user_service import (
     get_global_app_settings,
     get_referral_metric_count,
@@ -93,6 +97,7 @@ async def _check_referral_bonus(user_id: str):
     reward_metric = config["reward_metric"]
     reward_count = config["reward_count"]
     current_count = await get_referral_metric_count(user_id, reward_metric)
+    await ensure_referral_record_for_user(user, settings_doc, source="legacy_bonus_check")
     await refresh_referral_progress(user_id, settings_doc)
     if current_count < reward_count:
         return

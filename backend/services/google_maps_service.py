@@ -1,5 +1,6 @@
 import httpx
 import logging
+import hashlib
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -8,10 +9,21 @@ from config import settings
 
 GOOGLE_DIRECTIONS_API_URL = "https://maps.googleapis.com/maps/api/directions/json"
 GOOGLE_GEOCODE_API_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-API_KEY = settings.GOOGLE_DIRECTIONS_API_KEY
+
+
+def _api_key() -> str:
+    return str(settings.GOOGLE_DIRECTIONS_API_KEY or "").strip()
+
+
+def _api_key_fingerprint(api_key: str) -> str:
+    if not api_key:
+        return "missing"
+    digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:10]
+    return f"sha256:{digest}/len:{len(api_key)}/last4:{api_key[-4:]}"
 
 async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> Optional[Dict]:
-    if not API_KEY:
+    api_key = _api_key()
+    if not api_key:
         logger.warning("GOOGLE_DIRECTIONS_API_KEY not set — skipping Directions API call")
         return None
     """
@@ -21,7 +33,7 @@ async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: flo
         "origin": f"{origin_lat},{origin_lng}",
         "destination": f"{dest_lat},{dest_lng}",
         "mode": "driving",
-        "key": API_KEY
+        "key": api_key
     }
     
     try:
@@ -40,10 +52,15 @@ async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: flo
                     "encoded_polyline": data["routes"][0]["overview_polyline"]["points"],
                 }
             else:
-                logger.error(f"Google Directions API error: {data.get('status')} - {data.get('error_message')}")
+                logger.error(
+                    "Google Directions API error: %s - %s (key=%s)",
+                    data.get("status"),
+                    data.get("error_message"),
+                    _api_key_fingerprint(api_key),
+                )
                 return None
     except Exception as e:
-        logger.error(f"Failed to call Google Directions API: {e}")
+        logger.error("Failed to call Google Directions API with key=%s: %s", _api_key_fingerprint(api_key), e)
         return None
 
 
@@ -58,14 +75,15 @@ def _component_value(components: list[dict], *types: str) -> Optional[str]:
 
 
 async def reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
-    if not API_KEY:
+    api_key = _api_key()
+    if not api_key:
         logger.info("GOOGLE_DIRECTIONS_API_KEY not set — skipping reverse geocoding")
         return None
 
     params = {
         "latlng": f"{lat},{lng}",
         "language": "fr",
-        "key": API_KEY,
+        "key": api_key,
     }
 
     try:
@@ -75,7 +93,12 @@ async def reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
             data = response.json()
 
         if data.get("status") != "OK" or not data.get("results"):
-            logger.warning("Google Geocoding API error: %s", data.get("status"))
+            logger.warning(
+                "Google Geocoding API error: %s - %s (key=%s)",
+                data.get("status"),
+                data.get("error_message"),
+                _api_key_fingerprint(api_key),
+            )
             return None
 
         result = data["results"][0]
@@ -144,7 +167,8 @@ async def geocode_address_suggestions(
     lng: Optional[float] = None,
     limit: int = 6,
 ) -> list[dict[str, Any]]:
-    if not API_KEY:
+    api_key = _api_key()
+    if not api_key:
         logger.info("GOOGLE_DIRECTIONS_API_KEY not set — skipping address suggestions")
         return []
 
@@ -155,7 +179,7 @@ async def geocode_address_suggestions(
     params: dict[str, Any] = {
         "address": cleaned_query,
         "language": "fr",
-        "key": API_KEY,
+        "key": api_key,
     }
     if lat is not None and lng is not None:
         params["bounds"] = f"{lat - 0.5},{lng - 0.5}|{lat + 0.5},{lng + 0.5}"
@@ -168,9 +192,10 @@ async def geocode_address_suggestions(
 
         if data.get("status") not in ("OK", "ZERO_RESULTS"):
             logger.warning(
-                "Google address suggestions error: %s - %s",
+                "Google address suggestions error: %s - %s (key=%s)",
                 data.get("status"),
                 data.get("error_message"),
+                _api_key_fingerprint(api_key),
             )
             return []
 

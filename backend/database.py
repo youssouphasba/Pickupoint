@@ -1,6 +1,7 @@
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import IndexModel, ASCENDING
+from pymongo.errors import OperationFailure
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,7 @@ async def create_indexes():
             IndexModel([("tx_id", 1)], unique=True),
             IndexModel([("wallet_id", 1)]),
             IndexModel([("parcel_id", 1)]),
+            IndexModel([("reference", 1)]),
             IndexModel([("created_at", 1)]),
         ],
         "payout_requests": [
@@ -162,6 +164,9 @@ async def create_indexes():
         ],
     }
 
+    await _repair_ttl_index("otps", "expires_at_1", "expires_at", 0)
+    await _repair_ttl_index("user_sessions", "expires_at_1", "expires_at", 0)
+
     for collection_name, index_models in collections_to_index.items():
         try:
             await _db_instance[collection_name].create_indexes(index_models)
@@ -170,3 +175,24 @@ async def create_indexes():
             logger.error(f"Failed to create indexes for collection {collection_name}: {e}")
 
     logger.info("All MongoDB indexes creation attempts completed.")
+
+
+async def _repair_ttl_index(collection_name: str, index_name: str, field_name: str, expire_after_seconds: int):
+    collection = _db_instance[collection_name]
+    try:
+        indexes = await collection.index_information()
+        existing = indexes.get(index_name)
+        if not existing:
+            return
+        key = existing.get("key")
+        has_same_key = key == [(field_name, 1)] or key == [(field_name, ASCENDING)]
+        has_ttl = existing.get("expireAfterSeconds") == expire_after_seconds
+        if has_same_key and not has_ttl:
+            await collection.drop_index(index_name)
+            logger.warning(
+                "Dropped incompatible TTL index %s.%s before recreation",
+                collection_name,
+                index_name,
+            )
+    except OperationFailure as e:
+        logger.error("Failed to inspect TTL index %s.%s: %s", collection_name, index_name, e)
