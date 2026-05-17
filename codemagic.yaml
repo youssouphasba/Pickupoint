@@ -9,6 +9,7 @@ workflows:
         - firebase_files
         - android_signing
         - google_maps
+        - shorebird
       vars:
         PROJECT_PATH: mobile
         ANDROID_COMPILE_SDK: "36"
@@ -64,6 +65,10 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
           export PATH="$HOME/.shorebird/bin:$PATH"
+          if [ -z "${SHOREBIRD_TOKEN:-}" ]; then
+            echo "ERROR: SHOREBIRD_TOKEN is missing. Create a Shorebird API key in Shorebird Console > Account > API Keys, then add it to Codemagic in a secure group named shorebird." >&2
+            exit 1
+          fi
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           if [ -n "${SHOREBIRD_FLUTTER_VERSION:-}" ]; then
             shorebird release android --flutter-version="$SHOREBIRD_FLUTTER_VERSION" -- --no-tree-shake-icons
