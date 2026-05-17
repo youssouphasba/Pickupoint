@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -49,7 +51,8 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   }
 
   Future<void> _loadRememberedAccount() async {
-    if (widget.forcePhoneEntry || (widget.initialPhone ?? '').trim().isNotEmpty) {
+    if (widget.forcePhoneEntry ||
+        (widget.initialPhone ?? '').trim().isNotEmpty) {
       return;
     }
     final storage = TokenStorage();
@@ -230,195 +233,226 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Connexion ou Inscription')),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Bienvenue sur Denkma',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Entrez votre numéro pour recevoir un code de vérification.',
-              style: TextStyle(color: Colors.grey),
-            ),
-            if ((widget.initialReferralCode ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green.shade100),
-                ),
-                child: Text(
-                  'Code parrainage détecté : ${widget.initialReferralCode!.trim().toUpperCase()}',
-                  style: TextStyle(
-                    color: Colors.green.shade900,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                24,
+                24,
+                24,
+                math.max(24, bottomInset + 24),
               ),
-            ],
-            if ((widget.initialPhone ?? '').trim().isNotEmpty ||
-                (widget.initialTrackingCode ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade100),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: math.max(0, constraints.maxHeight - 48),
                 ),
-                child: Text(
-                  [
-                    'Numéro destinataire détecté.',
-                    if ((widget.initialTrackingCode ?? '').trim().isNotEmpty)
-                      'Suivi : ${widget.initialTrackingCode!.trim().toUpperCase()}.',
-                    'Après connexion, les colis liés à ce numéro seront visibles dans votre compte.',
-                  ].join(' '),
-                  style: TextStyle(
-                    color: Colors.blue.shade900,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 32),
-            if (!_showPhoneForm && _rememberedPhone != null) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.green.shade100),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: Colors.green.shade100,
-                          child: Icon(
-                            Icons.verified_user_outlined,
-                            color: Colors.green.shade800,
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Bienvenue sur Denkma',
+                        style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Entrez votre numéro pour recevoir un code de vérification.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      if ((widget.initialReferralCode ?? '')
+                          .trim()
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.green.shade100),
+                          ),
+                          child: Text(
+                            'Code parrainage détecté : ${widget.initialReferralCode!.trim().toUpperCase()}',
+                            style: TextStyle(
+                              color: Colors.green.shade900,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
+                      ],
+                      if ((widget.initialPhone ?? '').trim().isNotEmpty ||
+                          (widget.initialTrackingCode ?? '')
+                              .trim()
+                              .isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade100),
+                          ),
+                          child: Text(
+                            [
+                              'Numéro destinataire détecté.',
+                              if ((widget.initialTrackingCode ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                                'Suivi : ${widget.initialTrackingCode!.trim().toUpperCase()}.',
+                              'Après connexion, les colis liés à ce numéro seront visibles dans votre compte.',
+                            ].join(' '),
+                            style: TextStyle(
+                              color: Colors.blue.shade900,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 32),
+                      if (!_showPhoneForm && _rememberedPhone != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.green.shade100),
+                          ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                (_rememberedName ?? '').isNotEmpty
-                                    ? _rememberedName!
-                                    : 'Dernier compte utilisé',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: Colors.green.shade100,
+                                    child: Icon(
+                                      Icons.verified_user_outlined,
+                                      color: Colors.green.shade800,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          (_rememberedName ?? '').isNotEmpty
+                                              ? _rememberedName!
+                                              : 'Dernier compte utilisé',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          maskPhone(_rememberedPhone!),
+                                          style: TextStyle(
+                                              color: Colors.grey.shade700),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
+                              const SizedBox(height: 14),
                               Text(
-                                maskPhone(_rememberedPhone!),
-                                style: TextStyle(color: Colors.grey.shade700),
+                                'Pour protéger le compte, vous devrez saisir le PIN ou valider le numéro par SMS.',
+                                style: TextStyle(
+                                  color: Colors.green.shade900,
+                                  fontSize: 13,
+                                ),
                               ),
                             ],
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: LoadingButton(
+                            label: 'Continuer avec ce compte',
+                            isLoading: _isLoading,
+                            onPressed: () =>
+                                _continueWithPhone(_rememberedPhone!),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () => setState(() => _showPhoneForm = true),
+                            child: const Text('Utiliser un autre numéro'),
+                          ),
+                        ),
+                      ] else ...[
+                        IntlPhoneField(
+                          decoration: const InputDecoration(
+                            labelText: 'Numéro de téléphone',
+                            border: OutlineInputBorder(),
+                          ),
+                          initialCountryCode: _initialCountryIso,
+                          initialValue: _rawNumber,
+                          countries: countries
+                              .where((country) =>
+                                  const {'SN', 'FR'}.contains(country.code))
+                              .toList(),
+                          invalidNumberMessage: 'Numéro invalide',
+                          disableLengthCheck: false,
+                          onChanged: (PhoneNumber phone) {
+                            setState(() {
+                              _rawNumber = phone.number;
+                              _countryCode = phone.countryCode;
+                              _isValid = phone.isValidNumber();
+                            });
+                          },
+                          onCountryChanged: (country) {
+                            setState(() {
+                              _countryCode = '+${country.dialCode}';
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 14, color: Colors.grey.shade500),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Denkma est disponible au Sénégal (+221) et en France (+33).',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Pour protéger le compte, vous devrez saisir le PIN ou valider le numéro par SMS.',
-                      style: TextStyle(
-                        color: Colors.green.shade900,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: LoadingButton(
-                  label: 'Continuer avec ce compte',
-                  isLoading: _isLoading,
-                  onPressed: () => _continueWithPhone(_rememberedPhone!),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () => setState(() => _showPhoneForm = true),
-                  child: const Text('Utiliser un autre numéro'),
-                ),
-              ),
-            ] else ...[
-              IntlPhoneField(
-                decoration: const InputDecoration(
-                  labelText: 'Numéro de téléphone',
-                  border: OutlineInputBorder(),
-                ),
-                initialCountryCode: _initialCountryIso,
-                initialValue: _rawNumber,
-                countries: countries
-                    .where((country) => const {'SN', 'FR'}.contains(country.code))
-                    .toList(),
-                invalidNumberMessage: 'Numéro invalide',
-                disableLengthCheck: false,
-                onChanged: (PhoneNumber phone) {
-                  setState(() {
-                    _rawNumber = phone.number;
-                    _countryCode = phone.countryCode;
-                    _isValid = phone.isValidNumber();
-                  });
-                },
-                onCountryChanged: (country) {
-                  setState(() {
-                    _countryCode = '+${country.dialCode}';
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      size: 14, color: Colors.grey.shade500),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Denkma est disponible au Sénégal (+221) et en France (+33).',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
+                      const Spacer(),
+                      if (_showPhoneForm)
+                        SizedBox(
+                          width: double.infinity,
+                          child: LoadingButton(
+                            label: 'Recevoir mon code',
+                            isLoading: _isLoading,
+                            onPressed: _submit,
+                          ),
+                        ),
+                    ],
                   ),
-                ],
-              ),
-            ],
-            const Spacer(),
-            if (_showPhoneForm)
-              SizedBox(
-                width: double.infinity,
-                child: LoadingButton(
-                  label: 'Recevoir mon code',
-                  isLoading: _isLoading,
-                  onPressed: _submit,
                 ),
               ),
-            const SizedBox(height: 24),
-          ],
+            );
+          },
         ),
       ),
     );
