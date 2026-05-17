@@ -728,72 +728,77 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         builder: (sheetContext) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Parrainage Denkma',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  referralCode.isEmpty
-                      ? 'Votre code sera disponible apres l\'activation du parrainage.'
-                      : 'Code: $referralCode',
-                ),
-                if (referralUrl != null && referralUrl.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(referralUrl,
-                      style: const TextStyle(color: Colors.blueGrey)),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Parrainage Denkma',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    referralCode.isEmpty
+                        ? 'Votre code sera disponible apres l\'activation du parrainage.'
+                        : 'Code: $referralCode',
+                  ),
+                  if (referralUrl != null && referralUrl.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(referralUrl,
+                        style: const TextStyle(color: Colors.blueGrey)),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildReferralTracking(data),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.copy_outlined),
+                    title: const Text('Copier le message'),
+                    subtitle: const Text('Code et lien de parrainage'),
+                    onTap: () async {
+                      await Clipboard.setData(
+                          ClipboardData(text: shareMessage));
+                      if (!sheetContext.mounted) return;
+                      Navigator.of(sheetContext).pop();
+                      _snack('Message de parrainage copié');
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.tag_outlined),
+                    title: const Text('Copier seulement le code'),
+                    onTap: referralCode.isEmpty
+                        ? null
+                        : () async {
+                            await Clipboard.setData(
+                                ClipboardData(text: referralCode));
+                            if (!sheetContext.mounted) return;
+                            Navigator.of(sheetContext).pop();
+                            _snack('Code parrainage copié');
+                          },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading:
+                        const Icon(Icons.message_outlined, color: Colors.green),
+                    title: const Text('Partager sur WhatsApp'),
+                    onTap: () async {
+                      final whatsappUri = Uri.parse(
+                        'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
+                      );
+                      if (await canLaunchUrl(whatsappUri)) {
+                        await launchUrl(whatsappUri,
+                            mode: LaunchMode.externalApplication);
+                      }
+                      if (!sheetContext.mounted) return;
+                      Navigator.of(sheetContext).pop();
+                    },
+                  ),
                 ],
-                const SizedBox(height: 16),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.copy_outlined),
-                  title: const Text('Copier le message'),
-                  subtitle: const Text('Code et lien de parrainage'),
-                  onTap: () async {
-                    await Clipboard.setData(ClipboardData(text: shareMessage));
-                    if (!sheetContext.mounted) return;
-                    Navigator.of(sheetContext).pop();
-                    _snack('Message de parrainage copié');
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.tag_outlined),
-                  title: const Text('Copier seulement le code'),
-                  onTap: referralCode.isEmpty
-                      ? null
-                      : () async {
-                          await Clipboard.setData(
-                              ClipboardData(text: referralCode));
-                          if (!sheetContext.mounted) return;
-                          Navigator.of(sheetContext).pop();
-                          _snack('Code parrainage copié');
-                        },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading:
-                      const Icon(Icons.message_outlined, color: Colors.green),
-                  title: const Text('Partager sur WhatsApp'),
-                  onTap: () async {
-                    final whatsappUri = Uri.parse(
-                      'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
-                    );
-                    if (await canLaunchUrl(whatsappUri)) {
-                      await launchUrl(whatsappUri,
-                          mode: LaunchMode.externalApplication);
-                    }
-                    if (!sheetContext.mounted) return;
-                    Navigator.of(sheetContext).pop();
-                  },
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -801,6 +806,109 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     } catch (e) {
       _snack(friendlyError(e), error: true);
     }
+  }
+
+  Widget _buildReferralTracking(Map<String, dynamic> data) {
+    final summary = Map<String, dynamic>.from(
+      data['sponsored_referrals'] as Map<String, dynamic>? ?? const {},
+    );
+    final items = (summary['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final total = summary['total'] ?? 0;
+    final pending = summary['pending_rewards'] ?? 0;
+    final rewarded = summary['rewarded'] ?? 0;
+    final paid = summary['total_sponsor_bonus_xof'] ?? 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Suivi parrainage',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildReferralChip('Filleuls', '$total'),
+              _buildReferralChip('En attente', '$pending'),
+              _buildReferralChip('Recompenses', '$rewarded'),
+              _buildReferralChip('Gagne', '$paid XOF'),
+            ],
+          ),
+          if (items.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...items.take(5).map(_buildReferralItem),
+          ] else ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Aucun filleul inscrit pour le moment.',
+              style: TextStyle(color: Colors.blueGrey, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReferralChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReferralItem(Map<String, dynamic> item) {
+    final status = item['status']?.toString() ?? 'pending';
+    final current = item['reward_metric_count'] ?? 0;
+    final target = item['reward_count'] ?? 1;
+    final name = item['referred_name']?.toString() ?? 'Utilisateur Denkma';
+    final statusLabel = switch (status) {
+      'rewarded' => 'Paye',
+      'qualified' => 'Qualifie',
+      _ => 'En cours',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(
+                  '$current / $target objectif atteint',
+                  style: const TextStyle(color: Colors.blueGrey, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Text(statusLabel, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
   }
 
   Widget _buildHeader(BuildContext context, User user, bool canSwitchToClient) {

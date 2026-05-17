@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     WHATSAPP_TEMPLATE_RELAY_CHOICE_REQUEST: Optional[str] = None
     WHATSAPP_TEMPLATE_RELAY_READY: Optional[str] = None
     WHATSAPP_TEMPLATE_RELAY_REDIRECTED: Optional[str] = None
+    WHATSAPP_TEMPLATE_SUPPORT_REOPEN: Optional[str] = None
+    WHATSAPP_TEMPLATE_SUPPORT_REOPEN_VARIABLES: str = "name"
     WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE: bool = True
 
     # Flutterwave

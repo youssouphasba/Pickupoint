@@ -33,6 +33,7 @@ class _AdminWhatsappSupportScreenState
   bool _loadingConversations = true;
   bool _loadingDetail = false;
   bool _sending = false;
+  bool _sendingTemplate = false;
   bool _recording = false;
   bool _recordingBusy = false;
   String? _playingMessageId;
@@ -59,10 +60,11 @@ class _AdminWhatsappSupportScreenState
       _error = null;
     });
     try {
-      final response = await ref.read(apiClientProvider).getWhatsappSupportConversations(
-            status: _status,
-            query: _searchController.text,
-          );
+      final response =
+          await ref.read(apiClientProvider).getWhatsappSupportConversations(
+                status: _status,
+                query: _searchController.text,
+              );
       final data = Map<String, dynamic>.from(response.data as Map);
       final conversations = (data['conversations'] as List? ?? const [])
           .whereType<Map>()
@@ -70,8 +72,9 @@ class _AdminWhatsappSupportScreenState
           .toList();
       setState(() {
         _conversations = conversations;
-        _selectedConversationId ??=
-            conversations.isNotEmpty ? _string(conversations.first['conversation_id']) : null;
+        _selectedConversationId ??= conversations.isNotEmpty
+            ? _string(conversations.first['conversation_id'])
+            : null;
       });
       if (_selectedConversationId != null) {
         await _loadDetail(_selectedConversationId!);
@@ -92,8 +95,9 @@ class _AdminWhatsappSupportScreenState
       _error = null;
     });
     try {
-      final response =
-          await ref.read(apiClientProvider).getWhatsappSupportConversation(conversationId);
+      final response = await ref
+          .read(apiClientProvider)
+          .getWhatsappSupportConversation(conversationId);
       final data = Map<String, dynamic>.from(response.data as Map);
       setState(() {
         _conversation = _map(data['conversation']);
@@ -111,10 +115,28 @@ class _AdminWhatsappSupportScreenState
     }
   }
 
+  bool get _canReplyFreeform =>
+      _conversation?['can_reply_freeform'] as bool? ?? true;
+
+  void _showReplyWindowClosedMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'La fenêtre WhatsApp de 24h est fermée. Le client doit renvoyer un message ou il faut utiliser un modèle approuvé.',
+        ),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
   Future<void> _sendReply() async {
     final text = _replyController.text.trim();
     final conversationId = _selectedConversationId;
     if (text.isEmpty || conversationId == null || _sending) return;
+    if (!_canReplyFreeform) {
+      _showReplyWindowClosedMessage();
+      return;
+    }
 
     setState(() => _sending = true);
     try {
@@ -131,7 +153,8 @@ class _AdminWhatsappSupportScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -141,9 +164,42 @@ class _AdminWhatsappSupportScreenState
     }
   }
 
+  Future<void> _sendReopenTemplate() async {
+    final conversationId = _selectedConversationId;
+    if (conversationId == null || _sendingTemplate) return;
+
+    setState(() => _sendingTemplate = true);
+    try {
+      await ref
+          .read(apiClientProvider)
+          .sendWhatsappSupportReopenTemplate(conversationId);
+      await _loadConversations();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Relance WhatsApp envoyée.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _sendingTemplate = false);
+      }
+    }
+  }
+
   Future<void> _toggleVoiceReply() async {
     final conversationId = _selectedConversationId;
     if (conversationId == null || _recordingBusy) return;
+    if (!_recording && !_canReplyFreeform) {
+      _showReplyWindowClosedMessage();
+      return;
+    }
 
     setState(() => _recordingBusy = true);
     try {
@@ -170,11 +226,13 @@ class _AdminWhatsappSupportScreenState
         throw Exception('Autorisation micro refusée.');
       }
       final dir = await getTemporaryDirectory();
+      final opusSupported =
+          await _audioRecorder.isEncoderSupported(AudioEncoder.opus);
       final path =
-          '${dir.path}/denkma_support_${DateTime.now().millisecondsSinceEpoch}.m4a';
+          '${dir.path}/denkma_support_${DateTime.now().millisecondsSinceEpoch}.${opusSupported ? 'opus' : 'm4a'}';
       await _audioRecorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
+        RecordConfig(
+          encoder: opusSupported ? AudioEncoder.opus : AudioEncoder.aacLc,
           bitRate: 64000,
           sampleRate: 44100,
         ),
@@ -184,7 +242,8 @@ class _AdminWhatsappSupportScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -205,7 +264,8 @@ class _AdminWhatsappSupportScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     }
@@ -230,7 +290,8 @@ class _AdminWhatsappSupportScreenState
 
     try {
       setState(() => _playingMessageId = messageId);
-      final Uint8List bytes = await ref.read(apiClientProvider).downloadBytes(downloadUrl);
+      final Uint8List bytes =
+          await ref.read(apiClientProvider).downloadBytes(downloadUrl);
       await _audioPlayer.stop();
       await _audioPlayer.play(BytesSource(bytes));
       _audioPlayer.onPlayerComplete.first.then((_) {
@@ -362,7 +423,8 @@ class _AdminWhatsappSupportScreenState
     final id = _string(conversation['conversation_id']) ?? '';
     final user = _map(conversation['matched_user']);
     final parcel = _map(conversation['matched_parcel']);
-    final label = _string(user?['name']) ?? _string(conversation['phone']) ?? 'Contact';
+    final label =
+        _string(user?['name']) ?? _string(conversation['phone']) ?? 'Contact';
     final status = _string(conversation['status']) ?? 'open';
     final tracking = _string(parcel?['tracking_code']);
     final selected = id == _selectedConversationId;
@@ -416,10 +478,11 @@ class _AdminWhatsappSupportScreenState
 
     final user = _map(conversation['matched_user']);
     final parcel = _map(conversation['matched_parcel']);
-    final relatedParcels = (conversation['related_parcels'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    final relatedParcels =
+        (conversation['related_parcels'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,7 +508,8 @@ class _AdminWhatsappSupportScreenState
                         ),
                       ),
                     ),
-                    _StatusPill(status: _string(conversation['status']) ?? 'open'),
+                    _StatusPill(
+                        status: _string(conversation['status']) ?? 'open'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -564,7 +628,9 @@ class _AdminWhatsappSupportScreenState
               OutlinedButton.icon(
                 onPressed: () => _playAudio(message),
                 icon: Icon(
-                  _playingMessageId == messageId ? Icons.stop : Icons.play_arrow,
+                  _playingMessageId == messageId
+                      ? Icons.stop
+                      : Icons.play_arrow,
                 ),
                 label: Text(
                   _playingMessageId == messageId
@@ -585,49 +651,109 @@ class _AdminWhatsappSupportScreenState
   }
 
   Widget _buildReplyBox() {
+    final canReplyFreeform = _canReplyFreeform;
+    final expiresAt = _string(_conversation?['reply_window_expires_at']);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _replyController,
-                minLines: 1,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  labelText: 'Réponse',
-                  hintText: 'Écrire une réponse WhatsApp...',
-                  border: OutlineInputBorder(),
+            if (!canReplyFreeform) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.orange.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Text(
+                  [
+                    'La fenêtre WhatsApp de 24h est fermée.',
+                    'Le client doit renvoyer un message, ou il faut utiliser un modèle approuvé.',
+                    if (expiresAt != null)
+                      'Dernière fenêtre expirée le ${_formatDate(expiresAt)}.',
+                  ].join(' '),
+                  style: const TextStyle(color: Colors.deepOrange),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            OutlinedButton(
-              onPressed: _recordingBusy ? null : _toggleVoiceReply,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _recording ? Colors.red : null,
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _sendingTemplate ? null : _sendReopenTemplate,
+                  icon: _sendingTemplate
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.mark_chat_unread_outlined),
+                  label: const Text('Relancer par template'),
+                ),
               ),
-              child: _recordingBusy
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(_recording ? Icons.stop : Icons.mic),
+              const SizedBox(height: 12),
+            ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replyController,
+                    minLines: 1,
+                    maxLines: 4,
+                    enabled: canReplyFreeform,
+                    decoration: const InputDecoration(
+                      labelText: 'Réponse',
+                      hintText: 'Écrire une réponse WhatsApp...',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: canReplyFreeform && !_recordingBusy
+                      ? _toggleVoiceReply
+                      : null,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _recording ? Colors.red : null,
+                  ),
+                  child: _recordingBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(_recording ? Icons.stop : Icons.mic),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: canReplyFreeform && !_sending ? _sendReply : null,
+                  child: _sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: _sending ? null : _sendReply,
-              child: _sending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-            ),
+            if (canReplyFreeform) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  expiresAt == null
+                      ? 'Réponse libre autorisée dans la fenêtre WhatsApp de 24h.'
+                      : 'Réponse libre autorisée jusqu’au ${_formatDate(expiresAt)}.',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -684,7 +810,8 @@ class _InfoCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(title,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(subtitle, style: const TextStyle(color: Colors.grey)),
                 ],

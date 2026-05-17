@@ -88,6 +88,20 @@ type ApplicationDocument = {
   url?: string | null;
 };
 
+const REFERRAL_STATUS_LABELS: Record<string, string> = {
+  pending: "En cours",
+  qualified: "Qualifie",
+  rewarded: "Paye",
+  qualified_no_bonus: "Qualifie sans bonus",
+};
+
+const REFERRAL_STATUS_TONES: Record<string, BadgeTone> = {
+  pending: "warning",
+  qualified: "info",
+  rewarded: "success",
+  qualified_no_bonus: "default",
+};
+
 function textOrDash(value: unknown) {
   const text = String(value ?? "").trim();
   return text || "—";
@@ -277,6 +291,10 @@ export default function UserDetailPage() {
   const summary = data.summary;
   const wallet = data.wallet;
   const referral = data.referral;
+  const sponsoredReferrals = referral?.sponsored_referrals;
+  const sponsoredItems = Array.isArray(sponsoredReferrals?.items)
+    ? sponsoredReferrals.items
+    : [];
   const missionLocation = resolveGeoPoint(data.active_mission?.driver_location);
   const profileLocation = resolveGeoPoint(user.last_driver_location);
   const displayLocation = missionLocation ?? profileLocation;
@@ -714,6 +732,76 @@ export default function UserDetailPage() {
                 <span className="text-muted-foreground">Filleuls</span>
                 <span>{referral.referrals_count}</span>
               </div>
+              {sponsoredReferrals && (
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                  <div className="grid gap-2 sm:grid-cols-4">
+                    <InfoLine label="Total filleuls" value={sponsoredReferrals.total ?? 0} />
+                    <InfoLine label="En attente" value={sponsoredReferrals.pending_rewards ?? 0} />
+                    <InfoLine label="RÃ©compensÃ©s" value={sponsoredReferrals.rewarded ?? 0} />
+                    <InfoLine
+                      label="Bonus parrain"
+                      value={`${xof.format(sponsoredReferrals.total_sponsor_bonus_xof ?? 0)} XOF`}
+                    />
+                  </div>
+                  {sponsoredItems.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="text-muted-foreground">
+                          <tr>
+                            <th className="py-2 pr-3">Filleul</th>
+                            <th className="py-2 pr-3">RÃ´le</th>
+                            <th className="py-2 pr-3">Statut</th>
+                            <th className="py-2 pr-3">Progression</th>
+                            <th className="py-2 pr-3">Bonus</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sponsoredItems.map((item: any) => {
+                            const status = String(item.status ?? "pending");
+                            return (
+                              <tr key={item.referral_id ?? item.referred_user_id} className="border-t">
+                                <td className="py-2 pr-3">
+                                  {item.referred_user_id ? (
+                                    <Link
+                                      href={`/dashboard/users/${item.referred_user_id}`}
+                                      className="font-medium text-primary underline"
+                                    >
+                                      {textOrDash(item.referred_name)}
+                                    </Link>
+                                  ) : (
+                                    textOrDash(item.referred_name)
+                                  )}
+                                  {item.referred_phone && (
+                                    <div className="text-muted-foreground">{item.referred_phone}</div>
+                                  )}
+                                </td>
+                                <td className="py-2 pr-3">
+                                  {ROLE_LABELS[item.referred_role] ?? textOrDash(item.referred_role)}
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <Badge tone={REFERRAL_STATUS_TONES[status] ?? "default"}>
+                                    {REFERRAL_STATUS_LABELS[status] ?? status}
+                                  </Badge>
+                                </td>
+                                <td className="py-2 pr-3">
+                                  {item.reward_metric_count ?? 0} / {item.reward_count ?? 1}
+                                </td>
+                                <td className="py-2 pr-3">
+                                  {xof.format(item.sponsor_bonus_xof ?? 0)} XOF
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">
+                      Aucun filleul inscrit pour cet utilisateur.
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Actif</span>
                 <Badge tone={referral.effective_enabled ? "success" : "default"}>

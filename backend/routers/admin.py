@@ -29,6 +29,7 @@ from services.whatsapp_support_service import (
     MAX_WHATSAPP_MEDIA_BYTES,
     ensure_whatsapp_support_media_file,
     send_support_audio_reply,
+    send_support_reopen_template,
     send_support_text_reply,
     serialize_support_doc,
 )
@@ -39,6 +40,7 @@ from services.user_service import (
     describe_referral_apply_rule,
     describe_referral_reward_rule,
     get_effective_referral_share_base_url,
+    get_referral_metric_label,
     get_referral_metric_options,
     get_referral_role_config,
     get_referral_share_base_url,
@@ -137,6 +139,45 @@ def _pick_snapshot(doc: dict | None, fields: list[str]) -> dict:
     return {field: doc.get(field) for field in fields}
 
 
+def _utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _whatsapp_reply_window(conversation: dict | None) -> tuple[bool, datetime | None]:
+    last_inbound_at = _utc_datetime((conversation or {}).get("last_inbound_at"))
+    if not last_inbound_at:
+        return False, None
+    expires_at = last_inbound_at + timedelta(hours=24)
+    return datetime.now(timezone.utc) <= expires_at, expires_at
+
+
+def _with_whatsapp_reply_window(conversation: dict | None) -> dict | None:
+    if not conversation:
+        return None
+    can_reply, expires_at = _whatsapp_reply_window(conversation)
+    enriched = dict(conversation)
+    enriched["can_reply_freeform"] = can_reply
+    enriched["reply_window_expires_at"] = expires_at
+    return serialize_support_doc(enriched)
+
+
+def _ensure_whatsapp_reply_window_open(conversation: dict | None) -> None:
+    can_reply, _expires_at = _whatsapp_reply_window(conversation)
+    if not can_reply:
+        raise bad_request_exception(
+            "La fenêtre WhatsApp de 24 h est fermée. Le client doit d'abord renvoyer un message WhatsApp, "
+            "ou il faut utiliser un modèle approuvé."
+        )
+
+
 @router.get("/support/whatsapp/conversations", summary="Conversations support WhatsApp")
 async def list_whatsapp_support_conversations(
     status: Optional[str] = Query(None, pattern="^(open|pending|resolved)$"),
@@ -158,7 +199,7 @@ async def list_whatsapp_support_conversations(
 
     cursor = db.whatsapp_support_conversations.find(query, {"_id": 0}).sort("last_message_at", -1).limit(limit)
     conversations = await cursor.to_list(length=limit)
-    return {"conversations": conversations}
+    return {"conversations": [_with_whatsapp_reply_window(conversation) for conversation in conversations]}
 
 
 @router.get("/support/whatsapp/conversations/{conversation_id}", summary="Détail conversation support WhatsApp")
@@ -175,7 +216,7 @@ async def get_whatsapp_support_conversation(
         {"_id": 0, "raw_message": 0},
     ).sort("created_at", 1).limit(200)
     messages = await cursor.to_list(length=200)
-    return {"conversation": conversation, "messages": messages}
+    return {"conversation": _with_whatsapp_reply_window(conversation), "messages": messages}
 
 
 @router.patch("/support/whatsapp/conversations/{conversation_id}/status", summary="Statut conversation support WhatsApp")
@@ -191,7 +232,7 @@ async def update_whatsapp_support_conversation_status(
     if result.matched_count == 0:
         raise not_found_exception("Conversation WhatsApp introuvable")
     conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
-    return {"conversation": serialize_support_doc(conversation)}
+    return {"conversation": _with_whatsapp_reply_window(conversation)}
 
 
 @router.get("/support/whatsapp/media/{filename}", summary="Média WhatsApp support")
@@ -225,8 +266,24 @@ async def reply_whatsapp_support_conversation(
     conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
     if not conversation:
         raise not_found_exception("Conversation WhatsApp introuvable")
+    _ensure_whatsapp_reply_window_open(conversation)
     try:
         message = await send_support_text_reply(conversation, payload.text, admin_user)
+    except Exception as exc:
+        raise bad_request_exception(str(exc))
+    return {"message": serialize_support_doc(message)}
+
+
+@router.post("/support/whatsapp/conversations/{conversation_id}/reopen-template", summary="Relance template WhatsApp")
+async def reopen_whatsapp_support_conversation(
+    conversation_id: str,
+    admin_user=Depends(require_admin_dep),
+):
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp introuvable")
+    try:
+        message = await send_support_reopen_template(conversation, admin_user)
     except Exception as exc:
         raise bad_request_exception(str(exc))
     return {"message": serialize_support_doc(message)}
@@ -241,6 +298,7 @@ async def reply_whatsapp_support_conversation_voice(
     conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
     if not conversation:
         raise not_found_exception("Conversation WhatsApp introuvable")
+    _ensure_whatsapp_reply_window_open(conversation)
 
     content_type = file.content_type or "application/octet-stream"
     if not content_type.startswith("audio/"):
@@ -328,6 +386,77 @@ def _admin_kyc_document_url(user_id: str | None, doc_type: str) -> str | None:
     if not user_id:
         return None
     return f"{settings.BASE_URL.rstrip('/')}/api/users/{user_id}/kyc/{doc_type}"
+
+
+async def _admin_sponsored_referral_summary(user_id: str) -> dict:
+    referrals = await db.referrals.find(
+        {"sponsor_user_id": user_id},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+        limit=50,
+    ).to_list(length=50)
+    referred_ids = [
+        referral.get("referred_user_id")
+        for referral in referrals
+        if referral.get("referred_user_id")
+    ]
+    users_by_id = {}
+    if referred_ids:
+        referred_users = await db.users.find(
+            {"user_id": {"$in": referred_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "role": 1},
+        ).to_list(length=len(referred_ids))
+        users_by_id = {user["user_id"]: user for user in referred_users}
+
+    items = []
+    status_counts: dict[str, int] = {}
+    pending_rewards = 0
+    rewarded = 0
+    total_sponsor_bonus_xof = 0
+    total_referred_bonus_xof = 0
+
+    for referral in referrals:
+        status = str(referral.get("status") or "pending")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        if status in {"pending", "qualified"}:
+            pending_rewards += 1
+        if status == "rewarded":
+            rewarded += 1
+            total_sponsor_bonus_xof += int(referral.get("sponsor_bonus_xof") or 0)
+            total_referred_bonus_xof += int(referral.get("referred_bonus_xof") or 0)
+
+        referred_user = users_by_id.get(referral.get("referred_user_id"), {})
+        reward_count = int(referral.get("reward_count") or 1)
+        current_count = int(referral.get("reward_metric_count") or 0)
+        items.append({
+            "referral_id": referral.get("referral_id"),
+            "referred_user_id": referral.get("referred_user_id"),
+            "referred_name": referred_user.get("name") or "Utilisateur Denkma",
+            "referred_phone": referred_user.get("phone"),
+            "referred_role": referral.get("referred_role") or referred_user.get("role"),
+            "status": status,
+            "reward_metric": referral.get("reward_metric"),
+            "reward_metric_label": get_referral_metric_label(str(referral.get("reward_metric") or "")),
+            "reward_metric_count": current_count,
+            "reward_count": reward_count,
+            "progress_percent": min(100, round((current_count / max(reward_count, 1)) * 100)),
+            "sponsor_bonus_xof": int(referral.get("sponsor_bonus_xof") or 0),
+            "referred_bonus_xof": int(referral.get("referred_bonus_xof") or 0),
+            "created_at": referral.get("created_at"),
+            "qualified_at": referral.get("qualified_at"),
+            "rewarded_at": referral.get("rewarded_at"),
+        })
+
+    return {
+        "total": await db.referrals.count_documents({"sponsor_user_id": user_id}),
+        "shown": len(items),
+        "pending_rewards": pending_rewards,
+        "rewarded": rewarded,
+        "status_counts": status_counts,
+        "total_sponsor_bonus_xof": total_sponsor_bonus_xof,
+        "total_referred_bonus_xof": total_referred_bonus_xof,
+        "items": items,
+    }
 
 
 def _application_snapshot(
@@ -1438,6 +1567,7 @@ async def admin_user_detail(
             "apply_rule": describe_referral_apply_rule(app_settings, user.get("role", "client")),
             "reward_rule": describe_referral_reward_rule(app_settings, user.get("role", "client")),
             "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
+            "sponsored_referrals": await _admin_sponsored_referral_summary(user_id),
         },
     }
 

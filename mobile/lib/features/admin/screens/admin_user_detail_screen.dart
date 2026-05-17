@@ -61,6 +61,9 @@ class AdminUserDetailScreen extends ConsumerWidget {
           final referral = Map<String, dynamic>.from(
             data['referral'] as Map<String, dynamic>? ?? const {},
           );
+          final sponsoredReferrals = Map<String, dynamic>.from(
+            referral['sponsored_referrals'] as Map? ?? const {},
+          );
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -154,9 +157,8 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           ),
                           FilledButton.icon(
                             style: FilledButton.styleFrom(
-                              backgroundColor: user.isBanned
-                                  ? Colors.green
-                                  : Colors.red,
+                              backgroundColor:
+                                  user.isBanned ? Colors.green : Colors.red,
                             ),
                             onPressed: () => _toggleBan(context, ref, user),
                             icon: Icon(
@@ -412,6 +414,8 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         'Filleuls',
                         '${referral['referrals_count'] ?? 0}',
                       ),
+                      const SizedBox(height: 8),
+                      _SponsoredReferralList(summary: sponsoredReferrals),
                       _InfoRow(
                         'Bonus deja credite',
                         (referral['referral_credited'] as bool? ?? false)
@@ -838,6 +842,150 @@ class _MetricTile extends StatelessWidget {
             value,
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SponsoredReferralList extends StatelessWidget {
+  const _SponsoredReferralList({required this.summary});
+
+  final Map<String, dynamic> summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = (summary['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _SmallReferralMetric('Total', '${summary['total'] ?? 0}'),
+              _SmallReferralMetric(
+                'En attente',
+                '${summary['pending_rewards'] ?? 0}',
+              ),
+              _SmallReferralMetric('Payes', '${summary['rewarded'] ?? 0}'),
+              _SmallReferralMetric(
+                'Bonus',
+                formatXof(
+                  (summary['total_sponsor_bonus_xof'] as num?)?.toDouble() ??
+                      0.0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (items.isEmpty)
+            const Text(
+              'Aucun filleul inscrit.',
+              style: TextStyle(color: Colors.grey),
+            )
+          else
+            for (final item in items.take(8))
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _stringOrDash(item['referred_name']),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            '${item['reward_metric_count'] ?? 0} / ${item['reward_count'] ?? 1} objectif',
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _StatusChip(
+                      label: _referralStatusLabel(item['status']),
+                      color: _referralStatusColor(item['status']),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  static String _stringOrDash(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? '-' : text;
+  }
+
+  static String _referralStatusLabel(dynamic status) {
+    switch (status?.toString()) {
+      case 'rewarded':
+        return 'Paye';
+      case 'qualified':
+        return 'Qualifie';
+      case 'qualified_no_bonus':
+        return 'Sans bonus';
+      default:
+        return 'En cours';
+    }
+  }
+
+  static Color _referralStatusColor(dynamic status) {
+    switch (status?.toString()) {
+      case 'rewarded':
+        return Colors.green;
+      case 'qualified':
+        return Colors.blue;
+      case 'qualified_no_bonus':
+        return Colors.grey;
+      default:
+        return Colors.orange;
+    }
+  }
+}
+
+class _SmallReferralMetric extends StatelessWidget {
+  const _SmallReferralMetric(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

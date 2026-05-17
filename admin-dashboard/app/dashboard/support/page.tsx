@@ -7,6 +7,7 @@ import {
   api,
   fetchWhatsappSupportConversation,
   fetchWhatsappSupportConversations,
+  sendWhatsappSupportReopenTemplate,
   sendWhatsappSupportTextReply,
   sendWhatsappSupportVoiceReply,
   updateWhatsappSupportConversationStatus,
@@ -181,8 +182,19 @@ export default function WhatsAppSupportPage() {
     onError: (error) => setSupportError(supportErrorMessage(error)),
   });
 
+  const reopenTemplateMutation = useMutation({
+    mutationFn: () => sendWhatsappSupportReopenTemplate(activeId as string),
+    onSuccess: () => {
+      setSupportError(null);
+      refreshActive();
+    },
+    onError: (error) => setSupportError(supportErrorMessage(error)),
+  });
+
   const activeConversation = detailQuery.data?.conversation;
   const messages = detailQuery.data?.messages ?? [];
+  const canReplyFreeform = activeConversation?.can_reply_freeform !== false;
+  const replyWindowClosed = Boolean(activeConversation && !canReplyFreeform);
 
   async function startRecording() {
     if (!activeId || recording) return;
@@ -457,21 +469,46 @@ export default function WhatsAppSupportPage() {
               </div>
 
               <div className="border-t p-4">
+                {replyWindowClosed && (
+                  <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <div>
+                      La fenêtre WhatsApp de 24h est fermée pour ce ticket. Le client doit d'abord renvoyer un message,
+                      ou il faut utiliser un modèle WhatsApp approuvé.
+                      {activeConversation?.reply_window_expires_at && (
+                        <> Dernière fenêtre expirée le {formatDate(activeConversation.reply_window_expires_at)}.</>
+                      )}
+                    </div>
+                    <Button
+                      className="mt-2"
+                      size="sm"
+                      variant="outline"
+                      disabled={!activeId || reopenTemplateMutation.isPending}
+                      onClick={() => reopenTemplateMutation.mutate()}
+                    >
+                      {reopenTemplateMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageCircle className="mr-2 h-4 w-4" />
+                      )}
+                      Relancer par template
+                    </Button>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <Input
                     value={replyText}
                     onChange={(event) => setReplyText(event.target.value)}
                     placeholder="Répondre au client..."
-                    disabled={!activeId || textReplyMutation.isPending}
+                    disabled={!activeId || !canReplyFreeform || textReplyMutation.isPending}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && replyText.trim() && activeId) {
+                      if (event.key === "Enter" && replyText.trim() && activeId && canReplyFreeform) {
                         textReplyMutation.mutate();
                       }
                     }}
                   />
                   <Button
                     size="icon"
-                    disabled={!activeId || !replyText.trim() || textReplyMutation.isPending}
+                    disabled={!activeId || !canReplyFreeform || !replyText.trim() || textReplyMutation.isPending}
                     onClick={() => textReplyMutation.mutate()}
                     title="Envoyer"
                   >
@@ -480,7 +517,7 @@ export default function WhatsAppSupportPage() {
                   <Button
                     size="icon"
                     variant={recording ? "destructive" : "outline"}
-                    disabled={!activeId || voiceReplyMutation.isPending}
+                    disabled={!activeId || !canReplyFreeform || voiceReplyMutation.isPending}
                     onClick={recording ? stopRecording : startRecording}
                     title={recording ? "Arrêter l'enregistrement" : "Enregistrer une note vocale"}
                   >

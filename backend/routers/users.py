@@ -81,6 +81,77 @@ def _image_content_type(ext: str) -> str:
     }.get(ext.lower(), "application/octet-stream")
 
 
+async def _build_sponsored_referral_summary(user_id: str) -> dict:
+    referrals = await db.referrals.find(
+        {"sponsor_user_id": user_id},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+        limit=25,
+    ).to_list(length=25)
+
+    referred_ids = [
+        referral.get("referred_user_id")
+        for referral in referrals
+        if referral.get("referred_user_id")
+    ]
+    users_by_id = {}
+    if referred_ids:
+        referred_users = await db.users.find(
+            {"user_id": {"$in": referred_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "role": 1, "phone": 1},
+        ).to_list(length=len(referred_ids))
+        users_by_id = {user["user_id"]: user for user in referred_users}
+
+    items = []
+    status_counts: dict[str, int] = {}
+    pending_rewards = 0
+    rewarded_count = 0
+    total_sponsor_bonus_xof = 0
+    total_referred_bonus_xof = 0
+
+    for referral in referrals:
+        status = str(referral.get("status") or "pending")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        if status in {"pending", "qualified"}:
+            pending_rewards += 1
+        if status == "rewarded":
+            rewarded_count += 1
+            total_sponsor_bonus_xof += int(referral.get("sponsor_bonus_xof") or 0)
+            total_referred_bonus_xof += int(referral.get("referred_bonus_xof") or 0)
+
+        referred_user = users_by_id.get(referral.get("referred_user_id"), {})
+        reward_count = int(referral.get("reward_count") or 1)
+        current_count = int(referral.get("reward_metric_count") or 0)
+        items.append({
+            "referral_id": referral.get("referral_id"),
+            "referred_user_id": referral.get("referred_user_id"),
+            "referred_name": referred_user.get("name") or "Utilisateur Denkma",
+            "referred_role": referral.get("referred_role") or referred_user.get("role"),
+            "status": status,
+            "reward_metric": referral.get("reward_metric"),
+            "reward_metric_label": get_referral_metric_label(str(referral.get("reward_metric") or "")),
+            "reward_metric_count": current_count,
+            "reward_count": reward_count,
+            "progress_percent": min(100, round((current_count / max(reward_count, 1)) * 100)),
+            "sponsor_bonus_xof": int(referral.get("sponsor_bonus_xof") or 0),
+            "referred_bonus_xof": int(referral.get("referred_bonus_xof") or 0),
+            "created_at": referral.get("created_at"),
+            "qualified_at": referral.get("qualified_at"),
+            "rewarded_at": referral.get("rewarded_at"),
+        })
+
+    return {
+        "total": await db.referrals.count_documents({"sponsor_user_id": user_id}),
+        "shown": len(items),
+        "pending_rewards": pending_rewards,
+        "rewarded": rewarded_count,
+        "status_counts": status_counts,
+        "total_sponsor_bonus_xof": total_sponsor_bonus_xof,
+        "total_referred_bonus_xof": total_referred_bonus_xof,
+        "items": items,
+    }
+
+
 async def _build_referral_payload(user_doc: dict) -> dict:
     settings_doc = await get_global_app_settings()
     user_role = str(user_doc.get("role") or "client")
@@ -131,6 +202,7 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "reward_metric_label": get_referral_metric_label(config["reward_metric"]),
         "reward_count": config["reward_count"],
         "received_referral": received_referral,
+        "sponsored_referrals": await _build_sponsored_referral_summary(user_doc.get("user_id", "")),
         "reward_rule": describe_referral_reward_rule(settings_doc, user_role),
         "metric_options": get_referral_metric_options(user_role),
         "share_message": build_referral_share_message(

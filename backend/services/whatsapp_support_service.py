@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+from bson import ObjectId
+from bson.errors import InvalidId
+from gridfs.errors import NoFile
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from config import UPLOADS_DIR, settings
-from database import db
+from database import db, get_db
 from models.common import ParcelStatus
 
 logger = logging.getLogger(__name__)
@@ -81,6 +85,63 @@ def _safe_media_extension(mime_type: str | None) -> str:
         return ".m4a"
     guessed = mimetypes.guess_extension(mime_type or "")
     return guessed if guessed in {".ogg", ".mp3", ".aac", ".m4a", ".opus", ".wav"} else ".bin"
+
+
+def _whatsapp_media_bucket() -> AsyncIOMotorGridFSBucket:
+    database = get_db()
+    if database is None:
+        raise RuntimeError("Database not connected")
+    return AsyncIOMotorGridFSBucket(database, bucket_name="whatsapp_support_media")
+
+
+async def _store_whatsapp_media_blob(
+    *,
+    filename: str,
+    content: bytes,
+    mime_type: str | None,
+    media_id: str | None,
+    direction: str,
+) -> str | None:
+    if not content:
+        return None
+    file_id = await _whatsapp_media_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": mime_type or "application/octet-stream",
+            "media_id": media_id,
+            "direction": direction,
+            "created_at": _now(),
+        },
+    )
+    return str(file_id)
+
+
+async def _restore_whatsapp_media_blob(file_id: str | None, filename: str) -> tuple[Path, str] | None:
+    if not file_id:
+        return None
+    try:
+        object_id = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        return None
+
+    try:
+        stream = await _whatsapp_media_bucket().open_download_stream(object_id)
+        content = await stream.read()
+    except NoFile:
+        return None
+
+    if not content or len(content) > MAX_WHATSAPP_MEDIA_BYTES:
+        return None
+
+    PRIVATE_WHATSAPP_DIR.mkdir(parents=True, exist_ok=True)
+    path = (PRIVATE_WHATSAPP_DIR / filename).resolve()
+    base = PRIVATE_WHATSAPP_DIR.resolve()
+    if base not in path.parents:
+        return None
+    path.write_bytes(content)
+    media_type = (stream.metadata or {}).get("content_type") or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    return path, media_type
 
 
 def _base_mime_type(mime_type: str | None) -> str:
@@ -166,6 +227,11 @@ async def _log_whatsapp_support_attempt(
 ) -> None:
     try:
         now = _now()
+        template_name = (
+            (payload.get("template") or {}).get("name")
+            if isinstance(payload.get("template"), dict)
+            else None
+        )
         await db.whatsapp_delivery_logs.insert_one(
             {
                 "attempt_id": f"wa_support_{uuid.uuid4().hex[:16]}",
@@ -175,7 +241,7 @@ async def _log_whatsapp_support_attempt(
                 "phone_input": conversation.get("phone") if conversation else payload.get("to"),
                 "to": payload.get("to"),
                 "message_type": payload.get("type"),
-                "template": None,
+                "template": template_name,
                 "status": status,
                 "status_code": status_code,
                 "meta_message_id": meta_message_id,
@@ -353,6 +419,13 @@ async def _download_whatsapp_media(media_id: str | None) -> dict | None:
     filename = f"{media_id}_{uuid.uuid4().hex[:10]}{ext}"
     path = PRIVATE_WHATSAPP_DIR / filename
     path.write_bytes(content)
+    file_id = await _store_whatsapp_media_blob(
+        filename=filename,
+        content=content,
+        mime_type=mime_type,
+        media_id=media_id,
+        direction="inbound",
+    )
 
     return {
         "media_id": media_id,
@@ -360,6 +433,7 @@ async def _download_whatsapp_media(media_id: str | None) -> dict | None:
         "sha256": meta.get("sha256"),
         "file_size": len(content),
         "storage_path": str(path),
+        "file_id": file_id,
         "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{filename}",
     }
 
@@ -381,7 +455,12 @@ async def ensure_whatsapp_support_media_file(filename: str) -> tuple[Path, str] 
         },
         {"_id": 0, "media": 1},
     )
-    media_id = ((message or {}).get("media") or {}).get("media_id")
+    media = (message or {}).get("media") or {}
+    restored_blob = await _restore_whatsapp_media_blob(media.get("file_id"), filename)
+    if restored_blob:
+        return restored_blob
+
+    media_id = media.get("media_id")
     restored = await _download_whatsapp_media(media_id)
     if not restored:
         return None
@@ -565,6 +644,72 @@ async def send_support_text_reply(conversation: dict, text: str, admin_user: dic
     )
 
 
+def _support_template_variable(token: str, conversation: dict) -> str:
+    token = token.strip().lower()
+    user = conversation.get("matched_user") or {}
+    parcel = conversation.get("matched_parcel") or {}
+    if token == "name":
+        return str(user.get("name") or "client Denkma")
+    if token == "phone":
+        return str(conversation.get("phone") or "")
+    if token == "tracking_code":
+        return str(parcel.get("tracking_code") or "")
+    if token == "app_name":
+        return "Denkma"
+    return token
+
+
+def _support_template_components(conversation: dict) -> list[dict]:
+    tokens = [
+        token.strip()
+        for token in (settings.WHATSAPP_TEMPLATE_SUPPORT_REOPEN_VARIABLES or "").split(",")
+        if token.strip()
+    ]
+    if not tokens:
+        return []
+    return [
+        {
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": _support_template_variable(token, conversation)}
+                for token in tokens
+            ],
+        }
+    ]
+
+
+async def send_support_reopen_template(conversation: dict, admin_user: dict) -> dict:
+    template_name = settings.WHATSAPP_TEMPLATE_SUPPORT_REOPEN
+    if not template_name:
+        raise RuntimeError(
+            "Template WhatsApp de relance support non configuré. "
+            "Ajoutez WHATSAPP_TEMPLATE_SUPPORT_REOPEN sur Railway."
+        )
+    template_payload = {
+        "name": template_name,
+        "language": {"code": "fr"},
+    }
+    components = _support_template_components(conversation)
+    if components:
+        template_payload["components"] = components
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": conversation["phone"].lstrip("+"),
+        "type": "template",
+        "template": template_payload,
+    }
+    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
+    whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
+    return await _store_outbound_message(
+        conversation,
+        admin_user=admin_user,
+        text=f"[relance support envoyée via template {template_name}]",
+        message_type="template",
+        whatsapp_message_id=whatsapp_message_id,
+    )
+
+
 async def send_support_audio_reply(
     conversation: dict,
     *,
@@ -593,12 +738,20 @@ async def send_support_audio_reply(
     stored_filename = f"out_{media_id}_{uuid.uuid4().hex[:10]}{ext}"
     path = PRIVATE_WHATSAPP_DIR / stored_filename
     path.write_bytes(prepared_content)
+    file_id = await _store_whatsapp_media_blob(
+        filename=stored_filename,
+        content=prepared_content,
+        mime_type=clean_mime_type,
+        media_id=media_id,
+        direction="outbound",
+    )
 
     media = {
         "media_id": media_id,
         "mime_type": clean_mime_type,
         "file_size": len(prepared_content),
         "storage_path": str(path),
+        "file_id": file_id,
         "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{stored_filename}",
     }
     return await _store_outbound_message(

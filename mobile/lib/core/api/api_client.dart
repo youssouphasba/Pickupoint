@@ -465,15 +465,27 @@ class ApiClient {
         data: {'text': text},
       );
 
+  Future<Response> sendWhatsappSupportReopenTemplate(String conversationId) =>
+      _dio.post(
+          ApiEndpoints.adminWhatsappSupportReopenTemplate(conversationId));
+
   Future<Response> sendWhatsappSupportVoiceReply(
     String conversationId,
     String filePath,
   ) async {
+    final lowerPath = filePath.toLowerCase();
+    final mediaType = lowerPath.endsWith('.ogg') || lowerPath.endsWith('.opus')
+        ? DioMediaType('audio', 'ogg')
+        : lowerPath.endsWith('.mp3')
+            ? DioMediaType('audio', 'mpeg')
+            : lowerPath.endsWith('.aac')
+                ? DioMediaType('audio', 'aac')
+                : DioMediaType('audio', 'mp4');
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(
         filePath,
         filename: filePath.split(RegExp(r'[\\/]')).last,
-        contentType: DioMediaType('audio', 'mp4'),
+        contentType: mediaType,
       ),
     });
     return _dio.post(

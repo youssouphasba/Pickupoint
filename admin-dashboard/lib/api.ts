@@ -297,6 +297,8 @@ export type WhatsAppSupportConversation = {
   last_message_text?: string | null;
   last_message_at?: string | null;
   last_inbound_at?: string | null;
+  reply_window_expires_at?: string | null;
+  can_reply_freeform?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -358,6 +360,13 @@ export async function sendWhatsappSupportTextReply(
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/reply`,
     { text },
+  );
+  return data;
+}
+
+export async function sendWhatsappSupportReopenTemplate(conversationId: string) {
+  const { data } = await api.post(
+    `/api/admin/support/whatsapp/conversations/${conversationId}/reopen-template`,
   );
   return data;
 }

@@ -133,6 +133,8 @@ class ApiEndpoints {
       '$_base/api/admin/support/whatsapp/conversations/$id/status';
   static String adminWhatsappSupportReply(String id) =>
       '$_base/api/admin/support/whatsapp/conversations/$id/reply';
+  static String adminWhatsappSupportReopenTemplate(String id) =>
+      '$_base/api/admin/support/whatsapp/conversations/$id/reopen-template';
   static String adminWhatsappSupportVoice(String id) =>
       '$_base/api/admin/support/whatsapp/conversations/$id/voice';
 
