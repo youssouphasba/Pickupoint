@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote_plus
 
 from bson import ObjectId
 from bson.errors import InvalidId
