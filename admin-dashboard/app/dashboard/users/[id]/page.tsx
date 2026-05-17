@@ -737,7 +737,7 @@ export default function UserDetailPage() {
                   <div className="grid gap-2 sm:grid-cols-4">
                     <InfoLine label="Total filleuls" value={sponsoredReferrals.total ?? 0} />
                     <InfoLine label="En attente" value={sponsoredReferrals.pending_rewards ?? 0} />
-                    <InfoLine label="RÃ©compensÃ©s" value={sponsoredReferrals.rewarded ?? 0} />
+                    <InfoLine label="Récompensés" value={sponsoredReferrals.rewarded ?? 0} />
                     <InfoLine
                       label="Bonus parrain"
                       value={`${xof.format(sponsoredReferrals.total_sponsor_bonus_xof ?? 0)} XOF`}
@@ -749,7 +749,7 @@ export default function UserDetailPage() {
                         <thead className="text-muted-foreground">
                           <tr>
                             <th className="py-2 pr-3">Filleul</th>
-                            <th className="py-2 pr-3">RÃ´le</th>
+                            <th className="py-2 pr-3">Rôle</th>
                             <th className="py-2 pr-3">Statut</th>
                             <th className="py-2 pr-3">Progression</th>
                             <th className="py-2 pr-3">Bonus</th>
