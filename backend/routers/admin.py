@@ -2,6 +2,7 @@
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import mimetypes
+import uuid
 from calendar import monthrange
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -1190,6 +1191,7 @@ async def admin_send_targeted_notification(
         raise bad_request_exception("Aucun utilisateur éligible pour cette notification")
 
     matched_ids = [user["user_id"] for user in users]
+    broadcast_id = f"ntfb_{uuid.uuid4().hex[:12]}"
     result = await send_targeted_notifications(
         user_ids=matched_ids,
         title=body.title.strip(),
@@ -1200,17 +1202,51 @@ async def admin_send_targeted_notification(
         metadata={
             "source": "admin_manual",
             "admin_user_id": admin_user.get("user_id"),
+            "broadcast_id": broadcast_id,
             "target_role": body.role,
         },
     )
 
     missing_ids = sorted(set(user_ids) - set(matched_ids)) if user_ids else []
+    now = datetime.now(timezone.utc)
+    await db.notification_broadcasts.insert_one(
+        {
+            "broadcast_id": broadcast_id,
+            "title": body.title.strip(),
+            "body": body.body.strip(),
+            "category": body.category,
+            "target_role": body.role,
+            "requested_user_ids": user_ids,
+            "matched_user_ids": matched_ids,
+            "missing_user_ids": missing_ids,
+            "matched_count": len(matched_ids),
+            "sent_count": result["sent"],
+            "created_by": admin_user.get("user_id"),
+            "created_by_name": admin_user.get("name") or admin_user.get("email"),
+            "created_at": now,
+            "ref_type": body.ref_type,
+            "ref_id": body.ref_id,
+        }
+    )
     return {
         "ok": True,
+        "broadcast_id": broadcast_id,
         "matched": len(matched_ids),
         "sent": result["sent"],
         "missing_user_ids": missing_ids,
     }
+
+
+@router.get("/notifications/history", summary="Historique des notifications ciblées")
+async def admin_notification_history(
+    limit: int = Query(50, ge=1, le=200),
+    _admin=Depends(require_admin_dep),
+):
+    broadcasts = await db.notification_broadcasts.find(
+        {},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+    return {"broadcasts": broadcasts}
 
 
 @router.patch("/users/{user_id}/profile-photo", summary="Moderer la photo de profil d'un utilisateur")
@@ -3086,6 +3122,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
+        "support_whatsapp_phone": settings_doc.get("support_whatsapp_phone") or settings.SUPPORT_WHATSAPP_PHONE,
         "pricing": pricing_settings,
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),

@@ -6,6 +6,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Bell, Loader2, Send } from "lucide-react";
 import {
   AdminUser,
+  fetchNotificationBroadcasts,
   fetchUsers,
   sendTargetedNotification,
 } from "@/lib/api";
@@ -67,6 +68,10 @@ export default function TargetedNotificationsPage() {
     queryFn: () =>
       fetchUsers({ limit: 500, role: role === "all" ? undefined : role }),
   });
+  const historyQuery = useQuery({
+    queryKey: ["notification-broadcasts"],
+    queryFn: () => fetchNotificationBroadcasts(50),
+  });
 
   const users = data?.users ?? [];
   const selectedUsers = React.useMemo(
@@ -88,6 +93,7 @@ export default function TargetedNotificationsPage() {
       toast(
         `${result.sent} notification${result.sent > 1 ? "s" : ""} envoyée${result.sent > 1 ? "s" : ""}.`,
       );
+      historyQuery.refetch();
       setSelectedIds(new Set());
       setTitle("");
       setBody("");
@@ -355,6 +361,73 @@ export default function TargetedNotificationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Historique des envois</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {historyQuery.isLoading ? (
+            <div className="flex h-24 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : historyQuery.isError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              Impossible de charger l’historique.
+            </div>
+          ) : (historyQuery.data?.broadcasts.length ?? 0) === 0 ? (
+            <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+              Aucun envoi manuel pour le moment.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Message
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Cible
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Envoyées
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Date
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyQuery.data?.broadcasts.map((broadcast) => (
+                    <tr key={broadcast.broadcast_id} className="border-t">
+                      <td className="max-w-xl px-4 py-3">
+                        <div className="font-medium">{broadcast.title}</div>
+                        <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {broadcast.body}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {broadcast.target_role
+                          ? ROLE_LABELS[broadcast.target_role] ?? broadcast.target_role
+                          : "Sélection manuelle"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {broadcast.sent_count}/{broadcast.matched_count}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {broadcast.created_at
+                          ? new Date(broadcast.created_at).toLocaleString("fr-FR")
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

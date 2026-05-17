@@ -154,10 +154,32 @@ export async function sendTargetedNotification(
   const { data } = await api.post("/api/admin/notifications/send", payload);
   return data as {
     ok: boolean;
+    broadcast_id: string;
     matched: number;
     sent: number;
     missing_user_ids: string[];
   };
+}
+
+export type NotificationBroadcast = {
+  broadcast_id: string;
+  title: string;
+  body: string;
+  category: string;
+  target_role?: string | null;
+  matched_count: number;
+  sent_count: number;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  created_at?: string;
+};
+
+export async function fetchNotificationBroadcasts(limit = 50) {
+  const { data } = await api.get<{ broadcasts: NotificationBroadcast[] }>(
+    "/api/admin/notifications/history",
+    { params: { limit } },
+  );
+  return data;
 }
 
 // ───────────────────────── Parcels ─────────────────────────

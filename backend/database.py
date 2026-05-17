@@ -129,6 +129,11 @@ async def create_indexes():
             IndexModel([("user_id", 1)]),
             IndexModel([("created_at", 1)]),
         ],
+        "notification_broadcasts": [
+            IndexModel([("broadcast_id", 1)], unique=True),
+            IndexModel([("created_at", -1)]),
+            IndexModel([("created_by", 1)]),
+        ],
         "whatsapp_support_conversations": [
             IndexModel([("conversation_id", 1)], unique=True),
             IndexModel([("phone", 1)]),

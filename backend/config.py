@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     MOBILE_ADMIN_PHONE_NUMBERS: str = ""
     MOBILE_ADMIN_ROLE: str = "superadmin"
     MOBILE_ADMIN_DEFAULT_NAME: str = "Administrateur Denkma"
+    SUPPORT_WHATSAPP_PHONE: Optional[str] = None
 
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"

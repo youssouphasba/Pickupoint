@@ -7,6 +7,7 @@ import '../../../core/models/user.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -445,6 +446,10 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             'Acces rapide aux documents utiles et informations de conformite.',
                         child: Column(
                           children: [
+                            const SupportWhatsAppTile(
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            const Divider(height: 1),
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.privacy_tip_outlined),
@@ -468,7 +473,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         style: TextButton.styleFrom(
                           foregroundColor: Colors.red,
                         ),
-                        onPressed: () => ref.read(authProvider.notifier).logout(),
+                        onPressed: () =>
+                            ref.read(authProvider.notifier).logout(),
                         icon: const Icon(Icons.logout),
                         label: const Text('Se déconnecter'),
                       ),
