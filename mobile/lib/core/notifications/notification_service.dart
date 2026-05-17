@@ -19,6 +19,19 @@ class NotificationService {
   NotificationService(this._ref);
 
   Future<void> init() async {
+    if (Platform.isAndroid) {
+      _fcm.onTokenRefresh.listen((token) {
+        _uploadToken(token);
+      });
+
+      await _initializeLocalNotifications();
+
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        _showLocalNotification(message);
+      });
+      return;
+    }
+
     // 1. Demander les permissions
     NotificationSettings settings = await _fcm.requestPermission(
       alert: true,
@@ -65,6 +78,7 @@ class NotificationService {
       badge: true,
       sound: true,
     );
+    await _tryUploadCurrentToken();
 
     // 7. Configurer les notifications locales
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -83,6 +97,29 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
     });
+  }
+
+  Future<void> _initializeLocalNotifications() async {
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
+    );
+    await _localNotifs.initialize(initSettings);
+  }
+
+  Future<void> _tryUploadCurrentToken() async {
+    try {
+      final token = await _fcm.getToken();
+      if (token != null) {
+        await _uploadToken(token);
+      }
+    } catch (_) {}
   }
 
   Future<void> _uploadToken(String token) async {
@@ -126,6 +163,7 @@ class NotificationService {
       sound: true,
     );
     // On peut invalider le provider pour rafraîchir l'UI
+    await _tryUploadCurrentToken();
     _ref.invalidate(notificationSettingsProvider);
   }
 }

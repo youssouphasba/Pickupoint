@@ -27,15 +27,16 @@ void main() async {
 
   final container = ProviderContainer();
 
-  // Init push notifications (FCM)
-  try {
-    await container.read(notificationServiceProvider).init();
-  } catch (e) {
-    debugPrint('Push notifications init failed: $e');
-  }
-
   runApp(UncontrolledProviderScope(
     container: container,
     child: const DenkmaApp(),
   ));
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    try {
+      await container.read(notificationServiceProvider).init();
+    } catch (e) {
+      debugPrint('Push notifications init failed: $e');
+    }
+  });
 }
