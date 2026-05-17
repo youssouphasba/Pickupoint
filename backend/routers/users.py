@@ -38,6 +38,7 @@ from services.user_service import (
     get_referral_metric_count,
     get_referral_metric_label,
     get_referral_metric_options,
+    get_referral_referred_bonus_xof,
     get_referral_role_config,
     get_referral_share_base_url,
     generate_unique_referral_code,
