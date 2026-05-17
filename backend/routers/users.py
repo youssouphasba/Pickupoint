@@ -898,7 +898,9 @@ async def referral_landing(code: str):
     if not is_referral_sponsor_enabled_for_user(sponsor, settings_doc):
         raise not_found_exception("Code parrainage")
 
-    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc)
+    sponsor_role = str(sponsor.get("role") or "client")
+    referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc, sponsor_role)
+    reward_rule = describe_referral_reward_rule(settings_doc, sponsor_role)
     sponsor_name = escape(str(sponsor.get("name") or "Un utilisateur Denkma"))
     safe_code = escape(referral_code)
     app_link = f"denkma://app/referral/{quote_plus(referral_code)}"
@@ -912,7 +914,7 @@ async def referral_landing(code: str):
             get_effective_referral_share_base_url(settings_doc),
         ),
         referred_bonus_xof=referred_bonus_xof,
-        reward_rule=describe_referral_reward_rule(settings_doc),
+        reward_rule=reward_rule,
     )
     if download_url:
         raw_share_message += f" Telechargement de l'application : {download_url}"
@@ -1023,7 +1025,7 @@ async def referral_landing(code: str):
       <h1>{sponsor_name} vous invite sur Denkma</h1>
       <p>
         Utilisez ce code pendant votre inscription pour activer le parrainage.
-        {f"Un bonus filleul de {referred_bonus_xof} XOF est prevu. {escape(describe_referral_reward_rule(settings_doc))}" if referred_bonus_xof > 0 else escape(describe_referral_reward_rule(settings_doc))}
+        {f"Un bonus filleul de {referred_bonus_xof} XOF est prevu. {escape(reward_rule)}" if referred_bonus_xof > 0 else escape(reward_rule)}
       </p>
       <div class="code" id="referral-code">{safe_code}</div>
       <div class="hint">Conservez ce code et saisissez-le dans l'ecran d'inscription Denkma.</div>
