@@ -49,10 +49,21 @@ workflows:
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           flutter pub get
+      - name: Install Shorebird CLI
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if ! command -v shorebird >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/shorebirdtech/install/main/install.sh | bash
+          fi
+          echo 'export PATH="$HOME/.shorebird/bin:$PATH"' >> "$CM_ENV"
+          export PATH="$HOME/.shorebird/bin:$PATH"
+          shorebird --version
       - name: Build Android Shorebird release
         script: |
           #!/usr/bin/env bash
           set -euo pipefail
+          export PATH="$HOME/.shorebird/bin:$PATH"
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           if [ -n "${SHOREBIRD_FLUTTER_VERSION:-}" ]; then
             shorebird release android --flutter-version="$SHOREBIRD_FLUTTER_VERSION" -- --no-tree-shake-icons
