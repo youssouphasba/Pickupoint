@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     BASE_URL: str = "https://api.denkma.com"
     PUBLIC_SITE_URL: str = "https://denkma.com"
+    APP_DOWNLOAD_URL: Optional[str] = None
     GOOGLE_DIRECTIONS_API_KEY: Optional[str] = None
     MOBILE_ADMIN_PHONE_NUMBERS: str = ""
     MOBILE_ADMIN_ROLE: str = "superadmin"

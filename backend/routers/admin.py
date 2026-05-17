@@ -42,6 +42,7 @@ from services.user_service import (
     get_referral_metric_options,
     get_referral_role_config,
     get_referral_share_base_url,
+    generate_unique_referral_code,
     is_referral_enabled_for_user,
     is_referral_globally_enabled,
     is_referral_referred_enabled_for_user,
@@ -1350,6 +1351,13 @@ async def admin_user_detail(
         {"user_id": user_id, "expires_at": {"$gte": datetime.now(timezone.utc)}}
     )
     app_settings = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    if not user.get("referral_code"):
+        code = await generate_unique_referral_code(user.get("name") or "Denkma")
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"referral_code": code, "updated_at": datetime.now(timezone.utc)}},
+        )
+        user["referral_code"] = code
     referred_by_user = None
     if user.get("referred_by"):
         referred_by_user = await db.users.find_one(
@@ -1429,7 +1437,7 @@ async def admin_user_detail(
             "role_config": get_referral_role_config(app_settings, user.get("role", "client")),
             "apply_rule": describe_referral_apply_rule(app_settings, user.get("role", "client")),
             "reward_rule": describe_referral_reward_rule(app_settings, user.get("role", "client")),
-            "referrals_count": await db.users.count_documents({"referred_by": user_id}),
+            "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
         },
     }
 
@@ -3152,13 +3160,35 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
                 {"$ne": ["$referral_code", None]},
                 {"$ne": ["$referral_code", ""]},
             ]}, 1, 0]}},
-            "referred_users": {"$sum": {"$cond": [{"$ne": ["$referred_by", None]}, 1, 0]}},
-            "rewarded_users": {"$sum": {"$cond": [{"$eq": ["$referral_credited", True]}, 1, 0]}},
             "override_enabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", True]}, 1, 0]}},
             "override_disabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", False]}, 1, 0]}},
         }},
     ]
     agg_results = await db.users.aggregate(pipeline).to_list(length=100)
+    referral_results = await db.referrals.aggregate([
+        {"$group": {
+            "_id": "$referred_role",
+            "referred_users": {"$sum": 1},
+            "rewarded_users": {"$sum": {"$cond": [
+                {"$in": ["$status", ["rewarded", "qualified_no_bonus"]]},
+                1,
+                0,
+            ]}},
+            "pending_rewards": {"$sum": {"$cond": [
+                {"$in": ["$status", ["rewarded", "qualified_no_bonus"]]},
+                0,
+                1,
+            ]}},
+        }},
+    ]).to_list(length=100)
+    referral_stats_by_role = {
+        row["_id"] or "client": {
+            "referred_users": row["referred_users"],
+            "rewarded_users": row["rewarded_users"],
+            "pending_rewards": row["pending_rewards"],
+        }
+        for row in referral_results
+    }
 
     stats_by_role = {}
     totals = {"with_code": 0, "effective_enabled": 0, "referred": 0,
@@ -3173,6 +3203,11 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
             - row["override_disabled"]
             + row["override_enabled"]
         ) if role_enabled else row["override_enabled"]
+        referral_role_stats = referral_stats_by_role.get(role, {
+            "referred_users": 0,
+            "rewarded_users": 0,
+            "pending_rewards": 0,
+        })
 
         stats_by_role[role] = {
             "total_users": row["total_users"],
@@ -3180,30 +3215,30 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
             "effective_enabled": max(effective_enabled, 0),
             "forced_enabled": row["override_enabled"],
             "forced_disabled": row["override_disabled"],
-            "referred_users": row["referred_users"],
-            "rewarded_users": row["rewarded_users"],
-            "pending_rewards": row["referred_users"] - row["rewarded_users"],
+            "referred_users": referral_role_stats["referred_users"],
+            "rewarded_users": referral_role_stats["rewarded_users"],
+            "pending_rewards": referral_role_stats["pending_rewards"],
         }
         totals["with_code"] += row["with_code"]
         totals["effective_enabled"] += max(effective_enabled, 0)
-        totals["referred"] += row["referred_users"]
-        totals["rewarded"] += row["rewarded_users"]
-        totals["pending"] += row["referred_users"] - row["rewarded_users"]
+        totals["referred"] += referral_role_stats["referred_users"]
+        totals["rewarded"] += referral_role_stats["rewarded_users"]
+        totals["pending"] += referral_role_stats["pending_rewards"]
         totals["override_on"] += row["override_enabled"]
         totals["override_off"] += row["override_disabled"]
 
     referral_tx_total = await db.wallet_transactions.count_documents(
-        {"type": "referral_bonus"}
+        {"reference": {"$regex": "^ref_bonus_"}}
     )
     referral_tx_last_30_days = await db.wallet_transactions.count_documents(
         {
-            "type": "referral_bonus",
+            "reference": {"$regex": "^ref_bonus_"},
             "created_at": {"$gte": last_30_days},
         }
     )
     referral_aggregate = await db.wallet_transactions.aggregate(
         [
-            {"$match": {"type": "referral_bonus"}},
+            {"$match": {"reference": {"$regex": "^ref_bonus_"}}},
             {"$group": {"_id": None, "total_paid_xof": {"$sum": "$amount"}}},
         ]
     ).to_list(length=1)
@@ -3211,7 +3246,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
         [
             {
                 "$match": {
-                    "type": "referral_bonus",
+                    "reference": {"$regex": "^ref_bonus_"},
                     "created_at": {"$gte": last_30_days},
                 }
             },

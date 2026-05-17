@@ -287,6 +287,34 @@ export default function UserDetailPage() {
     : profileLocation
       ? "Dernière position connue"
       : null;
+  const referralUrl = referral?.referral_url ?? "";
+  const referralShareMessage = referralUrl
+    ? `Utilise mon code parrainage Denkma ${referral.code ?? ""} pour rejoindre l'app. Lien d'inscription : ${referralUrl}`
+    : "";
+  const copyReferralLink = async () => {
+    if (!referralUrl) {
+      toast("Aucun lien de parrainage disponible.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(referralUrl);
+      toast("Lien de parrainage copié.");
+    } catch {
+      toast("Impossible de copier le lien.");
+    }
+  };
+  const copyReferralMessage = async () => {
+    if (!referralShareMessage) {
+      toast("Aucun message de parrainage disponible.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(referralShareMessage);
+      toast("Message de parrainage copié.");
+    } catch {
+      toast("Impossible de copier le message.");
+    }
+  };
 
   return (
     <div className="space-y-6 p-8">
@@ -676,6 +704,12 @@ export default function UserDetailPage() {
                 <span className="text-muted-foreground">Code</span>
                 <span className="font-mono font-bold">{referral.code ?? "—"}</span>
               </div>
+              <div className="space-y-1">
+                <span className="text-muted-foreground">Lien parrainage</span>
+                <div className="break-all rounded-md border bg-muted/30 p-2 font-mono text-xs">
+                  {referralUrl || "—"}
+                </div>
+              </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Filleuls</span>
                 <span>{referral.referrals_count}</span>
@@ -697,7 +731,23 @@ export default function UserDetailPage() {
                   </Link>
                 </div>
               )}
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!referralUrl}
+                  onClick={copyReferralLink}
+                >
+                  Copier le lien
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!referralShareMessage}
+                  onClick={copyReferralMessage}
+                >
+                  Copier le message
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"

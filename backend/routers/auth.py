@@ -24,6 +24,7 @@ from core.utils import normalize_phone, is_supported_phone, phone_suffix
 from database import db
 from models.user import OTPRequest, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.parcel_service import _record_event
+from services.referral_service import upsert_referral_record
 from services.user_service import (
     generate_unique_referral_code,
     get_global_app_settings,
@@ -383,6 +384,15 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     )
 
     if referred_by:
+        await upsert_referral_record(
+            sponsor_user_id=referred_by,
+            referred_user_id=user_doc["user_id"],
+            referred_role=user_doc["role"],
+            referral_code=referral_code or "",
+            source="signup",
+            settings_doc=app_settings,
+            created_at=now,
+        )
         await _record_event(
             event_type="USER_REGISTERED_WITH_REFERRAL",
             actor_id=user_doc["user_id"],

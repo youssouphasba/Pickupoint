@@ -26,6 +26,7 @@ from database import db, get_db
 from models.common import UserRole
 from models.user import FavoriteAddress, ProfileUpdate, User
 from services.parcel_service import _record_event
+from services.referral_service import refresh_referral_progress, upsert_referral_record
 from services.user_service import (
     build_referral_share_message,
     build_referral_url,
@@ -39,6 +40,7 @@ from services.user_service import (
     get_referral_metric_options,
     get_referral_role_config,
     get_referral_share_base_url,
+    generate_unique_referral_code,
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
 )
@@ -82,6 +84,12 @@ async def _build_referral_payload(user_doc: dict) -> dict:
     user_role = str(user_doc.get("role") or "client")
     config = get_referral_role_config(settings_doc, user_role)
     code = user_doc.get("referral_code", "")
+    if not code and user_doc.get("user_id"):
+        code = await generate_unique_referral_code(user_doc.get("name") or "Denkma")
+        await db.users.update_one(
+            {"user_id": user_doc["user_id"]},
+            {"$set": {"referral_code": code, "updated_at": datetime.now(timezone.utc)}},
+        )
     effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
     referral_url = build_referral_url(code, effective_share_base_url)
     sponsor_enabled = is_referral_sponsor_enabled_for_user(user_doc, settings_doc)
@@ -90,6 +98,9 @@ async def _build_referral_payload(user_doc: dict) -> dict:
     apply_metric = config["apply_metric"]
     apply_max_count = config["apply_max_count"]
     apply_current_count = await get_referral_metric_count(user_doc.get("user_id", ""), apply_metric)
+    received_referral = None
+    if user_doc.get("referred_by"):
+        received_referral = await refresh_referral_progress(user_doc.get("user_id", ""), settings_doc)
     can_apply_now = (
         referred_enabled
         and not user_doc.get("referred_by")
@@ -116,6 +127,7 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "reward_metric": config["reward_metric"],
         "reward_metric_label": get_referral_metric_label(config["reward_metric"]),
         "reward_count": config["reward_count"],
+        "received_referral": received_referral,
         "reward_rule": describe_referral_reward_rule(settings_doc, user_role),
         "metric_options": get_referral_metric_options(user_role),
         "share_message": build_referral_share_message(
@@ -752,7 +764,7 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         "total_parcels": sent_count + received_count,
         "loyalty_points": current_user.get("loyalty_points", 0),
         "loyalty_tier": current_user.get("loyalty_tier", "bronze"),
-        "referrals_count": await db.users.count_documents({"referred_by": user_id}),
+        "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
     }
 
 
@@ -801,14 +813,17 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
         limit=50,
     ).to_list(length=50)
 
-    referral_wallet_txs = await db.wallet_transactions.find(
-        {
-            "user_id": current_user["user_id"],
-            "type": {"$in": ["referral_bonus", "welcome_bonus", "monthly_bonus"]},
-        },
-        sort=[("created_at", -1)],
-        limit=50,
-    ).to_list(length=50)
+    wallet = await db.wallets.find_one({"owner_id": current_user["user_id"]}, {"_id": 0, "wallet_id": 1})
+    referral_wallet_txs = []
+    if wallet:
+        referral_wallet_txs = await db.wallet_transactions.find(
+            {
+                "wallet_id": wallet["wallet_id"],
+                "reference": {"$regex": "^ref_bonus_"},
+            },
+            sort=[("created_at", -1)],
+            limit=50,
+        ).to_list(length=50)
 
     merged_history = []
     for event in loyalty_events:
@@ -885,17 +900,20 @@ async def referral_landing(code: str):
     safe_code = escape(referral_code)
     app_link = f"denkma://app/referral/{quote_plus(referral_code)}"
     safe_app_link = escape(app_link)
-    share_message = escape(
-        build_referral_share_message(
-            code=referral_code,
-            referral_url=build_referral_url(
-                referral_code,
-                get_effective_referral_share_base_url(settings_doc),
-            ),
-            referred_bonus_xof=referred_bonus_xof,
-            reward_rule=describe_referral_reward_rule(settings_doc),
-        )
+    download_url = str(settings.APP_DOWNLOAD_URL or "").strip()
+    safe_download_url = escape(download_url)
+    raw_share_message = build_referral_share_message(
+        code=referral_code,
+        referral_url=build_referral_url(
+            referral_code,
+            get_effective_referral_share_base_url(settings_doc),
+        ),
+        referred_bonus_xof=referred_bonus_xof,
+        reward_rule=describe_referral_reward_rule(settings_doc),
     )
+    if download_url:
+        raw_share_message += f" Telechargement de l'application : {download_url}"
+    share_message = escape(raw_share_message)
 
     html = f"""
 <!DOCTYPE html>
@@ -1008,6 +1026,7 @@ async def referral_landing(code: str):
       <div class="hint">Conservez ce code et saisissez-le dans l'ecran d'inscription Denkma.</div>
       <div class="actions">
         <a class="primary link-button" href="{safe_app_link}">Ouvrir dans l'application</a>
+        {f"<a class='secondary link-button' href='{safe_download_url}'>Telecharger l'application</a>" if download_url else ""}
         <button class="primary" onclick="copyReferralCode()">Copier le code</button>
         <button class="secondary" onclick="copyReferralMessage()">Copier le message complet</button>
       </div>
@@ -1094,6 +1113,15 @@ async def apply_referral_code(
             "referral_source": "post_signup",
             "updated_at": now,
         }},
+    )
+    await upsert_referral_record(
+        sponsor_user_id=parrain["user_id"],
+        referred_user_id=current_user["user_id"],
+        referred_role=user_role,
+        referral_code=code,
+        source="post_signup",
+        settings_doc=settings_doc,
+        created_at=now,
     )
     await _record_event(
         event_type="USER_REFERRAL_APPLIED",

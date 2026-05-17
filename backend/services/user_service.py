@@ -355,7 +355,7 @@ async def check_sponsor_referral_limit(sponsor_user_id: str, role: str, settings
     max_count = config.get("max_referrals_per_sponsor", 0)
     if max_count <= 0:
         return True  # unlimited
-    current = await db.users.count_documents({"referred_by": sponsor_user_id})
+    current = await db.referrals.count_documents({"sponsor_user_id": sponsor_user_id})
     return current < max_count
 
 

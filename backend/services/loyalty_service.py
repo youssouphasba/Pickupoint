@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from database import db
+from services.referral_service import mark_referral_rewarded, refresh_referral_progress
 from services.user_service import (
     get_global_app_settings,
     get_referral_metric_count,
@@ -92,6 +93,7 @@ async def _check_referral_bonus(user_id: str):
     reward_metric = config["reward_metric"]
     reward_count = config["reward_count"]
     current_count = await get_referral_metric_count(user_id, reward_metric)
+    await refresh_referral_progress(user_id, settings_doc)
     if current_count < reward_count:
         return
 
@@ -104,9 +106,12 @@ async def _check_referral_bonus(user_id: str):
             {"user_id": user_id},
             {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
         )
+        await mark_referral_rewarded(referred_user_id=user_id, status="qualified_no_bonus")
         return
 
     sponsor_user_id = user["referred_by"]
+    referred_tx_reference = f"ref_bonus_self_{user_id}"
+    sponsor_tx_reference = f"ref_bonus_sponsor_{user_id}"
 
     if referred_bonus_xof > 0:
         await _add_to_wallet_once(
@@ -115,7 +120,7 @@ async def _check_referral_bonus(user_id: str):
             tx_type="referral_bonus",
             description=f"Bonus parrainage ({user_role}) - seuil atteint",
             now=now,
-            tx_id=f"ref_bonus_self_{user_id}",
+            tx_id=referred_tx_reference,
         )
     if sponsor_bonus_xof > 0:
         await _add_to_wallet_once(
@@ -124,12 +129,18 @@ async def _check_referral_bonus(user_id: str):
             tx_type="referral_bonus",
             description=f"Bonus parrainage ({user_role}) - filleul qualifie",
             now=now,
-            tx_id=f"ref_bonus_sponsor_{user_id}",
+            tx_id=sponsor_tx_reference,
         )
 
     await db.users.update_one(
         {"user_id": user_id},
         {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
+    )
+    await mark_referral_rewarded(
+        referred_user_id=user_id,
+        status="rewarded",
+        sponsor_transaction_reference=sponsor_tx_reference if sponsor_bonus_xof > 0 else None,
+        referred_transaction_reference=referred_tx_reference if referred_bonus_xof > 0 else None,
     )
     logger.info("Referral credits paid for user %s (role=%s) and referrer %s", user_id, user_role, sponsor_user_id)
 

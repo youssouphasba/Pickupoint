@@ -20,9 +20,9 @@ import { Loader2, Pencil, Save, X } from "lucide-react";
 const xof = new Intl.NumberFormat("fr-FR");
 
 const METRIC_LABELS: Record<string, string> = {
-  sent_parcels: "Colis envoyés",
-  delivered_sender_parcels: "Colis livrés (expéditeur)",
-  completed_driver_deliveries: "Livraisons effectuées (driver)",
+  sent_parcels: "Colis créés",
+  delivered_sender_parcels: "Colis livrés par le client",
+  completed_driver_deliveries: "Missions terminées par le livreur",
 };
 
 function RoleConfigCard({
@@ -88,7 +88,7 @@ function RoleConfigCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Métrique d'application</label>
+            <label className="block text-xs text-muted-foreground mb-1">Quand le code peut être saisi</label>
             {editing ? (
               <select
                 value={config.apply_metric}
@@ -104,7 +104,7 @@ function RoleConfigCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Seuil application (0 = illimité)</label>
+            <label className="block text-xs text-muted-foreground mb-1">Maximum avant saisie du code</label>
             {editing ? (
               <Input
                 type="number"
@@ -112,11 +112,11 @@ function RoleConfigCard({
                 onChange={(e) => onChange({ ...config, apply_max_count: parseInt(e.target.value) || 0 })}
               />
             ) : (
-              <div className="font-medium">{config.apply_max_count === 0 ? "Illimité" : config.apply_max_count}</div>
+              <div className="font-medium">{config.apply_max_count === 0 ? "Aucune action réalisée" : config.apply_max_count}</div>
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Métrique récompense</label>
+            <label className="block text-xs text-muted-foreground mb-1">Quand payer le bonus</label>
             {editing ? (
               <select
                 value={config.reward_metric}
@@ -132,7 +132,7 @@ function RoleConfigCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Nb requis pour récompense</label>
+            <label className="block text-xs text-muted-foreground mb-1">Objectif à atteindre</label>
             {editing ? (
               <Input
                 type="number"
@@ -145,7 +145,7 @@ function RoleConfigCard({
             )}
           </div>
           <div className="col-span-2">
-            <label className="block text-xs text-muted-foreground mb-1">Max parrainages/parrain (0 = illimité)</label>
+            <label className="block text-xs text-muted-foreground mb-1">Limite de filleuls par parrain</label>
             {editing ? (
               <Input
                 type="number"

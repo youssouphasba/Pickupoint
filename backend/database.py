@@ -134,6 +134,14 @@ async def create_indexes():
             IndexModel([("created_at", -1)]),
             IndexModel([("created_by", 1)]),
         ],
+        "referrals": [
+            IndexModel([("referral_id", 1)], unique=True),
+            IndexModel([("sponsor_user_id", 1)]),
+            IndexModel([("referred_user_id", 1)], unique=True),
+            IndexModel([("referral_code", 1)]),
+            IndexModel([("status", 1)]),
+            IndexModel([("created_at", -1)]),
+        ],
         "whatsapp_support_conversations": [
             IndexModel([("conversation_id", 1)], unique=True),
             IndexModel([("phone", 1)]),
