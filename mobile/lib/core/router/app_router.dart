@@ -449,7 +449,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const AdminPromotionsScreen()),
           GoRoute(
               path: '/admin/support',
-              builder: (_, __) => const AdminWhatsappSupportScreen()),
+              builder: (_, state) => AdminWhatsappSupportScreen(
+                    initialQuery: state.uri.queryParameters['q'],
+                    initialConversationId: state.uri.queryParameters['c'],
+                  )),
           GoRoute(
               path: '/admin/audit-log',
               builder: (_, __) => const AdminGlobalAuditScreen()),

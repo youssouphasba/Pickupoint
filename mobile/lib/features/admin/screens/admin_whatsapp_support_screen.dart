@@ -11,7 +11,14 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class AdminWhatsappSupportScreen extends ConsumerStatefulWidget {
-  const AdminWhatsappSupportScreen({super.key});
+  const AdminWhatsappSupportScreen({
+    super.key,
+    this.initialQuery,
+    this.initialConversationId,
+  });
+
+  final String? initialQuery;
+  final String? initialConversationId;
 
   @override
   ConsumerState<AdminWhatsappSupportScreen> createState() =>
@@ -42,6 +49,15 @@ class _AdminWhatsappSupportScreenState
   @override
   void initState() {
     super.initState();
+    final initialQuery = widget.initialQuery?.trim();
+    final initialConversationId = widget.initialConversationId?.trim();
+    if (initialQuery != null && initialQuery.isNotEmpty) {
+      _searchController.text = initialQuery;
+      _status = 'all';
+    }
+    if (initialConversationId != null && initialConversationId.isNotEmpty) {
+      _selectedConversationId = initialConversationId;
+    }
     _loadConversations();
   }
 

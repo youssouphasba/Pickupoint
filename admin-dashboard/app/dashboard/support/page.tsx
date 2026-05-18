@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -123,14 +124,25 @@ function AuthenticatedAudio({ downloadUrl }: { downloadUrl?: string | null }) {
 
 export default function WhatsAppSupportPage() {
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
+  const urlConversationId = searchParams.get("c") ?? "";
+  const urlQuery = searchParams.get("q") ?? "";
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = React.useState(urlQuery);
   const [status, setStatus] = React.useState("open");
   const [replyText, setReplyText] = React.useState("");
   const [recording, setRecording] = React.useState(false);
   const [supportError, setSupportError] = React.useState<string | null>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
+
+  React.useEffect(() => {
+    setQuery(urlQuery);
+    setSelectedId(urlConversationId || null);
+    if (urlQuery) {
+      setStatus("all");
+    }
+  }, [urlConversationId, urlQuery]);
 
   const conversationsQuery = useQuery({
     queryKey: ["whatsapp-support-conversations", status, query],

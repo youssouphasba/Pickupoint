@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
@@ -76,6 +77,8 @@ class AdminUserDetailScreen extends ConsumerWidget {
                   updatedAt: userData['updated_at'],
                   acceptedLegalAt: userData['accepted_legal_at'],
                   onCall: () => _callPhone(context, user.phone),
+                  onOpenSupport: () =>
+                      _openWhatsappSupport(context, user.phone),
                   onOpenHistory: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -141,6 +144,12 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             onPressed: () => _callPhone(context, user.phone),
                             icon: const Icon(Icons.call_outlined),
                             label: const Text('Appeler'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _openWhatsappSupport(context, user.phone),
+                            icon: const Icon(Icons.support_agent_outlined),
+                            label: const Text('Support WhatsApp'),
                           ),
                           OutlinedButton.icon(
                             onPressed: () => Navigator.push(
@@ -512,6 +521,13 @@ class AdminUserDetailScreen extends ConsumerWidget {
     );
   }
 
+  void _openWhatsappSupport(BuildContext context, String phone) {
+    final cleanPhone = phone.trim();
+    final query =
+        cleanPhone.isEmpty ? '' : '?q=${Uri.encodeComponent(cleanPhone)}';
+    context.push('/admin/support$query');
+  }
+
   Future<void> _updateReferralAccess(
     BuildContext context,
     WidgetRef ref,
@@ -673,6 +689,7 @@ class _IdentityHeader extends StatelessWidget {
     required this.updatedAt,
     required this.acceptedLegalAt,
     required this.onCall,
+    required this.onOpenSupport,
     required this.onOpenHistory,
   });
 
@@ -681,6 +698,7 @@ class _IdentityHeader extends StatelessWidget {
   final dynamic updatedAt;
   final dynamic acceptedLegalAt;
   final VoidCallback onCall;
+  final VoidCallback onOpenSupport;
   final VoidCallback onOpenHistory;
 
   @override
@@ -770,6 +788,11 @@ class _IdentityHeader extends StatelessWidget {
                   onPressed: onCall,
                   icon: const Icon(Icons.call),
                   label: const Text('Appeler'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onOpenSupport,
+                  icon: const Icon(Icons.support_agent_outlined),
+                  label: const Text('Support WhatsApp'),
                 ),
                 OutlinedButton.icon(
                   onPressed: onOpenHistory,

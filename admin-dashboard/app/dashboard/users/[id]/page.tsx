@@ -42,6 +42,7 @@ import {
   Link as LinkIcon,
   MapPin,
   Users,
+  MessageCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -309,6 +310,8 @@ export default function UserDetailPage() {
   const referralShareMessage = referralUrl
     ? `Utilise mon code parrainage Denkma ${referral.code ?? ""} pour rejoindre l'app. Lien d'inscription : ${referralUrl}`
     : "";
+  const supportQuery = String(user.phone ?? "").trim();
+  const supportHref = `/dashboard/support${supportQuery ? `?q=${encodeURIComponent(supportQuery)}` : ""}`;
   const copyReferralLink = async () => {
     if (!referralUrl) {
       toast("Aucun lien de parrainage disponible.");
@@ -387,6 +390,15 @@ export default function UserDetailPage() {
         >
           <UserCog className="h-4 w-4" />
           Changer rôle
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!supportQuery}
+          onClick={() => router.push(supportHref)}
+        >
+          <MessageCircle className="h-4 w-4" />
+          Support WhatsApp
         </Button>
         {user.is_banned ? (
           <Button variant="outline" size="sm" onClick={() => setUnbanOpen(true)}>
