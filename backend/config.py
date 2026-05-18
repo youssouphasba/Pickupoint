@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     WHATSAPP_TEMPLATE_RELAY_REDIRECTED: Optional[str] = None
     WHATSAPP_TEMPLATE_SUPPORT_REOPEN: Optional[str] = None
     WHATSAPP_TEMPLATE_SUPPORT_REOPEN_VARIABLES: str = "name"
+    WHATSAPP_TEMPLATE_CALL_PERMISSION: Optional[str] = None
+    WHATSAPP_TEMPLATE_CALL_PERMISSION_LANGUAGE: str = "fr"
+    WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES: str = "name,driver_name,tracking_code"
     WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE: bool = True
 
     # Flutterwave

@@ -70,6 +70,51 @@ def _permission_limit_message(permission: dict[str, Any]) -> str:
     return "Le destinataire doit d'abord autoriser les appels WhatsApp de Denkma."
 
 
+def _recipient_name(parcel: dict) -> str:
+    return str(parcel.get("recipient_name") or "client Denkma").strip() or "client Denkma"
+
+
+def _call_permission_template_variable(token: str, *, parcel: dict, mission: dict, driver: dict) -> str:
+    token = token.strip().lower()
+    tracking_code = parcel.get("tracking_code") or mission.get("tracking_code") or "Denkma"
+    if token == "name":
+        return _recipient_name(parcel)
+    if token == "driver_name":
+        return str(driver.get("name") or "votre livreur Denkma")
+    if token == "tracking_code":
+        return str(tracking_code)
+    if token == "app_name":
+        return "Denkma"
+    return token
+
+
+def _call_permission_template_components(*, parcel: dict, mission: dict, driver: dict) -> list[dict]:
+    tokens = [
+        token.strip()
+        for token in (settings.WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES or "").split(",")
+        if token.strip()
+    ]
+    if not tokens:
+        return []
+    return [
+        {
+            "type": "body",
+            "parameters": [
+                {
+                    "type": "text",
+                    "text": _call_permission_template_variable(
+                        token,
+                        parcel=parcel,
+                        mission=mission,
+                        driver=driver,
+                    ),
+                }
+                for token in tokens
+            ],
+        }
+    ]
+
+
 async def get_driver_call_permission(recipient_phone: str) -> dict[str, Any]:
     """Vérifie si le destinataire a autorisé les appels WhatsApp de Denkma."""
     if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
@@ -173,6 +218,18 @@ async def send_driver_contact_request(
 
     if response.status_code != 200:
         logger.warning("Demande contact WhatsApp refusée: %s %s", response.status_code, response.text)
+        template_result = await send_driver_call_permission_template(
+            recipient_phone=recipient_phone,
+            parcel=parcel,
+            mission=mission,
+            driver=driver,
+        )
+        if template_result.get("sent"):
+            return {
+                **template_result,
+                "interactive_status_code": response.status_code,
+                "interactive_error": response.text,
+            }
         return {
             "sent": False,
             "channel": "whatsapp",
@@ -180,6 +237,9 @@ async def send_driver_contact_request(
             "reason": "whatsapp_send_failed",
             "message": "La demande d'autorisation WhatsApp n'a pas pu être envoyée.",
             "meta_error": response.text,
+            "template_reason": template_result.get("reason"),
+            "template_status_code": template_result.get("status_code"),
+            "template_error": template_result.get("meta_error"),
             "requested_at": _now(),
             "template": None,
             "action": WHATSAPP_CALL_PERMISSION_ACTION,
@@ -194,6 +254,99 @@ async def send_driver_contact_request(
         "message": "Autorisation d'appel demandée au destinataire.",
         "requested_at": _now(),
         "template": None,
+        "action": WHATSAPP_CALL_PERMISSION_ACTION,
+    }
+
+
+async def send_driver_call_permission_template(
+    *,
+    recipient_phone: str,
+    parcel: dict,
+    mission: dict,
+    driver: dict,
+) -> dict[str, Any]:
+    """Envoie un template WhatsApp avec composant call_permission_request."""
+    template_name = settings.WHATSAPP_TEMPLATE_CALL_PERMISSION
+    if not template_name:
+        return {
+            "sent": False,
+            "channel": "whatsapp",
+            "reason": "call_permission_template_not_configured",
+            "message": (
+                "Template WhatsApp d'autorisation d'appel non configuré. "
+                "Ajoutez WHATSAPP_TEMPLATE_CALL_PERMISSION sur Railway."
+            ),
+            "template": None,
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
+        }
+
+    if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+        return {
+            "sent": False,
+            "channel": "whatsapp",
+            "reason": "whatsapp_not_configured",
+            "message": "WhatsApp Cloud API n'est pas configurée.",
+            "template": template_name,
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
+        }
+
+    to_number = _whatsapp_to(recipient_phone)
+    if not to_number:
+        return {
+            "sent": False,
+            "channel": "whatsapp",
+            "reason": "recipient_phone_missing",
+            "message": "Numéro destinataire manquant.",
+            "template": template_name,
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
+        }
+
+    template_payload: dict[str, Any] = {
+        "name": template_name,
+        "language": {"code": settings.WHATSAPP_TEMPLATE_CALL_PERMISSION_LANGUAGE or "fr"},
+    }
+    components = _call_permission_template_components(
+        parcel=parcel,
+        mission=mission,
+        driver=driver,
+    )
+    if components:
+        template_payload["components"] = components
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "template",
+        "template": template_payload,
+    }
+    url = f"{_call_api_base_url()}/messages"
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(url, headers=_graph_headers(), json=payload)
+
+    if response.status_code != 200:
+        logger.warning("Template permission appel WhatsApp refusé: %s %s", response.status_code, response.text)
+        return {
+            "sent": False,
+            "channel": "whatsapp",
+            "status_code": response.status_code,
+            "reason": "call_permission_template_failed",
+            "message": "Le template d'autorisation d'appel WhatsApp n'a pas pu être envoyé.",
+            "meta_error": response.text,
+            "requested_at": _now(),
+            "template": template_name,
+            "action": WHATSAPP_CALL_PERMISSION_ACTION,
+        }
+
+    data = response.json()
+    message_id = ((data.get("messages") or [{}])[0]).get("id")
+    return {
+        "sent": True,
+        "channel": "whatsapp",
+        "message_id": message_id,
+        "message": "Autorisation d'appel demandée au destinataire via template WhatsApp.",
+        "requested_at": _now(),
+        "template": template_name,
         "action": WHATSAPP_CALL_PERMISSION_ACTION,
     }
 
@@ -310,6 +463,7 @@ async def connect_driver_whatsapp_call(
             "permission_error": permission.get("meta_error"),
             "request_status_code": request_result.get("status_code"),
             "request_error": request_result.get("meta_error"),
+            "template": request_result.get("template"),
             "requested_at": _now(),
             "action": WHATSAPP_CALL_PERMISSION_ACTION,
         }

@@ -661,6 +661,7 @@ async def contact_recipient_via_denkma(
         "whatsapp_message_id": result.get("message_id"),
         "whatsapp_template": result.get("template"),
         "action": result.get("action"),
+        "whatsapp_template": result.get("template"),
         "status_code": result.get("status_code"),
         "permission_status_code": result.get("permission_status_code"),
         "permission_error": result.get("permission_error"),
@@ -688,6 +689,7 @@ async def contact_recipient_via_denkma(
             "whatsapp_message_id": result.get("message_id"),
             "whatsapp_template": result.get("template"),
             "action": result.get("action"),
+            "whatsapp_template": result.get("template"),
             "reason": result.get("reason"),
             "status_code": result.get("status_code"),
             "permission_status_code": result.get("permission_status_code"),
@@ -810,6 +812,7 @@ async def call_recipient_via_whatsapp_api(
         "request_id": request_doc["request_id"],
         "reason": result.get("reason"),
         "permission_request_sent": bool(result.get("permission_request_sent")),
+        "whatsapp_template": result.get("template"),
     }
 
 

@@ -131,6 +131,30 @@ TEMPLATES = [
             }
         ],
     },
+    {
+        "name": "driver_call_permission_v1",
+        "language": "fr",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Bonjour {{1}}, votre livreur Denkma {{2}} souhaite vous appeler via WhatsApp "
+                    "au sujet du colis {{3}}. Autorisez les appels pour faciliter la remise du colis."
+                ),
+                "example": {
+                    "body_text": [
+                        [
+                            "Anta",
+                            "Moussa Diop",
+                            "PKP-LIV-1234",
+                        ]
+                    ]
+                },
+            },
+            {"type": "CALL_PERMISSION_REQUEST"},
+        ],
+    },
 ]
 
 
@@ -181,6 +205,8 @@ def main() -> int:
     print("  WHATSAPP_TEMPLATE_RELAY_READY=parcel_relay_ready_v4")
     print("  WHATSAPP_TEMPLATE_RECIPIENT_CREATED_RELAY=parcel_created_recipient_relay_v4")
     print("  WHATSAPP_TEMPLATE_RELAY_REDIRECTED=parcel_relay_redirected_v4")
+    print("  WHATSAPP_TEMPLATE_CALL_PERMISSION=driver_call_permission_v1")
+    print("  WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES=name,driver_name,tracking_code")
     return 0
 
 
