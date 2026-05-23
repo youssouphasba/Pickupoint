@@ -28,6 +28,7 @@ class AdminWhatsappSupportScreen extends ConsumerStatefulWidget {
 class _AdminWhatsappSupportScreenState
     extends ConsumerState<AdminWhatsappSupportScreen> {
   final _searchController = TextEditingController();
+  final _startPhoneController = TextEditingController();
   final _replyController = TextEditingController();
   final _audioPlayer = AudioPlayer();
   final _audioRecorder = AudioRecorder();
@@ -40,6 +41,7 @@ class _AdminWhatsappSupportScreenState
   bool _loadingConversations = true;
   bool _loadingDetail = false;
   bool _sending = false;
+  bool _startingSupport = false;
   bool _sendingTemplate = false;
   bool _recording = false;
   bool _recordingBusy = false;
@@ -53,6 +55,7 @@ class _AdminWhatsappSupportScreenState
     final initialConversationId = widget.initialConversationId?.trim();
     if (initialQuery != null && initialQuery.isNotEmpty) {
       _searchController.text = initialQuery;
+      _startPhoneController.text = initialQuery;
       _status = 'all';
     }
     if (initialConversationId != null && initialConversationId.isNotEmpty) {
@@ -64,6 +67,7 @@ class _AdminWhatsappSupportScreenState
   @override
   void dispose() {
     _searchController.dispose();
+    _startPhoneController.dispose();
     _replyController.dispose();
     _audioPlayer.dispose();
     _audioRecorder.dispose();
@@ -205,6 +209,45 @@ class _AdminWhatsappSupportScreenState
     } finally {
       if (mounted) {
         setState(() => _sendingTemplate = false);
+      }
+    }
+  }
+
+  Future<void> _startSupportConversation() async {
+    final phone = _startPhoneController.text.trim();
+    if (phone.isEmpty || _startingSupport) return;
+
+    setState(() => _startingSupport = true);
+    try {
+      final response = await ref
+          .read(apiClientProvider)
+          .startWhatsappSupport(phone: phone);
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final conversation = _map(data['conversation']);
+      final conversationId = _string(conversation?['conversation_id']);
+      setState(() {
+        _status = 'all';
+        _searchController.text = phone;
+        _selectedConversationId = conversationId;
+      });
+      await _loadConversations();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Template WhatsApp envoyé.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _startingSupport = false);
       }
     }
   }
@@ -379,6 +422,35 @@ class _AdminWhatsappSupportScreenState
             border: const OutlineInputBorder(),
           ),
           onSubmitted: (_) => _loadConversations(),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _startPhoneController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Contacter un utilisateur',
+                  hintText: '+221...',
+                  prefixIcon: Icon(Icons.chat_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed:
+                  _startingSupport ? null : _startSupportConversation,
+              child: _startingSupport
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Template'),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Wrap(

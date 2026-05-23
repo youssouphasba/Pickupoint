@@ -8,6 +8,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 
 from core.dependencies import get_current_user
 from core.exceptions import bad_request_exception, not_found_exception
@@ -17,12 +18,28 @@ from database import db
 from models.wallet import PayoutRequest, TransactionType
 from services.wallet_service import get_or_create_wallet, record_wallet_transaction
 from services.admin_events_service import AdminEventType, record_admin_event
+from services.stripe_service import create_wallet_topup_checkout
 
 router = APIRouter()
 
 
 def _payout_id() -> str:
     return f"pay_{uuid.uuid4().hex[:12]}"
+
+
+class StripeTopupRequest(BaseModel):
+    amount: float
+
+
+async def _has_active_driver_mission(user_id: str) -> bool:
+    mission = await db.delivery_missions.find_one(
+        {
+            "driver_id": user_id,
+            "status": {"$in": ["assigned", "in_progress", "incident_reported"]},
+        },
+        {"_id": 0, "mission_id": 1},
+    )
+    return mission is not None
 
 
 def _transaction_period_filter(period: Optional[str]) -> dict:
@@ -86,6 +103,8 @@ async def request_payout(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
+    if current_user.get("role") == "driver" and await _has_active_driver_mission(current_user["user_id"]):
+        raise bad_request_exception("Retrait indisponible tant qu'une course est active")
     if body.amount <= 0:
         raise bad_request_exception("Montant invalide")
 
@@ -154,6 +173,16 @@ async def request_payout(
     )
 
     return {k: v for k, v in payout.items() if k != "_id"}
+
+
+@router.post("/me/topups/stripe", summary="Créer une recharge wallet Stripe")
+async def create_stripe_wallet_topup(
+    body: StripeTopupRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "driver":
+        raise bad_request_exception("La recharge Stripe est réservée aux livreurs")
+    return await create_wallet_topup_checkout(user=current_user, amount=body.amount)
 
 
 @router.get("/me/payouts", summary="Historique des retraits")

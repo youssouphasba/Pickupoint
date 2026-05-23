@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -124,12 +125,87 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               onPressed:
                   wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
             ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _showTopupDialog(context),
+              icon: const Icon(Icons.add_card),
+              label: const Text('Recharger mon solde'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white70),
+              ),
+            ),
           ],
         ),
       ),
       loading: () => const CircularProgressIndicator(),
       error: (e, __) => Text(friendlyError(e)),
     );
+  }
+
+  void _showTopupDialog(BuildContext context) {
+    final amountCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recharger le solde'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: amountCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Montant (XOF)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Vous serez redirigé vers Stripe. Le solde sera crédité après confirmation du paiement.',
+              style: TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annuler'),
+          ),
+          Consumer(
+            builder: (context, ref, _) => ElevatedButton(
+              onPressed: () async {
+                final amount = double.tryParse(amountCtrl.text.trim());
+                if (amount == null || amount <= 0) return;
+                try {
+                  final res = await ref
+                      .read(apiClientProvider)
+                      .createStripeWalletTopup({'amount': amount});
+                  final data = res.data as Map<String, dynamic>;
+                  final checkoutUrl = data['checkout_url']?.toString();
+                  if (checkoutUrl == null || checkoutUrl.isEmpty) {
+                    throw Exception('Lien Stripe indisponible');
+                  }
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await launchUrl(
+                    Uri.parse(checkoutUrl),
+                    mode: LaunchMode.externalApplication,
+                  );
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(friendlyError(e))),
+                    );
+                  }
+                }
+              },
+              child: const Text('Continuer'),
+            ),
+          ),
+        ],
+      ),
+    ).whenComplete(amountCtrl.dispose);
   }
 
   void _showPayoutDialog(BuildContext context) {

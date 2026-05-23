@@ -108,6 +108,7 @@ class ApiEndpoints {
   static const myWallet = '$_base/api/wallets/me';
   static const transactions = '$_base/api/wallets/me/transactions';
   static const payout = '$_base/api/wallets/me/payout';
+  static const stripeWalletTopup = '$_base/api/wallets/me/topups/stripe';
 
   // ─── Admin ────────────────────────────────────────────────────────────────
   static const dashboard = '$_base/api/admin/dashboard';
@@ -137,6 +138,12 @@ class ApiEndpoints {
       '$_base/api/admin/support/whatsapp/conversations/$id/reopen-template';
   static String adminWhatsappSupportVoice(String id) =>
       '$_base/api/admin/support/whatsapp/conversations/$id/voice';
+  static const adminWhatsappSupportStart =
+      '$_base/api/admin/support/whatsapp/start';
+  static const adminNotificationsSend =
+      '$_base/api/admin/notifications/send';
+  static const adminNotificationsHistory =
+      '$_base/api/admin/notifications/history';
 
   // Control Max (Phase 9)
   static const adminFleetLive = '$_base/api/admin/fleet/live-rich';
@@ -169,6 +176,8 @@ class ApiEndpoints {
       '$_base/api/admin/users/$id/detail';
   static String adminBanUser(String id) => '$_base/api/admin/users/$id/ban';
   static String adminUnbanUser(String id) => '$_base/api/admin/users/$id/unban';
+  static String adminUserProfilePhoto(String id) =>
+      '$_base/api/admin/users/$id/profile-photo';
   static String adminUserKyc(String id, String docType) =>
       '$_base/api/users/$id/kyc/$docType';
   static String adminRelayDetail(String id) =>

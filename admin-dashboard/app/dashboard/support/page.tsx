@@ -11,6 +11,7 @@ import {
   sendWhatsappSupportReopenTemplate,
   sendWhatsappSupportTextReply,
   sendWhatsappSupportVoiceReply,
+  startWhatsappSupport,
   updateWhatsappSupportConversationStatus,
   WhatsAppSupportConversation,
 } from "@/lib/api";
@@ -131,6 +132,7 @@ export default function WhatsAppSupportPage() {
   const [query, setQuery] = React.useState(urlQuery);
   const [status, setStatus] = React.useState("open");
   const [replyText, setReplyText] = React.useState("");
+  const [startPhone, setStartPhone] = React.useState(urlQuery);
   const [recording, setRecording] = React.useState(false);
   const [supportError, setSupportError] = React.useState<string | null>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
@@ -138,6 +140,7 @@ export default function WhatsAppSupportPage() {
 
   React.useEffect(() => {
     setQuery(urlQuery);
+    setStartPhone(urlQuery);
     setSelectedId(urlConversationId || null);
     if (urlQuery) {
       setStatus("all");
@@ -199,6 +202,21 @@ export default function WhatsAppSupportPage() {
     onSuccess: () => {
       setSupportError(null);
       refreshActive();
+    },
+    onError: (error) => setSupportError(supportErrorMessage(error)),
+  });
+
+  const startSupportMutation = useMutation({
+    mutationFn: () => startWhatsappSupport({ phone: startPhone }),
+    onSuccess: (result) => {
+      setSupportError(null);
+      setStatus("all");
+      setQuery(startPhone);
+      setSelectedId(result.conversation.conversation_id);
+      qc.invalidateQueries({ queryKey: ["whatsapp-support-conversations"] });
+      qc.invalidateQueries({
+        queryKey: ["whatsapp-support-conversation", result.conversation.conversation_id],
+      });
     },
     onError: (error) => setSupportError(supportErrorMessage(error)),
   });
@@ -283,6 +301,24 @@ export default function WhatsAppSupportPage() {
         <Card className="overflow-hidden">
           <CardHeader className="border-b">
             <CardTitle>Conversations</CardTitle>
+            <div className="mt-3 flex gap-2">
+              <Input
+                value={startPhone}
+                onChange={(event) => setStartPhone(event.target.value)}
+                placeholder="Démarrer avec un numéro WhatsApp"
+              />
+              <Button
+                variant="outline"
+                disabled={!startPhone.trim() || startSupportMutation.isPending}
+                onClick={() => startSupportMutation.mutate()}
+              >
+                {startSupportMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "Template"
+                )}
+              </Button>
+            </div>
             <div className="relative mt-3">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input

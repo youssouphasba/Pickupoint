@@ -11,6 +11,7 @@ import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
+import '../../driver/providers/driver_provider.dart';
 import '../providers/client_provider.dart';
 
 class ClientHome extends ConsumerWidget {
@@ -35,7 +36,7 @@ class ClientHome extends ConsumerWidget {
             ),
             IconButton(
               icon: const Icon(Icons.logout),
-              onPressed: () => ref.read(authProvider.notifier).logout(),
+              onPressed: () => _logout(context, ref),
             ),
           ],
           bottom: PreferredSize(
@@ -61,7 +62,10 @@ class ClientHome extends ConsumerWidget {
                 unselectedLabelColor: Colors.white70,
                 indicatorColor: Colors.white,
                 indicatorWeight: 3,
-                tabs: [Tab(text: 'En cours'), Tab(text: 'Terminés')],
+                tabs: [
+                  Tab(text: 'En cours'),
+                  Tab(text: 'Terminés'),
+                ],
               ),
             ),
           ),
@@ -123,6 +127,44 @@ class ClientHome extends ConsumerWidget {
       'disputed',
       'returned',
     }.contains(status);
+  }
+
+  Future<void> _logout(BuildContext context, WidgetRef ref) async {
+    if (!await _canLogout(context, ref) || !context.mounted) return;
+    await ref.read(authProvider.notifier).logout();
+  }
+
+  Future<bool> _canLogout(BuildContext context, WidgetRef ref) async {
+    final user = ref.read(authProvider).valueOrNull?.user;
+    if (user?.role != 'driver') return true;
+
+    try {
+      final canLeave = await canLeaveDriverAccount(ref);
+      if (canLeave) return true;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Terminez ou libérez votre course active avant de quitter votre compte.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Impossible de vérifier vos courses en cours. Réessayez dans un instant.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
   }
 }
 
@@ -280,8 +322,10 @@ class _ParcelCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Container(
                   width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.red.shade50,
                     borderRadius: BorderRadius.circular(12),

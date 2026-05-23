@@ -32,25 +32,57 @@ async def _normalize_admin_application_documents(applications: list[dict]) -> No
     user_ids = [
         application.get("user_id")
         for application in applications
-        if application.get("type") == "driver" and application.get("user_id")
+        if application.get("user_id")
     ]
     users_by_id: dict[str, dict] = {}
     if user_ids:
         unique_user_ids = list(set(user_ids))
         users = await db.users.find(
             {"user_id": {"$in": unique_user_ids}},
-            {"_id": 0, "user_id": 1, "kyc_id_card_path": 1, "kyc_license_path": 1},
+            {
+                "_id": 0,
+                "user_id": 1,
+                "phone": 1,
+                "name": 1,
+                "full_name": 1,
+                "role": 1,
+                "profile_picture_url": 1,
+                "profile_picture_status": 1,
+                "profile_picture_rejected_reason": 1,
+                "kyc_id_card_path": 1,
+                "kyc_license_path": 1,
+            },
         ).to_list(length=len(unique_user_ids))
         users_by_id = {user["user_id"]: user for user in users if user.get("user_id")}
 
     for application in applications:
-        if application.get("type") != "driver":
-            continue
         user_id = application.get("user_id")
         if not user_id:
             continue
         data = dict(application.get("data") or {})
         user = users_by_id.get(user_id) or {}
+        application["user"] = {
+            "user_id": user.get("user_id") or user_id,
+            "phone": user.get("phone") or application.get("user_phone"),
+            "name": user.get("name") or user.get("full_name") or application.get("user_name"),
+            "full_name": user.get("full_name"),
+            "role": user.get("role"),
+            "profile_picture_url": user.get("profile_picture_url"),
+            "profile_picture_status": user.get("profile_picture_status") or "missing",
+            "profile_picture_rejected_reason": user.get("profile_picture_rejected_reason"),
+        }
+        application["user_name"] = (
+            application.get("user_name")
+            or user.get("name")
+            or user.get("full_name")
+            or application.get("user_phone")
+        )
+        application["profile_picture_url"] = user.get("profile_picture_url")
+        application["profile_picture_status"] = user.get("profile_picture_status") or "missing"
+        application["profile_picture_rejected_reason"] = user.get("profile_picture_rejected_reason")
+        if application.get("type") != "driver":
+            application["data"] = data
+            continue
         if data.get("id_card_url") or user.get("kyc_id_card_path"):
             data["id_card_url"] = _admin_kyc_document_url(user_id, "id_card")
         if data.get("license_url") or user.get("kyc_license_path"):

@@ -32,6 +32,7 @@ from services.whatsapp_support_service import (
     send_support_reopen_template,
     send_support_text_reply,
     serialize_support_doc,
+    start_support_template_conversation,
 )
 from services.user_service import (
     REFERRAL_ELIGIBLE_ROLES,
@@ -112,6 +113,11 @@ class SupportConversationStatusRequest(BaseModel):
 
 class SupportTextReplyRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
+
+
+class SupportStartRequest(BaseModel):
+    phone: Optional[str] = Field(default=None, max_length=32)
+    user_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class ProfilePhotoModerationRequest(BaseModel):
@@ -233,6 +239,25 @@ async def update_whatsapp_support_conversation_status(
         raise not_found_exception("Conversation WhatsApp introuvable")
     conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
     return {"conversation": _with_whatsapp_reply_window(conversation)}
+
+
+@router.post("/support/whatsapp/start", summary="Démarrer un support WhatsApp par template")
+async def start_whatsapp_support_conversation(
+    payload: SupportStartRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    if not payload.phone and not payload.user_id:
+        raise bad_request_exception("Indiquez un utilisateur ou un numéro WhatsApp")
+    try:
+        result = await start_support_template_conversation(
+            phone=payload.phone,
+            user_id=payload.user_id,
+            admin_user=admin_user,
+        )
+    except Exception as exc:
+        raise bad_request_exception(str(exc))
+    result["conversation"] = _with_whatsapp_reply_window(result.get("conversation"))
+    return result
 
 
 @router.get("/support/whatsapp/media/{filename}", summary="Média WhatsApp support")

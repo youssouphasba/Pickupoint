@@ -78,7 +78,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                   acceptedLegalAt: userData['accepted_legal_at'],
                   onCall: () => _callPhone(context, user.phone),
                   onOpenSupport: () =>
-                      _openWhatsappSupport(context, user.phone),
+                      _openWhatsappSupport(context, ref, user.id, user.phone),
                   onOpenHistory: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -147,7 +147,12 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           ),
                           OutlinedButton.icon(
                             onPressed: () =>
-                                _openWhatsappSupport(context, user.phone),
+                                _openWhatsappSupport(
+                                  context,
+                                  ref,
+                                  user.id,
+                                  user.phone,
+                                ),
                             icon: const Icon(Icons.support_agent_outlined),
                             label: const Text('Support WhatsApp'),
                           ),
@@ -521,11 +526,41 @@ class AdminUserDetailScreen extends ConsumerWidget {
     );
   }
 
-  void _openWhatsappSupport(BuildContext context, String phone) {
+  Future<void> _openWhatsappSupport(
+    BuildContext context,
+    WidgetRef ref,
+    String userId,
+    String phone,
+  ) async {
     final cleanPhone = phone.trim();
-    final query =
-        cleanPhone.isEmpty ? '' : '?q=${Uri.encodeComponent(cleanPhone)}';
-    context.push('/admin/support$query');
+    try {
+      final response =
+          await ref.read(apiClientProvider).startWhatsappSupport(userId: userId);
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final conversation = Map<String, dynamic>.from(
+        data['conversation'] as Map? ?? const {},
+      );
+      final conversationId = conversation['conversation_id']?.toString() ?? '';
+      if (!context.mounted) {
+        return;
+      }
+      final query = conversationId.isNotEmpty
+          ? '?c=${Uri.encodeComponent(conversationId)}'
+          : cleanPhone.isEmpty
+              ? ''
+              : '?q=${Uri.encodeComponent(cleanPhone)}';
+      context.push('/admin/support$query');
+    } catch (e) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(friendlyError(e)),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _updateReferralAccess(

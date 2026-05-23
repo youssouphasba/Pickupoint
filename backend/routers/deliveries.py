@@ -26,6 +26,7 @@ from services.notification_service import (
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
 )
+from services.wallet_service import credit_wallet, debit_wallet
 from services.whatsapp_call_service import (
     connect_driver_whatsapp_call,
     ensure_driver_call_permission_request,
@@ -58,6 +59,17 @@ def _driver_has_profile_photo(current_user: dict) -> bool:
     return bool((current_user.get("profile_picture_url") or "").strip()) and (
         current_user.get("profile_picture_status") == "approved"
     )
+
+
+def _mission_commission_xof(parcel: Optional[dict], mission: Optional[dict] = None) -> float:
+    source = parcel or mission or {}
+    price = (
+        source.get("paid_price")
+        or source.get("quoted_price")
+        or (mission or {}).get("quoted_price")
+        or 0
+    )
+    return round(max(float(price or 0), 0.0) * float(settings.PLATFORM_RATE or 0), 2)
 
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
@@ -443,7 +455,9 @@ async def accept_mission(
         raise bad_request_exception("Mission déjà prise en charge")
 
     parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
-    if parcel and parcel.get("status") == ParcelStatus.SUSPENDED.value:
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("status") == ParcelStatus.SUSPENDED.value:
         raise forbidden_exception("Ce colis est suspendu par l'administration. Mission indisponible.")
 
     # ── Rigueur Opérationnelle : un seul colis à la fois ──
@@ -459,6 +473,17 @@ async def accept_mission(
         raise forbidden_exception("Vous avez déjà une mission en cours. Terminez-la avant d'en accepter une autre.")
 
     now = datetime.now(timezone.utc)
+    commission_xof = _mission_commission_xof(parcel, mission)
+    if commission_xof > 0:
+        wallet = await db.wallets.find_one(
+            {"owner_id": current_user["user_id"]},
+            {"_id": 0, "balance": 1},
+        )
+        if not wallet or float(wallet.get("balance") or 0) < commission_xof:
+            raise bad_request_exception(
+                f"Solde insuffisant. Cette mission demande {commission_xof:.0f} XOF de commission Denkma disponible."
+            )
+
     updated_mission = await db.delivery_missions.find_one_and_update(
         {
             "mission_id": mission_id,
@@ -470,6 +495,8 @@ async def accept_mission(
             "status": MissionStatus.ASSIGNED.value,
             "assigned_at": now,
             "updated_at": now,
+            "platform_commission_xof": commission_xof,
+            "platform_commission_wallet_reference": f"commission:{mission_id}",
         }},
         return_document=ReturnDocument.AFTER,
         projection={"_id": 0},
@@ -478,6 +505,30 @@ async def accept_mission(
         raise bad_request_exception("Mission déjà prise en charge")
 
     # Mettre à jour le colis avec le livreur assigné
+    if commission_xof > 0:
+        try:
+            await debit_wallet(
+                current_user["user_id"],
+                commission_xof,
+                f"Commission Denkma mission {mission_id}",
+                parcel_id=mission["parcel_id"],
+                reference=f"commission:{mission_id}",
+                ensure_unique=True,
+            )
+        except ValueError:
+            await db.delivery_missions.update_one(
+                {"mission_id": mission_id},
+                {"$set": {
+                    "driver_id": None,
+                    "status": MissionStatus.PENDING.value,
+                    "assigned_at": None,
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+            )
+            raise bad_request_exception(
+                "Solde insuffisant. Rechargez votre wallet avant d'accepter cette mission."
+            )
+
     await db.parcels.update_one(
         {"parcel_id": mission["parcel_id"]},
         {"$set": {
@@ -923,6 +974,22 @@ async def release_mission(
         {"parcel_id": mission["parcel_id"]},
         {"$set": {"assigned_driver_id": None, "updated_at": now}},
     )
+    commission_xof = float(
+        mission.get("platform_commission_xof")
+        or _mission_commission_xof(None, mission)
+        or 0
+    )
+    if commission_xof > 0:
+        await credit_wallet(
+            owner_id=current_user["user_id"],
+            owner_type="driver",
+            amount=commission_xof,
+            description=f"Remboursement commission Denkma mission {mission_id}",
+            parcel_id=mission["parcel_id"],
+            reference=f"commission_refund:{mission_id}",
+            count_as_earned=False,
+            ensure_unique=True,
+        )
 
     parcel = await db.parcels.find_one(
         {"parcel_id": mission["parcel_id"]},

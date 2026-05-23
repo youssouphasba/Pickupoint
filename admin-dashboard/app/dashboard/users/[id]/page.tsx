@@ -13,6 +13,7 @@ import {
   fetchUserHistory,
   moderateProfilePhoto,
   setReferralAccess,
+  startWhatsappSupport,
   unbanUser,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -270,6 +271,18 @@ export default function UserDetailPage() {
     },
   });
 
+  const supportMut = useMutation({
+    mutationFn: () => startWhatsappSupport({ user_id: id }),
+    onSuccess: (result) => {
+      const conversationId = result.conversation?.conversation_id;
+      router.push(
+        `/dashboard/support${conversationId ? `?c=${encodeURIComponent(conversationId)}` : supportQuery ? `?q=${encodeURIComponent(supportQuery)}` : ""}`,
+      );
+      toast("Template WhatsApp envoyé.");
+    },
+    onError: (error) => toast(error instanceof Error ? error.message : "Impossible de démarrer le support WhatsApp."),
+  });
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -311,7 +324,6 @@ export default function UserDetailPage() {
     ? `Utilise mon code parrainage Denkma ${referral.code ?? ""} pour rejoindre l'app. Lien d'inscription : ${referralUrl}`
     : "";
   const supportQuery = String(user.phone ?? "").trim();
-  const supportHref = `/dashboard/support${supportQuery ? `?q=${encodeURIComponent(supportQuery)}` : ""}`;
   const copyReferralLink = async () => {
     if (!referralUrl) {
       toast("Aucun lien de parrainage disponible.");
@@ -395,9 +407,13 @@ export default function UserDetailPage() {
           variant="outline"
           size="sm"
           disabled={!supportQuery}
-          onClick={() => router.push(supportHref)}
+          onClick={() => supportMut.mutate()}
         >
-          <MessageCircle className="h-4 w-4" />
+          {supportMut.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MessageCircle className="h-4 w-4" />
+          )}
           Support WhatsApp
         </Button>
         {user.is_banned ? (

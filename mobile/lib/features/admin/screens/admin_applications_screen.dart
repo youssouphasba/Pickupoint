@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api/api_endpoints.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -134,6 +135,7 @@ class _ApplicationCard extends ConsumerWidget {
     final type = app['type']?.toString() ?? 'relay';
     final status = app['status']?.toString() ?? 'pending';
     final data = _asMap(app['data']);
+    final user = _asMap(app['user']);
     final authState = ref.watch(authProvider).valueOrNull;
     final accessToken = authState?.accessToken;
     final phone = app['user_phone']?.toString() ?? '-';
@@ -155,6 +157,20 @@ class _ApplicationCard extends ConsumerWidget {
         : _stringValue(data['license_url']);
     final geoLabel = _geopinLabel(data['geopin']);
     final geoMapUrl = _geopinMapUrl(data['geopin']);
+    final profilePhotoUrl = _stringValue(
+      user['profile_picture_url'] ?? app['profile_picture_url'],
+    );
+    final profilePhotoStatus = _stringValue(
+      user['profile_picture_status'] ?? app['profile_picture_status'],
+    ).isEmpty
+        ? 'missing'
+        : _stringValue(
+            user['profile_picture_status'] ?? app['profile_picture_status'],
+          );
+    final profilePhotoReason = _stringValue(
+      user['profile_picture_rejected_reason'] ??
+          app['profile_picture_rejected_reason'],
+    );
 
     return Card(
       shape: RoundedRectangleBorder(
@@ -191,6 +207,15 @@ class _ApplicationCard extends ConsumerWidget {
             _row(Icons.schedule_outlined, 'Soumise le', createdAt),
             if (status != 'pending')
               _row(Icons.update_outlined, 'Traitee le', updatedAt),
+            if (isDriver) ...[
+              const SizedBox(height: 10),
+              _ProfilePhotoReview(
+                userId: userId,
+                photoUrl: profilePhotoUrl,
+                status: profilePhotoStatus,
+                reason: profilePhotoReason,
+              ),
+            ],
             if (isDriver) ...[
               _row(Icons.badge_outlined, 'CNI',
                   _stringOrDash(data['id_card_number'])),
@@ -717,6 +742,173 @@ class _ApplicationCard extends ConsumerWidget {
       return value.toDouble();
     }
     return double.tryParse(value?.toString() ?? '');
+  }
+}
+
+class _ProfilePhotoReview extends ConsumerWidget {
+  const _ProfilePhotoReview({
+    required this.userId,
+    required this.photoUrl,
+    required this.status,
+    required this.reason,
+  });
+
+  final String userId;
+  final String photoUrl;
+  final String status;
+  final String reason;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (label, color) = switch (status) {
+      'approved' => ('Photo approuvee', Colors.green),
+      'rejected' => ('Photo refusee', Colors.red),
+      'pending' => ('Photo a verifier', Colors.orange),
+      _ => ('Photo absente', Colors.grey),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuthenticatedAvatar(
+            imageUrl: photoUrl.isEmpty ? null : photoUrl,
+            radius: 28,
+            backgroundColor: color.withValues(alpha: 0.14),
+            fallback: Icon(Icons.person, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                if (reason.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    reason,
+                    style: const TextStyle(fontSize: 12, color: Colors.red),
+                  ),
+                ],
+                if (photoUrl.isNotEmpty && status != 'approved') ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: userId.isEmpty
+                            ? null
+                            : () => _moderate(
+                                  context,
+                                  ref,
+                                  status: 'approved',
+                                ),
+                        icon: const Icon(Icons.check, size: 16),
+                        label: const Text('Approuver photo'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: userId.isEmpty
+                            ? null
+                            : () => _reject(context, ref),
+                        icon: const Icon(Icons.close, size: 16),
+                        label: const Text('Refuser'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _reject(BuildContext context, WidgetRef ref) async {
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Refuser la photo'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Motif du refus',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, reasonCtrl.text.trim()),
+            child: const Text('Refuser'),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || reason.isEmpty) {
+      return;
+    }
+    if (!context.mounted) {
+      return;
+    }
+    await _moderate(context, ref, status: 'rejected', reason: reason);
+  }
+
+  Future<void> _moderate(
+    BuildContext context,
+    WidgetRef ref, {
+    required String status,
+    String? reason,
+  }) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      await api.moderateProfilePhoto(userId, status: status, reason: reason);
+      ref.invalidate(_applicationsProvider('pending'));
+      ref.invalidate(_applicationsProvider('approved'));
+      ref.invalidate(_applicationsProvider('rejected'));
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Photo de profil mise a jour')),
+      );
+    } catch (e) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(friendlyError(e)),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }
 

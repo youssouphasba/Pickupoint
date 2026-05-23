@@ -104,6 +104,8 @@ async def credit_wallet(
     description: str,
     parcel_id: Optional[str] = None,
     reference: Optional[str] = None,
+    count_as_earned: bool = True,
+    ensure_unique: bool = False,
 ) -> dict:
     wallet = await get_or_create_wallet(owner_id, owner_type)
 
@@ -114,11 +116,12 @@ async def credit_wallet(
             {"$inc": {"balance": amount}, "$set": {"updated_at": now}},
             session=session,
         )
-        await db.users.update_one(
-            {"user_id": owner_id},
-            {"$inc": {"total_earned": amount}},
-            session=session,
-        )
+        if count_as_earned:
+            await db.users.update_one(
+                {"user_id": owner_id},
+                {"$inc": {"total_earned": amount}},
+                session=session,
+            )
         return await record_wallet_transaction(
             wallet_id=wallet["wallet_id"],
             amount=amount,
@@ -126,6 +129,7 @@ async def credit_wallet(
             description=description,
             parcel_id=parcel_id,
             reference=reference,
+            ensure_unique=ensure_unique,
             session=session,
         )
 
@@ -139,6 +143,8 @@ async def debit_wallet(
     amount: float,
     description: str,
     parcel_id: Optional[str] = None,
+    reference: Optional[str] = None,
+    ensure_unique: bool = False,
 ) -> dict:
     async def _op(session):
         wallet = await db.wallets.find_one(
@@ -146,6 +152,19 @@ async def debit_wallet(
         )
         if not wallet or wallet["balance"] < amount:
             raise ValueError("Solde insuffisant")
+
+        if ensure_unique and reference:
+            existing = await db.wallet_transactions.find_one(
+                {
+                    "wallet_id": wallet["wallet_id"],
+                    "reference": reference,
+                    "tx_type": TransactionType.DEBIT.value,
+                },
+                {"_id": 0},
+                session=session,
+            )
+            if existing:
+                return existing
 
         now = datetime.now(timezone.utc)
         # Filtre sur balance >= amount pour éviter un débit si concurrent a vidé entretemps
@@ -163,6 +182,8 @@ async def debit_wallet(
             tx_type=TransactionType.DEBIT.value,
             description=description,
             parcel_id=parcel_id,
+            reference=reference,
+            ensure_unique=ensure_unique,
             session=session,
         )
 

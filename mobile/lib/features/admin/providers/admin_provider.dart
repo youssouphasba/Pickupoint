@@ -64,6 +64,14 @@ final adminUsersProvider = FutureProvider<List<User>>((ref) async {
       .toList();
 });
 
+final adminNotificationBroadcastsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminNotificationBroadcasts();
+  final data = res.data as Map<String, dynamic>;
+  return List<Map<String, dynamic>>.from(data['broadcasts'] as List? ?? []);
+});
+
 /// Provider pour le suivi de la flotte live.
 final adminFleetProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final api = ref.watch(apiClientProvider);

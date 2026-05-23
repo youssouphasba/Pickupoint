@@ -122,6 +122,11 @@ async def create_indexes():
             IndexModel([("reference", 1)]),
             IndexModel([("created_at", 1)]),
         ],
+        "wallet_topups": [
+            IndexModel([("topup_id", 1)], unique=True),
+            IndexModel([("owner_id", 1)]),
+            IndexModel([("provider_session_id", 1)]),
+        ],
         "payout_requests": [
             IndexModel([("payout_id", 1)], unique=True),
             IndexModel([("wallet_id", 1)]),

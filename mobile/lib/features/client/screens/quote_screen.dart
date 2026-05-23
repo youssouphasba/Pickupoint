@@ -447,7 +447,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final recipientName = widget.data['recipient_name']?.toString() ?? '-';
     final recipientPhone = widget.data['recipient_phone']?.toString() ?? '-';
     final weight = _num(formData['weight_kg']);
-    final declaredValue = _num(formData['declared_value']);
+    final declaredValue = formData['declared_value'] == null
+        ? null
+        : _num(formData['declared_value']);
     final whoPays = formData['who_pays']?.toString() ?? 'sender';
     final initiatedBy = formData['initiated_by']?.toString() ?? 'sender';
     final isExpress = formData['is_express'] == true;
@@ -465,11 +467,12 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         'Poids',
         '${weight.toStringAsFixed(1)} kg',
       ),
-      _infoRow(
-        Icons.shield_outlined,
-        'Valeur déclarée',
-        formatXof(declaredValue),
-      ),
+      if (declaredValue != null)
+        _infoRow(
+          Icons.shield_outlined,
+          'Valeur du colis',
+          formatXof(declaredValue),
+        ),
       _infoRow(
         Icons.payments_outlined,
         'Paiement',

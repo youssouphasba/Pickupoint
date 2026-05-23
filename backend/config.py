@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     FLUTTERWAVE_PUBLIC_KEY:    Optional[str] = None
     FLUTTERWAVE_WEBHOOK_SECRET: Optional[str] = None  # verif-hash header
 
+    # Stripe wallet top-up
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_WALLET_SUCCESS_URL: Optional[str] = None
+    STRIPE_WALLET_CANCEL_URL: Optional[str] = None
+    WALLET_TOPUP_MIN_XOF: float = 500.0
+    WALLET_TOPUP_MAX_XOF: float = 500000.0
+
     # Pricing base (XOF) — validé le 2026-03-01
     BASE_RELAY_TO_RELAY: float = 700.0
     BASE_RELAY_TO_HOME:  float = 1100.0
@@ -102,6 +110,8 @@ class Settings(BaseSettings):
 
         if is_prod and self.FLUTTERWAVE_SECRET_KEY and not self.FLUTTERWAVE_WEBHOOK_SECRET:
             raise ValueError("FLUTTERWAVE_WEBHOOK_SECRET must be configured in production when Flutterwave is enabled")
+        if is_prod and self.STRIPE_SECRET_KEY and not self.STRIPE_WEBHOOK_SECRET:
+            raise ValueError("STRIPE_WEBHOOK_SECRET must be configured in production when Stripe is enabled")
         return self
 
     model_config = SettingsConfigDict(

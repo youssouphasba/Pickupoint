@@ -46,6 +46,7 @@ import '../../features/admin/screens/admin_anomalies_screen.dart';
 import '../../features/admin/screens/admin_heatmap_screen.dart';
 import '../../features/admin/screens/admin_promotions_screen.dart';
 import '../../features/admin/screens/admin_whatsapp_support_screen.dart';
+import '../../features/admin/screens/admin_notifications_screen.dart';
 import '../../features/client/screens/partnership_screen.dart';
 import '../../features/client/screens/client_loyalty_history_screen.dart';
 import '../../features/admin/screens/admin_global_audit_screen.dart';
@@ -454,6 +455,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     initialConversationId: state.uri.queryParameters['c'],
                   )),
           GoRoute(
+              path: '/admin/notifications',
+              builder: (_, __) => const AdminNotificationsScreen()),
+          GoRoute(
               path: '/admin/audit-log',
               builder: (_, __) => const AdminGlobalAuditScreen()),
           GoRoute(
@@ -693,13 +697,16 @@ class AdminShell extends StatelessWidget {
     '/admin/parcels',
     '/admin/applications',
     '/admin/users',
+    '/admin/notifications',
     '/admin/payouts',
   ];
 
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    final idx = _tabs.indexWhere((t) => location.startsWith(t));
+    final idx = _tabs.indexWhere(
+      (t) => t == '/admin' ? location == '/admin' : location.startsWith(t),
+    );
     return _ShellScaffold(
       currentIndex: idx < 0 ? 0 : idx,
       tabs: _tabs,
@@ -718,6 +725,8 @@ class AdminShell extends StatelessWidget {
               icon: Icon(Icons.how_to_reg), label: 'Candidatures'),
           BottomNavigationBarItem(
               icon: Icon(Icons.group), label: 'Utilisateurs'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.notifications_active_outlined), label: 'Notifs'),
           BottomNavigationBarItem(
               icon: Icon(Icons.payments), label: 'Retraits'),
         ],

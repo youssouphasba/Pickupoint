@@ -55,8 +55,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
 
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
   final _weightController = TextEditingController(text: '1.0');
+  final _declaredValueController = TextEditingController();
   final _pickupNoteController = TextEditingController();
-  double _declaredValue = 10000;
   bool _isExpress = false;
   String _whoPays = 'sender'; // 'sender' | 'recipient'
   bool _isQuoteLoading = false;
@@ -76,6 +76,19 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
 
   bool get isReverse => _initiatedBy == _InitiatedBy.recipient;
 
+  double? _declaredValue() {
+    final raw = _declaredValueController.text.trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    final normalized = raw.replaceAll(' ', '').replaceAll(',', '.');
+    final value = double.tryParse(normalized);
+    if (value == null || value <= 0) {
+      return null;
+    }
+    return value;
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -85,6 +98,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _addressLabelController.dispose();
     _addressDistrictController.dispose();
     _weightController.dispose();
+    _declaredValueController.dispose();
     _pickupNoteController.dispose();
     super.dispose();
   }
@@ -214,6 +228,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         };
       }
 
+      final declaredValue = _declaredValue();
       final quoteData = {
         'delivery_mode': _deliveryMode,
         'origin_relay_id':
@@ -223,7 +238,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'delivery_address': deliveryAddress,
         'origin_location': originLocation,
         'weight_kg': double.tryParse(_weightController.text) ?? 1.0,
-        'declared_value': _declaredValue,
+        if (declaredValue != null) 'declared_value': declaredValue,
         'is_express': _isExpress,
         'who_pays': _whoPays,
         'initiated_by': isReverse ? 'recipient' : 'sender',
@@ -728,26 +743,16 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Valeur déclarée',
-                  style: TextStyle(fontWeight: FontWeight.w500)),
-              Text(
-                '${_declaredValue.toInt()} FCFA',
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).primaryColor),
-              ),
-            ],
-          ),
-          Slider(
-            value: _declaredValue,
-            min: 500,
-            max: 500000,
-            divisions: 100,
-            label: '${_declaredValue.toInt()} FCFA',
-            onChanged: (v) => setState(() => _declaredValue = v),
+          TextField(
+            controller: _declaredValueController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Valeur du colis (optionnel)',
+              hintText: 'Ex: 10000',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.inventory_rounded),
+              suffixText: 'XOF',
+            ),
           ),
           const SizedBox(height: 12),
           ref.watch(expressEnabledProvider).maybeWhen(

@@ -15,6 +15,7 @@ from config import settings
 from database import db
 from services.parcel_service import _record_event
 from services.payment_service import verify_payment
+from services.stripe_service import handle_stripe_event
 from services.whatsapp_support_service import record_whatsapp_inbound_message
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,15 @@ async def whatsapp_webhook(request: Request):
                 )
 
     return {"received": True}
+
+
+@router.post("/stripe", summary="Callback Stripe wallet")
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: Optional[str] = Header(None, alias="Stripe-Signature"),
+):
+    payload = await request.body()
+    return await handle_stripe_event(payload, stripe_signature)
 
 
 @router.post("/flutterwave", summary="Callback paiement Flutterwave")

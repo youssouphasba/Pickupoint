@@ -500,6 +500,27 @@ async def _find_related_user(phone: str) -> dict | None:
     )
 
 
+async def _find_user_by_id(user_id: str | None) -> dict | None:
+    if not user_id:
+        return None
+    return await db.users.find_one(
+        {"user_id": user_id},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "phone": 1,
+            "email": 1,
+            "role": 1,
+            "profile_picture_url": 1,
+            "is_active": 1,
+            "is_banned": 1,
+            "kyc_status": 1,
+            "relay_point_id": 1,
+        },
+    )
+
+
 async def _find_related_parcels(phone: str, tracking_code: Optional[str]) -> tuple[list[dict], dict | None]:
     projection = {
         "_id": 0,
@@ -534,6 +555,72 @@ async def _find_related_parcels(phone: str, tracking_code: Optional[str]) -> tup
     parcels = await cursor.to_list(length=10)
     active = next((parcel for parcel in parcels if parcel.get("status") in ACTIVE_STATUSES), None)
     return parcels, active or (parcels[0] if parcels else None)
+
+
+async def ensure_support_conversation_for_contact(
+    *,
+    phone: str | None = None,
+    user_id: str | None = None,
+) -> dict:
+    user = await _find_user_by_id(user_id)
+    normalized_phone = normalize_whatsapp_phone(phone or (user or {}).get("phone"))
+    if not normalized_phone:
+        raise ValueError("Numéro WhatsApp requis")
+    if not user:
+        user = await _find_related_user(normalized_phone)
+
+    parcels, primary_parcel = await _find_related_parcels(normalized_phone, None)
+    now = _now()
+    conversation_id = _conversation_id(normalized_phone)
+    update = {
+        "conversation_id": conversation_id,
+        "phone": normalized_phone,
+        "source": "whatsapp",
+        "matched_user": user,
+        "matched_user_id": user.get("user_id") if user else None,
+        "matched_parcel": primary_parcel,
+        "matched_parcel_id": primary_parcel.get("parcel_id") if primary_parcel else None,
+        "related_parcels": parcels,
+        "status": "pending",
+        "updated_at": now,
+    }
+    await db.whatsapp_support_conversations.update_one(
+        {"conversation_id": conversation_id},
+        {
+            "$set": update,
+            "$setOnInsert": {
+                "created_at": now,
+                "last_message_text": "Conversation support démarrée par l'admin.",
+                "last_message_at": now,
+            },
+        },
+        upsert=True,
+    )
+    conversation = await db.whatsapp_support_conversations.find_one(
+        {"conversation_id": conversation_id},
+        {"_id": 0},
+    )
+    if not conversation:
+        raise RuntimeError("Conversation WhatsApp introuvable après création")
+    return conversation
+
+
+async def start_support_template_conversation(
+    *,
+    phone: str | None = None,
+    user_id: str | None = None,
+    admin_user: dict,
+) -> dict:
+    conversation = await ensure_support_conversation_for_contact(phone=phone, user_id=user_id)
+    message = await send_support_reopen_template(conversation, admin_user)
+    refreshed = await db.whatsapp_support_conversations.find_one(
+        {"conversation_id": conversation["conversation_id"]},
+        {"_id": 0},
+    )
+    return {
+        "conversation": serialize_support_doc(refreshed or conversation),
+        "message": serialize_support_doc(message),
+    }
 
 
 async def record_whatsapp_inbound_message(value: dict, message: dict) -> dict:

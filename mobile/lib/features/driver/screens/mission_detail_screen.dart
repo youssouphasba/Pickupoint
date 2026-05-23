@@ -32,6 +32,8 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
 class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   bool _isProcessing = false;
   GoogleMapController? _mapController;
+  Position? _driverPosition;
+  bool _loadingDriverPosition = false;
   String? _proofBase64;
   RTCPeerConnection? _callPeerConnection;
   MediaStream? _callLocalStream;
@@ -43,6 +45,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _refreshDriverPosition(silent: true);
   }
 
   @override
@@ -51,6 +54,52 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     _callPeerConnection?.close();
     _callLocalStream?.getTracks().forEach((track) => track.stop());
     super.dispose();
+  }
+
+  Future<void> _refreshDriverPosition({bool silent = false}) async {
+    if (_loadingDriverPosition) {
+      return;
+    }
+    setState(() => _loadingDriverPosition = true);
+    try {
+      if (silent) {
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        final permission = await Geolocator.checkPermission();
+        if (!serviceEnabled ||
+            (permission != LocationPermission.whileInUse &&
+                permission != LocationPermission.always)) {
+          return;
+        }
+      } else {
+        final ready = await _ensureGpsReady(
+          disabledMessage:
+              'Activez le GPS pour voir votre distance avec le retrait et la livraison.',
+        );
+        if (!ready) {
+          return;
+        }
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() => _driverPosition = position);
+    } catch (e) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingDriverPosition = false);
+      }
+    }
   }
 
   Future<bool> _ensureGpsReady({
@@ -1278,7 +1327,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   Widget _buildRouteMap(DeliveryMission mission) {
     final hasPickup = mission.pickupLat != null;
     final hasDelivery = mission.deliveryLat != null;
-
     if (!hasPickup && !hasDelivery) return const SizedBox.shrink();
 
     final center = hasPickup
@@ -1384,7 +1432,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               child: FloatingActionButton.small(
                 heroTag: 'recenter_me',
                 onPressed: () async {
-                  final pos = await Geolocator.getCurrentPosition();
+                  await _refreshDriverPosition();
+                  final pos =
+                      _driverPosition ?? await Geolocator.getCurrentPosition();
                   _mapController?.animateCamera(
                     CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
                   );
@@ -1433,6 +1483,36 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ],
 
         // ── Bouton "Naviguer" plein-largeur bien visible ──────────────────────────
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            onPressed: () => _showDistanceModal(mission),
+            icon: _loadingDriverPosition
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.blue.shade700,
+                    ),
+                  )
+                : const Icon(Icons.route_rounded),
+            label: const Text(
+              'Voir les distances',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.blue.shade700,
+              side: BorderSide(color: Colors.blue.shade200),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
@@ -1460,6 +1540,324 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _showDistanceModal(DeliveryMission mission) async {
+    await _refreshDriverPosition();
+    if (!mounted || _driverPosition == null) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SafeArea(
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.86,
+            minChildSize: 0.55,
+            maxChildSize: 0.94,
+            builder: (context, scrollController) {
+              return _buildDistanceModalContent(
+                mission,
+                _driverPosition!,
+                scrollController,
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDistanceModalContent(
+    DeliveryMission mission,
+    Position driverPosition,
+    ScrollController scrollController,
+  ) {
+    final hasPickup = mission.pickupLat != null && mission.pickupLng != null;
+    final hasDelivery =
+        mission.deliveryLat != null && mission.deliveryLng != null;
+    final driverLatLng = LatLng(driverPosition.latitude, driverPosition.longitude);
+    final pickupLatLng =
+        hasPickup ? LatLng(mission.pickupLat!, mission.pickupLng!) : null;
+    final deliveryLatLng =
+        hasDelivery ? LatLng(mission.deliveryLat!, mission.deliveryLng!) : null;
+    final pickupDistance = pickupLatLng == null
+        ? null
+        : Geolocator.distanceBetween(
+            driverPosition.latitude,
+            driverPosition.longitude,
+            pickupLatLng.latitude,
+            pickupLatLng.longitude,
+          );
+    final deliveryDistance = deliveryLatLng == null
+        ? null
+        : Geolocator.distanceBetween(
+            driverPosition.latitude,
+            driverPosition.longitude,
+            deliveryLatLng.latitude,
+            deliveryLatLng.longitude,
+          );
+    final mapPoints = <LatLng>[
+      driverLatLng,
+      if (pickupLatLng != null) pickupLatLng,
+      if (deliveryLatLng != null) deliveryLatLng,
+    ];
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('distance_driver'),
+        position: driverLatLng,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: const InfoWindow(title: 'Votre position'),
+      ),
+      if (pickupLatLng != null)
+        Marker(
+          markerId: const MarkerId('distance_pickup'),
+          position: pickupLatLng,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueOrange,
+          ),
+          infoWindow: const InfoWindow(title: 'Expéditeur / retrait'),
+        ),
+      if (deliveryLatLng != null)
+        Marker(
+          markerId: const MarkerId('distance_delivery'),
+          position: deliveryLatLng,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          infoWindow: const InfoWindow(title: 'Destinataire / livraison'),
+        ),
+    };
+    final polylines = <Polyline>{
+      if (pickupLatLng != null)
+        Polyline(
+          polylineId: const PolylineId('distance_driver_pickup'),
+          points: [driverLatLng, pickupLatLng],
+          color: Colors.orange.withValues(alpha: 0.85),
+          width: 4,
+          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
+        ),
+      if (deliveryLatLng != null)
+        Polyline(
+          polylineId: const PolylineId('distance_driver_delivery'),
+          points: [driverLatLng, deliveryLatLng],
+          color: Colors.red.withValues(alpha: 0.8),
+          width: 4,
+          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
+        ),
+    };
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        children: [
+          Center(
+            child: Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Distances de la course',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.blueGrey.shade900,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildDistanceCard(
+                  title: 'Vers expéditeur',
+                  value: _formatDistanceMeters(pickupDistance),
+                  subtitle: mission.pickupLabel,
+                  color: Colors.orange,
+                  icon: Icons.storefront_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildDistanceCard(
+                  title: 'Vers destinataire',
+                  value: _formatDistanceMeters(deliveryDistance),
+                  subtitle: mission.deliveryLabel,
+                  color: Colors.red,
+                  icon: Icons.location_on_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            height: 330,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            clipBehavior: Clip.hardEdge,
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: driverLatLng,
+                zoom: 13,
+              ),
+              onMapCreated: (controller) {
+                Future.delayed(const Duration(milliseconds: 250), () {
+                  _fitControllerToPoints(controller, mapPoints);
+                });
+              },
+              markers: markers,
+              polylines: polylines,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                Factory<OneSequenceGestureRecognizer>(
+                  () => EagerGestureRecognizer(),
+                ),
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Bleu : vous. Orange : expéditeur ou retrait. Rouge : destinataire ou livraison.',
+            style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade600),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _showDistanceModal(mission);
+              },
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Actualiser ma position'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDistanceCard({
+    required String title,
+    required String value,
+    required String subtitle,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.blueGrey.shade700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Colors.blueGrey.shade900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade500),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDistanceMeters(double? meters) {
+    if (meters == null) {
+      return '--';
+    }
+    if (meters < 1000) {
+      return '${meters.round()} m';
+    }
+    return '${(meters / 1000).toStringAsFixed(1)} km';
+  }
+
+  void _fitControllerToPoints(
+    GoogleMapController controller,
+    List<LatLng> points,
+  ) {
+    if (points.length < 2) {
+      return;
+    }
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+    for (final point in points.skip(1)) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+    if (minLat == maxLat) {
+      minLat -= 0.001;
+      maxLat += 0.001;
+    }
+    if (minLng == maxLng) {
+      minLng -= 0.001;
+      maxLng += 0.001;
+    }
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+    controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 60));
   }
 
   Widget _buildPaymentStatus(DeliveryMission mission) {

@@ -139,6 +139,54 @@ export async function moderateProfilePhoto(
   return data;
 }
 
+export type AdminApplication = {
+  application_id: string;
+  user_id: string;
+  user_phone?: string | null;
+  user_name?: string | null;
+  type: "driver" | "relay" | string;
+  status: "pending" | "approved" | "rejected" | string;
+  data?: Record<string, any>;
+  admin_notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  user?: AdminUser | null;
+  profile_picture_url?: string | null;
+  profile_picture_status?: string | null;
+  profile_picture_rejected_reason?: string | null;
+};
+
+export async function fetchApplications(params?: {
+  status?: string;
+  app_type?: string;
+}) {
+  const { data } = await api.get<{ applications: AdminApplication[] }>(
+    "/api/applications",
+    { params },
+  );
+  return data;
+}
+
+export async function approveApplication(
+  applicationId: string,
+  adminNotes?: string,
+) {
+  const { data } = await api.put(`/api/applications/${applicationId}/approve`, null, {
+    params: adminNotes ? { admin_notes: adminNotes } : undefined,
+  });
+  return data;
+}
+
+export async function rejectApplication(
+  applicationId: string,
+  adminNotes?: string,
+) {
+  const { data } = await api.put(`/api/applications/${applicationId}/reject`, null, {
+    params: adminNotes ? { admin_notes: adminNotes } : undefined,
+  });
+  return data;
+}
+
 export type TargetedNotificationPayload = {
   title: string;
   body: string;
@@ -368,6 +416,17 @@ export async function sendWhatsappSupportReopenTemplate(conversationId: string) 
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/reopen-template`,
   );
+  return data;
+}
+
+export async function startWhatsappSupport(payload: {
+  phone?: string;
+  user_id?: string;
+}) {
+  const { data } = await api.post<{
+    conversation: WhatsAppSupportConversation;
+    message: WhatsAppSupportMessage;
+  }>("/api/admin/support/whatsapp/start", payload);
   return data;
 }
 

@@ -321,6 +321,9 @@ class ApiClient {
   Future<Response> requestPayout(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.payout, data: body);
 
+  Future<Response> createStripeWalletTopup(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.stripeWalletTopup, data: body);
+
   // ─── Admin ────────────────────────────────────────────────────────────────
   Future<Response> getDashboard() => _dio.get(ApiEndpoints.dashboard);
 
@@ -469,6 +472,27 @@ class ApiClient {
       _dio.post(
           ApiEndpoints.adminWhatsappSupportReopenTemplate(conversationId));
 
+  Future<Response> startWhatsappSupport({
+    String? phone,
+    String? userId,
+  }) =>
+      _dio.post(
+        ApiEndpoints.adminWhatsappSupportStart,
+        data: {
+          if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+          if (userId != null && userId.trim().isNotEmpty)
+            'user_id': userId.trim(),
+        },
+      );
+
+  Future<Response> sendAdminNotification(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.adminNotificationsSend, data: body);
+
+  Future<Response> getAdminNotificationBroadcasts({int limit = 50}) => _dio.get(
+        ApiEndpoints.adminNotificationsHistory,
+        queryParameters: {'limit': limit},
+      );
+
   Future<Response> sendWhatsappSupportVoiceReply(
     String conversationId,
     String filePath,
@@ -524,6 +548,20 @@ class ApiClient {
 
   Future<Response> unbanUser(String userId, {required String reason}) =>
       _dio.post(ApiEndpoints.adminUnbanUser(userId), data: {'reason': reason});
+
+  Future<Response> moderateProfilePhoto(
+    String userId, {
+    required String status,
+    String? reason,
+  }) =>
+      _dio.patch(
+        ApiEndpoints.adminUserProfilePhoto(userId),
+        data: {
+          'status': status,
+          if (reason != null && reason.trim().isNotEmpty)
+            'reason': reason.trim(),
+        },
+      );
 
   Future<Response> getRelayPoint(String id) =>
       _dio.get(ApiEndpoints.relayPoint(id));

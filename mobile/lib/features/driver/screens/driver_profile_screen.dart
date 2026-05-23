@@ -16,8 +16,9 @@ import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/driver_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
-final _driverReferralInfoProvider =
-    FutureProvider<Map<String, dynamic>>((ref) async {
+final _driverReferralInfoProvider = FutureProvider<Map<String, dynamic>>((
+  ref,
+) async {
   final res = await ref.watch(apiClientProvider).getReferralInfo();
   return Map<String, dynamic>.from(
     res.data as Map<String, dynamic>? ?? const {},
@@ -154,9 +155,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
           ElevatedButton(
             onPressed: () async {
               try {
-                final body = <String, dynamic>{
-                  'bio': bioCtrl.text.trim(),
-                };
+                final body = <String, dynamic>{'bio': bioCtrl.text.trim()};
                 if (emailCtrl.text.trim().isNotEmpty) {
                   body['email'] = emailCtrl.text.trim();
                 }
@@ -274,8 +273,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(dialogContext)
-                .pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
             child: const Text('Supprimer définitivement'),
           ),
         ],
@@ -365,24 +365,42 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
               ),
               child: Column(
                 children: [
-                  _infoRow(Icons.badge_outlined, 'Nom', user.fullName ?? '-',
-                      helper: 'Non modifiable pour des raisons de securite.'),
-                  _infoRow(Icons.phone_outlined, 'Telephone', user.phone,
-                      helper: user.isPhoneVerified
-                          ? 'Numero verifie'
-                          : 'Numero non verifie'),
                   _infoRow(
-                      Icons.alternate_email,
-                      'E-mail',
-                      (user.email ?? '').isEmpty
-                          ? 'Non renseigne'
-                          : user.email!),
-                  _infoRow(Icons.fingerprint, 'ID livreur', user.id,
-                      actionLabel: 'Copier', onAction: () => _copy(user.id)),
-                  _infoRow(Icons.calendar_today_outlined, 'Membre depuis',
-                      _formatDate(user.createdAt)),
-                  _infoRow(Icons.language_outlined, 'Langue / devise',
-                      '${user.language.toUpperCase()} - ${user.currency}'),
+                    Icons.badge_outlined,
+                    'Nom',
+                    user.fullName ?? '-',
+                    helper: 'Non modifiable pour des raisons de securite.',
+                  ),
+                  _infoRow(
+                    Icons.phone_outlined,
+                    'Telephone',
+                    user.phone,
+                    helper: user.isPhoneVerified
+                        ? 'Numero verifie'
+                        : 'Numero non verifie',
+                  ),
+                  _infoRow(
+                    Icons.alternate_email,
+                    'E-mail',
+                    (user.email ?? '').isEmpty ? 'Non renseigne' : user.email!,
+                  ),
+                  _infoRow(
+                    Icons.fingerprint,
+                    'ID livreur',
+                    user.id,
+                    actionLabel: 'Copier',
+                    onAction: () => _copy(user.id),
+                  ),
+                  _infoRow(
+                    Icons.calendar_today_outlined,
+                    'Membre depuis',
+                    _formatDate(user.createdAt),
+                  ),
+                  _infoRow(
+                    Icons.language_outlined,
+                    'Langue / devise',
+                    '${user.language.toUpperCase()} - ${user.currency}',
+                  ),
                 ],
               ),
             ),
@@ -395,9 +413,11 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Disponibilite'),
-                    subtitle: Text(user.isAvailable
-                        ? 'Vous apparaissez dans les missions disponibles.'
-                        : 'Vous êtes hors ligne pour les nouvelles missions.'),
+                    subtitle: Text(
+                      user.isAvailable
+                          ? 'Vous apparaissez dans les missions disponibles.'
+                          : 'Vous êtes hors ligne pour les nouvelles missions.',
+                    ),
                     value: user.isAvailable,
                     onChanged:
                         _busyAvailability ? null : (_) => _toggleAvailability(),
@@ -411,7 +431,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       ),
                       title: Text(formatXof(wallet.balance)),
                       subtitle: Text(
-                          'En attente: ${formatXof(wallet.pendingBalance)}'),
+                        'En attente: ${formatXof(wallet.pendingBalance)}',
+                      ),
                       trailing: TextButton(
                         onPressed: () => context.go('/driver/wallet'),
                         child: const Text('Voir'),
@@ -461,14 +482,18 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
-                      backgroundColor:
-                          _kycColor(user.kycStatus).withValues(alpha: 0.12),
-                      child: Icon(Icons.verified_user_outlined,
-                          color: _kycColor(user.kycStatus)),
+                      backgroundColor: _kycColor(
+                        user.kycStatus,
+                      ).withValues(alpha: 0.12),
+                      child: Icon(
+                        Icons.verified_user_outlined,
+                        color: _kycColor(user.kycStatus),
+                      ),
                     ),
                     title: Text(_kycLabel(user.kycStatus)),
                     subtitle: const Text(
-                        'Gardez vos pièces à jour pour fluidifier les opérations.'),
+                      'Gardez vos pièces à jour pour fluidifier les opérations.',
+                    ),
                   ),
                   const Divider(height: 24),
                   _docTile(
@@ -540,15 +565,24 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   'Repere rapide pour le compte, les documents legaux et la navigation.',
               child: Column(
                 children: [
-                  _infoRow(Icons.verified_user, 'Etat du compte',
-                      user.isBanned ? 'Suspendu' : 'Actif'),
-                  _infoRow(Icons.gavel_outlined, 'Acceptation legale',
-                      user.acceptedLegal ? 'Acceptee' : 'Non acceptee',
-                      helper: user.acceptedLegalAt != null
-                          ? 'Le ${_formatDate(user.acceptedLegalAt)}'
-                          : null),
-                  _infoRow(Icons.schedule_outlined, 'Dernière mise à jour',
-                      _formatDate(user.updatedAt)),
+                  _infoRow(
+                    Icons.verified_user,
+                    'Etat du compte',
+                    user.isBanned ? 'Suspendu' : 'Actif',
+                  ),
+                  _infoRow(
+                    Icons.gavel_outlined,
+                    'Acceptation legale',
+                    user.acceptedLegal ? 'Acceptee' : 'Non acceptee',
+                    helper: user.acceptedLegalAt != null
+                        ? 'Le ${_formatDate(user.acceptedLegalAt)}'
+                        : null,
+                  ),
+                  _infoRow(
+                    Icons.schedule_outlined,
+                    'Dernière mise à jour',
+                    _formatDate(user.updatedAt),
+                  ),
                   const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -570,7 +604,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       leading: const Icon(Icons.swap_horiz),
                       title: const Text('Passer a la vue client'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
+                      onTap: () async {
+                        if (!await _canLeaveAccount()) return;
+                        if (!context.mounted) return;
                         ref.read(authProvider.notifier).switchView('client');
                         context.go('/client');
                       },
@@ -681,8 +717,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             child: const Text('Annuler'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(dialogContext)
-                .pop(controller.text.trim().toUpperCase()),
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(controller.text.trim().toUpperCase()),
             child: const Text('Appliquer'),
           ),
         ],
@@ -697,7 +734,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       await ref.read(authProvider.notifier).fetchMe();
       ref.invalidate(_driverReferralInfoProvider);
       _snack(
-          'Code parrainage appliqué. Les primes seront débloquées selon les règles du programme.');
+        'Code parrainage appliqué. Les primes seront débloquées selon les règles du programme.',
+      );
     } catch (e) {
       _snack(friendlyError(e), error: true);
     }
@@ -711,8 +749,10 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       );
       final enabled = data['enabled'] as bool? ?? false;
       if (!enabled) {
-        _snack(data['message']?.toString() ??
-            'Le parrainage n\'est pas actif pour ce compte.');
+        _snack(
+          data['message']?.toString() ??
+              'Le parrainage n\'est pas actif pour ce compte.',
+        );
         return;
       }
 
@@ -747,8 +787,10 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                   if (referralUrl != null && referralUrl.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Text(referralUrl,
-                        style: const TextStyle(color: Colors.blueGrey)),
+                    Text(
+                      referralUrl,
+                      style: const TextStyle(color: Colors.blueGrey),
+                    ),
                   ],
                   const SizedBox(height: 16),
                   _buildReferralTracking(data),
@@ -760,7 +802,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     subtitle: const Text('Code et lien de parrainage'),
                     onTap: () async {
                       await Clipboard.setData(
-                          ClipboardData(text: shareMessage));
+                        ClipboardData(text: shareMessage),
+                      );
                       if (!sheetContext.mounted) return;
                       Navigator.of(sheetContext).pop();
                       _snack('Message de parrainage copié');
@@ -774,7 +817,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                         ? null
                         : () async {
                             await Clipboard.setData(
-                                ClipboardData(text: referralCode));
+                              ClipboardData(text: referralCode),
+                            );
                             if (!sheetContext.mounted) return;
                             Navigator.of(sheetContext).pop();
                             _snack('Code parrainage copié');
@@ -782,16 +826,20 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading:
-                        const Icon(Icons.message_outlined, color: Colors.green),
+                    leading: const Icon(
+                      Icons.message_outlined,
+                      color: Colors.green,
+                    ),
                     title: const Text('Partager sur WhatsApp'),
                     onTap: () async {
                       final whatsappUri = Uri.parse(
                         'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
                       );
                       if (await canLaunchUrl(whatsappUri)) {
-                        await launchUrl(whatsappUri,
-                            mode: LaunchMode.externalApplication);
+                        await launchUrl(
+                          whatsappUri,
+                          mode: LaunchMode.externalApplication,
+                        );
                       }
                       if (!sheetContext.mounted) return;
                       Navigator.of(sheetContext).pop();
@@ -1001,7 +1049,9 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                 foregroundColor: Colors.white,
                 side: const BorderSide(color: Colors.white24),
               ),
-              onPressed: () {
+              onPressed: () async {
+                if (!await _canLeaveAccount()) return;
+                if (!context.mounted) return;
                 ref.read(authProvider.notifier).switchView('client');
                 context.go('/client');
               },
@@ -1043,13 +1093,18 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text(subtitle,
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 13)),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
                   ],
                 ),
               ),
@@ -1088,21 +1143,30 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
           const SizedBox(height: 12),
           Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
           const SizedBox(height: 4),
-          Text(value,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          ),
           const SizedBox(height: 4),
-          Text(footer,
-              style: const TextStyle(color: Colors.grey, fontSize: 11)),
+          Text(
+            footer,
+            style: const TextStyle(color: Colors.grey, fontSize: 11),
+          ),
         ],
       ),
     );
   }
 
-  Widget _infoRow(IconData icon, String label, String value,
-      {String? helper, String? actionLabel, VoidCallback? onAction}) {
+  Widget _infoRow(
+    IconData icon,
+    String label,
+    String value, {
+    String? helper,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
@@ -1117,19 +1181,28 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600)),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.grey,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(value,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 if (helper != null) ...[
                   const SizedBox(height: 2),
-                  Text(helper,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text(
+                    helper,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ],
               ],
             ),
@@ -1210,9 +1283,14 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
         color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(label,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
