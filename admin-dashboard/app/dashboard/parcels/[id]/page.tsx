@@ -4,6 +4,13 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  APIProvider,
+  AdvancedMarker,
+  Map,
+  Pin,
+  Polyline,
+} from "@vis.gl/react-google-maps";
+import {
   api,
   confirmPayment,
   fetchDrivers,
@@ -32,6 +39,7 @@ import {
   Play,
   RefreshCw,
   ShieldAlert,
+  Route,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -96,9 +104,57 @@ const OVERRIDE_STATUSES = [
   "returned",
 ];
 
+const DEFAULT_MAP_CENTER = {
+  lat: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LAT ?? "14.7167"),
+  lng: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LNG ?? "-17.4677"),
+};
+const MAP_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "denkma-parcel-route-map";
+
 async function fetchParcelDetail(parcelId: string) {
   const { data } = await api.get(`/api/parcels/${parcelId}`);
   return data;
+}
+
+type GeoPoint = {
+  lat?: number;
+  lng?: number;
+  latitude?: number;
+  longitude?: number;
+  ts?: string;
+  accuracy?: number;
+};
+
+type ParcelMission = {
+  mission_id?: string;
+  status?: string;
+  driver_name?: string;
+  assigned_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  encoded_polyline?: string;
+  gps_trail?: GeoPoint[];
+  pickup?: { label?: string | null; geopin?: GeoPoint | null };
+  delivery?: { label?: string | null; geopin?: GeoPoint | null };
+  route_summary?: {
+    gps_points_count?: number;
+    distance_text?: string;
+    eta_text?: string;
+    last_seen_at?: string;
+  };
+};
+
+function readLatLng(point?: GeoPoint | null) {
+  if (!point) return null;
+  const lat = point.lat ?? point.latitude;
+  const lng = point.lng ?? point.longitude;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return { lat, lng };
+}
+
+function missionRouteLabel(mission: ParcelMission, index: number) {
+  const driver = mission.driver_name ? ` - ${mission.driver_name}` : "";
+  return `Mission ${index + 1}${driver}`;
 }
 
 function formatAddress(address: any): string | null {
@@ -242,6 +298,9 @@ export default function ParcelDetailPage() {
   const [photoOpen, setPhotoOpen] = React.useState(false);
   const [reassignOpen, setReassignOpen] = React.useState(false);
   const [reassignDriverId, setReassignDriverId] = React.useState("");
+  const [selectedRouteMissionId, setSelectedRouteMissionId] = React.useState<
+    string | null
+  >(null);
 
   const driversForReassign = useQuery({
     queryKey: ["drivers-list"],
@@ -319,6 +378,42 @@ export default function ParcelDetailPage() {
       setReassignDriverId("");
     },
   });
+
+  const routeMissions = React.useMemo<ParcelMission[]>(() => {
+    const missions = Array.isArray(audit.data?.missions)
+      ? audit.data.missions
+      : [];
+    return missions.filter((mission: ParcelMission) => {
+      const trail = Array.isArray(mission.gps_trail) ? mission.gps_trail : [];
+      return (
+        trail.some((point) => readLatLng(point)) ||
+        Boolean(mission.encoded_polyline) ||
+        Boolean(readLatLng(mission.pickup?.geopin)) ||
+        Boolean(readLatLng(mission.delivery?.geopin))
+      );
+    });
+  }, [audit.data?.missions]);
+
+  const selectedRouteMission =
+    routeMissions.find(
+      (mission) =>
+        mission.mission_id &&
+        selectedRouteMissionId &&
+        mission.mission_id === selectedRouteMissionId,
+    ) ??
+    routeMissions[0] ??
+    null;
+
+  const selectedTrail =
+    selectedRouteMission?.gps_trail
+      ?.map(readLatLng)
+      .filter((point): point is { lat: number; lng: number } => point !== null) ??
+    [];
+  const selectedPickup = readLatLng(selectedRouteMission?.pickup?.geopin);
+  const selectedDelivery = readLatLng(selectedRouteMission?.delivery?.geopin);
+  const selectedMapCenter =
+    selectedTrail[0] ?? selectedPickup ?? selectedDelivery ?? DEFAULT_MAP_CENTER;
+  const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
   if (isLoading) {
     return (
@@ -667,6 +762,129 @@ export default function ParcelDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Route className="h-4 w-4" />
+            Tracé du parcours
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {audit.isLoading ? (
+            <div className="flex h-32 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : routeMissions.length === 0 ? (
+            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              Aucun tracé GPS enregistré pour ce colis.
+            </div>
+          ) : !mapsApiKey ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+              Clé Google Maps manquante pour afficher le tracé.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {routeMissions.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {routeMissions.map((mission, index) => (
+                    <Button
+                      key={mission.mission_id ?? index}
+                      type="button"
+                      variant={
+                        selectedRouteMission?.mission_id === mission.mission_id
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      onClick={() =>
+                        setSelectedRouteMissionId(mission.mission_id ?? null)
+                      }
+                    >
+                      {missionRouteLabel(mission, index)}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <div className="overflow-hidden rounded-md border">
+                <div className="h-[420px] w-full">
+                  <APIProvider apiKey={mapsApiKey}>
+                    <Map
+                      key={selectedRouteMission?.mission_id ?? "parcel-route"}
+                      mapId={MAP_ID}
+                      defaultCenter={selectedMapCenter}
+                      defaultZoom={13}
+                      gestureHandling="greedy"
+                      disableDefaultUI={false}
+                    >
+                      {selectedRouteMission?.encoded_polyline && (
+                        <Polyline
+                          encodedPath={selectedRouteMission.encoded_polyline}
+                          strokeColor="#64748b"
+                          strokeOpacity={0.45}
+                          strokeWeight={4}
+                          zIndex={10}
+                        />
+                      )}
+                      {selectedTrail.length > 1 && (
+                        <Polyline
+                          path={selectedTrail}
+                          strokeColor="#0f766e"
+                          strokeOpacity={0.95}
+                          strokeWeight={5}
+                          zIndex={20}
+                        />
+                      )}
+                      {selectedPickup && (
+                        <AdvancedMarker position={selectedPickup}>
+                          <Pin
+                            background="#f97316"
+                            borderColor="#c2410c"
+                            glyphColor="#fff"
+                          />
+                        </AdvancedMarker>
+                      )}
+                      {selectedDelivery && (
+                        <AdvancedMarker position={selectedDelivery}>
+                          <Pin
+                            background="#10b981"
+                            borderColor="#047857"
+                            glyphColor="#fff"
+                          />
+                        </AdvancedMarker>
+                      )}
+                    </Map>
+                  </APIProvider>
+                </div>
+              </div>
+              <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <Row
+                  label="Livreur"
+                  value={selectedRouteMission?.driver_name ?? "—"}
+                />
+                <Row
+                  label="Points GPS"
+                  value={
+                    selectedRouteMission?.route_summary?.gps_points_count ??
+                    selectedTrail.length
+                  }
+                />
+                <Row
+                  label="Début"
+                  value={formatDate(
+                    selectedRouteMission?.started_at ??
+                      selectedRouteMission?.assigned_at,
+                  )}
+                />
+                <Row
+                  label="Fin"
+                  value={formatDate(selectedRouteMission?.completed_at)}
+                />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Timeline */}
       {timeline.length > 0 && (
