@@ -10,6 +10,7 @@ import {
   InfoWindow,
   Map,
   Pin,
+  Polyline,
 } from "@vis.gl/react-google-maps";
 import { fetchFleetLive } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -40,13 +41,17 @@ type FleetMission = {
   is_stale?: boolean;
   eta_text?: string;
   distance_text?: string;
+  encoded_polyline?: string;
   recipient_name?: string;
   recipient_phone?: string;
-  pickup?: { label?: string | null };
-  delivery?: { label?: string | null };
+  pickup?: { label?: string | null; geopin?: GeoPoint | null };
+  delivery?: { label?: string | null; geopin?: GeoPoint | null };
+  gps_trail?: GeoPoint[];
   route_summary?: {
     speed_kmh?: number;
     gps_points_count?: number;
+    has_live_location?: boolean;
+    has_polyline?: boolean;
   };
 };
 
@@ -187,6 +192,13 @@ export default function FleetPage() {
   }, [filteredMissions, filteredIdle]);
 
   const totalVisible = filteredMissions.length + filteredIdle.length;
+  const selectedMission =
+    selectedPin?.kind === "mission" ? selectedPin.data : null;
+  const selectedTrail = selectedMission?.gps_trail
+    ?.map(readLatLng)
+    .filter((point): point is { lat: number; lng: number } => point !== null) ?? [];
+  const selectedPickup = readLatLng(selectedMission?.pickup?.geopin);
+  const selectedDelivery = readLatLng(selectedMission?.delivery?.geopin);
 
   return (
     <div className="space-y-5 p-8">
@@ -291,6 +303,38 @@ export default function FleetPage() {
                     </AdvancedMarker>
                   );
                 })}
+
+                {selectedMission?.encoded_polyline && (
+                  <Polyline
+                    encodedPath={selectedMission.encoded_polyline}
+                    strokeColor="#64748b"
+                    strokeOpacity={0.45}
+                    strokeWeight={4}
+                    zIndex={10}
+                  />
+                )}
+
+                {selectedTrail.length > 1 && (
+                  <Polyline
+                    path={selectedTrail}
+                    strokeColor="#0f766e"
+                    strokeOpacity={0.95}
+                    strokeWeight={5}
+                    zIndex={20}
+                  />
+                )}
+
+                {selectedPickup && (
+                  <AdvancedMarker position={selectedPickup}>
+                    <Pin background="#f97316" borderColor="#c2410c" glyphColor="#fff" />
+                  </AdvancedMarker>
+                )}
+
+                {selectedDelivery && (
+                  <AdvancedMarker position={selectedDelivery}>
+                    <Pin background="#10b981" borderColor="#047857" glyphColor="#fff" />
+                  </AdvancedMarker>
+                )}
 
                 {selectedPin && (
                   <InfoWindow
@@ -406,6 +450,11 @@ function MissionCard({ mission }: { mission: FleetMission }) {
               {mission.route_summary.speed_kmh} km/h
             </span>
           )}
+          <span className="inline-flex items-center gap-1">
+            <Navigation className="h-3.5 w-3.5" />
+            {mission.route_summary?.gps_points_count ?? 0} point
+            {(mission.route_summary?.gps_points_count ?? 0) > 1 ? "s" : ""} GPS
+          </span>
         </div>
 
         {(mission.eta_text || mission.distance_text) && (

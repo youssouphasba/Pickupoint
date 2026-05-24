@@ -22,6 +22,10 @@ class Parcel(BaseModel):
     dimensions:            Optional[Dict[str, float]] = None  # {"l": 30, "w": 20, "h": 10}
     declared_value:        Optional[float] = None              # XOF
     description:           Optional[str] = None
+    parcel_photo_url:      Optional[str] = None
+    parcel_photo_path:     Optional[str] = None
+    parcel_photo_content_type: Optional[str] = None
+    parcel_photo_uploaded_at: Optional[datetime] = None
     is_express:            bool  = False
     who_pays:              str   = "sender"    # "sender" | "recipient"
     # Prix et paiement

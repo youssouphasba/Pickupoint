@@ -139,6 +139,14 @@ class ApiClient {
   Future<Response> createParcel(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcels, data: body);
 
+  Future<Response> uploadParcelPhoto(String id, File file) async {
+    final fileName = file.path.split(RegExp(r'[\\/]')).last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(file.path, filename: fileName),
+    });
+    return _dio.post(ApiEndpoints.parcelPhoto(id), data: formData);
+  }
+
   Future<Response> bulkRelayAction(List<String> codes) =>
       _dio.post(ApiEndpoints.bulkAction, data: codes);
 
@@ -239,8 +247,11 @@ class ApiClient {
 
   Future<Response> getMission(String id) => _dio.get(ApiEndpoints.delivery(id));
 
-  Future<Response> acceptMission(String id) =>
-      _dio.post(ApiEndpoints.acceptMission(id));
+  Future<Response> acceptMission(
+    String id, {
+    Map<String, dynamic>? location,
+  }) =>
+      _dio.post(ApiEndpoints.acceptMission(id), data: location);
 
   Future<Response> confirmPickup(
     String id,

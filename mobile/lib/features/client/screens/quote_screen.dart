@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -79,6 +81,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         widget.data['formData'] as Map? ?? const {},
       );
       final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
+      final parcelPhotoPath = formData.remove('parcel_photo_path') as String?;
       final promoCode = _promoResult != null
           ? _promoController.text.trim().toUpperCase()
           : null;
@@ -91,6 +94,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
 
       final res = await api.createParcel(payload);
       final parcelId = res.data['parcel_id'] as String?;
+      if (parcelPhotoPath != null && parcelId != null) {
+        await api.uploadParcelPhoto(parcelId, File(parcelPhotoPath));
+      }
       if (pickupVoicePath != null && parcelId != null) {
         try {
           await api.sendParcelVoice(parcelId, pickupVoicePath);
@@ -466,6 +472,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
         Icons.scale_outlined,
         'Poids',
         '${weight.toStringAsFixed(1)} kg',
+      ),
+      _infoRow(
+        Icons.photo_camera_outlined,
+        'Photo du colis',
+        formData['parcel_photo_path'] == null ? 'Non ajoutée' : 'Ajoutée',
       ),
       if (declaredValue != null)
         _infoRow(

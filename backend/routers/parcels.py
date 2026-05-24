@@ -60,6 +60,81 @@ from config import UPLOADS_DIR, settings
 
 router = APIRouter()
 PRIVATE_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
+PRIVATE_PARCEL_PHOTO_DIR = UPLOADS_DIR.parent / "private_uploads" / "parcel_photos"
+PARCEL_PHOTO_MAX_SIZE = 5 * 1024 * 1024
+
+
+def _parcel_photo_url(parcel_id: str) -> str:
+    return f"{settings.BASE_URL.rstrip('/')}/api/parcels/{parcel_id}/photo"
+
+
+def _guess_image_extension(content: bytes) -> Optional[str]:
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+async def _read_upload_bytes(file: UploadFile, max_size: int) -> bytes:
+    content = await file.read(max_size + 1)
+    if not content:
+        raise bad_request_exception("Fichier vide")
+    if len(content) > max_size:
+        raise bad_request_exception("Photo trop volumineuse (max 5 Mo)")
+    return content
+
+
+def _validate_parcel_photo(file: UploadFile, content: bytes) -> tuple[str, str]:
+    content_type = (file.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise bad_request_exception("Le fichier doit être une image")
+    ext = _guess_image_extension(content)
+    if ext is None:
+        raise bad_request_exception("Format image non supporté")
+    media_type = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[ext]
+    return ext, media_type
+
+
+def _parcel_photo_allowed(parcel: dict, current_user: dict) -> bool:
+    if _is_admin(current_user):
+        return True
+    if parcel.get("sender_user_id") == current_user["user_id"]:
+        return True
+    return (
+        parcel.get("recipient_user_id") == current_user["user_id"]
+        or phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
+    )
+
+
+def _parcel_has_photo(parcel: dict) -> bool:
+    return bool(parcel.get("parcel_photo_path") or parcel.get("parcel_photo_url"))
+
+
+def _attach_parcel_photo_url(parcel: dict) -> None:
+    if _parcel_has_photo(parcel):
+        parcel["parcel_photo_url"] = _parcel_photo_url(parcel["parcel_id"])
+
+
+def _resolve_parcel_photo_path(parcel: dict) -> tuple[Path, str]:
+    photo_path = parcel.get("parcel_photo_path")
+    if photo_path:
+        path = Path(photo_path)
+        if path.exists():
+            media_type = parcel.get("parcel_photo_content_type") or mimetypes.guess_type(str(path))[0]
+            return path, media_type or "application/octet-stream"
+
+    photo_url = parcel.get("parcel_photo_url")
+    if isinstance(photo_url, str) and "/uploads/parcel_photos/" in photo_url:
+        filename = photo_url.rsplit("/", 1)[-1]
+        legacy_path = UPLOADS_DIR / "parcel_photos" / filename
+        if legacy_path.exists():
+            media_type = parcel.get("parcel_photo_content_type") or mimetypes.guess_type(str(legacy_path))[0]
+            return legacy_path, media_type or "application/octet-stream"
+
+    raise not_found_exception("Photo du colis")
 
 
 def _generate_return_code() -> str:
@@ -516,6 +591,10 @@ async def list_parcels(
             )
 
     for p in parcels:
+        if _parcel_photo_allowed(p, current_user):
+            _attach_parcel_photo_url(p)
+        else:
+            p.pop("parcel_photo_url", None)
         if role == UserRole.DRIVER.value and p.get("recipient_phone"):
             p["recipient_phone"] = mask_phone(p["recipient_phone"])
         _mask_payment_fields(p, current_user)
@@ -687,6 +766,11 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     if is_admin:
         await _enrich_admin_parcel_addresses(parcel, active_mission)
 
+    if _parcel_photo_allowed(parcel, current_user):
+        _attach_parcel_photo_url(parcel)
+    else:
+        parcel.pop("parcel_photo_url", None)
+
     driver_id = parcel.get("assigned_driver_id")
     if not driver_id and active_mission:
         driver_id = active_mission.get("driver_id")
@@ -775,6 +859,63 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     _mask_payment_fields(parcel, current_user)
 
     return {"parcel": parcel, "timeline": timeline}
+
+
+@router.post("/{parcel_id}/photo", summary="Ajouter la photo de sécurité du colis")
+async def upload_parcel_photo(
+    parcel_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if parcel.get("sender_user_id") != current_user["user_id"] and not _is_admin(current_user):
+        raise forbidden_exception("Seul l'expéditeur peut ajouter la photo du colis")
+    if parcel.get("status") != ParcelStatus.CREATED.value and not _is_admin(current_user):
+        raise bad_request_exception("La photo doit être ajoutée lors de la création du colis")
+
+    content = await _read_upload_bytes(file, PARCEL_PHOTO_MAX_SIZE)
+    ext, media_type = _validate_parcel_photo(file, content)
+    PRIVATE_PARCEL_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"parcel_{parcel_id}_{uuid.uuid4().hex}.{ext}"
+    path = PRIVATE_PARCEL_PHOTO_DIR / filename
+    path.write_bytes(content)
+
+    previous_path = parcel.get("parcel_photo_path")
+    if previous_path:
+        previous = Path(previous_path)
+        if previous.exists() and previous.parent == PRIVATE_PARCEL_PHOTO_DIR:
+            previous.unlink(missing_ok=True)
+
+    now = datetime.now(timezone.utc)
+    await db.parcels.update_one(
+        {"parcel_id": parcel_id},
+        {
+            "$set": {
+                "parcel_photo_path": str(path),
+                "parcel_photo_content_type": media_type,
+                "parcel_photo_uploaded_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    return {"ok": True, "parcel_photo_url": _parcel_photo_url(parcel_id)}
+
+
+@router.get("/{parcel_id}/photo", summary="Lire la photo de sécurité du colis")
+async def get_parcel_photo(
+    parcel_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    if not _parcel_photo_allowed(parcel, current_user):
+        raise forbidden_exception("Accès refusé à cette photo")
+
+    path, media_type = _resolve_parcel_photo_path(parcel)
+    return FileResponse(path=path, media_type=media_type, filename=path.name)
 
 
 @router.post("/{parcel_id}/confirm-location", summary="Confirmer sa position (App Destinataire)")

@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
@@ -60,6 +63,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   bool _isExpress = false;
   String _whoPays = 'sender'; // 'sender' | 'recipient'
   bool _isQuoteLoading = false;
+  File? _parcelPhoto;
 
   // ── Mode de livraison calculé ─────────────────────────────────────────────────
   String get _deliveryMode {
@@ -163,8 +167,22 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         }
         return true;
       default:
+        if (_parcelPhoto == null) {
+          _showError('Veuillez prendre une photo du colis');
+          return false;
+        }
         return true;
     }
+  }
+
+  Future<void> _takeParcelPhoto() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1600,
+    );
+    if (image == null) return;
+    setState(() => _parcelPhoto = File(image.path));
   }
 
   // ── Capture GPS expéditeur ────────────────────────────────────────────────────
@@ -242,6 +260,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         'is_express': _isExpress,
         'who_pays': _whoPays,
         'initiated_by': isReverse ? 'recipient' : 'sender',
+        if (_parcelPhoto != null) 'parcel_photo_path': _parcelPhoto!.path,
         if (_pickupNoteController.text.trim().isNotEmpty)
           'pickup_voice_note': _pickupNoteController.text.trim(),
         if (isReverse) 'sender_phone': _senderPhoneController.text.trim(),
@@ -794,6 +813,84 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                   'Ex: Appeler avant de venir, code portail 1234, 3e étage…',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.note_alt_outlined),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _sectionTitle(Icons.photo_camera_outlined, 'Photo du colis *'),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: _takeParcelPhoto,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _parcelPhoto == null
+                      ? Colors.blueGrey.shade200
+                      : Colors.green.shade300,
+                ),
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _parcelPhoto == null
+                        ? Container(
+                            width: 72,
+                            height: 72,
+                            color: Colors.white,
+                            child: const Icon(
+                              Icons.add_a_photo_outlined,
+                              color: Colors.blueGrey,
+                            ),
+                          )
+                        : Image.file(
+                            _parcelPhoto!,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _parcelPhoto == null
+                              ? 'Prendre une photo'
+                              : 'Photo ajoutée',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _parcelPhoto == null
+                              ? 'Elle sera visible par l\'expéditeur, le destinataire et l\'admin.'
+                              : 'Appuyez pour reprendre la photo.',
+                          style: const TextStyle(
+                            color: Colors.blueGrey,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    _parcelPhoto == null
+                        ? Icons.chevron_right
+                        : Icons.check_circle,
+                    color: _parcelPhoto == null
+                        ? Colors.blueGrey
+                        : Colors.green.shade700,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 20),

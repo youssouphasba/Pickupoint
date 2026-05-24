@@ -2102,7 +2102,7 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         if is_stale:
             stale_locations += 1
 
-        trail = _normalize_trail(mission.get("gps_trail"))[-40:]
+        trail = _normalize_trail(mission.get("gps_trail"))
         pickup = _resolve_mission_pickup(parcel, mission, relay_lookup)
         delivery = _resolve_mission_delivery(parcel, mission, relay_lookup)
         fleet.append(

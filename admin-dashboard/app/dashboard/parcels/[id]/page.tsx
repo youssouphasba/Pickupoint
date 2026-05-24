@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
+import { SecureProfileImage } from "@/components/secure-profile-image";
 import { useToast } from "@/components/ui/toaster";
 import { formatDate } from "@/lib/utils";
 import {
@@ -238,6 +239,7 @@ export default function ParcelDetailPage() {
   const [incidentAction, setIncidentAction] = React.useState<
     "reassign" | "return" | "cancel"
   >("reassign");
+  const [photoOpen, setPhotoOpen] = React.useState(false);
   const [reassignOpen, setReassignOpen] = React.useState(false);
   const [reassignDriverId, setReassignDriverId] = React.useState("");
 
@@ -338,6 +340,7 @@ export default function ParcelDetailPage() {
 
   const parcel = data.parcel ?? data;
   const timeline = data.timeline ?? [];
+  const parcelPhotoUrl = parcel.parcel_photo_url?.trim();
 
   return (
     <div className="space-y-6 p-8">
@@ -456,6 +459,38 @@ export default function ParcelDetailPage() {
             )}
             {parcel.description && (
               <Row label="Description" value={parcel.description} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Photo du colis</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {parcelPhotoUrl ? (
+              <button
+                type="button"
+                onClick={() => setPhotoOpen(true)}
+                className="group flex w-full items-center gap-4 rounded-md border bg-muted/30 p-3 text-left transition hover:bg-muted"
+              >
+                <SecureProfileImage
+                  src={parcelPhotoUrl}
+                  alt="Photo du colis"
+                  className="h-24 w-24 rounded-md"
+                  fallbackClassName="rounded-md"
+                />
+                <div className="min-w-0">
+                  <div className="font-medium">Photo de sécurité</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Cliquer pour agrandir
+                  </div>
+                </div>
+              </button>
+            ) : (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                Aucune photo disponible.
+              </div>
             )}
           </CardContent>
         </Card>
@@ -737,6 +772,29 @@ export default function ParcelDetailPage() {
           await confirmPayMut.mutateAsync();
         }}
       />
+
+      {photoOpen && parcelPhotoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-4xl rounded-lg bg-background p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Photo du colis</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPhotoOpen(false)}
+              >
+                Fermer
+              </Button>
+            </div>
+            <SecureProfileImage
+              src={parcelPhotoUrl}
+              alt="Photo du colis"
+              className="max-h-[72vh] w-full rounded-md object-contain"
+              fallbackClassName="h-[50vh] rounded-md"
+            />
+          </div>
+        </div>
+      )}
 
       <ActionModal
         open={overridePayOpen}

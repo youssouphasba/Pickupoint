@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from pymongo import ReturnDocument
 
 from config import settings
@@ -439,6 +439,7 @@ async def get_mission(
 @router.post("/{mission_id}/accept", summary="Accepter une mission")
 async def accept_mission(
     mission_id: str,
+    body: Optional[LocationUpdate] = Body(None),
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
@@ -484,20 +485,33 @@ async def accept_mission(
                 f"Solde insuffisant. Cette mission demande {commission_xof:.0f} XOF de commission Denkma disponible."
             )
 
+    mission_set = {
+        "driver_id": current_user["user_id"],
+        "status": MissionStatus.ASSIGNED.value,
+        "assigned_at": now,
+        "updated_at": now,
+        "platform_commission_xof": commission_xof,
+        "platform_commission_wallet_reference": f"commission:{mission_id}",
+    }
+    mission_push = None
+    if body is not None:
+        driver_location = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy}
+        trail_point = {**driver_location, "ts": now}
+        mission_set["driver_location"] = driver_location
+        mission_set["location_updated_at"] = now
+        mission_push = {"gps_trail": {"$each": [trail_point], "$slice": -300}}
+
+    mission_update = {"$set": mission_set}
+    if mission_push:
+        mission_update["$push"] = mission_push
+
     updated_mission = await db.delivery_missions.find_one_and_update(
         {
             "mission_id": mission_id,
             "status": MissionStatus.PENDING.value,
             "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
         },
-        {"$set": {
-            "driver_id": current_user["user_id"],
-            "status": MissionStatus.ASSIGNED.value,
-            "assigned_at": now,
-            "updated_at": now,
-            "platform_commission_xof": commission_xof,
-            "platform_commission_wallet_reference": f"commission:{mission_id}",
-        }},
+        mission_update,
         return_document=ReturnDocument.AFTER,
         projection={"_id": 0},
     )
@@ -518,12 +532,21 @@ async def accept_mission(
         except ValueError:
             await db.delivery_missions.update_one(
                 {"mission_id": mission_id},
-                {"$set": {
-                    "driver_id": None,
-                    "status": MissionStatus.PENDING.value,
-                    "assigned_at": None,
-                    "updated_at": datetime.now(timezone.utc),
-                }},
+                {
+                    "$set": {
+                        "driver_id": None,
+                        "status": MissionStatus.PENDING.value,
+                        "assigned_at": None,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
+                    "$unset": {
+                        "driver_location": "",
+                        "location_updated_at": "",
+                        "gps_trail": "",
+                        "platform_commission_xof": "",
+                        "platform_commission_wallet_reference": "",
+                    },
+                },
             )
             raise bad_request_exception(
                 "Solde insuffisant. Rechargez votre wallet avant d'accepter cette mission."
@@ -536,6 +559,15 @@ async def accept_mission(
             "updated_at": now,
         }},
     )
+    if body is not None:
+        await db.users.update_one(
+            {"user_id": current_user["user_id"]},
+            {"$set": {
+                "last_driver_location": {"lat": body.lat, "lng": body.lng},
+                "last_driver_location_at": now,
+                "updated_at": now,
+            }},
+        )
     if parcel:
         await notify_sender_driver_assigned(parcel, current_user)
         await _record_event(

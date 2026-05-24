@@ -45,6 +45,7 @@ class ApiEndpoints {
   static const bulkAction = '$_base/api/parcels/bulk-action';
   static const quote = '$_base/api/parcels/quote';
   static String parcel(String id) => '$_base/api/parcels/$id';
+  static String parcelPhoto(String id) => '$_base/api/parcels/$id/photo';
   static String parcelLookupByTracking(String code) =>
       '$_base/api/parcels/lookup/tracking/$code';
   static String parcelEvent(String id, String event) =>
@@ -140,8 +141,7 @@ class ApiEndpoints {
       '$_base/api/admin/support/whatsapp/conversations/$id/voice';
   static const adminWhatsappSupportStart =
       '$_base/api/admin/support/whatsapp/start';
-  static const adminNotificationsSend =
-      '$_base/api/admin/notifications/send';
+  static const adminNotificationsSend = '$_base/api/admin/notifications/send';
   static const adminNotificationsHistory =
       '$_base/api/admin/notifications/history';
 

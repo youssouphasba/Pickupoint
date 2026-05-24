@@ -661,7 +661,22 @@ class _MissionCard extends ConsumerWidget {
         return;
       }
       final api = ref.read(apiClientProvider);
-      await api.acceptMission(mission.id);
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        ).timeout(const Duration(seconds: 10));
+      } catch (_) {}
+      await api.acceptMission(
+        mission.id,
+        location: position == null
+            ? null
+            : {
+                'lat': position.latitude,
+                'lng': position.longitude,
+                'accuracy': position.accuracy,
+              },
+      );
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
       if (context.mounted) {

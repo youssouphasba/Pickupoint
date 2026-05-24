@@ -248,6 +248,7 @@ export type AdminParcel = {
   payment_status?: string;
   created_at?: string;
   updated_at?: string;
+  parcel_photo_url?: string | null;
 };
 
 export async function fetchParcels(params: {

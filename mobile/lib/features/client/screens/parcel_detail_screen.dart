@@ -13,6 +13,7 @@ import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/timeline_widget.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/authenticated_image.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -128,6 +129,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               children: [
                 _buildHeader(context, parcel, isRecipient: isRecipient),
                 const SizedBox(height: 16),
+                if (parcel.parcelPhotoUrl != null &&
+                    parcel.parcelPhotoUrl!.trim().isNotEmpty) ...[
+                  _buildParcelPhotoCard(parcel.parcelPhotoUrl!),
+                  const SizedBox(height: 16),
+                ],
 
                 if (_shouldShowLiveTracking(parcel)) ...[
                   _buildLiveMap(parcel),
@@ -251,11 +257,98 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final isHomeDelivery = parcel.deliveryMode.endsWith('_to_home');
     final hasAssignedDriver =
         (parcel.assignedDriverId?.trim().isNotEmpty ?? false) ||
-        (parcel.driverName?.trim().isNotEmpty ?? false);
+            (parcel.driverName?.trim().isNotEmpty ?? false);
     return isHomeDelivery &&
         hasAssignedDriver &&
         {'in_transit', 'out_for_delivery', 'incident_reported'}
             .contains(parcel.status);
+  }
+
+  Widget _buildParcelPhotoCard(String imageUrl) {
+    return InkWell(
+      onTap: () => _showParcelPhotoPreview(imageUrl),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.blueGrey.shade50,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.blueGrey.shade100),
+        ),
+        child: Row(
+          children: [
+            AuthenticatedImage(
+              imageUrl: imageUrl,
+              width: 88,
+              height: 88,
+              borderRadius: BorderRadius.circular(10),
+              fallback: const Icon(
+                Icons.inventory_2_outlined,
+                color: Colors.blueGrey,
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Photo du colis',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Appuyez pour agrandir',
+                    style: TextStyle(color: Colors.blueGrey, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_full, color: Colors.blueGrey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showParcelPhotoPreview(String imageUrl) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(18),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              AuthenticatedImage(
+                imageUrl: imageUrl,
+                width: double.infinity,
+                height: MediaQuery.of(context).size.height * 0.58,
+                fit: BoxFit.contain,
+                borderRadius: BorderRadius.circular(12),
+                backgroundColor: Colors.black,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Photo du colis',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildConfirmLocationCard(Parcel parcel) {
@@ -542,8 +635,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   // ── Code retrait relais (pin_code / delivery_code) — donné à l'agent relais ──
   bool _shouldShowPinCode(dynamic parcel, bool isRecipient) {
     if (!isRecipient) return false;
-    final isRelayDest =
-        (parcel.deliveryMode as String) == 'relay_to_relay' ||
+    final isRelayDest = (parcel.deliveryMode as String) == 'relay_to_relay' ||
         (parcel.deliveryMode as String) == 'home_to_relay';
     final code = parcel.pinCode as String?;
     final visibleStatuses = {
@@ -705,8 +797,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final center = _driverLat != null
         ? LatLng(_driverLat!, _driverLng!)
         : (destLat != null
-              ? LatLng(destLat, destLng!)
-              : const LatLng(14.693, -17.447)); // Dakar fallback
+            ? LatLng(destLat, destLng!)
+            : const LatLng(14.693, -17.447)); // Dakar fallback
 
     final Set<Marker> markers = {};
 
@@ -779,10 +871,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                   Text(
                     _driverOnline
                         ? (_liveEtaText != null
-                              ? 'En route • $_liveEtaText'
-                              : (parcel.etaText != null
-                                    ? 'En route • ${parcel.etaText}'
-                                    : 'En route'))
+                            ? 'En route • $_liveEtaText'
+                            : (parcel.etaText != null
+                                ? 'En route • ${parcel.etaText}'
+                                : 'En route'))
                         : 'Signal GPS faible',
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
@@ -820,9 +912,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     dynamic parcel, {
     bool isRecipient = false,
   }) {
-    final otherPartyPhoto = isRecipient
-        ? parcel.senderPhotoUrl
-        : parcel.recipientPhotoUrl;
+    final otherPartyPhoto =
+        isRecipient ? parcel.senderPhotoUrl : parcel.recipientPhotoUrl;
     final otherPartyName = isRecipient
         ? (parcel.senderName ?? 'Expéditeur')
         : (parcel.recipientName ?? 'Destinataire');
@@ -942,9 +1033,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
             borderRadius: BorderRadius.circular(40),
             onTap: driverPhotoUrl != null && driverPhotoUrl.isNotEmpty
                 ? () => _showAvatarPreview(
-                    imageUrl: driverPhotoUrl,
-                    title: driverName ?? 'Livreur Denkma',
-                  )
+                      imageUrl: driverPhotoUrl,
+                      title: driverName ?? 'Livreur Denkma',
+                    )
                 : null,
             child: AuthenticatedAvatar(
               imageUrl: driverPhotoUrl,
@@ -962,7 +1053,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isDelivered ? 'Livreur (livraison terminée)' : 'Livreur en charge',
+                  isDelivered
+                      ? 'Livreur (livraison terminée)'
+                      : 'Livreur en charge',
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
                 Text(
@@ -974,7 +1067,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (!isDelivered && driverPhone != null && driverPhone.isNotEmpty)
+                if (!isDelivered &&
+                    driverPhone != null &&
+                    driverPhone.isNotEmpty)
                   Text(
                     driverPhone,
                     style: const TextStyle(
@@ -1043,13 +1138,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     bool isRecipient = false,
   }) {
     // Choix du code affiché dans le QR selon le rôle et le mode de livraison
-    final isRelayPickup =
-        parcel.deliveryMode == 'relay_to_relay' ||
+    final isRelayPickup = parcel.deliveryMode == 'relay_to_relay' ||
         parcel.deliveryMode == 'home_to_relay';
     late final String qrCode;
     final String qrLabel;
-    final isHomePickup =
-        parcel.deliveryMode == 'home_to_relay' ||
+    final isHomePickup = parcel.deliveryMode == 'home_to_relay' ||
         parcel.deliveryMode == 'home_to_home';
     if (!isRecipient) {
       // Expéditeur : code collecte seulement en H2R/H2H, sinon code suivi
@@ -1237,12 +1330,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           const SizedBox(height: 8),
           _buildRelayInfoCard(
             relayId: destinationRelayId,
-            title: parcel.isRelayPickup
-                ? 'Relais de retrait'
-                : "Relais d'arrivée",
-            fallbackLabel: parcel.isRelayPickup
-                ? 'Relais de retrait'
-                : "Relais d'arrivée",
+            title:
+                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
+            fallbackLabel:
+                parcel.isRelayPickup ? 'Relais de retrait' : "Relais d'arrivée",
           ),
         ],
       ],
@@ -1495,8 +1586,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
     final label = days <= 0
         ? 'Délai de retrait expiré'
         : days == 1
-        ? 'Dernier jour pour récupérer'
-        : '$days jours restants pour récupérer';
+            ? 'Dernier jour pour récupérer'
+            : '$days jours restants pour récupérer';
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Container(
@@ -1637,10 +1728,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                       nearbyData['relay_points'] as List? ?? const [],
                     );
                     if (nearbyRelays.isNotEmpty) {
-                      body['relay_id'] = nearbyRelays.first['relay_id']
-                          ?.toString();
-                      body['selected_relay_name'] = nearbyRelays.first['name']
-                          ?.toString();
+                      body['relay_id'] =
+                          nearbyRelays.first['relay_id']?.toString();
+                      body['selected_relay_name'] =
+                          nearbyRelays.first['name']?.toString();
                     }
                   } catch (_) {}
                 } else {
@@ -1730,9 +1821,7 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
     setState(() => _submitting = true);
     try {
       final tip = double.tryParse(_tipController.text) ?? 0.0;
-      await ref
-          .read(apiClientProvider)
-          .rateParcel(
+      await ref.read(apiClientProvider).rateParcel(
             widget.parcelId,
             _rating,
             comment: _commentController.text,
