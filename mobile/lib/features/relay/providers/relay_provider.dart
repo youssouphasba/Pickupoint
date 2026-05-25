@@ -41,6 +41,17 @@ final relayHistoryProvider = FutureProvider<List<Parcel>>((ref) async {
       .toList();
 });
 
+final relayPerformanceProvider =
+    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final user = ref.watch(authProvider).valueOrNull?.user;
+  final relayId = user?.relayPointId;
+  if (relayId == null) return {};
+
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getRelayPerformance(relayId);
+  return Map<String, dynamic>.from(res.data as Map<String, dynamic>);
+});
+
 /// Provider pour les transactions du portefeuille.
 final relayTransactionsProvider =
     FutureProvider.family<List<WalletTransaction>, String?>(

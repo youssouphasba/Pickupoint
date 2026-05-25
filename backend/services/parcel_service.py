@@ -1006,8 +1006,10 @@ async def transition_status(
                 logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
             if mission.get("driver_id"):
                 from services.loyalty_service import _check_referral_bonus
+                from services.ranking_service import refresh_driver_stats_for_period
 
                 await _check_referral_bonus(mission["driver_id"])
+                await refresh_driver_stats_for_period(f"{now.year}-{now.month:02d}")
 
                 # --- Déclenchement Phase 2 Transit ---
                 p = await db.parcels.find_one({"parcel_id": parcel_id})
@@ -1035,8 +1037,10 @@ async def transition_status(
             logger.info(f"Mission {mission['mission_id']} complétée (colis livré) pour {parcel_id}")
             if mission.get("driver_id"):
                 from services.loyalty_service import _check_referral_bonus
+                from services.ranking_service import refresh_driver_stats_for_period
 
                 await _check_referral_bonus(mission["driver_id"])
+                await refresh_driver_stats_for_period(f"{now.year}-{now.month:02d}")
 
     elif new_status in (ParcelStatus.CANCELLED, ParcelStatus.RETURNED):
         # Toute mission encore active devient orpheline si on ne la clôture pas ici.

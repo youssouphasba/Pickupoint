@@ -2,7 +2,7 @@
 Router relay_points : gestion des points relais.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -12,6 +12,7 @@ from core.exceptions import not_found_exception, forbidden_exception
 from database import db
 from models.common import UserRole
 from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
+from services.performance_rewards_service import get_performance_rewards_settings
 
 router = APIRouter()
 
@@ -39,6 +40,21 @@ def _can_manage_relay(relay: dict, current_user: dict) -> bool:
         or user_id in (relay.get("agent_user_ids") or [])
         or current_user.get("relay_point_id") == relay.get("relay_id")
     )
+
+
+def _period_bounds(period: Optional[str] = None) -> tuple[str, datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    if period:
+        year, month = map(int, period.split("-"))
+    else:
+        year, month = now.year, now.month
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    end = (
+        datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        if month == 12
+        else datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    ) - timedelta(microseconds=1)
+    return f"{year}-{month:02d}", start, end
 
 
 @router.get("", summary="Liste des relais (public)")
@@ -153,6 +169,64 @@ async def relay_history(relay_id: str, current_user: dict = Depends(get_current_
     ).sort("updated_at", -1).limit(50)
     parcels = await cursor.to_list(length=50)
     return {"parcels": parcels, "total": len(parcels)}
+
+
+@router.get("/{relay_id}/performance", summary="Performance mensuelle du relais")
+async def relay_performance(
+    relay_id: str,
+    period: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    relay = await _get_relay_or_404(relay_id)
+    if not _can_manage_relay(relay, current_user):
+        raise forbidden_exception("Acces refuse a cette performance relais")
+
+    normalized_period, start, end = _period_bounds(period)
+    rewards = await get_performance_rewards_settings()
+    rules = rewards["relay"]["volume_bonuses"]
+    processed = await db.parcels.count_documents({
+        "$or": [
+            {"origin_relay_id": relay_id},
+            {"destination_relay_id": relay_id},
+            {"redirect_relay_id": relay_id},
+            {"transit_relay_id": relay_id},
+        ],
+        "updated_at": {"$gte": start, "$lte": end},
+    })
+    delivered = await db.parcels.count_documents({
+        "status": "delivered",
+        "$or": [
+            {"destination_relay_id": relay_id},
+            {"redirect_relay_id": relay_id},
+        ],
+        "updated_at": {"$gte": start, "$lte": end},
+    })
+    stock = await db.parcels.count_documents({
+        "$or": [
+            {"origin_relay_id": relay_id, "status": "dropped_at_origin_relay"},
+            {"destination_relay_id": relay_id, "status": {"$in": ["at_destination_relay", "available_at_relay"]}},
+            {"redirect_relay_id": relay_id, "status": {"$in": ["redirected_to_relay", "at_destination_relay", "available_at_relay"]}},
+        ],
+    })
+    projected_bonus = 0
+    next_threshold = None
+    for rule in sorted(rules, key=lambda item: item["min_parcels"]):
+        if processed >= rule["min_parcels"]:
+            projected_bonus = max(projected_bonus, rule["amount_xof"])
+        elif next_threshold is None:
+            next_threshold = rule["min_parcels"]
+
+    return {
+        "period": normalized_period,
+        "relay_id": relay_id,
+        "parcels_processed": processed,
+        "parcels_delivered": delivered,
+        "stock_count": stock,
+        "projected_bonus_xof": projected_bonus,
+        "next_bonus_threshold": next_threshold,
+        "is_active": relay.get("is_active", False),
+        "is_verified": relay.get("is_verified", False),
+    }
 
 
 @router.post("", response_model=RelayPoint, summary="Créer un relais (admin)")

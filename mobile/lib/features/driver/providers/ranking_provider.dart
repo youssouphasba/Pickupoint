@@ -10,7 +10,7 @@ final rankingProvider = FutureProvider.autoDispose<DriverRanking?>((ref) async {
       return DriverRanking.fromJson(res.data);
     }
   } catch (e) {
-    // Handle error or return null
+    return null;
   }
   return null;
 });

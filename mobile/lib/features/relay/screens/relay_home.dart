@@ -37,6 +37,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
     final stockAsync = ref.watch(relayStockProvider);
     final historyAsync = ref.watch(relayHistoryProvider);
     final relayAsync = ref.watch(relayPointProfileProvider);
+    final performanceAsync = ref.watch(relayPerformanceProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -59,6 +60,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
           ref.invalidate(relayStockProvider);
           ref.invalidate(relayHistoryProvider);
           ref.invalidate(relayPointProfileProvider);
+          ref.invalidate(relayPerformanceProvider);
         },
         child: stockAsync.when(
           data: (parcels) {
@@ -97,6 +99,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: _OverviewCard(
                     relayAsync: relayAsync,
+                    performanceAsync: performanceAsync,
                     incoming: incoming.length,
                     pending: pending.length,
                     inStock: inStock.length,
@@ -276,6 +279,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
 class _OverviewCard extends StatelessWidget {
   const _OverviewCard({
     required this.relayAsync,
+    required this.performanceAsync,
     required this.incoming,
     required this.pending,
     required this.inStock,
@@ -283,6 +287,7 @@ class _OverviewCard extends StatelessWidget {
   });
 
   final AsyncValue<dynamic> relayAsync;
+  final AsyncValue<Map<String, dynamic>> performanceAsync;
   final int incoming;
   final int pending;
   final int inStock;
@@ -329,20 +334,67 @@ class _OverviewCard extends StatelessWidget {
                   _OverviewChip(
                     label: '$incoming en route',
                     icon: Icons.local_shipping_outlined,
+                    explanation:
+                        'Colis deja pris en charge et actuellement en route vers votre relais.',
                   ),
                   _OverviewChip(
                     label: '$pending a receptionner',
                     icon: Icons.reply_outlined,
+                    explanation:
+                        'Colis rediriges vers votre relais apres une tentative de livraison ou un changement de parcours.',
                   ),
                   _OverviewChip(
                     label: '$inStock en stock',
                     icon: Icons.inventory_2_outlined,
+                    explanation:
+                        'Colis physiquement disponibles dans votre relais et en attente de retrait ou de passage livreur.',
                   ),
                   _OverviewChip(
                     label: '$history remis',
                     icon: Icons.history,
+                    explanation:
+                        'Nombre de colis deja remis au destinataire dans votre historique recent.',
                   ),
                 ],
+              ),
+              performanceAsync.maybeWhen(
+                data: (stats) => Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _OverviewChip(
+                        label: '${stats['parcels_processed'] ?? 0} traites',
+                        icon: Icons.task_alt_outlined,
+                        explanation:
+                            'Total des colis passes par votre relais pendant le mois en cours. Ce volume sert au suivi de performance.',
+                      ),
+                      _OverviewChip(
+                        label: '${stats['parcels_delivered'] ?? 0} livres',
+                        icon: Icons.check_circle_outline,
+                        explanation:
+                            'Colis du mois qui ont ete remis ou finalises depuis votre relais.',
+                      ),
+                      _OverviewChip(
+                        label:
+                            '${NumberFormat.decimalPattern('fr_FR').format(stats['projected_bonus_xof'] ?? 0)} XOF bonus',
+                        icon: Icons.emoji_events_outlined,
+                        explanation:
+                            'Bonus estime selon les paliers configures par Denkma. Il peut changer si le volume du mois evolue.',
+                      ),
+                      _OverviewChip(
+                        label: stats['next_bonus_threshold'] == null
+                            ? 'Palier max'
+                            : 'Palier ${stats['next_bonus_threshold']}',
+                        icon: Icons.flag_outlined,
+                        explanation:
+                            'Prochain volume de colis a atteindre pour debloquer ou augmenter le bonus mensuel.',
+                      ),
+                    ],
+                  ),
+                ),
+                orElse: () => const SizedBox.shrink(),
               ),
             ],
           ),
@@ -371,35 +423,82 @@ class _OverviewCard extends StatelessWidget {
 }
 
 class _OverviewChip extends StatelessWidget {
-  const _OverviewChip({required this.label, required this.icon});
+  const _OverviewChip({
+    required this.label,
+    required this.icon,
+    required this.explanation,
+  });
 
   final String label;
   final IconData icon;
+  final String explanation;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white24,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.white),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: () => _showRelayKpiInfo(context, label, explanation),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white24,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.white),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            const Icon(Icons.info_outline, size: 13, color: Colors.white70),
+          ],
+        ),
       ),
     );
   }
+}
+
+void _showRelayKpiInfo(BuildContext context, String title, String message) {
+  showModalBottomSheet<void>(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.info_outline, color: Colors.orange),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(fontSize: 14, height: 1.35)),
+          const SizedBox(height: 12),
+        ],
+      ),
+    ),
+  );
 }
 
 class _SectionHeader extends StatelessWidget {

@@ -70,6 +70,8 @@ class ApiEndpoints {
   static String relayStock(String id) => '$_base/api/relay-points/$id/stock';
   static String relayHistory(String id) =>
       '$_base/api/relay-points/$id/history';
+  static String relayPerformance(String id) =>
+      '$_base/api/relay-points/$id/performance';
   static String relayVerify(String id) => '$_base/api/relay-points/$id/verify';
 
   // ─── Deliveries ───────────────────────────────────────────────────────────

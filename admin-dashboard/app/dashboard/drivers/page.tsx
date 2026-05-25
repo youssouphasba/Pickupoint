@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
+import { driverLevelTitle as driverLevelName } from "@/lib/driver-levels";
 import { formatDate } from "@/lib/utils";
 import { Award, Eye, Loader2, MapPin, RadioTower, Trophy } from "lucide-react";
 
@@ -42,14 +43,50 @@ type Driver = {
   last_driver_location?: { lat?: number; lng?: number } | null;
   last_driver_location_at?: string | null;
   average_rating?: number;
+  total_ratings_count?: number;
+  xp?: number;
+  level?: number;
   deliveries_completed?: number;
   total_earned?: number;
+  monthly_rank?: number | null;
+  monthly_deliveries_success?: number;
+  monthly_success_rate?: number;
+  monthly_earned_xof?: number;
+  monthly_bonus_paid_xof?: number;
+  total_ranked_drivers?: number;
   missions_count?: number;
   active_mission?: ActiveMission | null;
   created_at?: string;
 };
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+type DriverFilter = "all" | "available" | "active_mission" | "offline" | "banned";
+type PhotoFilter = "all" | "approved" | "pending" | "rejected" | "missing";
+type PerformanceFilter = "all" | "top_rated" | "experienced" | "new";
+
+const DRIVER_FILTERS: { value: DriverFilter; label: string }[] = [
+  { value: "all", label: "Tous" },
+  { value: "available", label: "Disponibles" },
+  { value: "active_mission", label: "En mission" },
+  { value: "offline", label: "Hors ligne" },
+  { value: "banned", label: "Suspendus" },
+];
+
+const PHOTO_FILTERS: { value: PhotoFilter; label: string }[] = [
+  { value: "all", label: "Photos" },
+  { value: "approved", label: "Approuvées" },
+  { value: "pending", label: "À vérifier" },
+  { value: "rejected", label: "Rejetées" },
+  { value: "missing", label: "Manquantes" },
+];
+
+const PERFORMANCE_FILTERS: { value: PerformanceFilter; label: string }[] = [
+  { value: "all", label: "Performance" },
+  { value: "top_rated", label: "Note 4+" },
+  { value: "experienced", label: "Niveau 5+" },
+  { value: "new", label: "Nouveaux" },
+];
 
 const PHOTO_LABELS: Record<string, string> = {
   approved: "Photo approuvée",
@@ -118,6 +155,10 @@ export default function DriversPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [rewardsOpen, setRewardsOpen] = React.useState(false);
+  const [driverFilter, setDriverFilter] = React.useState<DriverFilter>("all");
+  const [photoFilter, setPhotoFilter] = React.useState<PhotoFilter>("all");
+  const [performanceFilter, setPerformanceFilter] =
+    React.useState<PerformanceFilter>("all");
 
   const triggerMut = useMutation({
     mutationFn: () => triggerMonthlyRewards(period),
@@ -133,6 +174,23 @@ export default function DriversPage() {
   });
 
   const drivers: Driver[] = data?.drivers ?? [];
+  const filteredDrivers = React.useMemo(() => {
+    return drivers.filter((driver) => {
+      if (driverFilter === "available" && !driver.is_available) return false;
+      if (driverFilter === "active_mission" && !driver.active_mission) return false;
+      if (driverFilter === "offline" && (driver.is_available || driver.active_mission)) return false;
+      if (driverFilter === "banned" && !driver.is_banned) return false;
+      const photo = driver.profile_picture_status ?? "missing";
+      if (photoFilter !== "all" && photo !== photoFilter) return false;
+      const rating = driver.average_rating ?? 0;
+      const level = driver.level ?? 1;
+      const completed = driver.deliveries_completed ?? 0;
+      if (performanceFilter === "top_rated" && rating < 4) return false;
+      if (performanceFilter === "experienced" && level < 5) return false;
+      if (performanceFilter === "new" && completed > 3) return false;
+      return true;
+    });
+  }, [drivers, driverFilter, photoFilter, performanceFilter]);
 
   const columns = React.useMemo<ColumnDef<Driver, any>[]>(
     () => [
@@ -242,6 +300,44 @@ export default function DriversPage() {
         ),
       },
       {
+        id: "monthly_rank",
+        header: "Classement",
+        accessorFn: (d) => d.monthly_rank ?? 999999,
+        cell: ({ row }) => {
+          const d = row.original;
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                {d.monthly_rank
+                  ? `#${d.monthly_rank} / ${d.total_ranked_drivers ?? "-"}`
+                  : "Non classé"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {d.monthly_deliveries_success ?? 0} courses ce mois
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "level",
+        header: "XP / Niveau",
+        accessorFn: (d) => d.level ?? 1,
+        cell: ({ row }) => {
+          const level = row.original.level ?? 1;
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                Niv. {level} · {driverLevelName(level)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {row.original.xp ?? 0} XP
+              </span>
+            </div>
+          );
+        },
+      },
+      {
         id: "rating",
         header: "Note",
         accessorKey: "average_rating",
@@ -294,7 +390,8 @@ export default function DriversPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
-            {drivers.length} livreur{drivers.length > 1 ? "s" : ""}
+            {filteredDrivers.length} / {drivers.length} livreur
+            {drivers.length > 1 ? "s" : ""}
           </span>
           <Button
             variant="outline"
@@ -305,6 +402,48 @@ export default function DriversPage() {
             Récompenses
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {DRIVER_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            onClick={() => setDriverFilter(filter.value)}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+              driverFilter === filter.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background hover:bg-accent"
+            }`}
+          >
+            {filter.label}
+          </button>
+        ))}
+        {PHOTO_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            onClick={() => setPhotoFilter(filter.value)}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+              photoFilter === filter.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background hover:bg-accent"
+            }`}
+          >
+            {filter.label}
+          </button>
+        ))}
+        {PERFORMANCE_FILTERS.map((filter) => (
+          <button
+            key={filter.value}
+            onClick={() => setPerformanceFilter(filter.value)}
+            className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+              performanceFilter === filter.value
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background hover:bg-accent"
+            }`}
+          >
+            {filter.label}
+          </button>
+        ))}
       </div>
 
       {rewardsOpen && (
@@ -432,7 +571,7 @@ export default function DriversPage() {
       {data && (
         <DataTable
           columns={columns}
-          data={drivers}
+          data={filteredDrivers}
           searchPlaceholder="Nom, téléphone, ID…"
           globalFilterFn={(d, q) =>
             driverName(d).toLowerCase().includes(q) ||

@@ -47,7 +47,7 @@ class ClientProfileScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildStatsRow(statsAsync),
+                    _buildStatsRow(context, statsAsync),
                     const SizedBox(height: 24),
                     _buildLoyaltyProgress(user, statsAsync),
                     const SizedBox(height: 24),
@@ -214,14 +214,51 @@ class ClientProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatsRow(AsyncValue<Map<String, dynamic>> statsAsync) {
+  Widget _buildStatsRow(
+    BuildContext context,
+    AsyncValue<Map<String, dynamic>> statsAsync,
+  ) {
     return statsAsync.when(
-      data: (stats) => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      data: (stats) => GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        childAspectRatio: 1.55,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
         children: [
-          _buildStatItem('Envois', '${stats['parcels_sent']}'),
-          _buildStatItem('Points', '${stats['loyalty_points']}'),
-          _buildStatItem('Filleuls', '${stats['referrals_count']}'),
+          _buildStatItem(
+            context,
+            'Envois mois',
+            '${stats['client_monthly_sent'] ?? 0}',
+            Icons.outbox_outlined,
+            Colors.blue,
+            'Nombre de colis que vous avez crees ce mois-ci. Il sert a suivre votre objectif mensuel client.',
+          ),
+          _buildStatItem(
+            context,
+            'Objectif',
+            '${(((stats['client_goal_progress'] as num?)?.toDouble() ?? 0) * 100).round()}%',
+            Icons.flag_outlined,
+            Colors.green,
+            'Progression vers votre objectif mensuel. Exemple: 100% signifie que vous avez atteint le nombre de colis attendu ce mois.',
+          ),
+          _buildStatItem(
+            context,
+            'Points',
+            '${stats['loyalty_points'] ?? 0}',
+            Icons.stars_outlined,
+            Colors.amber,
+            'Vos points fidelite. Vous gagnez ${stats['loyalty_points_per_delivery'] ?? 0} points quand un colis envoye est livre.',
+          ),
+          _buildStatItem(
+            context,
+            'Reussite',
+            '${stats['client_monthly_success_rate'] ?? 0}%',
+            Icons.verified_outlined,
+            Colors.indigo,
+            'Part des colis crees ce mois qui ont deja ete livres. Les colis encore en cours peuvent faire evoluer ce pourcentage.',
+          ),
         ],
       ),
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -229,13 +266,79 @@ class ClientProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatItem(String label, String value) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      ],
+  Widget _buildStatItem(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+    String explanation,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _showKpiInfo(context, label, explanation),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 18),
+                const Spacer(),
+                Icon(Icons.info_outline, size: 16, color: Colors.grey.shade500),
+              ],
+            ),
+            const Spacer(),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showKpiInfo(BuildContext context, String title, String message) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.blue),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(message, style: const TextStyle(fontSize: 14, height: 1.35)),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
     );
   }
 

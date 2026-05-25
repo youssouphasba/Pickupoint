@@ -6,6 +6,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import {
   AdminUser,
   banUser,
+  fetchClientStats,
   fetchUsers,
   unbanUser,
 } from "@/lib/api";
@@ -15,6 +16,7 @@ import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toaster";
+import { driverLevelTitle } from "@/lib/driver-levels";
 import { formatDate } from "@/lib/utils";
 import { Eye, Loader2, ShieldBan, ShieldCheck } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +63,11 @@ function userDisplayName(user: AdminUser) {
   return user.name ?? user.full_name ?? "—";
 }
 
+function currentPeriod() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function UsersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -73,6 +80,34 @@ export default function UsersPage() {
     queryFn: () =>
       fetchUsers({ limit: 500, role: role === "all" ? undefined : role }),
   });
+  const period = React.useMemo(currentPeriod, []);
+  const { data: clientStatsData } = useQuery({
+    queryKey: ["users-client-performance", period],
+    queryFn: () => fetchClientStats(period),
+    enabled: role === "all" || role === "client",
+  });
+
+  const users = React.useMemo(() => {
+    const stats = clientStatsData?.stats ?? [];
+    const statsByClient = new Map(stats.map((stat: any) => [stat.user_id, stat]));
+    return (data?.users ?? []).map((user) => {
+      if (user.role !== "client") return user;
+      const stat = statsByClient.get(user.user_id) as any;
+      if (!stat) return user;
+      return {
+        ...user,
+        client_monthly_rank: stat.rank,
+        client_sent_parcels: stat.sent_parcels,
+        client_delivered_parcels: stat.delivered_parcels,
+        client_success_rate: stat.success_rate,
+        client_spent_xof: stat.spent_xof,
+        client_monthly_goal: stat.monthly_goal,
+        client_goal_progress: stat.goal_progress,
+        client_total_ranked: stats.length,
+        loyalty_points: stat.loyalty_points ?? user.loyalty_points,
+      };
+    });
+  }, [clientStatsData, data]);
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ["users"], exact: false });
@@ -180,6 +215,112 @@ export default function UsersPage() {
         },
       },
       {
+        id: "performance",
+        header: "Performance",
+        accessorFn: (user) =>
+          user.role === "driver"
+            ? user.monthly_rank ?? 999999
+            : user.role === "client"
+              ? user.client_monthly_rank ?? 999999
+              : 999999,
+        cell: ({ row }) => {
+          const user = row.original;
+          if (user.role === "client") {
+            const rank = user.client_monthly_rank
+              ? `#${user.client_monthly_rank} / ${user.client_total_ranked ?? "-"}`
+              : "Non classe";
+            return (
+              <div className="flex flex-col gap-1">
+                <span className="font-medium">{rank}</span>
+                <span className="text-xs text-muted-foreground">
+                  {user.client_sent_parcels ?? 0} colis ce mois
+                </span>
+              </div>
+            );
+          }
+          if (user.role !== "driver") {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          const rank = user.monthly_rank
+            ? `#${user.monthly_rank} / ${user.total_ranked_drivers ?? "-"}`
+            : "Non classé";
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">{rank}</span>
+              <span className="text-xs text-muted-foreground">
+                {user.monthly_deliveries_success ?? 0} courses ce mois
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "level",
+        header: "Progression",
+        accessorFn: (user) => user.level ?? 0,
+        cell: ({ row }) => {
+          const user = row.original;
+          if (user.role === "client") {
+            const progress = Math.round((user.client_goal_progress ?? 0) * 100);
+            return (
+              <div className="flex flex-col gap-1">
+                <span className="font-medium">{user.loyalty_points ?? 0} pts</span>
+                <span className="text-xs text-muted-foreground">
+                  Objectif {progress}%
+                </span>
+              </div>
+            );
+          }
+          if (user.role !== "driver") {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          const level = user.level ?? 1;
+          return (
+            <div className="flex flex-col gap-1">
+              <span className="font-medium">
+                Niv. {level} · {driverLevelTitle(level)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {user.xp ?? 0} XP
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "rating",
+        header: "Qualite",
+        accessorFn: (user) => user.average_rating ?? 0,
+        cell: ({ row }) => {
+          const user = row.original;
+          if (user.role === "client") {
+            return (
+              <div className="flex flex-col gap-1">
+                <span className="font-medium">
+                  {user.client_success_rate ?? 0}% livraison
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {user.client_delivered_parcels ?? 0} colis livres
+                </span>
+              </div>
+            );
+          }
+          const rating = row.original.average_rating ?? 0;
+          const count = row.original.total_ratings_count ?? 0;
+          if (row.original.role !== "driver") {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          return (
+            <div className="flex flex-col gap-1">
+              <span className={rating >= 4 ? "font-medium text-green-600" : ""}>
+                {rating > 0 ? rating.toFixed(1) : "—"}
+              </span>
+              <span className="text-xs text-muted-foreground">{count} avis</span>
+            </div>
+          );
+        },
+      },
+      {
         id: "created_at",
         header: "Inscrit le",
         accessorKey: "created_at",
@@ -273,7 +414,7 @@ export default function UsersPage() {
       {data && (
         <DataTable
           columns={columns}
-          data={data.users}
+          data={users}
           searchPlaceholder="Nom, téléphone, e-mail, ID..."
           globalFilterFn={(user, query) =>
             userDisplayName(user).toLowerCase().includes(query) ||

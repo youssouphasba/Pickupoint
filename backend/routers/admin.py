@@ -51,6 +51,10 @@ from services.user_service import (
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
 )
+from services.performance_rewards_service import (
+    get_performance_rewards_settings,
+    set_performance_rewards_settings,
+)
 from services.wallet_service import record_wallet_transaction
 
 router = APIRouter()
@@ -1140,6 +1144,13 @@ async def admin_drivers(
     active: Optional[bool] = None,
     _admin=Depends(require_admin_dep),
 ):
+    from services.ranking_service import refresh_driver_stats_for_period
+
+    now = datetime.now(timezone.utc)
+    period = f"{now.year}-{now.month:02d}"
+    period_stats = await refresh_driver_stats_for_period(period)
+    stats_by_driver = {s.get("driver_id"): s for s in period_stats if s.get("driver_id")}
+
     query = {"role": UserRole.DRIVER.value}
     if active is not None:
         query["is_active"] = active
@@ -1176,7 +1187,14 @@ async def admin_drivers(
 
     for d in drivers:
         driver_id = d.get("user_id")
+        stat = stats_by_driver.get(driver_id, {})
         d["missions_count"] = mission_counts.get(driver_id, 0)
+        d["monthly_rank"] = stat.get("rank")
+        d["monthly_deliveries_success"] = stat.get("deliveries_success", 0)
+        d["monthly_success_rate"] = stat.get("success_rate", 0)
+        d["monthly_earned_xof"] = stat.get("total_earned_xof", 0)
+        d["monthly_bonus_paid_xof"] = stat.get("bonus_paid_xof", 0)
+        d["total_ranked_drivers"] = len(period_stats)
         d["profile_picture_status"] = _profile_picture_status(d)
         d["active_mission"] = active_missions.get(driver_id)
     return {"drivers": drivers}
@@ -1307,6 +1325,13 @@ async def admin_list_users(
     role: str = None,
     _admin=Depends(require_admin_dep),
 ):
+    from services.ranking_service import refresh_driver_stats_for_period
+
+    now = datetime.now(timezone.utc)
+    period = f"{now.year}-{now.month:02d}"
+    period_stats = await refresh_driver_stats_for_period(period)
+    stats_by_driver = {s.get("driver_id"): s for s in period_stats if s.get("driver_id")}
+
     query = {}
     if role:
         query["role"] = role
@@ -1315,6 +1340,13 @@ async def admin_list_users(
     users = await cursor.to_list(length=limit)
     for user in users:
         user["profile_picture_status"] = _profile_picture_status(user)
+        if user.get("role") == UserRole.DRIVER.value:
+            stat = stats_by_driver.get(user.get("user_id"), {})
+            user["monthly_rank"] = stat.get("rank")
+            user["monthly_deliveries_success"] = stat.get("deliveries_success", 0)
+            user["monthly_success_rate"] = stat.get("success_rate", 0)
+            user["monthly_earned_xof"] = stat.get("total_earned_xof", 0)
+            user["total_ranked_drivers"] = len(period_stats)
     total = await db.users.count_documents(query)
     
     return {"users": users, "total": total}
@@ -3126,8 +3158,223 @@ async def admin_get_driver_stats(
     period: str,
     _admin=Depends(require_admin_dep),
 ):
-    stats = await db.driver_stats.find({"period": period}).sort("rank", 1).to_list(length=200)
-    return {"period": period, "stats": stats}
+    from services.ranking_service import refresh_driver_stats_for_period
+
+    await refresh_driver_stats_for_period(period)
+    stats = await db.driver_stats.find(
+        {"period": period},
+        {"_id": 0},
+    ).sort("rank", 1).to_list(length=500)
+    driver_ids = [s.get("driver_id") for s in stats if s.get("driver_id")]
+    drivers = await db.users.find(
+        {"user_id": {"$in": driver_ids}},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "full_name": 1,
+            "phone": 1,
+            "xp": 1,
+            "level": 1,
+            "average_rating": 1,
+            "total_ratings_count": 1,
+            "deliveries_completed": 1,
+            "total_earned": 1,
+            "is_active": 1,
+            "is_available": 1,
+            "is_banned": 1,
+        },
+    ).to_list(length=len(driver_ids) or 1)
+    drivers_by_id = {driver["user_id"]: driver for driver in drivers}
+
+    for stat in stats:
+        driver = drivers_by_id.get(stat.get("driver_id"), {})
+        stat["driver_name"] = driver.get("name") or driver.get("full_name") or "Livreur"
+        stat["driver_phone"] = driver.get("phone")
+        stat["xp"] = driver.get("xp", 0)
+        stat["level"] = driver.get("level", 1)
+        stat["average_rating"] = driver.get("average_rating", stat.get("avg_rating", 0))
+        stat["total_ratings_count"] = driver.get("total_ratings_count", 0)
+        stat["career_deliveries_completed"] = driver.get("deliveries_completed", 0)
+        stat["career_total_earned_xof"] = driver.get("total_earned", 0)
+        stat["is_active"] = driver.get("is_active", False)
+        stat["is_available"] = driver.get("is_available", False)
+        stat["is_banned"] = driver.get("is_banned", False)
+
+    return {"period": period, "total": len(stats), "stats": stats}
+
+
+@router.get("/recompenses/client-stats", summary="Voir les stats de performance clients")
+async def admin_get_client_stats(
+    period: str,
+    _admin=Depends(require_admin_dep),
+):
+    start, end = _month_bounds(period)
+    rewards = await get_performance_rewards_settings()
+    goal = rewards["client"]["monthly_goal_sent_parcels"]
+
+    clients = await db.users.find(
+        {"role": UserRole.CLIENT.value},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "full_name": 1,
+            "phone": 1,
+            "loyalty_points": 1,
+            "loyalty_tier": 1,
+            "is_active": 1,
+            "is_banned": 1,
+            "created_at": 1,
+        },
+    ).to_list(length=1000)
+    client_ids = [client["user_id"] for client in clients if client.get("user_id")]
+
+    sent_rows = await db.parcels.aggregate([
+        {"$match": {"sender_user_id": {"$in": client_ids}, "created_at": {"$gte": start, "$lte": end}}},
+        {"$group": {"_id": "$sender_user_id", "sent": {"$sum": 1}, "spent": {"$sum": {"$ifNull": ["$paid_price", 0]}}}},
+    ]).to_list(length=1000)
+    delivered_rows = await db.parcels.aggregate([
+        {"$match": {
+            "sender_user_id": {"$in": client_ids},
+            "status": ParcelStatus.DELIVERED.value,
+            "updated_at": {"$gte": start, "$lte": end},
+        }},
+        {"$group": {"_id": "$sender_user_id", "delivered": {"$sum": 1}}},
+    ]).to_list(length=1000)
+
+    sent_by_id = {row["_id"]: row for row in sent_rows}
+    delivered_by_id = {row["_id"]: row["delivered"] for row in delivered_rows}
+    stats = []
+    for client in clients:
+        user_id = client.get("user_id")
+        sent = int((sent_by_id.get(user_id) or {}).get("sent", 0))
+        delivered = int(delivered_by_id.get(user_id, 0))
+        spent = float((sent_by_id.get(user_id) or {}).get("spent", 0) or 0)
+        success_rate = round(delivered / sent * 100, 1) if sent else 0
+        stats.append({
+            "user_id": user_id,
+            "name": client.get("name") or client.get("full_name") or "Client",
+            "phone": client.get("phone"),
+            "sent_parcels": sent,
+            "delivered_parcels": delivered,
+            "success_rate": success_rate,
+            "spent_xof": spent,
+            "loyalty_points": client.get("loyalty_points", 0),
+            "loyalty_tier": client.get("loyalty_tier", "bronze"),
+            "monthly_goal": goal,
+            "goal_progress": round(min(sent / max(goal, 1), 1), 3),
+            "is_active": client.get("is_active", False),
+            "is_banned": client.get("is_banned", False),
+            "created_at": client.get("created_at"),
+        })
+
+    stats.sort(key=lambda item: (-item["sent_parcels"], -item["delivered_parcels"], -item["spent_xof"]))
+    for index, stat in enumerate(stats):
+        stat["rank"] = index + 1 if stat["sent_parcels"] > 0 else None
+
+    return {"period": period, "total": len(stats), "stats": stats}
+
+
+@router.get("/recompenses/relay-stats", summary="Voir les stats de performance relais")
+async def admin_get_relay_stats(
+    period: str,
+    _admin=Depends(require_admin_dep),
+):
+    start, end = _month_bounds(period)
+    rewards = await get_performance_rewards_settings()
+    relay_bonus_rules = rewards["relay"]["volume_bonuses"]
+
+    relays = await db.relay_points.find(
+        {},
+        {"_id": 0, "relay_id": 1, "name": 1, "phone": 1, "is_active": 1, "is_verified": 1, "owner_user_id": 1},
+    ).to_list(length=1000)
+    relay_ids = [relay["relay_id"] for relay in relays if relay.get("relay_id")]
+
+    processed_rows = await db.parcels.aggregate([
+        {"$match": {
+            "updated_at": {"$gte": start, "$lte": end},
+            "$or": [
+                {"origin_relay_id": {"$in": relay_ids}},
+                {"destination_relay_id": {"$in": relay_ids}},
+                {"redirect_relay_id": {"$in": relay_ids}},
+                {"transit_relay_id": {"$in": relay_ids}},
+            ],
+        }},
+        {"$project": {"relay_ids": {"$filter": {
+            "input": {"$setUnion": [
+                ["$origin_relay_id"],
+                ["$destination_relay_id"],
+                ["$redirect_relay_id"],
+                ["$transit_relay_id"],
+            ]},
+            "as": "relay_id",
+            "cond": {"$in": ["$$relay_id", relay_ids]},
+        }}}},
+        {"$unwind": "$relay_ids"},
+        {"$group": {"_id": "$relay_ids", "count": {"$sum": 1}}},
+    ]).to_list(length=1000)
+    delivered_rows = await db.parcels.aggregate([
+        {"$match": {
+            "status": ParcelStatus.DELIVERED.value,
+            "updated_at": {"$gte": start, "$lte": end},
+            "$or": [
+                {"destination_relay_id": {"$in": relay_ids}},
+                {"redirect_relay_id": {"$in": relay_ids}},
+            ],
+        }},
+        {"$project": {"relay_ids": {"$filter": {
+            "input": {"$setUnion": [
+                ["$destination_relay_id"],
+                ["$redirect_relay_id"],
+            ]},
+            "as": "relay_id",
+            "cond": {"$in": ["$$relay_id", relay_ids]},
+        }}}},
+        {"$unwind": "$relay_ids"},
+        {"$group": {"_id": "$relay_ids", "count": {"$sum": 1}}},
+    ]).to_list(length=1000)
+    processed_by_relay = {row["_id"]: int(row["count"]) for row in processed_rows}
+    delivered_by_relay = {row["_id"]: int(row["count"]) for row in delivered_rows}
+
+    stats = []
+    for relay in relays:
+        relay_id = relay.get("relay_id")
+        arrived = processed_by_relay.get(relay_id, 0)
+        delivered = delivered_by_relay.get(relay_id, 0)
+        stock = await db.parcels.count_documents({
+            "$or": [
+                {"origin_relay_id": relay_id, "status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value},
+                {"destination_relay_id": relay_id, "status": {"$in": [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]}},
+                {"redirect_relay_id": relay_id, "status": {"$in": [ParcelStatus.REDIRECTED_TO_RELAY.value, ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]}},
+            ],
+        })
+        bonus = 0
+        next_threshold = None
+        for rule in sorted(relay_bonus_rules, key=lambda item: item["min_parcels"]):
+            if arrived >= rule["min_parcels"]:
+                bonus = max(bonus, rule["amount_xof"])
+            elif next_threshold is None:
+                next_threshold = rule["min_parcels"]
+        stats.append({
+            "relay_id": relay_id,
+            "name": relay.get("name") or "Relais",
+            "phone": relay.get("phone"),
+            "owner_user_id": relay.get("owner_user_id"),
+            "parcels_processed": arrived,
+            "parcels_delivered": delivered,
+            "stock_count": stock,
+            "projected_bonus_xof": bonus,
+            "next_bonus_threshold": next_threshold,
+            "is_active": relay.get("is_active", False),
+            "is_verified": relay.get("is_verified", False),
+        })
+
+    stats.sort(key=lambda item: (-item["parcels_processed"], -item["parcels_delivered"], -item["stock_count"]))
+    for index, stat in enumerate(stats):
+        stat["rank"] = index + 1 if stat["parcels_processed"] > 0 else None
+
+    return {"period": period, "total": len(stats), "stats": stats}
 
 
 @router.get("/audit-log", summary="Journal d'audit global")
@@ -3304,6 +3551,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
             or "",
         },
         "pricing": pricing_settings,
+        "performance_rewards": await get_performance_rewards_settings(),
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
@@ -3313,6 +3561,20 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
         },
         "referral_metric_options": get_referral_metric_options(),
     }
+
+
+@router.put("/settings/performance-rewards", summary="Configurer les récompenses de performance")
+async def update_performance_rewards_settings(body: dict, _admin=Depends(require_admin_dep)):
+    performance_rewards = await set_performance_rewards_settings(body)
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {
+            "performance_rewards": performance_rewards,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    return {"performance_rewards": performance_rewards}
 
 
 @router.put("/settings/app-update", summary="Configurer les mises Ã  jour mobiles")

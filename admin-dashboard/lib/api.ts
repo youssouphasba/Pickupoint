@@ -89,11 +89,27 @@ export type AdminUser = {
   profile_picture_status?: string | null;
   profile_picture_rejected_reason?: string | null;
   created_at?: string;
+  xp?: number;
+  level?: number;
+  total_ratings_count?: number;
   deliveries_completed?: number;
   average_rating?: number;
   total_earned?: number;
   loyalty_points?: number;
   referral_code?: string | null;
+  monthly_rank?: number | null;
+  monthly_deliveries_success?: number;
+  monthly_success_rate?: number;
+  monthly_earned_xof?: number;
+  total_ranked_drivers?: number;
+  client_monthly_rank?: number | null;
+  client_sent_parcels?: number;
+  client_delivered_parcels?: number;
+  client_success_rate?: number;
+  client_spent_xof?: number;
+  client_monthly_goal?: number;
+  client_goal_progress?: number;
+  client_total_ranked?: number;
 };
 
 export async function fetchUsers(params: {
@@ -595,6 +611,26 @@ export type AppUpdateSettingsPayload = {
   ios_store_url: string;
 };
 
+export type PerformanceRewardsPayload = {
+  driver: {
+    monthly_goal_deliveries: number;
+    success_bonus: {
+      enabled: boolean;
+      min_success_rate: number;
+      min_deliveries: number;
+      amount_xof: number;
+    };
+    volume_bonuses: { min_deliveries: number; amount_xof: number }[];
+  };
+  relay: {
+    volume_bonuses: { min_parcels: number; amount_xof: number }[];
+  };
+  client: {
+    loyalty_points_per_delivered_parcel: number;
+    monthly_goal_sent_parcels: number;
+  };
+};
+
 export async function updateOperationalSettings(
   body: OperationalSettingsPayload,
 ) {
@@ -606,6 +642,13 @@ export async function updateAppUpdateSettings(
   body: AppUpdateSettingsPayload,
 ) {
   const { data } = await api.put("/api/admin/settings/app-update", body);
+  return data;
+}
+
+export async function updatePerformanceRewardsSettings(
+  body: PerformanceRewardsPayload,
+) {
+  const { data } = await api.put("/api/admin/settings/performance-rewards", body);
   return data;
 }
 
@@ -786,6 +829,20 @@ export async function triggerMonthlyRewards(period: string) {
 
 export async function fetchDriverStats(period: string) {
   const { data } = await api.get("/api/admin/recompenses/driver-stats", {
+    params: { period },
+  });
+  return data;
+}
+
+export async function fetchClientStats(period: string) {
+  const { data } = await api.get("/api/admin/recompenses/client-stats", {
+    params: { period },
+  });
+  return data;
+}
+
+export async function fetchRelayStats(period: string) {
+  const { data } = await api.get("/api/admin/recompenses/relay-stats", {
     params: { period },
   });
   return data;

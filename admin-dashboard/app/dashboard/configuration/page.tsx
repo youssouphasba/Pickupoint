@@ -7,8 +7,10 @@ import {
   fetchSettings,
   updateAppUpdateSettings,
   updateOperationalSettings,
+  updatePerformanceRewardsSettings,
   type AppUpdateSettingsPayload,
   type OperationalSettingsPayload,
+  type PerformanceRewardsPayload,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -156,6 +158,51 @@ function buildInitialAppUpdatePayload(settings: any): AppUpdateSettingsPayload {
   };
 }
 
+function buildInitialPerformanceRewardsPayload(settings: any): PerformanceRewardsPayload {
+  const rewards = settings?.performance_rewards ?? {};
+  return {
+    driver: {
+      monthly_goal_deliveries: numberValue(
+        rewards?.driver?.monthly_goal_deliveries,
+        20,
+      ),
+      success_bonus: {
+        enabled: Boolean(rewards?.driver?.success_bonus?.enabled ?? true),
+        min_success_rate: numberValue(
+          rewards?.driver?.success_bonus?.min_success_rate,
+          95,
+        ),
+        min_deliveries: numberValue(
+          rewards?.driver?.success_bonus?.min_deliveries,
+          20,
+        ),
+        amount_xof: numberValue(rewards?.driver?.success_bonus?.amount_xof, 5000),
+      },
+      volume_bonuses: rewards?.driver?.volume_bonuses ?? [
+        { min_deliveries: 50, amount_xof: 2500 },
+        { min_deliveries: 100, amount_xof: 5000 },
+        { min_deliveries: 200, amount_xof: 10000 },
+      ],
+    },
+    relay: {
+      volume_bonuses: rewards?.relay?.volume_bonuses ?? [
+        { min_parcels: 20, amount_xof: 1000 },
+        { min_parcels: 50, amount_xof: 2000 },
+      ],
+    },
+    client: {
+      loyalty_points_per_delivered_parcel: numberValue(
+        rewards?.client?.loyalty_points_per_delivered_parcel,
+        10,
+      ),
+      monthly_goal_sent_parcels: numberValue(
+        rewards?.client?.monthly_goal_sent_parcels,
+        5,
+      ),
+    },
+  };
+}
+
 export default function ConfigurationPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -169,11 +216,14 @@ export default function ConfigurationPage() {
   );
   const [appUpdateForm, setAppUpdateForm] =
     React.useState<AppUpdateSettingsPayload | null>(null);
+  const [performanceRewardsForm, setPerformanceRewardsForm] =
+    React.useState<PerformanceRewardsPayload | null>(null);
 
   React.useEffect(() => {
     if (data) {
       setForm(buildInitialPayload(data));
       setAppUpdateForm(buildInitialAppUpdatePayload(data));
+      setPerformanceRewardsForm(buildInitialPerformanceRewardsPayload(data));
     }
   }, [data]);
 
@@ -195,11 +245,40 @@ export default function ConfigurationPage() {
     },
   });
 
+  const performanceRewardsMutation = useMutation({
+    mutationFn: () => updatePerformanceRewardsSettings(performanceRewardsForm!),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      setPerformanceRewardsForm(updated.performance_rewards);
+      toast("Récompenses de performance sauvegardées.");
+    },
+  });
+
   function setField(key: keyof OperationalSettingsPayload, value: number) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
   }
 
-  if (isLoading || !form || !appUpdateForm) {
+  function updateDriverSuccessBonus(
+    key: keyof PerformanceRewardsPayload["driver"]["success_bonus"],
+    value: number,
+  ) {
+    setPerformanceRewardsForm((current) =>
+      current
+        ? {
+            ...current,
+            driver: {
+              ...current.driver,
+              success_bonus: {
+                ...current.driver.success_bonus,
+                [key]: value,
+              },
+            },
+          }
+        : current,
+    );
+  }
+
+  if (isLoading || !form || !appUpdateForm || !performanceRewardsForm) {
     return (
       <div className="flex h-80 items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -242,6 +321,13 @@ export default function ConfigurationPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {(appUpdateMutation.error as any)?.response?.data?.detail ??
             "Erreur de sauvegarde des mises à jour."}
+        </div>
+      )}
+
+      {performanceRewardsMutation.isError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {(performanceRewardsMutation.error as any)?.response?.data?.detail ??
+            "Erreur de sauvegarde des r?compenses."}
         </div>
       )}
 
@@ -436,6 +522,183 @@ export default function ConfigurationPage() {
       </Card>
 
       <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>Récompenses de performance</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ces règles alimentent les bonus mensuels, objectifs, points client
+              et tableaux de monitoring.
+            </p>
+          </div>
+          <Button
+            onClick={() => performanceRewardsMutation.mutate()}
+            disabled={performanceRewardsMutation.isPending}
+            className="w-full md:w-auto"
+          >
+            {performanceRewardsMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Sauvegarder les récompenses
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-3">
+            <SimpleNumberCard
+              label="Objectif livreur mensuel"
+              help="Utilisé dans la progression et le message de motivation."
+              value={performanceRewardsForm.driver.monthly_goal_deliveries}
+              suffix="courses"
+              onChange={(value) =>
+                setPerformanceRewardsForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        driver: {
+                          ...current.driver,
+                          monthly_goal_deliveries: value,
+                        },
+                      }
+                    : current
+                )
+              }
+            />
+            <SimpleNumberCard
+              label="Points client par colis livré"
+              help="Crédités quand un colis client est livré."
+              value={
+                performanceRewardsForm.client.loyalty_points_per_delivered_parcel
+              }
+              suffix="points"
+              onChange={(value) =>
+                setPerformanceRewardsForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        client: {
+                          ...current.client,
+                          loyalty_points_per_delivered_parcel: value,
+                        },
+                      }
+                    : current
+                )
+              }
+            />
+            <SimpleNumberCard
+              label="Objectif client mensuel"
+              help="Base pour les futures cartes client et le monitoring."
+              value={performanceRewardsForm.client.monthly_goal_sent_parcels}
+              suffix="colis"
+              onChange={(value) =>
+                setPerformanceRewardsForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        client: {
+                          ...current.client,
+                          monthly_goal_sent_parcels: value,
+                        },
+                      }
+                    : current
+                )
+              }
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border p-4">
+              <div className="mb-3 font-medium">Bonus fiabilité livreur</div>
+              <div className="grid gap-3 md:grid-cols-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={performanceRewardsForm.driver.success_bonus.enabled}
+                    onChange={(e) =>
+                      setPerformanceRewardsForm((current) =>
+                        current
+                          ? {
+                              ...current,
+                              driver: {
+                                ...current.driver,
+                                success_bonus: {
+                                  ...current.driver.success_bonus,
+                                  enabled: e.target.checked,
+                                },
+                              },
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  Actif
+                </label>
+                <MiniNumber
+                  label="Réussite min."
+                  suffix="%"
+                  value={
+                    performanceRewardsForm.driver.success_bonus.min_success_rate
+                  }
+                  onChange={(value) =>
+                    updateDriverSuccessBonus("min_success_rate", value)
+                  }
+                />
+                <MiniNumber
+                  label="Courses min."
+                  value={performanceRewardsForm.driver.success_bonus.min_deliveries}
+                  onChange={(value) =>
+                    updateDriverSuccessBonus("min_deliveries", value)
+                  }
+                />
+                <MiniNumber
+                  label="Montant"
+                  suffix="XOF"
+                  value={performanceRewardsForm.driver.success_bonus.amount_xof}
+                  onChange={(value) =>
+                    updateDriverSuccessBonus("amount_xof", value)
+                  }
+                />
+              </div>
+            </div>
+
+            <RewardRulesEditor
+              title="Bonus volume livreur"
+              rows={performanceRewardsForm.driver.volume_bonuses}
+              thresholdKey="min_deliveries"
+              thresholdLabel="Courses min."
+              onChange={(rows) =>
+                setPerformanceRewardsForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        driver: { ...current.driver, volume_bonuses: rows },
+                      }
+                    : current
+                )
+              }
+            />
+
+            <RewardRulesEditor
+              title="Bonus volume relais"
+              rows={performanceRewardsForm.relay.volume_bonuses}
+              thresholdKey="min_parcels"
+              thresholdLabel="Colis min."
+              onChange={(rows) =>
+                setPerformanceRewardsForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        relay: { ...current.relay, volume_bonuses: rows },
+                      }
+                    : current
+                )
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardContent className="p-5 text-sm text-muted-foreground">
           Règle clé : un relais de repli n'est choisi que s'il est actif, ouvert,
           disponible et dans le rayon configuré autour du destinataire. Sinon,
@@ -496,6 +759,129 @@ function TextField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
+    </div>
+  );
+}
+
+function SimpleNumberCard({
+  label,
+  help,
+  value,
+  suffix,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  value: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="rounded-lg border p-4">
+      <label className="block text-sm font-medium">{label}</label>
+      <p className="mt-1 min-h-10 text-xs text-muted-foreground">{help}</p>
+      <div className="mt-3 flex items-center gap-2">
+        <Input
+          type="number"
+          min={0}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+function MiniNumber({
+  label,
+  value,
+  suffix,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block text-xs text-muted-foreground">
+      {label}
+      <div className="mt-1 flex items-center gap-1">
+        <Input
+          type="number"
+          min={0}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        {suffix && <span>{suffix}</span>}
+      </div>
+    </label>
+  );
+}
+
+function RewardRulesEditor<T extends "min_deliveries" | "min_parcels">({
+  title,
+  rows,
+  thresholdKey,
+  thresholdLabel,
+  onChange,
+}: {
+  title: string;
+  rows: Array<Record<T, number> & { amount_xof: number }>;
+  thresholdKey: T;
+  thresholdLabel: string;
+  onChange: (rows: Array<Record<T, number> & { amount_xof: number }>) => void;
+}) {
+  function updateRow(index: number, key: T | "amount_xof", value: number) {
+    onChange(
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [key]: value } : row,
+      ),
+    );
+  }
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="font-medium">{title}</div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            onChange([...rows, { [thresholdKey]: 1, amount_xof: 0 } as Record<T, number> & { amount_xof: number }])
+          }
+        >
+          Ajouter
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {rows.map((row, index) => (
+          <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+            <MiniNumber
+              label={thresholdLabel}
+              value={row[thresholdKey]}
+              onChange={(value) => updateRow(index, thresholdKey, value)}
+            />
+            <MiniNumber
+              label="Montant"
+              suffix="XOF"
+              value={row.amount_xof}
+              onChange={(value) => updateRow(index, "amount_xof", value)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-end"
+              onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
+            >
+              Retirer
+            </Button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

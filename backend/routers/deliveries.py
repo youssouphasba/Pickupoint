@@ -5,6 +5,7 @@ import math
 import random
 import re
 import uuid
+from calendar import monthrange
 from datetime import datetime, timezone, timedelta
 
 from typing import Optional
@@ -21,6 +22,8 @@ from pydantic import BaseModel, Field
 from services.parcel_service import transition_status, _record_event
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.google_maps_service import get_directions_eta
+from services.performance_rewards_service import get_performance_rewards_settings
+from services.ranking_service import refresh_driver_stats_for_period
 from services.notification_service import (
     notify_approaching_driver,
     notify_sender_driver_assigned,
@@ -53,6 +56,22 @@ def _mission_id() -> str:
 
 def _return_code() -> str:
     return f"{random.randint(100000, 999999)}"
+
+
+def _period_or_current(period: str = "") -> str:
+    if period:
+        return period
+    now = datetime.now(timezone.utc)
+    return f"{now.year}-{now.month:02d}"
+
+
+def _period_bounds(period: str) -> tuple[datetime, datetime]:
+    year, month = map(int, period.split("-"))
+    _, last_day = monthrange(year, month)
+    return (
+        datetime(year, month, 1, tzinfo=timezone.utc),
+        datetime(year, month, last_day, 23, 59, 59, 999000, tzinfo=timezone.utc),
+    )
 
 
 def _driver_has_profile_photo(current_user: dict) -> bool:
@@ -1251,28 +1270,19 @@ async def get_gps_trail(
     return {"trail": trail, "count": len(trail)}
 
 
-# ── Classements (Phase 8) ───────────────────────────────────────────────────
-
 @router.get("/rankings", summary="Classement mensuel des livreurs")
 async def get_rankings(
     period: str = Query(default="", description="Format YYYY-MM. Vide = mois en cours"),
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Retourne le top des livreurs pour une période donnée.
-    Admin : voit tout.
-    Driver : voit les noms masqués sauf le sien.
-    """
-    from datetime import datetime, timezone
-    if not period:
-        now = datetime.now(timezone.utc)
-        period = f"{now.year}-{now.month:02d}"
+    period = _period_or_current(period)
+    all_stats = await refresh_driver_stats_for_period(period)
 
     is_admin = current_user.get("role") in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     is_driver = current_user.get("role") == UserRole.DRIVER.value
 
     if not (is_admin or is_driver):
-        raise forbidden_exception("Accès réservé aux livreurs et administrateurs")
+        raise forbidden_exception("Acces reserve aux livreurs et administrateurs")
 
     stats = await db.driver_stats.find(
         {"period": period},
@@ -1288,26 +1298,169 @@ async def get_rankings(
             driver = await db.users.find_one({"user_id": s["driver_id"]})
             display_name = driver.get("name", "Livreur") if driver else "Livreur"
             total_earned = s.get("total_earned_xof", 0)
-            bonus        = s.get("bonus_paid_xof", 0)
+            bonus = s.get("bonus_paid_xof", 0)
         else:
             display_name = f"Livreur #{s['rank']}"
             total_earned = None
-            bonus        = None
+            bonus = None
 
         result.append({
-            "rank":              s["rank"],
-            "display_name":      display_name,
-            "badge":             s["badge"],
-            "deliveries_total":  s["deliveries_total"],
-            "deliveries_success":s["deliveries_success"],
-            "success_rate":      s["success_rate"],
-            "avg_rating":        s["avg_rating"],
-            "total_earned_xof":  total_earned,
-            "bonus_paid_xof":    bonus,
-            "is_me":             is_me,
+            "rank": s["rank"],
+            "display_name": display_name,
+            "badge": s["badge"],
+            "deliveries_total": s["deliveries_total"],
+            "deliveries_success": s["deliveries_success"],
+            "success_rate": s["success_rate"],
+            "avg_rating": s["avg_rating"],
+            "total_earned_xof": total_earned,
+            "bonus_paid_xof": bonus,
+            "is_me": is_me,
         })
 
-    return {"period": period, "rankings": result}
+    return {
+        "period": period,
+        "total_ranked_drivers": len(all_stats),
+        "rankings": result,
+    }
+
+
+async def _driver_month_activity(driver_id: str, period: str) -> dict:
+    start, end = _period_bounds(period)
+    missions = await db.delivery_missions.find(
+        {
+            "driver_id": driver_id,
+            "completed_at": {"$gte": start, "$lte": end},
+        },
+        {"_id": 0, "status": 1, "completed_at": 1},
+    ).to_list(None)
+
+    active_dates = set()
+    last_completed_at = None
+    for mission in missions:
+        if mission.get("status") != MissionStatus.COMPLETED.value:
+            continue
+        completed_at = _as_aware_utc(mission.get("completed_at"))
+        if completed_at is None:
+            continue
+        active_dates.add(completed_at.date())
+        if last_completed_at is None or completed_at > last_completed_at:
+            last_completed_at = completed_at
+
+    today = datetime.now(timezone.utc).date()
+    streak = 0
+    cursor = today if today in active_dates else max(active_dates, default=today)
+    while cursor in active_dates:
+        streak += 1
+        cursor = cursor - timedelta(days=1)
+
+    return {
+        "active_days": len(active_dates),
+        "streak_days": streak,
+        "last_completed_at": last_completed_at,
+    }
+
+
+def _badge_items(stat: dict, activity: dict) -> list[dict]:
+    total = int(stat.get("deliveries_total") or 0)
+    success = int(stat.get("deliveries_success") or 0)
+    rank = int(stat.get("rank") or 0)
+    rate = float(stat.get("success_rate") or 0)
+    items = []
+    if success >= 1:
+        items.append({"code": "starter", "label": "Lance", "icon": "rocket"})
+    if total >= 5:
+        items.append({"code": "sprinter", "label": "Sprinter", "icon": "speed"})
+    if rate >= 95 and total >= 5:
+        items.append({"code": "reliable", "label": "Fiable", "icon": "verified"})
+    if rank and rank <= 10:
+        items.append({"code": "top_10", "label": "Top 10", "icon": "trophy"})
+    if total == success and success > 0:
+        items.append({"code": "clean_run", "label": "Sans incident", "icon": "shield"})
+    if int(activity.get("streak_days") or 0) >= 3:
+        items.append({"code": "regular", "label": "Regulier", "icon": "calendar"})
+    return items
+
+
+def _achievement_items(stat: dict, activity: dict) -> list[dict]:
+    success = int(stat.get("deliveries_success") or 0)
+    earned = float(stat.get("total_earned_xof") or 0)
+    rank = int(stat.get("rank") or 0)
+    items = []
+    if success > 0:
+        items.append({"label": f"{success} course(s) livree(s) ce mois-ci"})
+    if earned > 0:
+        items.append({"label": f"{round(earned)} FCFA generes ce mois-ci"})
+    if rank > 0:
+        items.append({"label": f"Position #{rank} au classement mensuel"})
+    if activity.get("last_completed_at"):
+        items.append({"label": "Derniere livraison comptabilisee"})
+    return items
+
+
+def _driver_motivation_message(stat: dict, missing_top3: int, monthly_goal: int) -> str:
+    success = int(stat.get("deliveries_success") or 0)
+    rank = int(stat.get("rank") or 0)
+    remaining = max(monthly_goal - success, 0)
+    if success == 0:
+        return "Votre premiere course du mois lancera le classement."
+    if rank and rank <= 3:
+        return "Vous etes sur le podium du mois. Gardez le rythme."
+    if missing_top3 > 0:
+        return f"Encore {missing_top3} course(s) pour viser le podium."
+    if remaining > 0:
+        return f"Encore {remaining} course(s) pour atteindre l'objectif mensuel."
+    return "Objectif mensuel atteint. Chaque course renforce votre classement."
+
+
+async def _format_driver_ranking(stat: dict, current_user: dict, podium_stats: list[dict]) -> dict:
+    rewards = await get_performance_rewards_settings()
+    monthly_goal = rewards["driver"]["monthly_goal_deliveries"]
+    activity = await _driver_month_activity(current_user["user_id"], stat["period"])
+    success = int(stat.get("deliveries_success") or 0)
+    rank = int(stat.get("rank") or 0)
+    top3_success = [
+        int(item.get("deliveries_success") or 0)
+        for item in podium_stats[:3]
+        if item.get("driver_id") != current_user["user_id"]
+    ]
+    podium_threshold = min(top3_success) if len(podium_stats) >= 3 and top3_success else 0
+    missing_top3 = max(podium_threshold - success + 1, 0) if rank > 3 else 0
+
+    podium = []
+    for item in podium_stats[:3]:
+        is_me = item.get("driver_id") == current_user["user_id"]
+        driver = None
+        if is_me:
+            driver = await db.users.find_one({"user_id": item.get("driver_id")}, {"_id": 0, "name": 1})
+        podium.append({
+            "rank": item.get("rank", 0),
+            "display_name": driver.get("name", "Moi") if driver else f"Livreur #{item.get('rank', 0)}",
+            "deliveries_success": item.get("deliveries_success", 0),
+            "badge": item.get("badge", "none"),
+            "is_me": is_me,
+        })
+
+    goal_progress = round(min(success / max(monthly_goal, 1), 1), 3)
+    return {
+        **stat,
+        "display_name": current_user.get("name", "Moi"),
+        "is_me": True,
+        "monthly_goal": {
+            "target": monthly_goal,
+            "current": success,
+            "remaining": max(monthly_goal - success, 0),
+            "progress": goal_progress,
+        },
+        "streak_days": activity["streak_days"],
+        "active_days": activity["active_days"],
+        "podium": podium,
+        "badges_earned": _badge_items(stat, activity),
+        "achievements": _achievement_items(stat, activity),
+        "missing_deliveries_to_top3": missing_top3,
+        "total_ranked_drivers": len(podium_stats),
+        "message": _driver_motivation_message(stat, missing_top3, monthly_goal),
+        "last_updated_at": datetime.now(timezone.utc),
+    }
 
 
 @router.get("/rankings/me", summary="Ma position au classement")
@@ -1315,17 +1468,22 @@ async def get_my_ranking(
     period: str = Query(default=""),
     current_user: dict = Depends(require_role(UserRole.DRIVER)),
 ):
-    from datetime import datetime, timezone
-    if not period:
-        now = datetime.now(timezone.utc)
-        period = f"{now.year}-{now.month:02d}"
+    period = _period_or_current(period)
+    stats = await refresh_driver_stats_for_period(period)
+    stat = next((item for item in stats if item.get("driver_id") == current_user["user_id"]), None)
 
-    stat = await db.driver_stats.find_one({
-        "driver_id": current_user["user_id"],
-        "period": period,
-    }, {"_id": 0})
-    
     if not stat:
-        return {"period": period, "rank": None, "message": "Aucune donnée pour cette période"}
+        stat = {
+            "period": period,
+            "driver_id": current_user["user_id"],
+            "rank": 0,
+            "badge": "none",
+            "deliveries_total": 0,
+            "deliveries_success": 0,
+            "success_rate": 0,
+            "avg_rating": 0,
+            "total_earned_xof": 0,
+            "bonus_paid_xof": 0,
+        }
 
-    return stat
+    return await _format_driver_ranking(stat, current_user, stats)

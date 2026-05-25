@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from database import db
+from services.performance_rewards_service import get_performance_rewards_settings
 from services.referral_service import (
     ensure_referral_record_for_user,
     mark_referral_rewarded,
@@ -53,7 +54,9 @@ async def credit_loyalty_points(user_id: str):
         return
 
     now = datetime.now(timezone.utc)
-    new_points = user.get("loyalty_points", 0) + POINTS_PER_DELIVERY
+    rewards = await get_performance_rewards_settings()
+    points_per_delivery = rewards["client"]["loyalty_points_per_delivered_parcel"]
+    new_points = user.get("loyalty_points", 0) + points_per_delivery
     new_tier = compute_tier(new_points)
 
     await db.users.update_one(
@@ -72,7 +75,7 @@ async def credit_loyalty_points(user_id: str):
             "event_id": f"loy_{uuid.uuid4().hex[:12]}",
             "user_id": user_id,
             "type": "delivery_completed",
-            "points": POINTS_PER_DELIVERY,
+            "points": points_per_delivery,
             "balance": new_points,
             "created_at": now,
         }

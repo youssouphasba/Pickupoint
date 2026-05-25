@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/models/loyalty.dart';
 import '../../../core/models/wallet.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/ranking_provider.dart';
@@ -22,6 +23,8 @@ class DriverPerformanceScreen extends ConsumerWidget {
     const xpPerLevel = 100;
     final currentXpInLevel = user.xp % xpPerLevel;
     final progress = currentXpInLevel / xpPerLevel;
+    final levelTitle = _driverLevelTitle(user.level);
+    final nextLevelTitle = _nextDriverLevelTitle(user.level);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ma Performance')),
@@ -54,15 +57,25 @@ class DriverPerformanceScreen extends ConsumerWidget {
                     children: [
                       const Icon(Icons.stars, color: Colors.amber, size: 32),
                       const SizedBox(width: 8),
-                      Text(
-                        'Niveau ${user.level}',
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      Flexible(
+                        child: Text(
+                          'Niveau ${user.level} - $levelTitle',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Prochain rang : $nextLevelTitle',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
                   ClipRRect(
@@ -220,40 +233,52 @@ class DriverPerformanceScreen extends ConsumerWidget {
 
   Widget _buildStatCard(IconData icon, String label, String value, Color color,
       {String? subtitle}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Builder(builder: (context) {
+      return InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: color.withValues(alpha: 0.1),
-            child: Icon(icon, color: color, size: 20),
+        onTap: () =>
+            _showDriverKpiInfo(context, label, _driverKpiExplanation(label)),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade100),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                if (subtitle != null)
-                  Text(subtitle,
-                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
-              ],
-            ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withValues(alpha: 0.1),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 13)),
+                    if (subtitle != null)
+                      Text(subtitle,
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Text(
+                value,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 6),
+              Icon(Icons.info_outline, size: 16, color: Colors.grey.shade500),
+            ],
           ),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
+        ),
+      );
+    });
   }
 
   Widget _buildMonthlyRankingCard(BuildContext context, WidgetRef ref) {
@@ -262,6 +287,10 @@ class DriverPerformanceScreen extends ConsumerWidget {
     return rankingAsync.when(
       data: (ranking) {
         if (ranking == null) return const SizedBox.shrink();
+        final rankLabel = ranking.rank > 0
+            ? '#${ranking.rank} / ${ranking.totalRankedDrivers}'
+            : '- / ${ranking.totalRankedDrivers}';
+        final goal = ranking.monthlyGoal;
 
         return Container(
           padding: const EdgeInsets.all(20),
@@ -280,9 +309,10 @@ class DriverPerformanceScreen extends ConsumerWidget {
                     child: Text(
                       'CLASSEMENT DU MOIS',
                       style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          letterSpacing: 0.5),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
                   Container(
@@ -293,10 +323,55 @@ class DriverPerformanceScreen extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '#${ranking.rank}',
+                      rankLabel,
                       style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold),
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
+                  ),
+                ],
+              ),
+              if (ranking.message.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    ranking.message,
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: goal.progress,
+                  minHeight: 10,
+                  backgroundColor: Colors.white,
+                  color: Colors.amber.shade700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${goal.current} / ${goal.target} courses',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    goal.remaining == 0
+                        ? 'Objectif atteint'
+                        : 'Encore ${goal.remaining}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                   ),
                 ],
               ),
@@ -306,12 +381,40 @@ class DriverPerformanceScreen extends ConsumerWidget {
                 children: [
                   _rankingStat('Succès',
                       '${(ranking.successRate * 100).toStringAsFixed(0)}%'),
-                  _rankingStat('Volume', '${ranking.deliveriesTotal}'),
-                  if (ranking.bonusPaid != null && ranking.bonusPaid! > 0)
-                    _rankingStat('Bonus', formatXof(ranking.bonusPaid!),
-                        isHighlight: true),
+                  _rankingStat('Courses', '${ranking.deliveriesSuccess}'),
+                  _rankingStat('Gains', formatXof(ranking.totalEarned ?? 0)),
                 ],
               ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _rankingStat('Jours actifs', '${ranking.activeDays}'),
+                  _rankingStat('Série', '${ranking.streakDays} j'),
+                  if (ranking.bonusPaid != null && ranking.bonusPaid! > 0)
+                    _rankingStat('Bonus', formatXof(ranking.bonusPaid!),
+                        isHighlight: true)
+                  else
+                    _rankingStat(
+                      'Top 3',
+                      ranking.missingDeliveriesToTop3 > 0
+                          ? '+${ranking.missingDeliveriesToTop3}'
+                          : '-',
+                    ),
+                ],
+              ),
+              if (ranking.podium.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                _buildPodium(ranking.podium),
+              ],
+              if (ranking.badgesEarned.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildRankingBadges(ranking.badgesEarned),
+              ],
+              if (ranking.achievements.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildAchievements(ranking.achievements),
+              ],
             ],
           ),
         );
@@ -321,20 +424,155 @@ class DriverPerformanceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _rankingStat(String label, String value, {bool isHighlight = false}) {
+  Widget _buildPodium(List<RankingPodiumEntry> podium) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: isHighlight ? Colors.green.shade700 : Colors.black87,
+        const Text(
+          'Podium du mois',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+        ...podium.map((entry) {
+          final color = entry.isMe ? Colors.amber.shade700 : Colors.grey.shade700;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 13,
+                  backgroundColor:
+                      entry.isMe ? Colors.amber.shade100 : Colors.white,
+                  child: Text(
+                    '${entry.rank}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    entry.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight:
+                          entry.isMe ? FontWeight.bold : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${entry.deliveriesSuccess} courses',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _buildRankingBadges(List<RankingBadge> badges) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: badges
+          .map(
+            (badge) => Chip(
+              avatar: Icon(_rankingBadgeIcon(badge.icon), size: 16),
+              label: Text(badge.label),
+              backgroundColor: Colors.white,
+              side: BorderSide(color: Colors.amber.shade200),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _buildAchievements(List<RankingAchievement> achievements) {
+    return Column(
+      children: achievements
+          .map(
+            (achievement) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle,
+                      size: 16, color: Colors.green.shade600),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      achievement.label,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  IconData _rankingBadgeIcon(String icon) {
+    switch (icon) {
+      case 'rocket':
+        return Icons.rocket_launch;
+      case 'speed':
+        return Icons.speed;
+      case 'verified':
+        return Icons.verified;
+      case 'shield':
+        return Icons.shield_outlined;
+      case 'calendar':
+        return Icons.calendar_month;
+      default:
+        return Icons.emoji_events;
+    }
+  }
+
+  Widget _rankingStat(String label, String value, {bool isHighlight = false}) {
+    return Builder(
+      builder: (context) => InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showDriverKpiInfo(
+          context,
+          label,
+          _monthlyRankingExplanation(label),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Column(
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label,
+                      style:
+                          const TextStyle(fontSize: 11, color: Colors.grey)),
+                  const SizedBox(width: 3),
+                  Icon(Icons.info_outline,
+                      size: 11, color: Colors.grey.shade500),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: isHighlight ? Colors.green.shade700 : Colors.black87,
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -412,9 +650,120 @@ class DriverPerformanceScreen extends ConsumerWidget {
       },
     );
   }
+
+  String _driverKpiExplanation(String label) {
+    if (label.contains('Livraisons')) {
+      return 'Total des missions terminees depuis la creation de votre compte livreur.';
+    }
+    if (label.contains('heure')) {
+      return 'Nombre de livraisons terminees dans les delais attendus. Cela aide a mesurer votre fiabilite.';
+    }
+    if (label.contains('Note')) {
+      return 'Moyenne des notes laissees apres vos missions. Plus elle est elevee, plus votre profil inspire confiance.';
+    }
+    if (label.contains('Gains')) {
+      return 'Total cumule de vos revenus livreur: courses, bonus et pourboires enregistres.';
+    }
+    return 'Indicateur de performance utilise pour suivre votre activite livreur.';
+  }
+
+  String _monthlyRankingExplanation(String label) {
+    if (label.contains('Succes') || label.contains('Succ')) {
+      return 'Pourcentage de missions du mois terminees avec succes. Il influence votre classement et certains bonus.';
+    }
+    if (label.contains('Courses')) {
+      return 'Nombre de courses terminees ce mois. C est la base principale du classement mensuel.';
+    }
+    if (label.contains('Gains')) {
+      return 'Revenus generes ce mois sur vos missions et transactions associees.';
+    }
+    if (label.contains('Jours')) {
+      return 'Nombre de jours differents ou vous avez ete actif sur des missions ce mois.';
+    }
+    if (label.contains('Serie') || label.contains('S')) {
+      return 'Nombre de jours actifs consecutifs. Garder une serie encourage la regularite.';
+    }
+    if (label.contains('Bonus')) {
+      return 'Bonus deja attribue selon les regles de performance configurees par Denkma.';
+    }
+    if (label.contains('Top 3')) {
+      return 'Nombre de courses supplementaires estime pour rejoindre le podium mensuel.';
+    }
+    return 'Indicateur du classement mensuel livreur.';
+  }
+
+  void _showDriverKpiInfo(
+    BuildContext context,
+    String title,
+    String message,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.blue),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(message, style: const TextStyle(fontSize: 14, height: 1.35)),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 String _currentMonthPeriod() {
   final now = DateTime.now();
   return '${now.year}-${now.month.toString().padLeft(2, '0')}';
+}
+
+String _driverLevelTitle(int level) {
+  if (level >= 21) return 'Icône Denkma';
+  if (level >= 18) return 'Maître du Réseau';
+  if (level >= 15) return 'Légende Teranga';
+  if (level >= 12) return 'Gaïndé';
+  if (level >= 10) return 'Kilifa';
+  if (level >= 9) return 'Jambaar';
+  if (level >= 7) return 'Borom Route';
+  if (level >= 5) return 'Nandité';
+  if (level >= 4) return 'Yaatu';
+  if (level >= 3) return 'Goorgorlu';
+  if (level >= 2) return 'Ndaw';
+  return 'Débutant';
+}
+
+String _nextDriverLevelTitle(int level) {
+  if (level < 2) return 'Ndaw';
+  if (level < 3) return 'Goorgorlu';
+  if (level < 4) return 'Yaatu';
+  if (level < 5) return 'Nandité';
+  if (level < 7) return 'Borom Route';
+  if (level < 9) return 'Jambaar';
+  if (level < 10) return 'Kilifa';
+  if (level < 12) return 'Gaïndé';
+  if (level < 15) return 'Légende Teranga';
+  if (level < 18) return 'Maître du Réseau';
+  if (level < 21) return 'Icône Denkma';
+  return 'Sommet atteint';
 }

@@ -5,7 +5,7 @@ from html import escape
 import mimetypes
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
@@ -46,6 +46,7 @@ from services.user_service import (
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
 )
+from services.performance_rewards_service import get_performance_rewards_settings
 
 router = APIRouter()
 
@@ -56,6 +57,17 @@ PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ACTIVE_DRIVER_MISSION_STATUSES = {"assigned", "in_progress", "incident_reported"}
 FINAL_PARCEL_STATUSES = {"delivered", "cancelled", "expired", "returned"}
+
+
+def _current_month_bounds() -> tuple[str, datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    end = (
+        datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+        if now.month == 12
+        else datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+    ) - timedelta(microseconds=1)
+    return f"{now.year}-{now.month:02d}", start, end
 
 
 def _profile_photos_bucket() -> AsyncIOMotorGridFSBucket:
@@ -816,6 +828,10 @@ async def download_user_kyc(
 async def get_my_stats(current_user: dict = Depends(get_current_user)):
     """Retourne des stats sur les colis envoyes/recus."""
     user_id = current_user["user_id"]
+    period, start, end = _current_month_bounds()
+    rewards = await get_performance_rewards_settings()
+    client_goal = rewards["client"]["monthly_goal_sent_parcels"]
+    points_per_delivery = rewards["client"]["loyalty_points_per_delivered_parcel"]
     phone_candidates = [
         candidate
         for candidate in {
@@ -826,6 +842,27 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
     ]
 
     sent_count = await db.parcels.count_documents({"sender_user_id": user_id})
+    month_sent = await db.parcels.count_documents(
+        {"sender_user_id": user_id, "created_at": {"$gte": start, "$lte": end}}
+    )
+    month_delivered = await db.parcels.count_documents(
+        {
+            "sender_user_id": user_id,
+            "status": "delivered",
+            "updated_at": {"$gte": start, "$lte": end},
+        }
+    )
+    spend_rows = await db.parcels.aggregate([
+        {
+            "$match": {
+                "sender_user_id": user_id,
+                "created_at": {"$gte": start, "$lte": end},
+            }
+        },
+        {"$group": {"_id": "$sender_user_id", "spent": {"$sum": {"$ifNull": ["$paid_price", 0]}}}},
+    ]).to_list(length=1)
+    month_spent = float((spend_rows[0] if spend_rows else {}).get("spent", 0) or 0)
+    month_success_rate = round(month_delivered / month_sent * 100, 1) if month_sent else 0
     received_query = (
         {"recipient_phone": {"$in": phone_candidates}}
         if phone_candidates
@@ -840,6 +877,14 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         "loyalty_points": current_user.get("loyalty_points", 0),
         "loyalty_tier": current_user.get("loyalty_tier", "bronze"),
         "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
+        "current_period": period,
+        "client_monthly_sent": month_sent,
+        "client_monthly_delivered": month_delivered,
+        "client_monthly_success_rate": month_success_rate,
+        "client_monthly_spent_xof": month_spent,
+        "client_monthly_goal": client_goal,
+        "client_goal_progress": round(min(month_sent / max(client_goal, 1), 1), 3),
+        "loyalty_points_per_delivery": points_per_delivery,
     }
 
 

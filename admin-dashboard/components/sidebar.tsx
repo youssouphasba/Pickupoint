@@ -22,6 +22,7 @@ import {
   MessageCircle,
   Settings,
   Bell,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout, type ActionCategory } from "@/lib/api";
@@ -53,6 +54,7 @@ const items: Item[] = [
   { href: "/dashboard/payouts", label: "Retraits", Icon: Wallet, badge: "payouts" },
   { href: "/dashboard/relays", label: "Relais", Icon: Store },
   { href: "/dashboard/drivers", label: "Livreurs", Icon: Truck },
+  { href: "/dashboard/performances", label: "Performances", Icon: Trophy },
   { href: "/dashboard/fleet", label: "Flotte live", Icon: Map },
   { href: "/dashboard/promotions", label: "Promotions", Icon: Tag },
   { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },

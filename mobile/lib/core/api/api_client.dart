@@ -231,6 +231,11 @@ class ApiClient {
   Future<Response> getRelayHistory(String id) =>
       _dio.get(ApiEndpoints.relayHistory(id));
 
+  Future<Response> getRelayPerformance(String id, {String? period}) => _dio.get(
+        ApiEndpoints.relayPerformance(id),
+        queryParameters: {if (period != null) 'period': period},
+      );
+
   // ─── Deliveries ───────────────────────────────────────────────────────────
   Future<Response> getAvailableMissions({
     double? lat,
