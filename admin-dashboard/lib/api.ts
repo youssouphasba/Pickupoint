@@ -584,10 +584,28 @@ export type OperationalSettingsPayload = {
   redirect_relay_max_distance_km: number;
 };
 
+export type AppUpdateSettingsPayload = {
+  enabled: boolean;
+  message: string;
+  android_latest_version: string;
+  android_min_version: string;
+  android_store_url: string;
+  ios_latest_version: string;
+  ios_min_version: string;
+  ios_store_url: string;
+};
+
 export async function updateOperationalSettings(
   body: OperationalSettingsPayload,
 ) {
   const { data } = await api.put("/api/admin/settings/operational", body);
+  return data;
+}
+
+export async function updateAppUpdateSettings(
+  body: AppUpdateSettingsPayload,
+) {
+  const { data } = await api.put("/api/admin/settings/app-update", body);
   return data;
 }
 

@@ -33,6 +33,33 @@ def _support_whatsapp_payload(settings_doc: dict) -> dict:
     }
 
 
+def _app_update_payload(settings_doc: dict) -> dict:
+    update_settings = settings_doc.get("app_update") or {}
+    return {
+        "app_update": {
+            "enabled": bool(update_settings.get("enabled", True)),
+            "message": update_settings.get("message")
+            or "Une nouvelle version de Denkma est disponible.",
+            "android": {
+                "latest_version": update_settings.get("android_latest_version") or "",
+                "min_version": update_settings.get("android_min_version") or "",
+                "store_url": update_settings.get("android_store_url")
+                or app_config.ANDROID_STORE_URL
+                or app_config.APP_DOWNLOAD_URL
+                or "",
+            },
+            "ios": {
+                "latest_version": update_settings.get("ios_latest_version") or "",
+                "min_version": update_settings.get("ios_min_version") or "",
+                "store_url": update_settings.get("ios_store_url")
+                or app_config.IOS_STORE_URL
+                or app_config.APP_DOWNLOAD_URL
+                or "",
+            },
+        }
+    }
+
+
 @router.get("", summary="Lire les parametres publics de l'app")
 async def get_public_app_settings():
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
@@ -53,4 +80,5 @@ async def get_public_app_settings():
             for role in REFERRAL_ELIGIBLE_ROLES
         },
         **_support_whatsapp_payload(settings_doc),
+        **_app_update_payload(settings_doc),
     }

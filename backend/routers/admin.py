@@ -3286,6 +3286,23 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
         "express_enabled": settings_doc.get("express_enabled", False),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "support_whatsapp_phone": settings_doc.get("support_whatsapp_phone") or settings.SUPPORT_WHATSAPP_PHONE,
+        "app_update": {
+            "enabled": bool((settings_doc.get("app_update") or {}).get("enabled", True)),
+            "message": (settings_doc.get("app_update") or {}).get("message")
+            or "Une nouvelle version de Denkma est disponible.",
+            "android_latest_version": (settings_doc.get("app_update") or {}).get("android_latest_version") or "",
+            "android_min_version": (settings_doc.get("app_update") or {}).get("android_min_version") or "",
+            "android_store_url": (settings_doc.get("app_update") or {}).get("android_store_url")
+            or settings.ANDROID_STORE_URL
+            or settings.APP_DOWNLOAD_URL
+            or "",
+            "ios_latest_version": (settings_doc.get("app_update") or {}).get("ios_latest_version") or "",
+            "ios_min_version": (settings_doc.get("app_update") or {}).get("ios_min_version") or "",
+            "ios_store_url": (settings_doc.get("app_update") or {}).get("ios_store_url")
+            or settings.IOS_STORE_URL
+            or settings.APP_DOWNLOAD_URL
+            or "",
+        },
         "pricing": pricing_settings,
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
@@ -3296,6 +3313,28 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
         },
         "referral_metric_options": get_referral_metric_options(),
     }
+
+
+@router.put("/settings/app-update", summary="Configurer les mises Ã  jour mobiles")
+async def update_app_update_settings(body: dict, _admin=Depends(require_admin_dep)):
+    app_update = {
+        "enabled": bool(body.get("enabled", True)),
+        "message": str(
+            body.get("message") or "Une nouvelle version de Denkma est disponible."
+        ).strip(),
+        "android_latest_version": str(body.get("android_latest_version") or "").strip(),
+        "android_min_version": str(body.get("android_min_version") or "").strip(),
+        "android_store_url": str(body.get("android_store_url") or "").strip(),
+        "ios_latest_version": str(body.get("ios_latest_version") or "").strip(),
+        "ios_min_version": str(body.get("ios_min_version") or "").strip(),
+        "ios_store_url": str(body.get("ios_store_url") or "").strip(),
+    }
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {"app_update": app_update, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"app_update": app_update}
 
 
 @router.get("/settings/referral/stats", summary="Statistiques du programme de parrainage")

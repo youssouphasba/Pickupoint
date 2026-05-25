@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import {
   fetchSettings,
+  updateAppUpdateSettings,
   updateOperationalSettings,
+  type AppUpdateSettingsPayload,
   type OperationalSettingsPayload,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,6 +142,20 @@ function buildInitialPayload(settings: any): OperationalSettingsPayload {
   };
 }
 
+function buildInitialAppUpdatePayload(settings: any): AppUpdateSettingsPayload {
+  const update = settings?.app_update ?? {};
+  return {
+    enabled: update.enabled ?? true,
+    message: update.message ?? "Une nouvelle version de Denkma est disponible.",
+    android_latest_version: update.android_latest_version ?? "",
+    android_min_version: update.android_min_version ?? "",
+    android_store_url: update.android_store_url ?? "",
+    ios_latest_version: update.ios_latest_version ?? "",
+    ios_min_version: update.ios_min_version ?? "",
+    ios_store_url: update.ios_store_url ?? "",
+  };
+}
+
 export default function ConfigurationPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -151,9 +167,14 @@ export default function ConfigurationPage() {
   const [form, setForm] = React.useState<OperationalSettingsPayload | null>(
     null
   );
+  const [appUpdateForm, setAppUpdateForm] =
+    React.useState<AppUpdateSettingsPayload | null>(null);
 
   React.useEffect(() => {
-    if (data) setForm(buildInitialPayload(data));
+    if (data) {
+      setForm(buildInitialPayload(data));
+      setAppUpdateForm(buildInitialAppUpdatePayload(data));
+    }
   }, [data]);
 
   const mutation = useMutation({
@@ -165,11 +186,20 @@ export default function ConfigurationPage() {
     },
   });
 
+  const appUpdateMutation = useMutation({
+    mutationFn: () => updateAppUpdateSettings(appUpdateForm!),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      setAppUpdateForm(updated.app_update);
+      toast("Règles de mise à jour sauvegardées.");
+    },
+  });
+
   function setField(key: keyof OperationalSettingsPayload, value: number) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
   }
 
-  if (isLoading || !form) {
+  if (isLoading || !form || !appUpdateForm) {
     return (
       <div className="flex h-80 items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -208,6 +238,13 @@ export default function ConfigurationPage() {
         </div>
       )}
 
+      {appUpdateMutation.isError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {(appUpdateMutation.error as any)?.response?.data?.detail ??
+            "Erreur de sauvegarde des mises à jour."}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Tarifs</CardTitle>
@@ -221,6 +258,127 @@ export default function ConfigurationPage() {
               onChange={(value) => setField(field.key, value)}
             />
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Mises à jour mobiles</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="font-medium">Contrôle de version</div>
+              <div className="text-sm text-muted-foreground">
+                Force ou recommande une mise à jour sans republier l'application.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={appUpdateForm.enabled}
+              onClick={() =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, enabled: !current.enabled } : current
+                )
+              }
+              className={`inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                appUpdateForm.enabled
+                  ? "border-emerald-600 bg-emerald-600"
+                  : "border-input bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  appUpdateForm.enabled ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <TextField
+              label="Message"
+              value={appUpdateForm.message}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, message: value } : current
+                )
+              }
+            />
+            <div className="hidden md:block" />
+            <TextField
+              label="Android dernière version"
+              value={appUpdateForm.android_latest_version}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current
+                    ? { ...current, android_latest_version: value }
+                    : current
+                )
+              }
+            />
+            <TextField
+              label="Android version minimale"
+              value={appUpdateForm.android_min_version}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, android_min_version: value } : current
+                )
+              }
+            />
+            <TextField
+              label="Lien Play Store"
+              value={appUpdateForm.android_store_url}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, android_store_url: value } : current
+                )
+              }
+            />
+            <div className="hidden md:block" />
+            <TextField
+              label="iOS dernière version"
+              value={appUpdateForm.ios_latest_version}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, ios_latest_version: value } : current
+                )
+              }
+            />
+            <TextField
+              label="iOS version minimale"
+              value={appUpdateForm.ios_min_version}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, ios_min_version: value } : current
+                )
+              }
+            />
+            <TextField
+              label="Lien App Store"
+              value={appUpdateForm.ios_store_url}
+              onChange={(value) =>
+                setAppUpdateForm((current) =>
+                  current ? { ...current, ios_store_url: value } : current
+                )
+              }
+            />
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => appUpdateMutation.mutate()}
+              disabled={appUpdateMutation.isPending}
+            >
+              {appUpdateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Sauvegarder les mises à jour
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -317,6 +475,27 @@ function NumberField({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-lg border p-4">
+      <label className="block text-sm font-medium">{label}</label>
+      <Input
+        className="mt-3"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

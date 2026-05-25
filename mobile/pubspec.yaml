@@ -50,6 +50,7 @@ dependencies:
   google_maps_flutter: ^2.5.3
   flutter_polyline_points: ^2.0.0
   url_launcher: ^6.3.0
+  package_info_plus: ^8.0.0
 
   # Images & Compression (Phase 7)
   image_picker: ^1.0.7

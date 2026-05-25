@@ -72,6 +72,28 @@ def _mission_commission_xof(parcel: Optional[dict], mission: Optional[dict] = No
     return round(max(float(price or 0), 0.0) * float(settings.PLATFORM_RATE or 0), 2)
 
 
+async def _attach_commission_requirements(missions: list[dict]) -> None:
+    parcel_ids = [m.get("parcel_id") for m in missions if m.get("parcel_id")]
+    parcel_lookup: dict[str, dict] = {}
+    if parcel_ids:
+        cursor = db.parcels.find(
+            {"parcel_id": {"$in": list(set(parcel_ids))}},
+            {"_id": 0, "parcel_id": 1, "paid_price": 1, "quoted_price": 1},
+        )
+        parcels = await cursor.to_list(length=len(set(parcel_ids)))
+        parcel_lookup = {p["parcel_id"]: p for p in parcels}
+
+    for mission in missions:
+        commission = mission.get("platform_commission_xof")
+        if commission is None:
+            commission = _mission_commission_xof(
+                parcel_lookup.get(mission.get("parcel_id")),
+                mission,
+            )
+        mission["platform_commission_xof"] = commission
+        mission["wallet_balance_required_xof"] = commission
+
+
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
     if current_user.get("role") != UserRole.DRIVER.value:
         return
@@ -204,6 +226,7 @@ async def available_missions(
                 result.append(m)
         # Trier : missions avec distance connue en premier (croissant), puis sans coordonnées
         result.sort(key=lambda m: m.get("distance_km") if m.get("distance_km") is not None else 9999)
+        await _attach_commission_requirements(result)
         _mask_recipient_phone_for_driver(result, current_user)
         return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
 
@@ -218,6 +241,7 @@ async def available_missions(
 
     _mask_recipient_phone_for_driver(missions, current_user)
     missions.sort(key=lambda m: m["created_at"])
+    await _attach_commission_requirements(missions)
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
@@ -232,6 +256,7 @@ async def my_missions(
         {"_id": 0},
     ).sort("created_at", -1).limit(50)
     missions = await cursor.to_list(length=50)
+    await _attach_commission_requirements(missions)
     
     # Masquage numéro destinataire — révélé seulement si :
     #   - livraison à domicile (*_to_home) ET driver est à proximité (approaching_notified)
@@ -371,9 +396,13 @@ async def get_mission(
             "pickup_voice_note": 1,
             "delivery_voice_note": 1,
             "driver_bonus_xof": 1,
+            "paid_price": 1,
+            "quoted_price": 1,
         },
     )
     if parcel:
+        mission["platform_commission_xof"] = mission.get("platform_commission_xof") or _mission_commission_xof(parcel, mission)
+        mission["wallet_balance_required_xof"] = mission["platform_commission_xof"]
         mission["parcel_status"] = parcel.get("status")
         mission["payment_status"] = parcel.get("payment_status", "pending")
         mission["payment_method"] = mission.get("payment_method") or parcel.get("payment_method")
@@ -475,6 +504,10 @@ async def accept_mission(
 
     now = datetime.now(timezone.utc)
     commission_xof = _mission_commission_xof(parcel, mission)
+    if float(settings.PLATFORM_RATE or 0) > 0 and commission_xof <= 0:
+        raise bad_request_exception(
+            "Commission mission indisponible. Impossible d'accepter cette course pour le moment."
+        )
     if commission_xof > 0:
         wallet = await db.wallets.find_one(
             {"owner_id": current_user["user_id"]},

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/auth/auth_provider.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'shared/widgets/app_update_gate.dart';
 
 class DenkmaApp extends ConsumerStatefulWidget {
   const DenkmaApp({super.key});
@@ -57,6 +58,9 @@ class _DenkmaAppState extends ConsumerState<DenkmaApp>
       title: 'Denkma',
       theme: AppTheme.light,
       routerConfig: router,
+      builder: (context, child) => AppUpdateGate(
+        child: child ?? const SizedBox.shrink(),
+      ),
       debugShowCheckedModeBanner: false,
     );
   }

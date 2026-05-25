@@ -1298,6 +1298,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
                    if mode == "home_to_home" else settings.DRIVER_RATE)
     earn_amount = round(quoted * driver_rate) + round(parcel.get("driver_bonus_xof", 0.0))
+    platform_commission_xof = round(max(float(quoted or 0), 0.0) * float(settings.PLATFORM_RATE or 0), 2)
 
     now = datetime.now(timezone.utc)
     mission_doc = {
@@ -1327,6 +1328,10 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "who_pays":         parcel.get("who_pays"),
         "payment_status":   parcel.get("payment_status"),
         "payment_method":   parcel.get("payment_method"),
+        "quoted_price":      parcel.get("quoted_price"),
+        "paid_price":        parcel.get("paid_price"),
+        "platform_commission_xof": platform_commission_xof,
+        "wallet_balance_required_xof": platform_commission_xof,
         "payment_override": bool(parcel.get("payment_override")),
         "pickup_voice_note": parcel.get("pickup_voice_note"),
         "delivery_voice_note": parcel.get("delivery_voice_note"),

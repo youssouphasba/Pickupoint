@@ -750,6 +750,9 @@ class ApiClient {
   Future<Response> setExpressEnabled(bool enabled) =>
       _dio.put(ApiEndpoints.adminSettingsExpress, data: {'enabled': enabled});
 
+  Future<Response> setAppUpdateSettings(Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.adminSettingsAppUpdate, data: body);
+
   Future<Response> getReferralAdminStats() =>
       _dio.get(ApiEndpoints.adminSettingsReferralStats);
 

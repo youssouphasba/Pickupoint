@@ -21,6 +21,7 @@ class NotificationPermissionBanner extends ConsumerWidget {
           color: Colors.amber.shade50,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Icon(Icons.notifications_active_outlined,
                   color: Colors.amber.shade900),
@@ -31,6 +32,8 @@ class NotificationPermissionBanner extends ConsumerWidget {
                   children: [
                     Text(
                       'Notifications inactives',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.amber.shade900,
@@ -38,15 +41,21 @@ class NotificationPermissionBanner extends ConsumerWidget {
                     ),
                     const Text(
                       'Activez-les pour suivre vos colis et recevoir vos codes de livraison.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 12),
                     ),
                   ],
                 ),
               ),
-              TextButton(
-                onPressed: () =>
-                    ref.read(notificationServiceProvider).requestPermission(),
-                child: const Text('Activer'),
+              const SizedBox(width: 6),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: TextButton(
+                  onPressed: () =>
+                      ref.read(notificationServiceProvider).requestPermission(),
+                  child: const Text('Activer'),
+                ),
               ),
             ],
           ),

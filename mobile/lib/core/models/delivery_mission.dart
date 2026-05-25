@@ -40,6 +40,8 @@ class DeliveryMission {
     this.pickupVoiceNote,
     this.deliveryVoiceNote,
     this.driverBonusXof = 0.0,
+    this.platformCommissionXof = 0.0,
+    this.walletBalanceRequiredXof = 0.0,
     this.senderPhotoUrl,
     this.recipientPhotoUrl,
     this.encodedPolyline,
@@ -98,6 +100,8 @@ class DeliveryMission {
   final String? pickupVoiceNote;
   final String? deliveryVoiceNote;
   final double driverBonusXof;
+  final double platformCommissionXof;
+  final double walletBalanceRequiredXof;
   final String? senderPhotoUrl;
   final String? recipientPhotoUrl;
   final String? encodedPolyline;
@@ -157,6 +161,12 @@ class DeliveryMission {
       pickupVoiceNote: json['pickup_voice_note'] as String?,
       deliveryVoiceNote: json['delivery_voice_note'] as String?,
       driverBonusXof: (json['driver_bonus_xof'] as num?)?.toDouble() ?? 0.0,
+      platformCommissionXof:
+          (json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      walletBalanceRequiredXof:
+          (json['wallet_balance_required_xof'] as num?)?.toDouble() ??
+              (json['platform_commission_xof'] as num?)?.toDouble() ??
+              0.0,
       senderPhotoUrl: json['sender_photo_url'] as String?,
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
       encodedPolyline: json['encoded_polyline'] as String?,
