@@ -1550,6 +1550,102 @@ async def admin_user_detail(
             {"user_id": user["referred_by"]},
             {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1},
         )
+    now = datetime.now(timezone.utc)
+    current_period = f"{now.year}-{now.month:02d}"
+    period_start, period_end = _month_bounds(current_period)
+    performance_rewards = await get_performance_rewards_settings()
+
+    client_sent_rows = await db.parcels.aggregate([
+        {"$match": {"sender_user_id": user_id, "created_at": {"$gte": period_start, "$lte": period_end}}},
+        {"$group": {"_id": "$sender_user_id", "sent": {"$sum": 1}, "spent": {"$sum": {"$ifNull": ["$paid_price", 0]}}}},
+    ]).to_list(length=1)
+    client_sent = int((client_sent_rows[0] if client_sent_rows else {}).get("sent", 0) or 0)
+    client_spent = float((client_sent_rows[0] if client_sent_rows else {}).get("spent", 0) or 0)
+    client_delivered = await db.parcels.count_documents({
+        "sender_user_id": user_id,
+        "status": ParcelStatus.DELIVERED.value,
+        "updated_at": {"$gte": period_start, "$lte": period_end},
+    })
+    client_goal = performance_rewards["client"]["monthly_goal_sent_parcels"]
+    client_performance = {
+        "period": current_period,
+        "sent_parcels": client_sent,
+        "delivered_parcels": client_delivered,
+        "success_rate": round(client_delivered / client_sent * 100, 1) if client_sent else 0,
+        "spent_xof": client_spent,
+        "monthly_goal": client_goal,
+        "goal_progress": round(min(client_sent / max(client_goal, 1), 1), 3),
+        "loyalty_points": user.get("loyalty_points", 0),
+        "loyalty_tier": user.get("loyalty_tier", "bronze"),
+        "points_per_delivered_parcel": performance_rewards["client"]["loyalty_points_per_delivered_parcel"],
+        "is_hybrid_client": user.get("role") != UserRole.CLIENT.value and client_sent > 0,
+    }
+
+    driver_performance = None
+    if user.get("role") == UserRole.DRIVER.value or await db.delivery_missions.count_documents({"driver_id": user_id}) > 0:
+        from services.ranking_service import refresh_driver_stats_for_period
+
+        period_stats = await refresh_driver_stats_for_period(current_period)
+        stat = next((item for item in period_stats if item.get("driver_id") == user_id), None)
+        if stat:
+            driver_performance = {
+                "period": current_period,
+                "rank": stat.get("rank"),
+                "total_ranked_drivers": len(period_stats),
+                "deliveries_success": stat.get("deliveries_success", 0),
+                "deliveries_total": stat.get("deliveries_total", 0),
+                "success_rate": stat.get("success_rate", 0),
+                "total_earned_xof": stat.get("total_earned_xof", 0),
+                "bonus_paid_xof": stat.get("bonus_paid_xof", 0),
+                "xp": user.get("xp", 0),
+                "level": user.get("level", 1),
+                "average_rating": user.get("average_rating", 0),
+                "total_ratings_count": user.get("total_ratings_count", 0),
+            }
+
+    relay_performance = None
+    if relay_id:
+        relay_rules = performance_rewards["relay"]["volume_bonuses"]
+        relay_processed = await db.parcels.count_documents({
+            "$or": [
+                {"origin_relay_id": relay_id},
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+                {"transit_relay_id": relay_id},
+            ],
+            "updated_at": {"$gte": period_start, "$lte": period_end},
+        })
+        relay_delivered = await db.parcels.count_documents({
+            "status": ParcelStatus.DELIVERED.value,
+            "$or": [
+                {"destination_relay_id": relay_id},
+                {"redirect_relay_id": relay_id},
+            ],
+            "updated_at": {"$gte": period_start, "$lte": period_end},
+        })
+        relay_stock = await db.parcels.count_documents({
+            "$or": [
+                {"origin_relay_id": relay_id, "status": ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value},
+                {"destination_relay_id": relay_id, "status": {"$in": [ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]}},
+                {"redirect_relay_id": relay_id, "status": {"$in": [ParcelStatus.REDIRECTED_TO_RELAY.value, ParcelStatus.AT_DESTINATION_RELAY.value, ParcelStatus.AVAILABLE_AT_RELAY.value]}},
+            ],
+        })
+        relay_bonus = 0
+        relay_next_threshold = None
+        for rule in sorted(relay_rules, key=lambda item: item["min_parcels"]):
+            if relay_processed >= rule["min_parcels"]:
+                relay_bonus = max(relay_bonus, rule["amount_xof"])
+            elif relay_next_threshold is None:
+                relay_next_threshold = rule["min_parcels"]
+        relay_performance = {
+            "period": current_period,
+            "relay_id": relay_id,
+            "parcels_processed": relay_processed,
+            "parcels_delivered": relay_delivered,
+            "stock_count": relay_stock,
+            "projected_bonus_xof": relay_bonus,
+            "next_bonus_threshold": relay_next_threshold,
+        }
 
     return {
         "user": user,
@@ -1558,6 +1654,12 @@ async def admin_user_detail(
             "parcels_received": await db.parcels.count_documents(received_query),
             "missions_count": await db.delivery_missions.count_documents({"driver_id": user_id}),
             "active_sessions": active_sessions,
+        },
+        "performance": {
+            "period": current_period,
+            "client": client_performance,
+            "driver": driver_performance,
+            "relay": relay_performance,
         },
         "linked_relay": linked_relay,
         "wallet": _pick_snapshot(

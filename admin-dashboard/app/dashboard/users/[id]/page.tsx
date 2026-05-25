@@ -303,6 +303,7 @@ export default function UserDetailPage() {
 
   const user = data.user;
   const summary = data.summary;
+  const performance = data.performance ?? {};
   const wallet = data.wallet;
   const referral = data.referral;
   const sponsoredReferrals = referral?.sponsored_referrals;
@@ -612,6 +613,85 @@ export default function UserDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Performance mensuelle {performance.period ? `(${performance.period})` : ""}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-3">
+            {performance.client && (
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="font-semibold">Client</div>
+                  {performance.client.is_hybrid_client && (
+                    <Badge tone="info">Compte hybride</Badge>
+                  )}
+                </div>
+                <div className="grid gap-2 text-sm">
+                  <InfoLine label="Colis crees" value={performance.client.sent_parcels ?? 0} />
+                  <InfoLine label="Colis livres" value={performance.client.delivered_parcels ?? 0} />
+                  <InfoLine label="Taux livre" value={`${performance.client.success_rate ?? 0}%`} />
+                  <InfoLine
+                    label="Objectif"
+                    value={`${Math.round((performance.client.goal_progress ?? 0) * 100)}% (${performance.client.sent_parcels ?? 0}/${performance.client.monthly_goal ?? 0})`}
+                  />
+                  <InfoLine label="CA client" value={`${xof.format(performance.client.spent_xof ?? 0)} XOF`} />
+                  <InfoLine
+                    label="Fidelite"
+                    value={`${performance.client.loyalty_points ?? 0} pts - ${performance.client.loyalty_tier ?? "bronze"}`}
+                  />
+                </div>
+              </div>
+            )}
+            {performance.driver && (
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="font-semibold">Livreur</div>
+                  <Badge tone="info">
+                    {performance.driver.rank
+                      ? `#${performance.driver.rank} / ${performance.driver.total_ranked_drivers ?? "-"}`
+                      : "Non classe"}
+                  </Badge>
+                </div>
+                <div className="grid gap-2 text-sm">
+                  <InfoLine label="Courses reussies" value={performance.driver.deliveries_success ?? 0} />
+                  <InfoLine label="Total missions" value={performance.driver.deliveries_total ?? 0} />
+                  <InfoLine label="Taux reussite" value={`${performance.driver.success_rate ?? 0}%`} />
+                  <InfoLine label="Gains mois" value={`${xof.format(performance.driver.total_earned_xof ?? 0)} XOF`} />
+                  <InfoLine label="Bonus verse" value={`${xof.format(performance.driver.bonus_paid_xof ?? 0)} XOF`} />
+                  <InfoLine
+                    label="Niveau / note"
+                    value={`Niv. ${performance.driver.level ?? 1} - ${Number(performance.driver.average_rating ?? 0).toFixed(1)}/5`}
+                  />
+                </div>
+              </div>
+            )}
+            {performance.relay && (
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="font-semibold">Relais</div>
+                  <Badge tone={(performance.relay.projected_bonus_xof ?? 0) > 0 ? "success" : "default"}>
+                    {(performance.relay.projected_bonus_xof ?? 0) > 0 ? "Prime" : "Sans prime"}
+                  </Badge>
+                </div>
+                <div className="grid gap-2 text-sm">
+                  <InfoLine label="Colis traites" value={performance.relay.parcels_processed ?? 0} />
+                  <InfoLine label="Colis livres" value={performance.relay.parcels_delivered ?? 0} />
+                  <InfoLine label="Stock actuel" value={performance.relay.stock_count ?? 0} />
+                  <InfoLine label="Bonus projete" value={`${xof.format(performance.relay.projected_bonus_xof ?? 0)} XOF`} />
+                  <InfoLine
+                    label="Prochain palier"
+                    value={performance.relay.next_bonus_threshold ? `${performance.relay.next_bonus_threshold} colis` : "Palier maximum"}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {(user.role === "driver" || displayLocation) && (
