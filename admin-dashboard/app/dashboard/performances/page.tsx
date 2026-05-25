@@ -57,6 +57,8 @@ type ClientPerformance = {
   spent_xof?: number;
   loyalty_points?: number;
   loyalty_tier?: string;
+  account_role?: string;
+  is_hybrid_client?: boolean;
   monthly_goal?: number;
   goal_progress?: number;
   is_active?: boolean;
@@ -161,6 +163,15 @@ export default function PerformancesPage() {
         0,
       );
       const spent = clientStats.reduce((sum, item) => sum + (item.spent_xof ?? 0), 0);
+      const objectiveReached = clientStats.filter(
+        (item) => (item.goal_progress ?? 0) >= 1,
+      ).length;
+      const hybridClients = clientStats.filter((item) => item.is_hybrid_client).length;
+      const successRate = sent === 0 ? 0 : Math.round((delivered / sent) * 100);
+      const loyaltyPoints = clientStats.reduce(
+        (sum, item) => sum + (item.loyalty_points ?? 0),
+        0,
+      );
       const progress =
         clientStats.length === 0
           ? 0
@@ -168,8 +179,12 @@ export default function PerformancesPage() {
             clientStats.length;
       return [
         { icon: Users, label: "Clients suivis", value: clientStats.length },
+        { icon: Users, label: "Clients hybrides", value: hybridClients },
         { icon: PackageCheck, label: "Colis crees", value: sent },
+        { icon: PackageCheck, label: "Taux livres", value: `${successRate}%` },
         { icon: Trophy, label: "Objectif moyen", value: `${Math.round(progress * 100)}%` },
+        { icon: Trophy, label: "Objectifs atteints", value: objectiveReached },
+        { icon: Star, label: "Points fidelite", value: loyaltyPoints },
         { icon: Wallet, label: "CA clients", value: `${xof.format(spent)} XOF` },
       ];
     }
@@ -187,10 +202,18 @@ export default function PerformancesPage() {
         (sum, item) => sum + (item.projected_bonus_xof ?? 0),
         0,
       );
+      const activeRelays = relayStats.filter((item) => item.is_active).length;
+      const verifiedRelays = relayStats.filter((item) => item.is_verified).length;
+      const bonusEligible = relayStats.filter(
+        (item) => (item.projected_bonus_xof ?? 0) > 0,
+      ).length;
       return [
         { icon: Store, label: "Relais suivis", value: relayStats.length },
+        { icon: Store, label: "Actifs", value: activeRelays },
+        { icon: Star, label: "Verifies", value: verifiedRelays },
         { icon: PackageCheck, label: "Colis traites", value: processed },
         { icon: Truck, label: "Livres via relais", value: delivered },
+        { icon: Trophy, label: "Relais primes", value: bonusEligible },
         { icon: Trophy, label: "Bonus projetes", value: `${xof.format(bonuses)} XOF` },
         { icon: PackageCheck, label: "Stock actuel", value: stock },
       ];
@@ -212,10 +235,23 @@ export default function PerformancesPage() {
       (sum, item) => sum + (item.bonus_paid_xof ?? 0),
       0,
     );
+    const activeDrivers = driverStats.filter((item) => item.is_active).length;
+    const availableDrivers = driverStats.filter((item) => item.is_available).length;
+    const successRate =
+      driverStats.length === 0
+        ? 0
+        : driverStats.reduce((sum, item) => sum + (item.success_rate ?? 0), 0) /
+          driverStats.length;
+    const bonusPaidCount = driverStats.filter((item) => (item.bonus_paid_xof ?? 0) > 0).length;
     return [
+      { icon: Users, label: "Livreurs classes", value: driverStats.length },
+      { icon: Truck, label: "Actifs", value: activeDrivers },
+      { icon: Truck, label: "Disponibles", value: availableDrivers },
       { icon: Truck, label: "Livraisons mois", value: delivered },
+      { icon: PackageCheck, label: "Taux reussite", value: `${successRate.toFixed(1)}%` },
       { icon: Wallet, label: "Gains mois", value: `${xof.format(earned)} XOF` },
       { icon: Star, label: "Note moyenne", value: avgRating.toFixed(1) },
+      { icon: Trophy, label: "Livreurs primes", value: bonusPaidCount },
       { icon: Trophy, label: "Bonus verses", value: `${xof.format(bonuses)} XOF` },
     ];
   }, [clientStats, driverStats, relayStats, scope]);
@@ -476,6 +512,13 @@ const clientColumns: ColumnDef<ClientPerformance, any>[] = [
         <span className="text-xs text-muted-foreground">
           {row.original.phone ?? row.original.user_id}
         </span>
+        {row.original.is_hybrid_client && (
+          <span className="mt-1 w-fit rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+            {row.original.account_role === "driver"
+              ? "Livreur + client"
+              : `${row.original.account_role ?? "Compte"} + client`}
+          </span>
+        )}
       </Link>
     ),
   },

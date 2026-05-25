@@ -3213,27 +3213,32 @@ async def admin_get_client_stats(
     rewards = await get_performance_rewards_settings()
     goal = rewards["client"]["monthly_goal_sent_parcels"]
 
+    sent_rows = await db.parcels.aggregate([
+        {"$match": {"sender_user_id": {"$nin": [None, ""]}, "created_at": {"$gte": start, "$lte": end}}},
+        {"$group": {"_id": "$sender_user_id", "sent": {"$sum": 1}, "spent": {"$sum": {"$ifNull": ["$paid_price", 0]}}}},
+    ]).to_list(length=1000)
+    active_sender_ids = [row["_id"] for row in sent_rows if row.get("_id")]
     clients = await db.users.find(
-        {"role": UserRole.CLIENT.value},
+        {"$or": [
+            {"role": UserRole.CLIENT.value},
+            {"user_id": {"$in": active_sender_ids}},
+        ]},
         {
             "_id": 0,
             "user_id": 1,
             "name": 1,
             "full_name": 1,
             "phone": 1,
+            "role": 1,
             "loyalty_points": 1,
             "loyalty_tier": 1,
             "is_active": 1,
             "is_banned": 1,
             "created_at": 1,
         },
-    ).to_list(length=1000)
+    ).to_list(length=2000)
     client_ids = [client["user_id"] for client in clients if client.get("user_id")]
 
-    sent_rows = await db.parcels.aggregate([
-        {"$match": {"sender_user_id": {"$in": client_ids}, "created_at": {"$gte": start, "$lte": end}}},
-        {"$group": {"_id": "$sender_user_id", "sent": {"$sum": 1}, "spent": {"$sum": {"$ifNull": ["$paid_price", 0]}}}},
-    ]).to_list(length=1000)
     delivered_rows = await db.parcels.aggregate([
         {"$match": {
             "sender_user_id": {"$in": client_ids},
@@ -3256,6 +3261,8 @@ async def admin_get_client_stats(
             "user_id": user_id,
             "name": client.get("name") or client.get("full_name") or "Client",
             "phone": client.get("phone"),
+            "account_role": client.get("role", UserRole.CLIENT.value),
+            "is_hybrid_client": client.get("role") != UserRole.CLIENT.value,
             "sent_parcels": sent,
             "delivered_parcels": delivered,
             "success_rate": success_rate,
