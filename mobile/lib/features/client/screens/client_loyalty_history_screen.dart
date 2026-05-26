@@ -25,7 +25,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
         data: (events) {
           if (events.isEmpty) {
             return const Center(
-              child: Text('Aucun evenement de fidelite enregistre.'),
+              child: Text('Aucun événement de fidélité enregistré.'),
             );
           }
 

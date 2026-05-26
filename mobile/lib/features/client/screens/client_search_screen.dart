@@ -145,7 +145,7 @@ class _ClientSearchScreenState extends State<ClientSearchScreen> {
             icon: Icons.lock_outline,
             title: 'A quoi sert cet ecran',
             subtitle:
-                'Il sert uniquement a consulter l etat d un colis. Le client n a rien a scanner ici.',
+                'Il sert uniquement à consulter l’état d’un colis. Le client n’a rien à scanner ici.',
           ),
         ],
       ),

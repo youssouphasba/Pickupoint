@@ -1397,14 +1397,105 @@ def _achievement_items(stat: dict, activity: dict) -> list[dict]:
     return items
 
 
+async def _driver_general_position(driver_id: str) -> dict:
+    drivers = await db.users.find(
+        {"role": UserRole.DRIVER.value},
+        {"_id": 0, "user_id": 1},
+    ).to_list(None)
+    driver_ids = [item.get("user_id") for item in drivers if item.get("user_id")]
+
+    pipeline = [
+        {
+            "$match": {
+                "driver_id": {"$in": driver_ids},
+                "status": MissionStatus.COMPLETED.value,
+            }
+        },
+        {
+            "$group": {
+                "_id": "$driver_id",
+                "deliveries_success": {"$sum": 1},
+                "total_earned_xof": {"$sum": {"$ifNull": ["$earn_amount", 0]}},
+            }
+        },
+    ]
+    rows = await db.delivery_missions.aggregate(pipeline).to_list(None)
+    by_driver = {row["_id"]: row for row in rows if row.get("_id")}
+
+    ranking = []
+    for item in driver_ids:
+        row = by_driver.get(item, {})
+        ranking.append({
+            "driver_id": item,
+            "deliveries_success": int(row.get("deliveries_success") or 0),
+            "total_earned_xof": float(row.get("total_earned_xof") or 0),
+        })
+    ranking.sort(
+        key=lambda item: (
+            -item["deliveries_success"],
+            -item["total_earned_xof"],
+            item["driver_id"],
+        )
+    )
+
+    for index, item in enumerate(ranking, start=1):
+        if item["driver_id"] == driver_id:
+            return {
+                "rank": index,
+                "total_drivers": len(ranking),
+                "deliveries_success": item["deliveries_success"],
+                "total_earned_xof": item["total_earned_xof"],
+            }
+
+    return {
+        "rank": 0,
+        "total_drivers": len(ranking),
+        "deliveries_success": 0,
+        "total_earned_xof": 0,
+    }
+
+
+async def _driver_month_history(driver_id: str, current_period: str, months: int = 6) -> list[dict]:
+    year, month = map(int, current_period.split("-"))
+    periods = []
+    for offset in range(months):
+        cursor_month = month - offset
+        cursor_year = year
+        while cursor_month <= 0:
+            cursor_month += 12
+            cursor_year -= 1
+        periods.append(f"{cursor_year}-{cursor_month:02d}")
+
+    history = []
+    for period in periods:
+        stats = await refresh_driver_stats_for_period(period)
+        stat = next((item for item in stats if item.get("driver_id") == driver_id), None)
+        if not stat:
+            stat = {
+                "rank": 0,
+                "deliveries_success": 0,
+                "success_rate": 0,
+                "total_earned_xof": 0,
+            }
+        history.append({
+            "period": period,
+            "rank": int(stat.get("rank") or 0),
+            "total_drivers": len(stats),
+            "deliveries_success": int(stat.get("deliveries_success") or 0),
+            "success_rate": float(stat.get("success_rate") or 0),
+            "total_earned_xof": float(stat.get("total_earned_xof") or 0),
+        })
+    return history
+
+
 def _driver_motivation_message(stat: dict, missing_top3: int, monthly_goal: int) -> str:
     success = int(stat.get("deliveries_success") or 0)
     rank = int(stat.get("rank") or 0)
     remaining = max(monthly_goal - success, 0)
     if success == 0:
-        return "Votre premiere course du mois lancera le classement."
+        return "Votre première course du mois lancera le classement."
     if rank and rank <= 3:
-        return "Vous etes sur le podium du mois. Gardez le rythme."
+        return "Vous êtes sur le podium du mois. Gardez le rythme."
     if missing_top3 > 0:
         return f"Encore {missing_top3} course(s) pour viser le podium."
     if remaining > 0:
@@ -1416,6 +1507,8 @@ async def _format_driver_ranking(stat: dict, current_user: dict, podium_stats: l
     rewards = await get_performance_rewards_settings()
     monthly_goal = rewards["driver"]["monthly_goal_deliveries"]
     activity = await _driver_month_activity(current_user["user_id"], stat["period"])
+    general = await _driver_general_position(current_user["user_id"])
+    history = await _driver_month_history(current_user["user_id"], stat["period"])
     success = int(stat.get("deliveries_success") or 0)
     rank = int(stat.get("rank") or 0)
     top3_success = [
@@ -1458,6 +1551,8 @@ async def _format_driver_ranking(stat: dict, current_user: dict, podium_stats: l
         "achievements": _achievement_items(stat, activity),
         "missing_deliveries_to_top3": missing_top3,
         "total_ranked_drivers": len(podium_stats),
+        "general_ranking": general,
+        "monthly_history": history,
         "message": _driver_motivation_message(stat, missing_top3, monthly_goal),
         "last_updated_at": datetime.now(timezone.utc),
     }

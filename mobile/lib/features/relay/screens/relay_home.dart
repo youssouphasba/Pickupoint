@@ -135,7 +135,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                     children: [
                       _buildFilterChip('Tous', 'all'),
                       _buildFilterChip('En route', 'incoming'),
-                      _buildFilterChip('A receptionner', 'pending'),
+                      _buildFilterChip('À réceptionner', 'pending'),
                       _buildFilterChip('En stock', 'stock'),
                       _buildFilterChip('Historique', 'history'),
                     ],
@@ -156,7 +156,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                 if (_showSection('pending') && filteredPending.isNotEmpty) ...[
                   _SectionHeader(
                     icon: Icons.reply,
-                    label: '${filteredPending.length} colis a receptionner',
+                    label: '${filteredPending.length} colis à réceptionner',
                     color: Colors.orange,
                     background: Colors.orange.shade50,
                   ),
@@ -335,13 +335,13 @@ class _OverviewCard extends StatelessWidget {
                     label: '$incoming en route',
                     icon: Icons.local_shipping_outlined,
                     explanation:
-                        'Colis deja pris en charge et actuellement en route vers votre relais.',
+                        'Colis déjà pris en charge et actuellement en route vers votre relais.',
                   ),
                   _OverviewChip(
-                    label: '$pending a receptionner',
+                    label: '$pending à réceptionner',
                     icon: Icons.reply_outlined,
                     explanation:
-                        'Colis rediriges vers votre relais apres une tentative de livraison ou un changement de parcours.',
+                        'Colis redirigés vers votre relais après une tentative de livraison ou un changement de parcours.',
                   ),
                   _OverviewChip(
                     label: '$inStock en stock',
@@ -353,7 +353,7 @@ class _OverviewCard extends StatelessWidget {
                     label: '$history remis',
                     icon: Icons.history,
                     explanation:
-                        'Nombre de colis deja remis au destinataire dans votre historique recent.',
+                        'Nombre de colis déjà remis au destinataire dans votre historique récent.',
                   ),
                 ],
               ),
@@ -361,27 +361,27 @@ class _OverviewCard extends StatelessWidget {
                 data: (stats) => Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
                       _OverviewChip(
-                        label: '${stats['parcels_processed'] ?? 0} traites',
+                        label: '${stats['parcels_processed'] ?? 0} traités',
                         icon: Icons.task_alt_outlined,
                         explanation:
-                            'Total des colis passes par votre relais pendant le mois en cours. Ce volume sert au suivi de performance.',
+                            'Total des colis passés par votre relais pendant le mois en cours. Ce volume sert au suivi de performance.',
                       ),
                       _OverviewChip(
-                        label: '${stats['parcels_delivered'] ?? 0} livres',
+                        label: '${stats['parcels_delivered'] ?? 0} livrés',
                         icon: Icons.check_circle_outline,
                         explanation:
-                            'Colis du mois qui ont ete remis ou finalises depuis votre relais.',
+                            'Colis du mois qui ont été remis ou finalisés depuis votre relais.',
                       ),
                       _OverviewChip(
                         label:
                             '${NumberFormat.decimalPattern('fr_FR').format(stats['projected_bonus_xof'] ?? 0)} XOF bonus',
                         icon: Icons.emoji_events_outlined,
                         explanation:
-                            'Bonus estime selon les paliers configures par Denkma. Il peut changer si le volume du mois evolue.',
+                            'Bonus estimé selon les paliers configurés par Denkma. Il peut changer si le volume du mois évolue.',
                       ),
                       _OverviewChip(
                         label: stats['next_bonus_threshold'] == null
@@ -389,7 +389,7 @@ class _OverviewCard extends StatelessWidget {
                             : 'Palier ${stats['next_bonus_threshold']}',
                         icon: Icons.flag_outlined,
                         explanation:
-                            'Prochain volume de colis a atteindre pour debloquer ou augmenter le bonus mensuel.',
+                            'Prochain volume de colis à atteindre pour débloquer ou augmenter le bonus mensuel.',
                       ),
                     ],
                   ),
@@ -415,7 +415,7 @@ class _OverviewCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
         ),
         child: Text(
-          '$incoming en route, $pending a receptionner, $inStock en stock.',
+          '$incoming en route, $pending à réceptionner, $inStock en stock.',
         ),
       ),
     );
@@ -436,27 +436,33 @@ class _OverviewChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(18),
       onTap: () => _showRelayKpiInfo(context, label, explanation),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        constraints: const BoxConstraints(minHeight: 52, minWidth: 132),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white24,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white24),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: Colors.white),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+            Icon(icon, size: 18, color: Colors.white),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             const Icon(Icons.info_outline, size: 13, color: Colors.white70),
           ],
         ),
@@ -557,7 +563,7 @@ class _PendingCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 const Expanded(
                   child: Text(
-                    'Colis redirige apres echec de livraison',
+                    'Colis redirigé après échec de livraison',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.orange,
@@ -819,7 +825,7 @@ class _RelayParcelDetailSheetState
           _sectionTitle('Destinataire'),
           _infoRow(Icons.person_outline, 'Nom', parcel.recipientName ?? '-'),
           _infoRow(
-              Icons.phone_outlined, 'Telephone', parcel.recipientPhone ?? '-'),
+              Icons.phone_outlined, 'Téléphone', parcel.recipientPhone ?? '-'),
           if (parcel.destinationAddress != null)
             _infoRow(
               Icons.location_on_outlined,
@@ -964,7 +970,7 @@ class _RelayParcelDetailSheetState
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Code introuvable. Verifiez que le colis est bien depose au relais.',
+              'Code introuvable. Vérifiez que le colis est bien déposé au relais.',
             ),
             backgroundColor: Colors.orange,
           ),

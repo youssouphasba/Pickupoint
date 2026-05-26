@@ -18,49 +18,51 @@ async def compute_driver_stats_for_period(period: str) -> list[dict]:
     _, last_day = monthrange(year, month)
     end = datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
 
-    pipeline = [
+    drivers = await db.users.find(
+        {"role": "driver"},
+        {"_id": 0, "user_id": 1, "average_rating": 1, "total_ratings_count": 1},
+    ).to_list(None)
+
+    mission_stats_pipeline = [
         {
             "$match": {
-                "completed_at": {"$gte": start, "$lte": end},
-                "status": "completed",
+                "driver_id": {"$exists": True, "$ne": None},
+                "$or": [
+                    {"created_at": {"$gte": start, "$lte": end}},
+                    {"completed_at": {"$gte": start, "$lte": end}},
+                ],
             }
         },
-        {
-            "$group": {
-                "_id": "$driver_id",
-                "total_completed": {"$sum": 1},
-                "earned": {"$sum": "$earn_amount"},
-            }
-        },
-    ]
-
-    mission_counts_pipeline = [
-        {"$match": {"created_at": {"$gte": start, "$lte": end}}},
         {
             "$group": {
                 "_id": "$driver_id",
                 "total": {"$sum": 1},
                 "success": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}},
+                "earned": {
+                    "$sum": {
+                        "$cond": [
+                            {"$eq": ["$status", "completed"]},
+                            {"$ifNull": ["$earn_amount", 0]},
+                            0,
+                        ]
+                    }
+                },
             }
         },
     ]
 
-    results = await db.delivery_missions.aggregate(pipeline).to_list(None)
-    counts = await db.delivery_missions.aggregate(mission_counts_pipeline).to_list(None)
-    counts_dict = {c["_id"]: c for c in counts if c["_id"]}
+    mission_stats = await db.delivery_missions.aggregate(mission_stats_pipeline).to_list(None)
+    stats_by_driver = {item["_id"]: item for item in mission_stats if item.get("_id")}
 
     stats_list = []
-    for result in results:
-        driver_id = result["_id"]
+    for driver in drivers:
+        driver_id = driver.get("user_id")
         if not driver_id:
             continue
 
-        count = counts_dict.get(
-            driver_id,
-            {"total": result["total_completed"], "success": result["total_completed"]},
-        )
-        total = count["total"]
-        success = count["success"]
+        count = stats_by_driver.get(driver_id, {})
+        total = int(count.get("total") or 0)
+        success = int(count.get("success") or 0)
         rate = round(success / max(total, 1) * 100, 1)
 
         stats_list.append(
@@ -71,8 +73,8 @@ async def compute_driver_stats_for_period(period: str) -> list[dict]:
                 "deliveries_total": total,
                 "deliveries_success": success,
                 "success_rate": rate,
-                "avg_rating": 0.0,
-                "total_earned_xof": result["earned"],
+                "avg_rating": float(driver.get("average_rating") or 0),
+                "total_earned_xof": float(count.get("earned") or 0),
                 "bonus_paid_xof": 0,
                 "rank": 0,
                 "badge": "none",
@@ -81,7 +83,15 @@ async def compute_driver_stats_for_period(period: str) -> list[dict]:
             }
         )
 
-    stats_list.sort(key=lambda item: (-item["success_rate"], -item["deliveries_total"]))
+    stats_list.sort(
+        key=lambda item: (
+            -item["deliveries_success"],
+            -item["success_rate"],
+            -item["deliveries_total"],
+            -item["total_earned_xof"],
+            item["driver_id"],
+        )
+    )
 
     for index, stat in enumerate(stats_list):
         stat["rank"] = index + 1

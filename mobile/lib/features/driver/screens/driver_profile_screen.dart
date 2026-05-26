@@ -112,7 +112,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Nom complet',
                   helperText:
-                      'Le nom n est pas modifiable pour des raisons de securite.',
+                      'Le nom n’est pas modifiable pour des raisons de sécurité.',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -121,7 +121,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                 initialValue: user.phone,
                 enabled: false,
                 decoration: const InputDecoration(
-                  labelText: 'Telephone',
+                  labelText: 'Téléphone',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -339,7 +339,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     icon: Icons.local_shipping_outlined,
                     label: 'Livraisons',
                     value: '${user.deliveriesCompleted}',
-                    footer: 'terminees',
+                    footer: 'terminées',
                     color: Colors.blue,
                   ),
                 ),
@@ -357,8 +357,8 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             ),
             const SizedBox(height: 16),
             _section(
-              title: 'Identite',
-              subtitle: 'Informations de reference du compte livreur.',
+              title: 'Identité',
+              subtitle: 'Informations de référence du compte livreur.',
               trailing: IconButton(
                 onPressed: () => _editProfile(user),
                 icon: const Icon(Icons.edit_outlined),
@@ -369,20 +369,20 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     Icons.badge_outlined,
                     'Nom',
                     user.fullName ?? '-',
-                    helper: 'Non modifiable pour des raisons de securite.',
+                    helper: 'Non modifiable pour des raisons de sécurité.',
                   ),
                   _infoRow(
                     Icons.phone_outlined,
-                    'Telephone',
+                    'Téléphone',
                     user.phone,
                     helper: user.isPhoneVerified
-                        ? 'Numero verifie'
-                        : 'Numero non verifie',
+                        ? 'Numéro vérifié'
+                        : 'Numéro non vérifié',
                   ),
                   _infoRow(
                     Icons.alternate_email,
                     'E-mail',
-                    (user.email ?? '').isEmpty ? 'Non renseigne' : user.email!,
+                    (user.email ?? '').isEmpty ? 'Non renseigné' : user.email!,
                   ),
                   _infoRow(
                     Icons.fingerprint,
@@ -406,13 +406,13 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             ),
             const SizedBox(height: 16),
             _section(
-              title: 'Activite',
-              subtitle: 'Controle terrain et acces rapides.',
+              title: 'Activité',
+              subtitle: 'Contrôle terrain et accès rapides.',
               child: Column(
                 children: [
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Disponibilite'),
+                    title: const Text('Disponibilité'),
                     subtitle: Text(
                       user.isAvailable
                           ? 'Vous apparaissez dans les missions disponibles.'
@@ -535,7 +535,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('WhatsApp'),
-                    subtitle: const Text('Suivi et alertes complementaires.'),
+                    subtitle: const Text('Suivi et alertes complémentaires.'),
                     value: user.notificationPrefs.whatsappEnabled,
                     onChanged: (value) => _updatePrefs('whatsapp', value, user),
                   ),
@@ -560,20 +560,20 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             ),
             const SizedBox(height: 16),
             _section(
-              title: 'Securite et liens utiles',
+              title: 'Sécurité et liens utiles',
               subtitle:
-                  'Repere rapide pour le compte, les documents legaux et la navigation.',
+                  'Repère rapide pour le compte, les documents légaux et la navigation.',
               child: Column(
                 children: [
                   _infoRow(
                     Icons.verified_user,
-                    'Etat du compte',
+                    'État du compte',
                     user.isBanned ? 'Suspendu' : 'Actif',
                   ),
                   _infoRow(
                     Icons.gavel_outlined,
-                    'Acceptation legale',
-                    user.acceptedLegal ? 'Acceptee' : 'Non acceptee',
+                    'Acceptation légale',
+                    user.acceptedLegal ? 'Acceptée' : 'Non acceptée',
                     helper: user.acceptedLegalAt != null
                         ? 'Le ${_formatDate(user.acceptedLegalAt)}'
                         : null,
@@ -587,14 +587,14 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.privacy_tip_outlined),
-                    title: const Text('Politique de confidentialite'),
+                    title: const Text('Politique de confidentialité'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/legal/privacy'),
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.gavel_outlined),
-                    title: const Text('Conditions generales'),
+                    title: const Text('Conditions générales'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => context.push('/legal/cgu'),
                   ),
@@ -782,7 +782,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   const SizedBox(height: 8),
                   Text(
                     referralCode.isEmpty
-                        ? 'Votre code sera disponible apres l\'activation du parrainage.'
+                        ? 'Votre code sera disponible après l\'activation du parrainage.'
                         : 'Code: $referralCode',
                   ),
                   if (referralUrl != null && referralUrl.isNotEmpty) ...[
@@ -1304,7 +1304,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
   }
 
   String _formatDate(DateTime? date) {
-    if (date == null) return 'Non renseigne';
+    if (date == null) return 'Non renseigné';
     return DateFormat('dd/MM/yyyy').format(date.toLocal());
   }
 

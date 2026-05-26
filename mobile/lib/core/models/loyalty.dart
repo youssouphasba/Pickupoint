@@ -70,6 +70,8 @@ class DriverRanking {
   final List<RankingAchievement> achievements;
   final int missingDeliveriesToTop3;
   final int totalRankedDrivers;
+  final GeneralDriverRanking generalRanking;
+  final List<DriverMonthlyHistoryEntry> monthlyHistory;
   final String message;
   final DateTime? lastUpdatedAt;
   final bool isMe;
@@ -92,6 +94,8 @@ class DriverRanking {
     required this.achievements,
     required this.missingDeliveriesToTop3,
     required this.totalRankedDrivers,
+    required this.generalRanking,
+    required this.monthlyHistory,
     required this.message,
     this.lastUpdatedAt,
     required this.isMe,
@@ -129,11 +133,70 @@ class DriverRanking {
       missingDeliveriesToTop3:
           (json['missing_deliveries_to_top3'] as num?)?.toInt() ?? 0,
       totalRankedDrivers: (json['total_ranked_drivers'] as num?)?.toInt() ?? 0,
+      generalRanking: GeneralDriverRanking.fromJson(
+        json['general_ranking'] as Map<String, dynamic>? ?? const {},
+      ),
+      monthlyHistory: (json['monthly_history'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(DriverMonthlyHistoryEntry.fromJson)
+          .toList(),
       message: json['message'] as String? ?? '',
       lastUpdatedAt: json['last_updated_at'] != null
           ? DateTime.tryParse(json['last_updated_at'] as String)
           : null,
       isMe: json['is_me'] ?? false,
+    );
+  }
+}
+
+class GeneralDriverRanking {
+  final int rank;
+  final int totalDrivers;
+  final int deliveriesSuccess;
+  final double totalEarned;
+
+  const GeneralDriverRanking({
+    required this.rank,
+    required this.totalDrivers,
+    required this.deliveriesSuccess,
+    required this.totalEarned,
+  });
+
+  factory GeneralDriverRanking.fromJson(Map<String, dynamic> json) {
+    return GeneralDriverRanking(
+      rank: (json['rank'] as num?)?.toInt() ?? 0,
+      totalDrivers: (json['total_drivers'] as num?)?.toInt() ?? 0,
+      deliveriesSuccess: (json['deliveries_success'] as num?)?.toInt() ?? 0,
+      totalEarned: (json['total_earned_xof'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+class DriverMonthlyHistoryEntry {
+  final String period;
+  final int rank;
+  final int totalDrivers;
+  final int deliveriesSuccess;
+  final double successRate;
+  final double totalEarned;
+
+  const DriverMonthlyHistoryEntry({
+    required this.period,
+    required this.rank,
+    required this.totalDrivers,
+    required this.deliveriesSuccess,
+    required this.successRate,
+    required this.totalEarned,
+  });
+
+  factory DriverMonthlyHistoryEntry.fromJson(Map<String, dynamic> json) {
+    return DriverMonthlyHistoryEntry(
+      period: json['period'] as String? ?? '',
+      rank: (json['rank'] as num?)?.toInt() ?? 0,
+      totalDrivers: (json['total_drivers'] as num?)?.toInt() ?? 0,
+      deliveriesSuccess: (json['deliveries_success'] as num?)?.toInt() ?? 0,
+      successRate: (json['success_rate'] as num?)?.toDouble() ?? 0,
+      totalEarned: (json['total_earned_xof'] as num?)?.toDouble() ?? 0,
     );
   }
 }

@@ -223,9 +223,9 @@ class ClientProfileScreen extends ConsumerWidget {
         crossAxisCount: 2,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        childAspectRatio: 1.55,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        childAspectRatio: 1.25,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
         children: [
           _buildStatItem(
             context,
@@ -233,7 +233,7 @@ class ClientProfileScreen extends ConsumerWidget {
             '${stats['client_monthly_sent'] ?? 0}',
             Icons.outbox_outlined,
             Colors.blue,
-            'Nombre de colis que vous avez crees ce mois-ci. Il sert a suivre votre objectif mensuel client.',
+            'Nombre de colis que vous avez créés ce mois-ci. Il sert à suivre votre objectif mensuel client.',
           ),
           _buildStatItem(
             context,
@@ -249,15 +249,15 @@ class ClientProfileScreen extends ConsumerWidget {
             '${stats['loyalty_points'] ?? 0}',
             Icons.stars_outlined,
             Colors.amber,
-            'Vos points fidelite. Vous gagnez ${stats['loyalty_points_per_delivery'] ?? 0} points quand un colis envoye est livre.',
+            'Vos points fidélité. Vous gagnez ${stats['loyalty_points_per_delivery'] ?? 0} points quand un colis envoyé est livré.',
           ),
           _buildStatItem(
             context,
-            'Reussite',
+            'Réussite',
             '${stats['client_monthly_success_rate'] ?? 0}%',
             Icons.verified_outlined,
             Colors.indigo,
-            'Part des colis crees ce mois qui ont deja ete livres. Les colis encore en cours peuvent faire evoluer ce pourcentage.',
+            'Part des colis créés ce mois qui ont déjà été livrés. Les colis encore en cours peuvent faire évoluer ce pourcentage.',
           ),
         ],
       ),
@@ -278,7 +278,7 @@ class ClientProfileScreen extends ConsumerWidget {
       borderRadius: BorderRadius.circular(16),
       onTap: () => _showKpiInfo(context, label, explanation),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -294,12 +294,18 @@ class ClientProfileScreen extends ConsumerWidget {
                 Icon(Icons.info_outline, size: 16, color: Colors.grey.shade500),
               ],
             ),
-            const Spacer(),
+            const SizedBox(height: 18),
             Text(
               value,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
-            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -647,7 +653,7 @@ class ClientProfileScreen extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text(
                     referralCode.isEmpty
-                        ? 'Votre code sera disponible apres l’activation du parrainage.'
+                        ? 'Votre code sera disponible après l’activation du parrainage.'
                         : 'Code: $referralCode',
                   ),
                   if (referralUrl != null && referralUrl.isNotEmpty) ...[

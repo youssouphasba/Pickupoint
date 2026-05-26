@@ -118,7 +118,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Nom',
                   helperText:
-                      'Le nom n est pas modifiable pour des raisons de securite.',
+                      'Le nom n’est pas modifiable pour des raisons de sécurité.',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -127,7 +127,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                 initialValue: user.phone,
                 enabled: false,
                 decoration: const InputDecoration(
-                  labelText: 'Telephone',
+                  labelText: 'Téléphone',
                   helperText:
                       'Le numero principal du compte agent reste verrouille.',
                   border: OutlineInputBorder(),
@@ -279,7 +279,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _relay == null || user == null
               ? const Center(
-                  child: Text('Aucun point relais associe a ce compte.'))
+                  child: Text('Aucun point relais associé à ce compte.'))
               : RefreshIndicator(
                   onRefresh: _loadRelay,
                   child: ListView(
@@ -290,7 +290,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                       _SectionCard(
                         title: 'Compte agent',
                         subtitle:
-                            'Informations utiles pour vous identifier et pour le controle admin.',
+                            'Informations utiles pour vous identifier et pour le contrôle admin.',
                         trailing: IconButton(
                           onPressed: () => _editAgentAccount(user),
                           icon: const Icon(Icons.edit_outlined),
@@ -298,17 +298,17 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         child: Column(
                           children: [
                             _infoRow('Nom', user.fullName ?? user.phone),
-                            _infoRow('Telephone', user.phone),
+                            _infoRow('Téléphone', user.phone),
                             _infoRow(
                               'E-mail',
                               (user.email ?? '').isEmpty
-                                  ? 'Non renseigne'
+                                  ? 'Non renseigné'
                                   : user.email!,
                             ),
                             _infoRow('Role', 'Agent relais'),
                             _infoRow('User ID', user.id),
                             _infoRow(
-                              'Etat du compte',
+                              'État du compte',
                               user.isBanned
                                   ? 'Suspendu'
                                   : (user.isActive ? 'Actif' : 'Inactif'),
@@ -343,7 +343,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                               TextFormField(
                                 controller: _phoneCtrl,
                                 decoration: const InputDecoration(
-                                  labelText: 'Telephone de contact',
+                                  labelText: 'Téléphone de contact',
                                   border: OutlineInputBorder(),
                                 ),
                               ),
@@ -400,7 +400,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ),
                             _infoRow(
                               'Verification',
-                              _relay!.isVerified ? 'Verifie' : 'En attente',
+                              _relay!.isVerified ? 'Vérifié' : 'En attente',
                             ),
                             walletAsync.when(
                               data: (wallet) => _infoRow(
@@ -453,7 +453,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.privacy_tip_outlined),
-                              title: const Text('Politique de confidentialite'),
+                              title: const Text('Politique de confidentialité'),
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () => context.push('/legal/privacy'),
                             ),
@@ -461,7 +461,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.gavel_outlined),
-                              title: const Text('Conditions generales'),
+                              title: const Text('Conditions générales'),
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () => context.push('/legal/cgu'),
                             ),
@@ -542,7 +542,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
             runSpacing: 8,
             children: [
               _StatusChip(
-                label: relay.isVerified ? 'Verifie' : 'Non verifie',
+                label: relay.isVerified ? 'Vérifié' : 'Non vérifié',
                 color: relay.isVerified ? Colors.green : Colors.orange.shade100,
                 textColor: relay.isVerified ? Colors.white : Colors.brown,
               ),
@@ -568,11 +568,11 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
   String _kycLabel(String status) {
     switch (status) {
       case 'verified':
-        return 'Verifie';
+        return 'Vérifié';
       case 'pending':
         return 'En attente';
       case 'rejected':
-        return 'Rejete';
+        return 'Rejeté';
       default:
         return 'Non fourni';
     }

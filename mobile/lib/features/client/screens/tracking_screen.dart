@@ -214,7 +214,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
           const SizedBox(height: 12),
           parcel.events.isEmpty
               ? const Text(
-                  'Aucun evenement enregistre pour l instant.',
+                  'Aucun événement enregistré pour l’instant.',
                   style: TextStyle(color: Colors.grey),
                 )
               : TimelineWidget(events: parcel.events),
