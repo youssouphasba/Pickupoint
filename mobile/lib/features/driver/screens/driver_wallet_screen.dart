@@ -36,7 +36,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
     final transactionsAsync = ref.watch(driverTransactionsProvider(_period));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes Commissions')),
+      appBar: AppBar(title: const Text('Solde et revenus')),
       body: RefreshIndicator(
         onRefresh: () => Future.wait([
           ref.refresh(driverWalletProvider.future),
@@ -52,7 +52,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               Row(
                 children: [
                   const Expanded(
-                    child: Text('Historique des gains',
+                    child: Text('Historique des revenus',
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
@@ -103,7 +103,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
         ),
         child: Column(
           children: [
-            const Text('Cagnotte Livreur',
+            const Text('Solde Denkma',
                 style: TextStyle(color: Colors.white70, fontSize: 16)),
             const SizedBox(height: 8),
             Text(
@@ -120,11 +120,21 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
             ],
             const SizedBox(height: 24),
             LoadingButton(
-              label: 'Décaisser mes gains',
+              label: 'Décaisser mon solde',
               color: Colors.white,
-              onPressed:
-                  wallet.balance > 0 ? () => _showPayoutDialog(context) : null,
+              onPressed: wallet.balance > 0 && wallet.payoutAvailable
+                  ? () => _showPayoutDialog(context)
+                  : null,
             ),
+            if (!wallet.payoutAvailable &&
+                (wallet.payoutBlockReason ?? '').isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                wallet.payoutBlockReason!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () => _showTopupDialog(context),
@@ -215,7 +225,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
-          title: const Text('Demande de retrait'),
+          title: const Text('Demande de décaissement'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -285,7 +295,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
       AsyncValue<List<WalletTransaction>> transactionsAsync) {
     return transactionsAsync.when(
       data: (txs) {
-        if (txs.isEmpty) return const Text('Aucun gain enregistré.');
+        if (txs.isEmpty) return const Text('Aucun revenu enregistré.');
         return ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -293,13 +303,25 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, index) {
             final tx = txs[index];
+            final color = tx.isRevenue
+                ? Colors.blue
+                : tx.type == 'debit'
+                    ? Colors.red
+                    : Colors.green;
             return ListTile(
-              leading: const Icon(Icons.add_circle, color: Colors.green),
+              leading: Icon(
+                tx.isRevenue ? Icons.payments_outlined : Icons.add_circle,
+                color: color,
+              ),
               title: Text(tx.description ?? tx.type),
               subtitle: Text(formatDate(tx.createdAt)),
-              trailing: Text('+ ${formatXof(tx.amount)}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.green)),
+              trailing: Text(
+                '${tx.isCredit ? '+' : '-'} ${formatXof(tx.amount)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
             );
           },
         );

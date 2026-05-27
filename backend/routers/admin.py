@@ -73,12 +73,32 @@ def _month_bounds(period: str) -> tuple[datetime, datetime]:
     return start, end
 
 
+async def _recent_failed_driver_mission(user_id: str) -> Optional[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    return await db.delivery_missions.find_one(
+        {
+            "driver_id": user_id,
+            "status": MissionStatus.FAILED.value,
+            "$or": [
+                {"completed_at": {"$gte": cutoff}},
+                {"updated_at": {"$gte": cutoff}},
+            ],
+        },
+        {"_id": 0, "mission_id": 1},
+    )
+
+
 class PaymentOverrideRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=300)
 
 
 class AdminDecisionRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=300)
+
+
+class PayoutBlockRequest(BaseModel):
+    blocked: bool
+    reason: str = Field("", max_length=300)
 
 
 class MissionReassignRequest(BaseModel):
@@ -1223,6 +1243,15 @@ async def approve_payout(
     if not payout:
         raise not_found_exception("Demande de retrait")
     wallet_before = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
+    if wallet_before and wallet_before.get("payout_blocked"):
+        raise bad_request_exception(
+            wallet_before.get("payout_block_reason")
+            or "Décaissement bloqué manuellement par l'administration"
+        )
+    owner_id = payout.get("user_id") or payout.get("owner_id")
+    owner = await db.users.find_one({"user_id": owner_id}, {"_id": 0, "role": 1}) if owner_id else None
+    if owner and owner.get("role") == UserRole.DRIVER.value and await _recent_failed_driver_mission(owner_id):
+        raise bad_request_exception("Décaissement bloqué pendant 48h après une mission échouée")
 
     now = datetime.now(timezone.utc)
     payout_result = await db.payout_requests.update_one(
@@ -1295,7 +1324,6 @@ async def approve_payout(
         },
     )
 
-    owner_id = payout.get("user_id") or payout.get("owner_id")
     if owner_id:
         await notify_payout_result(owner_id, payout["amount"], approved=True)
 
@@ -1313,6 +1341,59 @@ async def approve_payout(
     )
 
     return {"message": "Retrait approuve", "payout_id": payout_id}
+
+
+@router.put("/users/{user_id}/payout-block", summary="Bloquer ou débloquer les décaissements utilisateur")
+async def set_user_payout_block(
+    user_id: str,
+    body: PayoutBlockRequest,
+    _admin=Depends(require_admin_dep),
+):
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "role": 1, "name": 1, "phone": 1})
+    if not user:
+        raise not_found_exception("Utilisateur")
+    if body.blocked and len(body.reason.strip()) < 3:
+        raise bad_request_exception("Le motif est obligatoire pour bloquer un décaissement")
+
+    wallet = await db.wallets.find_one({"owner_id": user_id}, {"_id": 0})
+    if not wallet:
+        wallet = {
+            "wallet_id": f"wlt_{uuid.uuid4().hex[:12]}",
+            "owner_id": user_id,
+            "owner_type": user.get("role", "client"),
+            "balance": 0.0,
+            "pending": 0.0,
+            "currency": "XOF",
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        await db.wallets.insert_one(wallet)
+
+    now = datetime.now(timezone.utc)
+    await db.wallets.update_one(
+        {"owner_id": user_id},
+        {"$set": {
+            "payout_blocked": body.blocked,
+            "payout_block_reason": body.reason.strip() if body.blocked else "",
+            "payout_blocked_by": _admin.get("user_id") if body.blocked and isinstance(_admin, dict) else None,
+            "payout_blocked_at": now if body.blocked else None,
+            "updated_at": now,
+        }},
+    )
+
+    await _record_event(
+        event_type="PAYOUT_BLOCK_UPDATED",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=body.reason.strip() if body.blocked else "Décaissement débloqué",
+        metadata={
+            "user_id": user_id,
+            "blocked": body.blocked,
+            "reason": body.reason.strip() if body.blocked else "",
+        },
+    )
+    return {"message": "Décaissement bloqué" if body.blocked else "Décaissement débloqué", "blocked": body.blocked}
 
 
 
@@ -1670,6 +1751,10 @@ async def admin_user_detail(
                 "balance",
                 "pending",
                 "currency",
+                "payout_blocked",
+                "payout_block_reason",
+                "payout_blocked_by",
+                "payout_blocked_at",
                 "updated_at",
             ],
         ),
@@ -3840,6 +3925,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
         "sample_share_message": build_referral_share_message(
             code="DENKMA-DEMO",
             referral_url=build_referral_url("DENKMA-DEMO", effective_share_base_url),
+            sponsor_bonus_xof=get_referral_role_config(settings_doc, "client").get("sponsor_bonus_xof", 500),
             referred_bonus_xof=get_referral_role_config(settings_doc, "client").get("referred_bonus_xof", 500),
             reward_rule=describe_referral_reward_rule(settings_doc, "client"),
         ),

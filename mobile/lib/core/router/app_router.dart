@@ -541,7 +541,7 @@ class RelayShell extends StatelessWidget {
             BottomNavigationBarItem(
                 icon: Icon(Icons.qr_code_scanner), label: 'Scanner'),
             BottomNavigationBarItem(
-                icon: Icon(Icons.account_balance_wallet), label: 'Gains'),
+                icon: Icon(Icons.account_balance_wallet), label: 'Solde'),
           ]),
     );
   }
@@ -680,7 +680,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
             BottomNavigationBarItem(
                 icon: Icon(Icons.local_shipping), label: 'Missions'),
             BottomNavigationBarItem(
-                icon: Icon(Icons.account_balance_wallet), label: 'Gains'),
+                icon: Icon(Icons.account_balance_wallet), label: 'Solde'),
             BottomNavigationBarItem(
                 icon: Icon(Icons.person_outline), label: 'Profil'),
           ]),

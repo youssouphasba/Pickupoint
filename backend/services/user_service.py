@@ -235,12 +235,18 @@ def build_referral_share_message(
     *,
     code: str,
     referral_url: str | None,
+    sponsor_bonus_xof: int,
     referred_bonus_xof: int,
     reward_rule: str | None = None,
 ) -> str:
     message = f"Utilise mon code parrainage Denkma {code} pour rejoindre l'app."
-    if referred_bonus_xof > 0:
+    if sponsor_bonus_xof > 0 and referred_bonus_xof > 0:
+        message += f" Gagne {referred_bonus_xof} XOF et fais-moi gagner {sponsor_bonus_xof} XOF !"
+    elif referred_bonus_xof > 0:
         message += f" Bonus filleul : {referred_bonus_xof} XOF."
+    elif sponsor_bonus_xof > 0:
+        message += f" Fais-moi gagner {sponsor_bonus_xof} XOF en t'inscrivant."
+
     if reward_rule:
         message += f" {reward_rule}"
     if referral_url:

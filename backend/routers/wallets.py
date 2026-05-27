@@ -42,6 +42,30 @@ async def _has_active_driver_mission(user_id: str) -> bool:
     return mission is not None
 
 
+async def _recent_failed_driver_mission(user_id: str) -> Optional[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    return await db.delivery_missions.find_one(
+        {
+            "driver_id": user_id,
+            "status": "failed",
+            "$or": [
+                {"completed_at": {"$gte": cutoff}},
+                {"updated_at": {"$gte": cutoff}},
+            ],
+        },
+        {"_id": 0, "mission_id": 1, "completed_at": 1, "updated_at": 1},
+    )
+
+
+def _payout_block_message(wallet: dict, failed_mission: Optional[dict]) -> Optional[str]:
+    if wallet.get("payout_blocked"):
+        reason = (wallet.get("payout_block_reason") or "").strip()
+        return reason or "Décaissement bloqué manuellement par l'administration"
+    if failed_mission:
+        return "Décaissement bloqué pendant 48h après une mission échouée"
+    return None
+
+
 def _transaction_period_filter(period: Optional[str]) -> dict:
     if not period:
         return {}
@@ -67,6 +91,14 @@ def _transaction_period_filter(period: Optional[str]) -> dict:
 async def get_my_wallet(current_user: dict = Depends(get_current_user)):
     owner_type = current_user.get("role", "client")
     wallet = await get_or_create_wallet(current_user["user_id"], owner_type)
+    if owner_type == "driver":
+        failed_mission = await _recent_failed_driver_mission(current_user["user_id"])
+        has_active_mission = await _has_active_driver_mission(current_user["user_id"])
+        blocked_reason = _payout_block_message(wallet, failed_mission)
+        if not blocked_reason and has_active_mission:
+            blocked_reason = "Décaissement indisponible tant qu'une course est active"
+        wallet["payout_available"] = not blocked_reason
+        wallet["payout_block_reason"] = blocked_reason
     return wallet
 
 
@@ -104,7 +136,7 @@ async def request_payout(
     current_user: dict = Depends(get_current_user),
 ):
     if current_user.get("role") == "driver" and await _has_active_driver_mission(current_user["user_id"]):
-        raise bad_request_exception("Retrait indisponible tant qu'une course est active")
+        raise bad_request_exception("Décaissement indisponible tant qu'une course est active")
     if body.amount <= 0:
         raise bad_request_exception("Montant invalide")
 
@@ -115,6 +147,11 @@ async def request_payout(
     wallet = await db.wallets.find_one({"owner_id": current_user["user_id"]}, {"_id": 0})
     if not wallet:
         raise not_found_exception("Wallet")
+    if current_user.get("role") == "driver":
+        failed_mission = await _recent_failed_driver_mission(current_user["user_id"])
+        blocked_reason = _payout_block_message(wallet, failed_mission)
+        if blocked_reason:
+            raise bad_request_exception(blocked_reason)
 
     now = datetime.now(timezone.utc)
     wallet_update = await db.wallets.update_one(
@@ -131,9 +168,11 @@ async def request_payout(
         "payout_id": _payout_id(),
         "wallet_id": wallet["wallet_id"],
         "owner_id": current_user["user_id"],
+        "user_id": current_user["user_id"],
         "amount": body.amount,
         "method": body.method,
         "phone": payout_phone,
+        "destination": payout_phone,
         "status": "pending",
         "created_at": now,
         "updated_at": now,
@@ -144,7 +183,7 @@ async def request_payout(
             wallet_id=wallet["wallet_id"],
             amount=body.amount,
             tx_type=TransactionType.PENDING.value,
-            description="Demande de retrait en attente",
+            description="Demande de décaissement du solde en attente",
             reference=payout["payout_id"],
             ensure_unique=True,
         )
@@ -161,7 +200,7 @@ async def request_payout(
 
     await record_admin_event(
         AdminEventType.PAYOUT_REQUESTED,
-        title=f"Demande de retrait : {body.amount:,} XOF".replace(",", " "),
+        title=f"Demande de décaissement : {body.amount:,} XOF".replace(",", " "),
         message=f"{current_user.get('name') or current_user['phone']} · {body.method}",
         href="/dashboard/payouts",
         metadata={

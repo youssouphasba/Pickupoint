@@ -13,6 +13,7 @@ import {
   fetchUserHistory,
   moderateProfilePhoto,
   setReferralAccess,
+  setUserPayoutBlock,
   startWhatsappSupport,
   unbanUser,
 } from "@/lib/api";
@@ -215,6 +216,8 @@ export default function UserDetailPage() {
   const [roleOpen, setRoleOpen] = React.useState(false);
   const [approvePhotoOpen, setApprovePhotoOpen] = React.useState(false);
   const [rejectPhotoOpen, setRejectPhotoOpen] = React.useState(false);
+  const [payoutBlockOpen, setPayoutBlockOpen] = React.useState(false);
+  const [payoutUnblockOpen, setPayoutUnblockOpen] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState("");
 
   const banMut = useMutation({
@@ -281,6 +284,15 @@ export default function UserDetailPage() {
       toast("Template WhatsApp envoyé.");
     },
     onError: (error) => toast(error instanceof Error ? error.message : "Impossible de démarrer le support WhatsApp."),
+  });
+
+  const payoutBlockMut = useMutation({
+    mutationFn: ({ blocked, reason }: { blocked: boolean; reason?: string }) =>
+      setUserPayoutBlock(id, blocked, reason),
+    onSuccess: (_, vars) => {
+      invalidate();
+      toast(vars.blocked ? "Décaissements bloqués." : "Décaissements débloqués.");
+    },
   });
 
   if (isLoading) {
@@ -745,6 +757,36 @@ export default function UserDetailPage() {
                 <span className="text-muted-foreground">Devise</span>
                 <span>{wallet.currency ?? "XOF"}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Décaissements</span>
+                <Badge tone={wallet.payout_blocked ? "danger" : "success"}>
+                  {wallet.payout_blocked ? "Bloqués" : "Autorisés"}
+                </Badge>
+              </div>
+              {wallet.payout_blocked && (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                  {wallet.payout_block_reason || "Blocage manuel admin"}
+                </div>
+              )}
+              <div className="pt-2">
+                {wallet.payout_blocked ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPayoutUnblockOpen(true)}
+                  >
+                    Débloquer les décaissements
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setPayoutBlockOpen(true)}
+                  >
+                    Bloquer les décaissements
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -1092,6 +1134,34 @@ export default function UserDetailPage() {
         confirmVariant="destructive"
         onConfirm={async (reason) => {
           await photoModerationMut.mutateAsync({ status: "rejected", reason });
+        }}
+      />
+
+      <ActionModal
+        open={payoutBlockOpen}
+        onOpenChange={setPayoutBlockOpen}
+        title="Bloquer les décaissements"
+        description="Le livreur ne pourra plus demander ni faire valider un décaissement tant que le blocage reste actif."
+        inputLabel="Motif du blocage"
+        inputPlaceholder="Ex: litige en cours, contrôle manuel, dette à clarifier..."
+        inputType="textarea"
+        confirmLabel="Bloquer"
+        confirmVariant="destructive"
+        onConfirm={async (reason) => {
+          await payoutBlockMut.mutateAsync({ blocked: true, reason });
+          setPayoutBlockOpen(false);
+        }}
+      />
+
+      <ConfirmModal
+        open={payoutUnblockOpen}
+        onOpenChange={setPayoutUnblockOpen}
+        title="Débloquer les décaissements"
+        description="Les décaissements seront de nouveau autorisés si aucune règle automatique ne les bloque."
+        confirmLabel="Débloquer"
+        onConfirm={async () => {
+          await payoutBlockMut.mutateAsync({ blocked: false });
+          setPayoutUnblockOpen(false);
         }}
       />
 

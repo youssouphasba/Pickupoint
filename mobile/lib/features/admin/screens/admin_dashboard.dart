@@ -251,7 +251,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _PriorityItem(
         title: 'Retraits en attente',
-        subtitle: 'Demandes de payout a valider par l\'equipe admin.',
+        subtitle: 'Demandes de décaissement à valider par l\'équipe admin.',
         count: _intValue(stats['pending_payouts']),
         color: Colors.deepOrange,
         icon: Icons.account_balance_wallet_outlined,
@@ -337,7 +337,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _ShortcutItem(
         title: 'Retraits',
-        subtitle: 'Valider ou rejeter les payouts',
+        subtitle: 'Valider ou rejeter les décaissements',
         route: '/admin/payouts',
         icon: Icons.payments_outlined,
         color: Colors.red,

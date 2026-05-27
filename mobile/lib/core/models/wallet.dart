@@ -5,6 +5,8 @@ class Wallet {
     required this.balance,
     required this.currency,
     this.pendingBalance = 0,
+    this.payoutAvailable = true,
+    this.payoutBlockReason,
   });
 
   final String id;
@@ -12,6 +14,8 @@ class Wallet {
   final double balance;
   final String currency;
   final double pendingBalance;
+  final bool payoutAvailable;
+  final String? payoutBlockReason;
 
   factory Wallet.fromJson(Map<String, dynamic> json) => Wallet(
         id: json['wallet_id'] as String? ?? json['id'] as String? ?? '',
@@ -21,6 +25,8 @@ class Wallet {
         pendingBalance: (json['pending'] as num?)?.toDouble() ??
             (json['pending_balance'] as num?)?.toDouble() ??
             0,
+        payoutAvailable: json['payout_available'] as bool? ?? true,
+        payoutBlockReason: json['payout_block_reason'] as String?,
       );
 }
 
@@ -39,7 +45,7 @@ class WalletTransaction {
   final String id;
   final String walletId;
 
-  /// Types : credit | debit | payout | commission
+  /// Types : credit | debit | pending | revenue
   final String type;
   final double amount;
   final String currency;
@@ -59,7 +65,8 @@ class WalletTransaction {
         reference: json['reference'] as String?,
       );
 
-  bool get isCredit => type == 'credit';
+  bool get isCredit => type == 'credit' || type == 'revenue';
+  bool get isRevenue => type == 'revenue';
 }
 
 class PayoutRequest {

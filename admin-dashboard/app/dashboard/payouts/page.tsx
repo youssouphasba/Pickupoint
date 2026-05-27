@@ -54,9 +54,9 @@ export default function PayoutsPage() {
     <div className="space-y-5 p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Demandes de retrait</h1>
+          <h1 className="text-2xl font-bold">Demandes de décaissement</h1>
           <p className="text-sm text-muted-foreground">
-            Valider ou rejeter les demandes de retrait des livreurs et relais.
+            Valider ou rejeter les décaissements du solde des livreurs et relais.
           </p>
         </div>
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
@@ -69,14 +69,14 @@ export default function PayoutsPage() {
       )}
       {isError && (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Erreur de chargement des retraits.
+          Erreur de chargement des décaissements.
         </div>
       )}
 
       {data && payouts.length === 0 && (
         <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Aucune demande de retrait en attente.
+            Aucune demande de décaissement en attente.
           </CardContent>
         </Card>
       )}
@@ -96,17 +96,17 @@ export default function PayoutsPage() {
       <ActionModal
         open={!!approveTarget}
         onOpenChange={(o) => !o && setApproveTarget(null)}
-        title={`Valider le retrait de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
+        title={`Valider le décaissement de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
         description="Note optionnelle (référence de transaction, numéro de virement…)"
         inputLabel="Note (optionnel)"
         inputPlaceholder="Ex: TX-20260417-001"
-        confirmLabel="Valider le retrait"
+        confirmLabel="Valider le décaissement"
         confirmVariant="default"
         required={false}
         onConfirm={async (note) => {
           await approvePayout(approveTarget!.payout_id, note || undefined);
           invalidate();
-          toast("Retrait validé avec succès.");
+          toast("Décaissement validé avec succès.");
           setApproveTarget(null);
         }}
       />
@@ -115,7 +115,7 @@ export default function PayoutsPage() {
       <ActionModal
         open={!!rejectTarget}
         onOpenChange={(o) => !o && setRejectTarget(null)}
-        title={`Rejeter le retrait de ${rejectTarget ? xof.format(rejectTarget.amount) : ""} XOF`}
+        title={`Rejeter le décaissement de ${rejectTarget ? xof.format(rejectTarget.amount) : ""} XOF`}
         description="Indiquez le motif du rejet. Le solde sera restauré au portefeuille de l'utilisateur."
         inputLabel="Motif du rejet"
         inputPlaceholder="Ex: Numéro de destination invalide"
@@ -124,7 +124,7 @@ export default function PayoutsPage() {
         onConfirm={async (reason) => {
           await rejectPayout(rejectTarget!.payout_id, reason);
           invalidate();
-          toast("Retrait rejeté.");
+          toast("Décaissement rejeté.");
           setRejectTarget(null);
         }}
       />

@@ -51,7 +51,7 @@ const items: Item[] = [
   { href: "/dashboard/users", label: "Utilisateurs", Icon: Users },
   { href: "/dashboard/notifications", label: "Notifications", Icon: Bell },
   { href: "/dashboard/applications", label: "Candidatures", Icon: FileText, badge: "applications" },
-  { href: "/dashboard/payouts", label: "Retraits", Icon: Wallet, badge: "payouts" },
+  { href: "/dashboard/payouts", label: "Décaissements", Icon: Wallet, badge: "payouts" },
   { href: "/dashboard/relays", label: "Relais", Icon: Store },
   { href: "/dashboard/drivers", label: "Livreurs", Icon: Truck },
   { href: "/dashboard/performances", label: "Performances", Icon: Trophy },

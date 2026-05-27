@@ -462,7 +462,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                         child: OutlinedButton.icon(
                           onPressed: () => context.go('/driver/wallet'),
                           icon: const Icon(Icons.payments_outlined),
-                          label: const Text('Gains'),
+                          label: const Text('Solde'),
                         ),
                       ),
                     ],
@@ -760,6 +760,11 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       final referralCode =
           data['referral_code']?.toString().trim().toUpperCase() ?? '';
       final referralUrl = data['referral_url']?.toString().trim();
+      final sponsorBonus = data['referral_sponsor_bonus_xof'] as int? ?? 0;
+      final refereeBonus = data['referral_referred_bonus_xof'] as int? ?? 0;
+      final sponsorBonus = data['referral_sponsor_bonus_xof'] as int? ?? 0;
+      final refereeBonus = data['referral_referred_bonus_xof'] as int? ?? 0;
+
       if (!mounted) return;
 
       await showModalBottomSheet<void>(
@@ -790,6 +795,86 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     Text(
                       referralUrl,
                       style: const TextStyle(color: Colors.blueGrey),
+                    ),
+                  ],
+                  if (sponsorBonus > 0 || refereeBonus > 0) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.stars, color: Colors.green),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (sponsorBonus > 0)
+                                  Text(
+                                    'Gagnez $sponsorBonus XOF par parrainage valide !',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                if (refereeBonus > 0)
+                                  Text(
+                                    'Votre ami recevra $refereeBonus XOF.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green.shade800,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (sponsorBonus > 0 || refereeBonus > 0) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.stars, color: Colors.green),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (sponsorBonus > 0)
+                                  Text(
+                                    'Gagnez $sponsorBonus XOF par parrainage valide !',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.green,
+                                    ),
+                                  ),
+                                if (refereeBonus > 0)
+                                  Text(
+                                    'Votre ami recevra $refereeBonus XOF.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.green.shade800,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                   const SizedBox(height: 16),

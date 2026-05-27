@@ -323,6 +323,18 @@ export async function rejectPayout(payoutId: string, reason: string) {
   return data;
 }
 
+export async function setUserPayoutBlock(
+  userId: string,
+  blocked: boolean,
+  reason?: string,
+) {
+  const { data } = await api.put(`/api/admin/users/${userId}/payout-block`, {
+    blocked,
+    reason: reason ?? "",
+  });
+  return data;
+}
+
 // ------------------------- WhatsApp support -------------------------
 
 export type WhatsAppSupportParcel = {

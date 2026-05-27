@@ -138,6 +138,38 @@ async def credit_wallet(
     return tx
 
 
+async def record_driver_revenue(
+    driver_id: str,
+    amount: float,
+    description: str,
+    parcel_id: Optional[str] = None,
+    reference: Optional[str] = None,
+    ensure_unique: bool = False,
+) -> dict:
+    wallet = await get_or_create_wallet(driver_id, "driver")
+
+    async def _op(session):
+        await db.users.update_one(
+            {"user_id": driver_id},
+            {"$inc": {"total_earned": amount}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+            session=session,
+        )
+        return await record_wallet_transaction(
+            wallet_id=wallet["wallet_id"],
+            amount=amount,
+            tx_type=TransactionType.REVENUE.value,
+            description=description,
+            parcel_id=parcel_id,
+            reference=reference,
+            ensure_unique=ensure_unique,
+            session=session,
+        )
+
+    tx = await _run_in_transaction(_op)
+    logger.info("Revenu livreur enregistrÃ© hors solde : owner=%s montant=%s XOF", driver_id, amount)
+    return tx
+
+
 async def debit_wallet(
     owner_id: str,
     amount: float,
@@ -217,6 +249,14 @@ async def distribute_delivery_revenue(parcel: dict):
                 {"user_id": driver_id},
                 {"$inc": {"cod_balance": collected_total}, "$set": {"updated_at": datetime.now(timezone.utc)}}
             )
+            await record_driver_revenue(
+                driver_id=driver_id,
+                amount=round(collected_total),
+                description=f"Revenu livraison {parcel.get('parcel_id')}",
+                parcel_id=parcel.get("parcel_id"),
+                reference=f"driver_revenue:{parcel.get('parcel_id')}",
+                ensure_unique=True,
+            )
             logger.info(
                 "COD livraison %s — montant collecte %s XOF — crédité au cod_balance du livreur %s",
                 parcel.get("parcel_id"), collected_total, driver_id
@@ -255,20 +295,22 @@ async def distribute_delivery_revenue(parcel: dict):
 
     # ── Créditer le driver ────────────────────────────────────────────────────
     if parcel.get("assigned_driver_id") and driver_share > 0:
-        await credit_wallet(
-            owner_id=parcel["assigned_driver_id"],
-            owner_type="driver",
+        await record_driver_revenue(
+            driver_id=parcel["assigned_driver_id"],
             amount=round(price * driver_share),
-            description=f"Commission livraison {parcel_id}",
+            description=f"Revenu livraison {parcel_id}",
             parcel_id=parcel_id,
+            reference=f"driver_revenue:{parcel_id}",
+            ensure_unique=True,
         )
         if driver_bonus > 0:
-            await credit_wallet(
-                owner_id=parcel["assigned_driver_id"],
-                owner_type="driver",
+            await record_driver_revenue(
+                driver_id=parcel["assigned_driver_id"],
                 amount=round(driver_bonus),
-                description=f"Bonus changement d'adresse {parcel_id}",
+                description=f"Revenu bonus changement d'adresse {parcel_id}",
                 parcel_id=parcel_id,
+                reference=f"driver_bonus_revenue:{parcel_id}",
+                ensure_unique=True,
             )
 
     # ── Créditer le relais origine ────────────────────────────────────────────

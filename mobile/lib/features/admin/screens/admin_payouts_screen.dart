@@ -14,11 +14,11 @@ class AdminPayoutsScreen extends ConsumerWidget {
     final payoutsAsync = ref.watch(adminPayoutsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Validation Retraits')),
+      appBar: AppBar(title: const Text('Décaissements à valider')),
       body: payoutsAsync.when(
         data: (payouts) {
           if (payouts.isEmpty) {
-            return const Center(child: Text('Aucune demande en attente.'));
+            return const Center(child: Text('Aucune demande de décaissement en attente.'));
           }
           return ListView.separated(
             padding: const EdgeInsets.all(16),
@@ -95,9 +95,9 @@ class AdminPayoutsScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref, String id) async {
     final reason = await _askReason(
       context: context,
-      title: 'Rejeter le retrait',
+      title: 'Rejeter le décaissement',
       helper:
-          'Le montant sera recredite sur le solde disponible. Indique le motif de rejet.',
+          'Le montant sera recrédité sur le solde disponible. Indique le motif de rejet.',
       confirmLabel: 'Rejeter',
       confirmColor: Colors.red,
     );
@@ -108,7 +108,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Retrait rejete.')));
+        ).showSnackBar(const SnackBar(content: Text('Décaissement rejeté.')));
       }
       ref.invalidate(adminPayoutsProvider);
       ref.invalidate(adminDashboardProvider);
@@ -127,9 +127,9 @@ class AdminPayoutsScreen extends ConsumerWidget {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Approuver le retrait ?'),
+        title: const Text('Approuver le décaissement ?'),
         content: const Text(
-          'Confirme que le virement a bien ete execute avant de valider.',
+          'Confirme que le virement a bien été exécuté avant de valider.',
         ),
         actions: [
           TextButton(
@@ -151,7 +151,7 @@ class AdminPayoutsScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Le virement a ete marque comme effectue.')),
+            content: Text('Le virement a été marqué comme effectué.')),
       );
       ref.invalidate(adminPayoutsProvider);
       ref.invalidate(adminDashboardProvider);

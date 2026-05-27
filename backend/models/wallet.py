@@ -5,9 +5,10 @@ from pydantic import BaseModel
 
 
 class TransactionType(str, Enum):
-    CREDIT  = "credit"   # gains
-    DEBIT   = "debit"    # retraits
+    CREDIT  = "credit"   # recharge ou crédit de solde
+    DEBIT   = "debit"    # débit de solde
     PENDING = "pending"  # en attente de validation
+    REVENUE = "revenue"  # revenu informatif, non retirable
 
 
 class Wallet(BaseModel):

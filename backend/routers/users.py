@@ -220,6 +220,7 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "share_message": build_referral_share_message(
             code=code,
             referral_url=referral_url,
+            sponsor_bonus_xof=config["sponsor_bonus_xof"],
             referred_bonus_xof=config["referred_bonus_xof"],
             reward_rule=describe_referral_reward_rule(settings_doc, user_role),
         ),

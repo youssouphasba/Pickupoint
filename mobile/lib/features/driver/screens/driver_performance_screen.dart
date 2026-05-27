@@ -114,7 +114,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
             const Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Mes Gains (7 derniers jours)',
+                'Mes revenus (7 derniers jours)',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
@@ -183,7 +183,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
             ),
             _buildStatCard(
               Icons.payments,
-              'Gains totaux accumulés',
+              'Revenus totaux accumulés',
               formatXof(user.totalEarned),
               Colors.orange,
               subtitle: 'Missions, bonus et pourboires',
@@ -391,7 +391,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
                   _rankingStat('Succès',
                       '${(ranking.successRate * 100).toStringAsFixed(0)}%'),
                   _rankingStat('Courses', '${ranking.deliveriesSuccess}'),
-                  _rankingStat('Gains', formatXof(ranking.totalEarned ?? 0)),
+                  _rankingStat('Revenus', formatXof(ranking.totalEarned ?? 0)),
                 ],
               ),
               const SizedBox(height: 14),
@@ -769,7 +769,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
     if (label.contains('Note')) {
       return 'Moyenne des notes laissées après vos missions. Plus elle est élevée, plus votre profil inspire confiance.';
     }
-    if (label.contains('Gains')) {
+    if (label.contains('Revenus')) {
       return 'Total cumulé de vos revenus livreur : courses, bonus et pourboires enregistrés.';
     }
     return 'Indicateur de performance utilisé pour suivre votre activité livreur.';
@@ -782,7 +782,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
     if (label.contains('Courses')) {
       return 'Nombre de courses terminées ce mois. C’est la base principale du classement mensuel.';
     }
-    if (label.contains('Gains')) {
+    if (label.contains('Revenus')) {
       return 'Revenus générés ce mois sur vos missions et transactions associées.';
     }
     if (label.contains('Jours')) {
