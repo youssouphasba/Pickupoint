@@ -98,7 +98,10 @@ class ApiClient {
       _dio.put(ApiEndpoints.profile, data: body);
 
   Future<Response> updateFcmToken(String token) =>
-      _dio.put(ApiEndpoints.updateFcm, data: {'fcm_token': token});
+      _dio.put(ApiEndpoints.updateFcm, data: {
+        'fcm_token': token,
+        'platform': Platform.operatingSystem,
+      });
 
   Future<Response> deleteAccount() => _dio.delete(ApiEndpoints.deleteAccount);
 

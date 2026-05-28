@@ -449,13 +449,58 @@ async def update_fcm_token(
     current_user: dict = Depends(get_current_user),
 ):
     """Enregistre le token Firebase Cloud Messaging de l'appareil."""
-    token = token_body.get("fcm_token")
+    token = (token_body.get("fcm_token") or "").strip()
     if not token:
         raise bad_request_exception("fcm_token manquant")
 
+    now = datetime.now(timezone.utc)
+    platform = (token_body.get("platform") or "").strip() or None
+    token_doc = {
+        "token": token,
+        "platform": platform,
+        "updated_at": now,
+        "is_active": True,
+    }
+
+    existing = await db.users.find_one(
+        {"user_id": current_user["user_id"]},
+        {"fcm_tokens": 1},
+    )
+    known_tokens = [
+        item.get("token")
+        for item in (existing or {}).get("fcm_tokens", [])
+        if isinstance(item, dict)
+    ]
+
+    if token in known_tokens:
+        await db.users.update_one(
+            {"user_id": current_user["user_id"], "fcm_tokens.token": token},
+            {
+                "$set": {
+                    "fcm_token": token,
+                    "fcm_tokens.$.platform": platform,
+                    "fcm_tokens.$.updated_at": now,
+                    "fcm_tokens.$.is_active": True,
+                    "updated_at": now,
+                }
+            },
+        )
+    else:
+        await db.users.update_one(
+            {"user_id": current_user["user_id"]},
+            {
+                "$set": {"fcm_token": token, "updated_at": now},
+                "$push": {
+                    "fcm_tokens": {
+                        "$each": [token_doc],
+                        "$slice": -10,
+                    }
+                },
+            },
+        )
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
-        {"$set": {"fcm_token": token, "updated_at": datetime.now(timezone.utc)}},
+        {"$pull": {"fcm_tokens": {"token": {"$in": [None, ""]}}}},
     )
     return {"message": "Token FCM mis a jour"}
 

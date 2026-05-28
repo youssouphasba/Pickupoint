@@ -52,6 +52,37 @@ def _ensure_firebase():
         logger.warning(f"Firebase Admin non initialisé (push désactivé) : {e}")
 
 
+def _push_tokens_from_user(user: dict | None) -> list[str]:
+    if not user:
+        return []
+    tokens: list[str] = []
+    for item in user.get("fcm_tokens") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("is_active") is False:
+            continue
+        token = (item.get("token") or "").strip()
+        if token and token not in tokens:
+            tokens.append(token)
+    legacy_token = (user.get("fcm_token") or "").strip()
+    if legacy_token and legacy_token not in tokens:
+        tokens.append(legacy_token)
+    return tokens[:10]
+
+
+def _is_invalid_fcm_token_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    if code in {"registration-token-not-registered", "invalid-registration-token"}:
+        return True
+    message = str(exc).lower()
+    return (
+        "registration token is not a valid" in message
+        or "requested entity was not found" in message
+        or "not a valid fcm registration token" in message
+        or "registration-token-not-registered" in message
+    )
+
+
 def _notif_id() -> str:
     return f"ntf_{uuid.uuid4().hex[:12]}"
 
@@ -753,14 +784,14 @@ async def _send_push(
 ):
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"fcm_token": 1, "notification_prefs": 1},
+        {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1},
     )
-    fcm_token = user.get("fcm_token") if user else None
+    fcm_tokens = _push_tokens_from_user(user)
     push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
 
     if not user:
         return {"push_status": "skipped", "push_reason": "user_not_found"}
-    if not fcm_token:
+    if not fcm_tokens:
         return {"push_status": "skipped", "push_reason": "missing_fcm_token"}
     if not push_enabled:
         return {"push_status": "skipped", "push_reason": "push_disabled"}
@@ -774,12 +805,45 @@ async def _send_push(
     try:
         import firebase_admin.messaging as _messaging
 
-        message = _messaging.Message(
-            notification=_messaging.Notification(title=title, body=body),
-            data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
-            token=fcm_token,
-        )
-        _messaging.send(message)
+        sent_count = 0
+        invalid_tokens: list[str] = []
+        failed_reasons: list[str] = []
+        for token in fcm_tokens:
+            message = _messaging.Message(
+                notification=_messaging.Notification(title=title, body=body),
+                data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
+                token=token,
+            )
+            try:
+                _messaging.send(message)
+                sent_count += 1
+            except Exception as token_error:
+                if _is_invalid_fcm_token_error(token_error):
+                    invalid_tokens.append(token)
+                failed_reasons.append(str(token_error)[:160])
+
+        if invalid_tokens:
+            await db.users.update_one(
+                {"user_id": user_id},
+                {
+                    "$pull": {"fcm_tokens": {"token": {"$in": invalid_tokens}}},
+                    "$unset": {"fcm_token": ""},
+                },
+            )
+            latest_token = next(
+                (token for token in fcm_tokens if token not in invalid_tokens),
+                None,
+            )
+            if latest_token:
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"fcm_token": latest_token}},
+                )
+
+        if not sent_count:
+            reason = failed_reasons[0] if failed_reasons else "all_tokens_failed"
+            logger.warning("Echec envoi Push FCM a %s: %s", user_id, reason)
+            return {"push_status": "failed", "push_reason": reason[:240]}
         logger.info("Push FCM envoyé à %s", user_id)
         return {"push_status": "sent", "push_reason": None}
     except Exception as e:
