@@ -53,6 +53,24 @@ function userDisplayName(user: AdminUser) {
   return user.name ?? user.full_name ?? "Sans nom";
 }
 
+function pushReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    missing_fcm_token: "token absent",
+    push_disabled: "push désactivé",
+    firebase_not_configured: "Firebase non configuré",
+    category_disabled: "catégorie désactivée",
+    user_not_found: "utilisateur introuvable",
+  };
+  return labels[reason] ?? reason;
+}
+
+function pushReasonsSummary(reasons?: Record<string, number>) {
+  if (!reasons || Object.keys(reasons).length === 0) return null;
+  return Object.entries(reasons)
+    .map(([reason, count]) => `${pushReasonLabel(reason)}: ${count}`)
+    .join(" · ");
+}
+
 export default function TargetedNotificationsPage() {
   const { toast } = useToast();
   const [role, setRole] = React.useState("all");
@@ -441,6 +459,11 @@ export default function TargetedNotificationsPage() {
                           {broadcast.push_failed_count ?? 0} échec ·{" "}
                           {broadcast.push_skipped_count ?? 0} ignoré
                         </div>
+                        {pushReasonsSummary(broadcast.push_reasons) && (
+                          <div className="mt-1 text-xs text-amber-700">
+                            {pushReasonsSummary(broadcast.push_reasons)}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {broadcast.created_at

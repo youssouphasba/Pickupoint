@@ -430,7 +430,32 @@ class _NotificationHistoryTab extends ConsumerWidget {
     final sent = item['push_sent_count'] ?? 0;
     final failed = item['push_failed_count'] ?? 0;
     final skipped = item['push_skipped_count'] ?? 0;
-    return '$sent push envoyés · $failed échec · $skipped ignoré';
+    final reasons = item['push_reasons'];
+    final reasonText = reasons is Map
+        ? reasons.entries
+            .map((entry) =>
+                '${_pushReasonLabel(entry.key.toString())}: ${entry.value}')
+            .join(' · ')
+        : '';
+    final summary = '$sent push envoyés · $failed échec · $skipped ignoré';
+    return reasonText.isEmpty ? summary : '$summary\n$reasonText';
+  }
+
+  String _pushReasonLabel(String reason) {
+    switch (reason) {
+      case 'missing_fcm_token':
+        return 'token absent';
+      case 'push_disabled':
+        return 'push désactivé';
+      case 'firebase_not_configured':
+        return 'Firebase non configuré';
+      case 'category_disabled':
+        return 'catégorie désactivée';
+      case 'user_not_found':
+        return 'utilisateur introuvable';
+      default:
+        return reason;
+    }
   }
 
   String _dateLabel(dynamic value) {

@@ -39,6 +39,8 @@ def _ensure_firebase():
         firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
         if firebase_creds_env:
             cred = credentials.Certificate(json.loads(firebase_creds_env))
+        elif settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
+            cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
         elif os.path.exists("firebase-service-account.json"):
             cred = credentials.Certificate("firebase-service-account.json")
         else:
