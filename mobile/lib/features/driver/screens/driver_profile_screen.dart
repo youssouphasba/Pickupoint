@@ -762,8 +762,6 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       final referralUrl = data['referral_url']?.toString().trim();
       final sponsorBonus = data['referral_sponsor_bonus_xof'] as int? ?? 0;
       final refereeBonus = data['referral_referred_bonus_xof'] as int? ?? 0;
-      final sponsorBonus = data['referral_sponsor_bonus_xof'] as int? ?? 0;
-      final refereeBonus = data['referral_referred_bonus_xof'] as int? ?? 0;
 
       if (!mounted) return;
 
