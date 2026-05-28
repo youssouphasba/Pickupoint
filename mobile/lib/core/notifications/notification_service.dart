@@ -6,7 +6,8 @@ import '../../../core/auth/auth_provider.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
 
-final notificationSettingsProvider = FutureProvider<NotificationSettings>((ref) {
+final notificationSettingsProvider =
+    FutureProvider<NotificationSettings>((ref) {
   return FirebaseMessaging.instance.getNotificationSettings();
 });
 
@@ -20,8 +21,22 @@ class NotificationService {
 
   Future<void> init() async {
     if (Platform.isAndroid) {
+      await _fcm.requestPermission(alert: true, badge: true, sound: true);
+      await _tryUploadCurrentToken();
+
       _fcm.onTokenRefresh.listen((token) {
         _uploadToken(token);
+      });
+
+      _ref.listen(authProvider, (_, next) async {
+        final authState = next.valueOrNull;
+        if (authState?.accessToken == null) {
+          return;
+        }
+        final token = await _fcm.getToken();
+        if (token != null) {
+          await _uploadToken(token);
+        }
       });
 
       await _initializeLocalNotifications();
@@ -45,7 +60,7 @@ class NotificationService {
       await _fcm.getAPNSToken();
     }
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized || 
+    if (settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional) {
       // 3. Récupérer le token et l'envoyer au backend si l'utilisateur est connecté
       String? token = await _fcm.getToken();

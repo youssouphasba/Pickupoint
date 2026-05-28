@@ -111,7 +111,8 @@ class _AdminNotificationsScreenState
         'user_ids': _targetMode == 'users' ? _selectedUserIds.toList() : [],
         if (_targetMode == 'role') 'role': _role,
       };
-      final res = await ref.read(apiClientProvider).sendAdminNotification(payload);
+      final res =
+          await ref.read(apiClientProvider).sendAdminNotification(payload);
       if (!mounted) return;
       final data = res.data as Map<String, dynamic>;
       _titleCtrl.clear();
@@ -390,6 +391,7 @@ class _NotificationHistoryTab extends ConsumerWidget {
                     [
                       (item['body'] ?? '').toString(),
                       _targetLabel(item),
+                      _pushLabel(item),
                       _dateLabel(item['created_at']),
                     ].where((value) => value.isNotEmpty).join('\n'),
                   ),
@@ -422,6 +424,13 @@ class _NotificationHistoryTab extends ConsumerWidget {
       return 'Cible : ${requested.length} utilisateur(s) sélectionné(s)';
     }
     return '';
+  }
+
+  String _pushLabel(Map<String, dynamic> item) {
+    final sent = item['push_sent_count'] ?? 0;
+    final failed = item['push_failed_count'] ?? 0;
+    final skipped = item['push_skipped_count'] ?? 0;
+    return '$sent push envoyés · $failed échec · $skipped ignoré';
   }
 
   String _dateLabel(dynamic value) {

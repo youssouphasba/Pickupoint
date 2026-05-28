@@ -24,6 +24,9 @@ class Parcel(BaseModel):
     description:           Optional[str] = None
     parcel_photo_url:      Optional[str] = None
     parcel_photo_path:     Optional[str] = None
+    parcel_photo_file_id:  Optional[str] = None
+    parcel_photo_filename: Optional[str] = None
+    parcel_photo_storage:  Optional[str] = None
     parcel_photo_content_type: Optional[str] = None
     parcel_photo_uploaded_at: Optional[datetime] = None
     is_express:            bool  = False

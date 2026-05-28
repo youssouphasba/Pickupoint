@@ -187,9 +187,13 @@ export async function approveApplication(
   applicationId: string,
   adminNotes?: string,
 ) {
-  const { data } = await api.put(`/api/applications/${applicationId}/approve`, null, {
-    params: adminNotes ? { admin_notes: adminNotes } : undefined,
-  });
+  const { data } = await api.put(
+    `/api/applications/${applicationId}/approve`,
+    null,
+    {
+      params: adminNotes ? { admin_notes: adminNotes } : undefined,
+    },
+  );
   return data;
 }
 
@@ -197,9 +201,13 @@ export async function rejectApplication(
   applicationId: string,
   adminNotes?: string,
 ) {
-  const { data } = await api.put(`/api/applications/${applicationId}/reject`, null, {
-    params: adminNotes ? { admin_notes: adminNotes } : undefined,
-  });
+  const { data } = await api.put(
+    `/api/applications/${applicationId}/reject`,
+    null,
+    {
+      params: adminNotes ? { admin_notes: adminNotes } : undefined,
+    },
+  );
   return data;
 }
 
@@ -221,6 +229,11 @@ export async function sendTargetedNotification(
     broadcast_id: string;
     matched: number;
     sent: number;
+    in_app_sent: number;
+    push_sent: number;
+    push_failed: number;
+    push_skipped: number;
+    push_reasons: Record<string, number>;
     missing_user_ids: string[];
   };
 }
@@ -233,6 +246,11 @@ export type NotificationBroadcast = {
   target_role?: string | null;
   matched_count: number;
   sent_count: number;
+  in_app_sent_count?: number;
+  push_sent_count?: number;
+  push_failed_count?: number;
+  push_skipped_count?: number;
+  push_reasons?: Record<string, number>;
   created_by?: string | null;
   created_by_name?: string | null;
   created_at?: string;
@@ -441,7 +459,9 @@ export async function sendWhatsappSupportTextReply(
   return data;
 }
 
-export async function sendWhatsappSupportReopenTemplate(conversationId: string) {
+export async function sendWhatsappSupportReopenTemplate(
+  conversationId: string,
+) {
   const { data } = await api.post(
     `/api/admin/support/whatsapp/conversations/${conversationId}/reopen-template`,
   );
@@ -650,9 +670,7 @@ export async function updateOperationalSettings(
   return data;
 }
 
-export async function updateAppUpdateSettings(
-  body: AppUpdateSettingsPayload,
-) {
+export async function updateAppUpdateSettings(body: AppUpdateSettingsPayload) {
   const { data } = await api.put("/api/admin/settings/app-update", body);
   return data;
 }
@@ -660,7 +678,10 @@ export async function updateAppUpdateSettings(
 export async function updatePerformanceRewardsSettings(
   body: PerformanceRewardsPayload,
 ) {
-  const { data } = await api.put("/api/admin/settings/performance-rewards", body);
+  const { data } = await api.put(
+    "/api/admin/settings/performance-rewards",
+    body,
+  );
   return data;
 }
 

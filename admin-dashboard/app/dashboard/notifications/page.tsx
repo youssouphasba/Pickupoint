@@ -91,7 +91,7 @@ export default function TargetedNotificationsPage() {
       }),
     onSuccess: (result) => {
       toast(
-        `${result.sent} notification${result.sent > 1 ? "s" : ""} envoyée${result.sent > 1 ? "s" : ""}.`,
+        `${result.in_app_sent} in-app, ${result.push_sent} push envoyée${result.push_sent > 1 ? "s" : ""}.`,
       );
       historyQuery.refetch();
       setSelectedIds(new Set());
@@ -164,7 +164,9 @@ export default function TargetedNotificationsPage() {
               />
               <span className="flex min-w-0 flex-col">
                 <span className="font-medium">{displayName}</span>
-                <span className="text-xs text-muted-foreground">{user.phone}</span>
+                <span className="text-xs text-muted-foreground">
+                  {user.phone}
+                </span>
               </span>
             </div>
           );
@@ -210,7 +212,8 @@ export default function TargetedNotificationsPage() {
             Notifications ciblées
           </h1>
           <p className="text-sm text-muted-foreground">
-            Envoyer une notification in-app et push à un ou plusieurs utilisateurs.
+            Envoyer une notification in-app et push à un ou plusieurs
+            utilisateurs.
           </p>
         </div>
         <Badge tone="info">
@@ -258,8 +261,13 @@ export default function TargetedNotificationsPage() {
                 searchPlaceholder="Nom, téléphone, e-mail, ID..."
                 toolbar={
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={toggleAllLoaded}>
-                      {allLoadedSelected ? "Désélectionner" : "Sélectionner"} les résultats
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={toggleAllLoaded}
+                    >
+                      {allLoadedSelected ? "Désélectionner" : "Sélectionner"}{" "}
+                      les résultats
                     </Button>
                     <Button
                       variant="ghost"
@@ -289,7 +297,10 @@ export default function TargetedNotificationsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Type</label>
-              <Select value={category} onValueChange={(value) => setCategory(value as typeof category)}>
+              <Select
+                value={category}
+                onValueChange={(value) => setCategory(value as typeof category)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -330,7 +341,9 @@ export default function TargetedNotificationsPage() {
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="font-medium">Aperçu</div>
               <div className="mt-2 rounded-lg border bg-background p-3">
-                <div className="font-semibold">{title || "Titre de la notification"}</div>
+                <div className="font-semibold">
+                  {title || "Titre de la notification"}
+                </div>
                 <div className="mt-1 text-sm text-muted-foreground">
                   {body || "Votre message apparaîtra ici."}
                 </div>
@@ -344,13 +357,18 @@ export default function TargetedNotificationsPage() {
                   ? "Aucun utilisateur sélectionné."
                   : selectedUsers.map((user) => (
                       <div key={user.user_id}>
-                        {userDisplayName(user)} · {ROLE_LABELS[user.role] ?? user.role}
+                        {userDisplayName(user)} ·{" "}
+                        {ROLE_LABELS[user.role] ?? user.role}
                       </div>
                     ))}
               </div>
             </div>
 
-            <Button className="w-full" disabled={!canSend} onClick={() => sendMut.mutate()}>
+            <Button
+              className="w-full"
+              disabled={!canSend}
+              onClick={() => sendMut.mutate()}
+            >
               {sendMut.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -409,15 +427,26 @@ export default function TargetedNotificationsPage() {
                       </td>
                       <td className="px-4 py-3">
                         {broadcast.target_role
-                          ? ROLE_LABELS[broadcast.target_role] ?? broadcast.target_role
+                          ? (ROLE_LABELS[broadcast.target_role] ??
+                            broadcast.target_role)
                           : "Sélection manuelle"}
                       </td>
                       <td className="px-4 py-3">
-                        {broadcast.sent_count}/{broadcast.matched_count}
+                        <div>
+                          {broadcast.sent_count}/{broadcast.matched_count}{" "}
+                          in-app
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {broadcast.push_sent_count ?? 0} push ·{" "}
+                          {broadcast.push_failed_count ?? 0} échec ·{" "}
+                          {broadcast.push_skipped_count ?? 0} ignoré
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {broadcast.created_at
-                          ? new Date(broadcast.created_at).toLocaleString("fr-FR")
+                          ? new Date(broadcast.created_at).toLocaleString(
+                              "fr-FR",
+                            )
                           : "—"}
                       </td>
                     </tr>

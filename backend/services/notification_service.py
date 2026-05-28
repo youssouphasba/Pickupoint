@@ -672,7 +672,11 @@ async def _store_and_send(
         {"notification_prefs": 1, "phone": 1, "fcm_token": 1},
     )
     if not _notification_category_enabled(user, category):
-        return
+        return {
+            "stored": False,
+            "push_status": "skipped",
+            "push_reason": "category_disabled",
+        }
 
     await _store_notification(
         user_id=user_id,
@@ -684,7 +688,7 @@ async def _store_and_send(
         metadata=metadata,
     )
 
-    await _send_push(
+    push_result = await _send_push(
         user_id=user_id,
         title=title,
         body=body,
@@ -705,6 +709,8 @@ async def _store_and_send(
                 )
             else:
                 await _send_whatsapp(phone, body)
+
+    return {"stored": True, **push_result}
 
 
 async def _store_notification(
@@ -750,12 +756,18 @@ async def _send_push(
     fcm_token = user.get("fcm_token") if user else None
     push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
 
-    if not fcm_token or not push_enabled or not _notification_category_enabled(user, category):
-        return
+    if not user:
+        return {"push_status": "skipped", "push_reason": "user_not_found"}
+    if not fcm_token:
+        return {"push_status": "skipped", "push_reason": "missing_fcm_token"}
+    if not push_enabled:
+        return {"push_status": "skipped", "push_reason": "push_disabled"}
+    if not _notification_category_enabled(user, category):
+        return {"push_status": "skipped", "push_reason": "category_disabled"}
 
     _ensure_firebase()
     if not _firebase_initialized:
-        return
+        return {"push_status": "skipped", "push_reason": "firebase_not_configured"}
 
     try:
         import firebase_admin.messaging as _messaging
@@ -767,8 +779,10 @@ async def _send_push(
         )
         _messaging.send(message)
         logger.info("Push FCM envoyé à %s", user_id)
+        return {"push_status": "sent", "push_reason": None}
     except Exception as e:
         logger.warning("Échec envoi Push FCM à %s: %s", user_id, e)
+        return {"push_status": "failed", "push_reason": str(e)[:240]}
 
 
 async def _whatsapp_post(payload: dict, phone: str) -> bool:
@@ -1062,9 +1076,13 @@ async def send_targeted_notifications(
             seen.add(clean_id)
             unique_user_ids.append(clean_id)
 
-    sent = 0
+    stored = 0
+    push_sent = 0
+    push_failed = 0
+    push_skipped = 0
+    push_reasons: dict[str, int] = {}
     for user_id in unique_user_ids:
-        await _store_and_send(
+        result = await _store_and_send(
             user_id=user_id,
             title=title,
             body=body,
@@ -1074,12 +1092,28 @@ async def send_targeted_notifications(
             skip_whatsapp=True,
             metadata=metadata,
         )
-        sent += 1
+        if result.get("stored"):
+            stored += 1
+        push_status = result.get("push_status")
+        push_reason = result.get("push_reason") or "none"
+        if push_status == "sent":
+            push_sent += 1
+        elif push_status == "failed":
+            push_failed += 1
+            push_reasons[push_reason] = push_reasons.get(push_reason, 0) + 1
+        else:
+            push_skipped += 1
+            push_reasons[push_reason] = push_reasons.get(push_reason, 0) + 1
 
     return {
         "requested": len(user_ids),
         "deduplicated": len(unique_user_ids),
-        "sent": sent,
+        "sent": stored,
+        "in_app_sent": stored,
+        "push_sent": push_sent,
+        "push_failed": push_failed,
+        "push_skipped": push_skipped,
+        "push_reasons": push_reasons,
     }
 
 

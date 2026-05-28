@@ -11,8 +11,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 from typing import Optional
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from gridfs.errors import NoFile
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from pydantic import BaseModel, Field
 from core.dependencies import get_current_user, get_current_user_optional, require_role
@@ -27,7 +31,7 @@ from core.utils import (
     phones_match,
     record_failed_attempt,
 )
-from database import db
+from database import db, get_db
 from models.common import UserRole, ParcelStatus
 from models.parcel import (
     ParcelCreate,
@@ -62,6 +66,13 @@ router = APIRouter()
 PRIVATE_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
 PRIVATE_PARCEL_PHOTO_DIR = UPLOADS_DIR.parent / "private_uploads" / "parcel_photos"
 PARCEL_PHOTO_MAX_SIZE = 5 * 1024 * 1024
+
+
+def _parcel_photos_bucket() -> AsyncIOMotorGridFSBucket:
+    database = get_db()
+    if database is None:
+        raise RuntimeError("Database not connected")
+    return AsyncIOMotorGridFSBucket(database, bucket_name="parcel_photos")
 
 
 def _parcel_photo_url(parcel_id: str) -> str:
@@ -110,7 +121,11 @@ def _parcel_photo_allowed(parcel: dict, current_user: dict) -> bool:
 
 
 def _parcel_has_photo(parcel: dict) -> bool:
-    return bool(parcel.get("parcel_photo_path") or parcel.get("parcel_photo_url"))
+    return bool(
+        parcel.get("parcel_photo_file_id")
+        or parcel.get("parcel_photo_path")
+        or parcel.get("parcel_photo_url")
+    )
 
 
 def _attach_parcel_photo_url(parcel: dict) -> None:
@@ -135,6 +150,25 @@ def _resolve_parcel_photo_path(parcel: dict) -> tuple[Path, str]:
             return legacy_path, media_type or "application/octet-stream"
 
     raise not_found_exception("Photo du colis")
+
+
+async def _read_parcel_photo_blob(parcel: dict) -> tuple[bytes, str, str]:
+    file_id = parcel.get("parcel_photo_file_id")
+    if file_id:
+        try:
+            grid_file = await _parcel_photos_bucket().open_download_stream(ObjectId(file_id))
+            content = await grid_file.read()
+            media_type = (
+                (grid_file.metadata or {}).get("content_type")
+                or parcel.get("parcel_photo_content_type")
+                or "application/octet-stream"
+            )
+            return content, media_type, grid_file.filename or f"{parcel['parcel_id']}_photo"
+        except (InvalidId, NoFile):
+            logger.warning("Photo GridFS introuvable pour le colis %s", parcel.get("parcel_id"))
+
+    path, media_type = _resolve_parcel_photo_path(parcel)
+    return path.read_bytes(), media_type, path.name
 
 
 def _generate_return_code() -> str:
@@ -877,11 +911,24 @@ async def upload_parcel_photo(
 
     content = await _read_upload_bytes(file, PARCEL_PHOTO_MAX_SIZE)
     ext, media_type = _validate_parcel_photo(file, content)
-    PRIVATE_PARCEL_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"parcel_{parcel_id}_{uuid.uuid4().hex}.{ext}"
-    path = PRIVATE_PARCEL_PHOTO_DIR / filename
-    path.write_bytes(content)
+    file_id = await _parcel_photos_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": media_type,
+            "parcel_id": parcel_id,
+            "uploaded_by": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
 
+    previous_file_id = parcel.get("parcel_photo_file_id")
+    if previous_file_id:
+        try:
+            await _parcel_photos_bucket().delete(ObjectId(previous_file_id))
+        except (InvalidId, NoFile):
+            pass
     previous_path = parcel.get("parcel_photo_path")
     if previous_path:
         previous = Path(previous_path)
@@ -893,7 +940,10 @@ async def upload_parcel_photo(
         {"parcel_id": parcel_id},
         {
             "$set": {
-                "parcel_photo_path": str(path),
+                "parcel_photo_file_id": str(file_id),
+                "parcel_photo_filename": filename,
+                "parcel_photo_storage": "gridfs",
+                "parcel_photo_path": None,
                 "parcel_photo_content_type": media_type,
                 "parcel_photo_uploaded_at": now,
                 "updated_at": now,
@@ -914,8 +964,12 @@ async def get_parcel_photo(
     if not _parcel_photo_allowed(parcel, current_user):
         raise forbidden_exception("Accès refusé à cette photo")
 
-    path, media_type = _resolve_parcel_photo_path(parcel)
-    return FileResponse(path=path, media_type=media_type, filename=path.name)
+    content, media_type, filename = await _read_parcel_photo_blob(parcel)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/{parcel_id}/confirm-location", summary="Confirmer sa position (App Destinataire)")

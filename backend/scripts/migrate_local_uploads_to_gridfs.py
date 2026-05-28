@@ -16,6 +16,7 @@ from database import close_db, connect_db, get_db
 
 PRIVATE_UPLOADS_DIR = UPLOADS_DIR.parent / "private_uploads"
 PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
+PRIVATE_PARCEL_PHOTO_DIR = PRIVATE_UPLOADS_DIR / "parcel_photos"
 
 
 def _bucket(name: str) -> AsyncIOMotorGridFSBucket:
@@ -110,6 +111,51 @@ async def migrate_kyc_document(user: dict, doc_type: str, dry_run: bool) -> bool
     return True
 
 
+async def migrate_parcel_photo(parcel: dict, dry_run: bool) -> bool:
+    if parcel.get("parcel_photo_file_id"):
+        return False
+    stored_path = parcel.get("parcel_photo_path")
+    path = Path(stored_path) if stored_path else None
+    if path is None and parcel.get("parcel_photo_url"):
+        filename = _filename_from_url(parcel.get("parcel_photo_url"))
+        path = UPLOADS_DIR / "parcel_photos" / filename if filename else None
+    if path is None:
+        return False
+    if not path.is_file():
+        fallback = PRIVATE_PARCEL_PHOTO_DIR / path.name
+        if fallback.is_file():
+            path = fallback
+        else:
+            return False
+    if dry_run:
+        return True
+    media_type = (
+        parcel.get("parcel_photo_content_type")
+        or mimetypes.guess_type(str(path))[0]
+        or "application/octet-stream"
+    )
+    file_id = await _upload_file(
+        _bucket("parcel_photos"),
+        path,
+        {
+            "content_type": media_type,
+            "parcel_id": parcel["parcel_id"],
+            "source": "local_migration",
+        },
+    )
+    await get_db().parcels.update_one(
+        {"parcel_id": parcel["parcel_id"]},
+        {
+            "$set": {
+                "parcel_photo_file_id": file_id,
+                "parcel_photo_filename": path.name,
+                "parcel_photo_storage": "gridfs",
+            }
+        },
+    )
+    return True
+
+
 async def main() -> None:
     dry_run = "--dry-run" in sys.argv
     await connect_db()
@@ -126,8 +172,10 @@ async def main() -> None:
         ).to_list(length=None)
         migrated_profiles = 0
         migrated_kyc = 0
+        migrated_parcel_photos = 0
         missing_profiles = 0
         missing_kyc = 0
+        missing_parcel_photos = 0
         for user in users:
             if await migrate_profile_photo(user, dry_run):
                 migrated_profiles += 1
@@ -141,9 +189,34 @@ async def main() -> None:
                     file_id_field = "kyc_id_card_file_id" if doc_type == "id_card" else "kyc_license_file_id"
                     if user.get(path_field) and not user.get(file_id_field):
                         missing_kyc += 1
+        parcels = await get_db().parcels.find(
+            {
+                "$and": [
+                    {"parcel_photo_file_id": {"$exists": False}},
+                    {
+                        "$or": [
+                            {"parcel_photo_path": {"$ne": None}},
+                            {"parcel_photo_url": {"$ne": None}},
+                        ]
+                    },
+                ]
+            },
+            {"_id": 0},
+        ).to_list(length=None)
+        for parcel in parcels:
+            if await migrate_parcel_photo(parcel, dry_run):
+                migrated_parcel_photos += 1
+            else:
+                missing_parcel_photos += 1
         mode = "DRY RUN" if dry_run else "MIGRATION"
-        print(f"{mode} profile_photos={migrated_profiles} kyc_documents={migrated_kyc}")
-        print(f"missing_local_files profiles={missing_profiles} kyc_documents={missing_kyc}")
+        print(
+            f"{mode} profile_photos={migrated_profiles} "
+            f"kyc_documents={migrated_kyc} parcel_photos={migrated_parcel_photos}"
+        )
+        print(
+            f"missing_local_files profiles={missing_profiles} "
+            f"kyc_documents={missing_kyc} parcel_photos={missing_parcel_photos}"
+        )
     finally:
         await close_db()
 

@@ -1489,6 +1489,11 @@ async def admin_send_targeted_notification(
             "missing_user_ids": missing_ids,
             "matched_count": len(matched_ids),
             "sent_count": result["sent"],
+            "in_app_sent_count": result.get("in_app_sent", result["sent"]),
+            "push_sent_count": result.get("push_sent", 0),
+            "push_failed_count": result.get("push_failed", 0),
+            "push_skipped_count": result.get("push_skipped", 0),
+            "push_reasons": result.get("push_reasons", {}),
             "created_by": admin_user.get("user_id"),
             "created_by_name": admin_user.get("name") or admin_user.get("email"),
             "created_at": now,
@@ -1501,6 +1506,11 @@ async def admin_send_targeted_notification(
         "broadcast_id": broadcast_id,
         "matched": len(matched_ids),
         "sent": result["sent"],
+        "in_app_sent": result.get("in_app_sent", result["sent"]),
+        "push_sent": result.get("push_sent", 0),
+        "push_failed": result.get("push_failed", 0),
+        "push_skipped": result.get("push_skipped", 0),
+        "push_reasons": result.get("push_reasons", {}),
         "missing_user_ids": missing_ids,
     }
 

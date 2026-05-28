@@ -108,14 +108,16 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
           final refreshRes = await refreshClient.refreshToken(refreshToken);
           final data = refreshRes.data as Map<String, dynamic>;
           final newAccessRaw = data['access_token'];
+          final newRefreshRaw = data['refresh_token'];
           if (newAccessRaw == null) {
             throw Exception("Jeton d'accès manquant lors du rafraîchissement.");
           }
           final newAccess = newAccessRaw.toString();
+          final newRefresh = newRefreshRaw?.toString() ?? refreshToken;
 
           await _storage.saveTokens(
             accessToken: newAccess,
-            refreshToken: refreshToken,
+            refreshToken: newRefresh,
           );
 
           final meClient = ApiClient(token: newAccess);
@@ -125,7 +127,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
             status: AuthStatus.authenticated,
             user: user,
             accessToken: newAccess,
-            refreshToken: refreshToken,
+            refreshToken: newRefresh,
           );
         } catch (_) {}
       }
@@ -380,17 +382,21 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final res = await client.refreshToken(current!.refreshToken!);
       final data = res.data as Map<String, dynamic>;
       final newAccessRaw = data['access_token'];
+      final newRefreshRaw = data['refresh_token'];
       if (newAccessRaw == null) {
         throw Exception("Jeton d'accès manquant lors du rafraîchissement.");
       }
       final newAccess = newAccessRaw.toString();
+      final newRefresh = newRefreshRaw?.toString() ?? current.refreshToken!;
 
       await _storage.saveTokens(
         accessToken: newAccess,
-        refreshToken: current.refreshToken!,
+        refreshToken: newRefresh,
       );
 
-      state = AsyncData(current.copyWith(accessToken: newAccess));
+      state = AsyncData(
+        current.copyWith(accessToken: newAccess, refreshToken: newRefresh),
+      );
       return newAccess;
     } catch (_) {
       await logout();
