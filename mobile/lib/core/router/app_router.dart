@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -169,7 +170,7 @@ Map<String, String> _parcelLinkQuery(Uri uri) {
 }
 
 Map<String, String> _createParcelLinkQuery(Uri uri) {
-  final query = <String, String>{};
+  final query = <String, String>{..._createParcelPayloadQuery(uri)};
   for (final key in const [
     'source',
     'external_ref',
@@ -187,6 +188,49 @@ Map<String, String> _createParcelLinkQuery(Uri uri) {
     }
   }
   return query;
+}
+
+Map<String, String> _createParcelPayloadQuery(Uri uri) {
+  final segments = uri.pathSegments
+      .map((segment) => segment.trim())
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+
+  String? encodedPayload;
+  if (uri.scheme == 'denkma' && uri.host == 'app') {
+    if (segments.length >= 2 && segments[0] == 'create-parcel') {
+      encodedPayload = segments[1];
+    }
+  } else if (segments.length >= 3 &&
+      segments[0] == 'app' &&
+      segments[1] == 'create-parcel') {
+    encodedPayload = segments[2];
+  } else if (segments.length >= 2 && segments[0] == 'create-parcel') {
+    encodedPayload = segments[1];
+  }
+
+  if (encodedPayload == null || encodedPayload.isEmpty) {
+    return const <String, String>{};
+  }
+
+  try {
+    final decoded = Uri.decodeComponent(encodedPayload);
+    final payload = jsonDecode(decoded);
+    if (payload is! Map) {
+      return const <String, String>{};
+    }
+    final normalized = <String, String>{};
+    payload.forEach((key, value) {
+      final normalizedKey = key.toString().trim();
+      final normalizedValue = value == null ? '' : value.toString().trim();
+      if (normalizedKey.isNotEmpty && normalizedValue.isNotEmpty) {
+        normalized[normalizedKey] = normalizedValue;
+      }
+    });
+    return normalized;
+  } catch (_) {
+    return const <String, String>{};
+  }
 }
 
 CreateParcelPrefill _prefillFromCreateParcelQuery(Map<String, String> query) {
