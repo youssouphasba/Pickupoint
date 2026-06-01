@@ -405,7 +405,15 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
               child: TextButton(
                 onPressed: _isLoading
                     ? null
-                    : () => context.go('/auth/phone?change=1'),
+                    : () {
+                        final query = Map<String, String>.from(
+                          GoRouterState.of(context).uri.queryParameters,
+                        )..['change'] = '1';
+                        context.go(
+                          Uri(path: '/auth/phone', queryParameters: query)
+                              .toString(),
+                        );
+                      },
                 child: const Text("Ce n'est pas mon compte"),
               ),
             ),

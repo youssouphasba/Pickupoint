@@ -104,6 +104,9 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
     setState(() => _isLoading = true);
 
     try {
+      final currentQuery = Map<String, String>.from(
+        GoRouterState.of(context).uri.queryParameters,
+      );
       // D'abord vérifier si l'utilisateur a un PIN configuré
       final client = ApiClient();
       final res = await client.checkPhone({'phone': phone});
@@ -112,7 +115,10 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
       if (data['exists'] == true && data['has_pin'] == true) {
         // Utilisateur existant avec PIN → écran PIN
         if (mounted) {
-          context.push('/auth/pin', extra: {'phone': phone});
+          context.push(
+            Uri(path: '/auth/pin', queryParameters: currentQuery).toString(),
+            extra: {'phone': phone},
+          );
         }
         return;
       }
@@ -122,11 +128,14 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
         phone,
         onCodeSent: (verificationId) {
           if (mounted) {
-            context.push('/auth/otp', extra: {
-              'phone': phone,
-              'verificationId': verificationId,
-              'referral_code': widget.initialReferralCode,
-            });
+            context.push(
+              Uri(path: '/auth/otp', queryParameters: currentQuery).toString(),
+              extra: {
+                'phone': phone,
+                'verificationId': verificationId,
+                'referral_code': widget.initialReferralCode,
+              },
+            );
           }
         },
         onError: (error) {
@@ -143,10 +152,14 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 .read(authProvider.notifier)
                 .signInWithFirebaseCredential(credential);
             if (mounted && regToken != null) {
-              context.pushReplacement('/auth/setup', extra: {
-                'registration_token': regToken,
-                'referral_code': widget.initialReferralCode,
-              });
+              context.pushReplacement(
+                Uri(path: '/auth/setup', queryParameters: currentQuery)
+                    .toString(),
+                extra: {
+                  'registration_token': regToken,
+                  'referral_code': widget.initialReferralCode,
+                },
+              );
             }
           } catch (e) {
             if (mounted) {
@@ -171,13 +184,19 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   Future<void> _continueWithPhone(String phone) async {
     setState(() => _isLoading = true);
     try {
+      final currentQuery = Map<String, String>.from(
+        GoRouterState.of(context).uri.queryParameters,
+      );
       final client = ApiClient();
       final res = await client.checkPhone({'phone': phone});
       final data = res.data as Map<String, dynamic>;
 
       if (data['exists'] == true && data['has_pin'] == true) {
         if (mounted) {
-          context.push('/auth/pin', extra: {'phone': phone});
+          context.push(
+            Uri(path: '/auth/pin', queryParameters: currentQuery).toString(),
+            extra: {'phone': phone},
+          );
         }
         return;
       }
@@ -186,11 +205,14 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
         phone,
         onCodeSent: (verificationId) {
           if (mounted) {
-            context.push('/auth/otp', extra: {
-              'phone': phone,
-              'verificationId': verificationId,
-              'referral_code': widget.initialReferralCode,
-            });
+            context.push(
+              Uri(path: '/auth/otp', queryParameters: currentQuery).toString(),
+              extra: {
+                'phone': phone,
+                'verificationId': verificationId,
+                'referral_code': widget.initialReferralCode,
+              },
+            );
           }
         },
         onError: (error) {
@@ -206,10 +228,14 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                 .read(authProvider.notifier)
                 .signInWithFirebaseCredential(credential);
             if (mounted && regToken != null) {
-              context.pushReplacement('/auth/setup', extra: {
-                'registration_token': regToken,
-                'referral_code': widget.initialReferralCode,
-              });
+              context.pushReplacement(
+                Uri(path: '/auth/setup', queryParameters: currentQuery)
+                    .toString(),
+                extra: {
+                  'registration_token': regToken,
+                  'referral_code': widget.initialReferralCode,
+                },
+              );
             }
           } catch (e) {
             if (mounted) {

@@ -20,8 +20,45 @@ enum _OriginMode { relay, gps }
 
 enum _InitiatedBy { sender, recipient }
 
+class CreateParcelPrefill {
+  const CreateParcelPrefill({
+    this.source,
+    this.externalRef,
+    this.recipientName,
+    this.recipientPhone,
+    this.deliveryAddressLabel,
+    this.deliveryAddressDistrict,
+    this.deliveryAddressCity,
+    this.declaredValue,
+    this.description,
+  });
+
+  final String? source;
+  final String? externalRef;
+  final String? recipientName;
+  final String? recipientPhone;
+  final String? deliveryAddressLabel;
+  final String? deliveryAddressDistrict;
+  final String? deliveryAddressCity;
+  final double? declaredValue;
+  final String? description;
+
+  bool get hasData =>
+      (source ?? '').trim().isNotEmpty ||
+      (externalRef ?? '').trim().isNotEmpty ||
+      (recipientName ?? '').trim().isNotEmpty ||
+      (recipientPhone ?? '').trim().isNotEmpty ||
+      (deliveryAddressLabel ?? '').trim().isNotEmpty ||
+      (deliveryAddressDistrict ?? '').trim().isNotEmpty ||
+      (deliveryAddressCity ?? '').trim().isNotEmpty ||
+      declaredValue != null ||
+      (description ?? '').trim().isNotEmpty;
+}
+
 class CreateParcelScreen extends ConsumerStatefulWidget {
-  const CreateParcelScreen({super.key});
+  const CreateParcelScreen({super.key, this.prefill});
+
+  final CreateParcelPrefill? prefill;
 
   @override
   ConsumerState<CreateParcelScreen> createState() => _CreateParcelScreenState();
@@ -64,6 +101,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   String _whoPays = 'sender'; // 'sender' | 'recipient'
   bool _isQuoteLoading = false;
   File? _parcelPhoto;
+  String? _prefillExternalRef;
+  String? _prefillDescription;
 
   // ── Mode de livraison calculé ─────────────────────────────────────────────────
   String get _deliveryMode {
@@ -76,6 +115,55 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           ? 'relay_to_relay'
           : 'home_to_relay';
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _applyPrefill();
+  }
+
+  void _applyPrefill() {
+    final prefill = widget.prefill;
+    if (prefill == null || !prefill.hasData) {
+      return;
+    }
+    if ((prefill.source ?? '').trim().toLowerCase() == 'stockman') {
+      _originMode = _OriginMode.gps;
+    }
+    final recipientName = (prefill.recipientName ?? '').trim();
+    if (recipientName.isNotEmpty) {
+      _recipientNameController.text = recipientName;
+    }
+    final recipientPhone = (prefill.recipientPhone ?? '').trim();
+    if (recipientPhone.isNotEmpty) {
+      _recipientPhoneController.text = recipientPhone;
+    }
+    final addressLabel = (prefill.deliveryAddressLabel ?? '').trim();
+    if (addressLabel.isNotEmpty) {
+      _addressLabelController.text = addressLabel;
+      _destMode = _DestMode.home;
+    }
+    final addressDistrict = (prefill.deliveryAddressDistrict ?? '').trim();
+    if (addressDistrict.isNotEmpty) {
+      _addressDistrictController.text = addressDistrict;
+      _destMode = _DestMode.home;
+    }
+    final addressCity = (prefill.deliveryAddressCity ?? '').trim();
+    if (addressCity.isNotEmpty) {
+      _addressCity = addressCity;
+      _destMode = _DestMode.home;
+    }
+    if (prefill.declaredValue != null && prefill.declaredValue! > 0) {
+      _declaredValueController.text =
+          prefill.declaredValue!.toStringAsFixed(prefill.declaredValue! % 1 == 0 ? 0 : 2);
+    }
+    _prefillExternalRef = (prefill.externalRef ?? '').trim().isEmpty
+        ? null
+        : prefill.externalRef!.trim();
+    _prefillDescription = (prefill.description ?? '').trim().isEmpty
+        ? null
+        : prefill.description!.trim();
   }
 
   bool get isReverse => _initiatedBy == _InitiatedBy.recipient;
@@ -271,12 +359,19 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             ? (authUser?.phone ?? '')
             : _recipientPhoneController.text.trim(),
       };
+      final createPayload = {
+        ...quoteData,
+        if ((_prefillExternalRef ?? '').isNotEmpty)
+          'external_ref': _prefillExternalRef,
+        if ((_prefillDescription ?? '').isNotEmpty)
+          'description': _prefillDescription,
+      };
 
       final res = await api.getQuote(quoteData);
       if (mounted) {
         context.push('/client/quote', extra: {
           'quote': res.data,
-          'formData': quoteData,
+          'formData': createPayload,
           'recipient_name': quoteData['recipient_name'],
           'recipient_phone': quoteData['recipient_phone'],
         });
@@ -304,6 +399,53 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       body: Column(
         children: [
           _buildStepIndicator(),
+          if (widget.prefill?.hasData == true)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(context).primaryColor.withValues(alpha: 0.18),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.local_shipping_outlined,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Commande Stockman importée',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if ((_prefillExternalRef ?? '').isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Référence : $_prefillExternalRef',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: PageView(
               controller: _pageController,

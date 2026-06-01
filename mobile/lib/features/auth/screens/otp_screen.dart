@@ -56,15 +56,21 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _verify(String otp) async {
     setState(() => _isLoading = true);
     try {
+      final currentQuery = Map<String, String>.from(
+        GoRouterState.of(context).uri.queryParameters,
+      );
       // Firebase OTP verification
       final token =
           await ref.read(authProvider.notifier).verifyFirebaseOtp(otp);
 
       if (token != null && mounted) {
-        context.pushReplacement('/auth/setup', extra: {
-          'registration_token': token,
-          'referral_code': widget.referralCode,
-        });
+        context.pushReplacement(
+          Uri(path: '/auth/setup', queryParameters: currentQuery).toString(),
+          extra: {
+            'registration_token': token,
+            'referral_code': widget.referralCode,
+          },
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -80,6 +86,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
   Future<void> _resend() async {
     if (_secondsRemaining > 0) return;
     try {
+      final currentQuery = Map<String, String>.from(
+        GoRouterState.of(context).uri.queryParameters,
+      );
       await ref.read(authProvider.notifier).startFirebasePhoneAuth(
         widget.phone,
         onCodeSent: (verificationId) {
@@ -103,10 +112,14 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                 .read(authProvider.notifier)
                 .signInWithFirebaseCredential(credential);
             if (mounted && regToken != null) {
-              context.pushReplacement('/auth/setup', extra: {
-                'registration_token': regToken,
-                'referral_code': widget.referralCode,
-              });
+              context.pushReplacement(
+                Uri(path: '/auth/setup', queryParameters: currentQuery)
+                    .toString(),
+                extra: {
+                  'registration_token': regToken,
+                  'referral_code': widget.referralCode,
+                },
+              );
             }
           } catch (_) {}
         },

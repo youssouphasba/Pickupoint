@@ -74,6 +74,7 @@ class ParcelCreate(BaseModel):
     dimensions:            Optional[Dict[str, float]] = None
     declared_value:        Optional[float] = None
     description:           Optional[str] = None
+    external_ref:          Optional[str] = None
     is_express:            bool = False
     who_pays:              str  = "sender"    # "sender" | "recipient"
     promo_id:              Optional[str] = None

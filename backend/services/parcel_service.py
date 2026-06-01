@@ -651,6 +651,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
         "description":           data.description,
+        "external_ref":          data.external_ref,
         "is_express":            data.is_express,
         "who_pays":              data.who_pays,
         "quote_breakdown":       quote.breakdown,

@@ -135,6 +135,27 @@ Map<String, String> _parcelLinkQuery(Uri uri) {
   };
 }
 
+Map<String, String> _createParcelLinkQuery(Uri uri) {
+  final query = <String, String>{};
+  for (final key in const [
+    'source',
+    'external_ref',
+    'recipient_name',
+    'recipient_phone',
+    'delivery_address_label',
+    'delivery_address_district',
+    'delivery_address_city',
+    'declared_value',
+    'description',
+  ]) {
+    final value = (uri.queryParameters[key] ?? '').trim();
+    if (value.isNotEmpty) {
+      query[key] = value;
+    }
+  }
+  return query;
+}
+
 bool _isParcelAppLink(Uri uri) {
   final segments = uri.pathSegments
       .map((segment) => segment.trim())
@@ -146,6 +167,21 @@ bool _isParcelAppLink(Uri uri) {
   return segments.isNotEmpty &&
       segments[0] == 'app' &&
       (segments.length == 1 || segments[1] == 'parcel');
+}
+
+bool _isCreateParcelAppLink(Uri uri) {
+  final segments = uri.pathSegments
+      .map((segment) => segment.trim())
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  if (uri.scheme == 'denkma' && uri.host == 'app') {
+    return segments.isNotEmpty && segments[0] == 'create-parcel';
+  }
+  return segments.isNotEmpty &&
+      ((segments[0] == 'app' &&
+              segments.length >= 2 &&
+              segments[1] == 'create-parcel') ||
+          segments[0] == 'create-parcel');
 }
 
 String _homeForRole(String role) {
@@ -172,8 +208,32 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final referralCode = _extractReferralCode(state.uri);
       final isParcelAppLink = _isParcelAppLink(state.uri);
       final parcelLinkQuery = _parcelLinkQuery(state.uri);
+      final isCreateParcelAppLink = _isCreateParcelAppLink(state.uri);
+      final createParcelLinkQuery = _createParcelLinkQuery(state.uri);
 
       if (isUnknown) return null; // attendre la résolution
+      if (isCreateParcelAppLink) {
+        if (!isLoggedIn) {
+          final query = {
+            ...createParcelLinkQuery,
+            'intent': 'create_parcel',
+          };
+          final sameIntent =
+              state.matchedLocation == '/auth/phone' &&
+              state.uri.queryParameters['intent'] == 'create_parcel';
+          if (!sameIntent) {
+            return Uri(
+              path: '/auth/phone',
+              queryParameters: query,
+            ).toString();
+          }
+        } else {
+          return Uri(
+            path: '/client/create',
+            queryParameters: createParcelLinkQuery,
+          ).toString();
+        }
+      }
       if (isParcelAppLink) {
         if (!isLoggedIn) {
           final currentPhone = state.uri.queryParameters['phone']?.trim();
@@ -210,6 +270,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
       if (isLoggedIn && isAuthRoute) {
+        if (state.uri.queryParameters['intent'] == 'create_parcel') {
+          return Uri(
+            path: '/client/create',
+            queryParameters: createParcelLinkQuery,
+          ).toString();
+        }
         return _homeForRole(auth!.effectiveRole);
       }
 
@@ -264,6 +330,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           queryParameters: _parcelLinkQuery(s.uri),
         ).toString(),
       ),
+      GoRoute(
+        path: '/app/create-parcel',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: {
+            ..._createParcelLinkQuery(s.uri),
+            'intent': 'create_parcel',
+          },
+        ).toString(),
+      ),
+      GoRoute(
+        path: '/create-parcel',
+        redirect: (_, s) => Uri(
+          path: '/auth/phone',
+          queryParameters: {
+            ..._createParcelLinkQuery(s.uri),
+            'intent': 'create_parcel',
+          },
+        ).toString(),
+      ),
 
       // ── Auth ──────────────────────────────────────────────
       GoRoute(
@@ -314,7 +400,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const ClientProfileScreen()),
           GoRoute(
               path: '/client/create',
-              builder: (_, __) => const CreateParcelScreen()),
+              builder: (_, state) => CreateParcelScreen(
+                    prefill: CreateParcelPrefill(
+                      source: state.uri.queryParameters['source'],
+                      externalRef: state.uri.queryParameters['external_ref'],
+                      recipientName: state.uri.queryParameters['recipient_name'],
+                      recipientPhone: state.uri.queryParameters['recipient_phone'],
+                      deliveryAddressLabel: state.uri.queryParameters['delivery_address_label'],
+                      deliveryAddressDistrict: state.uri.queryParameters['delivery_address_district'],
+                      deliveryAddressCity: state.uri.queryParameters['delivery_address_city'],
+                      declaredValue: double.tryParse(
+                        (state.uri.queryParameters['declared_value'] ?? '').replaceAll(',', '.'),
+                      ),
+                      description: state.uri.queryParameters['description'],
+                    ),
+                  )),
           GoRoute(
               path: '/client/quote',
               builder: (_, s) {
