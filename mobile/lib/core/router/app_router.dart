@@ -83,6 +83,37 @@ class _GoRouterNotifier extends ChangeNotifier {
   final Ref _ref;
 }
 
+String _normalizeIncomingLocation(
+  Uri uri, {
+  required bool isLoggedIn,
+  required String? role,
+}) {
+  final host = uri.host.trim().toLowerCase();
+  final normalizedPath = uri.path.trim().isEmpty ? '/' : uri.path.trim();
+  final normalized = Uri(
+    path: normalizedPath,
+    queryParameters: uri.queryParameters.isEmpty ? null : uri.queryParameters,
+  ).toString();
+
+  if (host.isEmpty) {
+    if (normalizedPath == '/') {
+      return isLoggedIn ? _homeForRole(role ?? 'client') : '/auth/phone';
+    }
+    return normalized;
+  }
+
+  if (host == 'denkma.com' ||
+      host == 'www.denkma.com' ||
+      host == 'api.denkma.com') {
+    if (normalizedPath == '/') {
+      return isLoggedIn ? _homeForRole(role ?? 'client') : '/auth/phone';
+    }
+    return normalized;
+  }
+
+  return normalized;
+}
+
 String? _extractReferralCode(Uri uri) {
   final queryRef =
       (uri.queryParameters['ref'] ?? uri.queryParameters['code'] ?? '')
@@ -217,6 +248,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/auth/phone',
     refreshListenable: notifier,
+    errorBuilder: (context, state) {
+      final auth = ref.read(authProvider).valueOrNull;
+      final target = _normalizeIncomingLocation(
+        state.uri,
+        isLoggedIn: auth?.status == AuthStatus.authenticated,
+        role: auth?.effectiveRole,
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        GoRouter.of(context).go(target);
+      });
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    },
     redirect: (context, state) {
       final auth = ref.read(authProvider).valueOrNull;
       final isLoggedIn = auth?.status == AuthStatus.authenticated;
@@ -228,12 +273,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final parcelLinkQuery = _parcelLinkQuery(state.uri);
       final isCreateParcelAppLink = _isCreateParcelAppLink(state.uri);
       final createParcelLinkQuery = _createParcelLinkQuery(state.uri);
+      final normalizedLocation = _normalizeIncomingLocation(
+        state.uri,
+        isLoggedIn: isLoggedIn,
+        role: auth?.effectiveRole,
+      );
       if (createParcelLinkQuery.isNotEmpty) {
         ref.read(pendingCreateParcelPrefillProvider.notifier).state =
             _prefillFromCreateParcelQuery(createParcelLinkQuery);
       }
 
       if (isUnknown) return null; // attendre la résolution
+      final currentLocation = Uri(
+        path: state.uri.path.isEmpty ? '/' : state.uri.path,
+        queryParameters: state.uri.queryParameters.isEmpty
+            ? null
+            : state.uri.queryParameters,
+      ).toString();
+      if (normalizedLocation != currentLocation) {
+        return normalizedLocation;
+      }
       if (isCreateParcelAppLink) {
         if (!isLoggedIn) {
           final query = {
@@ -303,6 +362,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/',
+        redirect: (_, __) {
+          final auth = ref.read(authProvider).valueOrNull;
+          final isLoggedIn = auth?.status == AuthStatus.authenticated;
+          return isLoggedIn
+              ? _homeForRole(auth?.effectiveRole ?? 'client')
+              : '/auth/phone';
+        },
+      ),
       // ── Public / Communs ────────────────────────────────────────
       GoRoute(
           path: '/legal/:docType',
