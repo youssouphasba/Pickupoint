@@ -12,6 +12,8 @@ import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/pin_login_screen.dart';
 import '../../features/auth/screens/setup_profile_screen.dart';
 import '../../features/client/screens/client_home.dart';
+import '../../features/client/models/create_parcel_prefill.dart';
+import '../../features/client/providers/create_parcel_prefill_provider.dart';
 import '../../features/client/screens/create_parcel_screen.dart';
 import '../../features/client/screens/quote_screen.dart';
 import '../../features/client/screens/parcel_detail_screen.dart';
@@ -156,6 +158,22 @@ Map<String, String> _createParcelLinkQuery(Uri uri) {
   return query;
 }
 
+CreateParcelPrefill _prefillFromCreateParcelQuery(Map<String, String> query) {
+  return CreateParcelPrefill(
+    source: query['source'],
+    externalRef: query['external_ref'],
+    recipientName: query['recipient_name'],
+    recipientPhone: query['recipient_phone'],
+    deliveryAddressLabel: query['delivery_address_label'],
+    deliveryAddressDistrict: query['delivery_address_district'],
+    deliveryAddressCity: query['delivery_address_city'],
+    declaredValue: double.tryParse(
+      (query['declared_value'] ?? '').replaceAll(',', '.'),
+    ),
+    description: query['description'],
+  );
+}
+
 bool _isParcelAppLink(Uri uri) {
   final segments = uri.pathSegments
       .map((segment) => segment.trim())
@@ -210,6 +228,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final parcelLinkQuery = _parcelLinkQuery(state.uri);
       final isCreateParcelAppLink = _isCreateParcelAppLink(state.uri);
       final createParcelLinkQuery = _createParcelLinkQuery(state.uri);
+      if (createParcelLinkQuery.isNotEmpty) {
+        ref.read(pendingCreateParcelPrefillProvider.notifier).state =
+            _prefillFromCreateParcelQuery(createParcelLinkQuery);
+      }
 
       if (isUnknown) return null; // attendre la résolution
       if (isCreateParcelAppLink) {
@@ -218,8 +240,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ...createParcelLinkQuery,
             'intent': 'create_parcel',
           };
-          final sameIntent =
-              state.matchedLocation == '/auth/phone' &&
+          final sameIntent = state.matchedLocation == '/auth/phone' &&
               state.uri.queryParameters['intent'] == 'create_parcel';
           if (!sameIntent) {
             return Uri(
@@ -400,21 +421,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const ClientProfileScreen()),
           GoRoute(
               path: '/client/create',
-              builder: (_, state) => CreateParcelScreen(
-                    prefill: CreateParcelPrefill(
-                      source: state.uri.queryParameters['source'],
-                      externalRef: state.uri.queryParameters['external_ref'],
-                      recipientName: state.uri.queryParameters['recipient_name'],
-                      recipientPhone: state.uri.queryParameters['recipient_phone'],
-                      deliveryAddressLabel: state.uri.queryParameters['delivery_address_label'],
-                      deliveryAddressDistrict: state.uri.queryParameters['delivery_address_district'],
-                      deliveryAddressCity: state.uri.queryParameters['delivery_address_city'],
-                      declaredValue: double.tryParse(
-                        (state.uri.queryParameters['declared_value'] ?? '').replaceAll(',', '.'),
-                      ),
-                      description: state.uri.queryParameters['description'],
-                    ),
-                  )),
+              builder: (_, state) {
+                final queryPrefill =
+                    _prefillFromCreateParcelQuery(state.uri.queryParameters);
+                final pendingPrefill =
+                    ref.read(pendingCreateParcelPrefillProvider);
+                return CreateParcelScreen(
+                  prefill: queryPrefill.hasData ? queryPrefill : pendingPrefill,
+                );
+              }),
           GoRoute(
               path: '/client/quote',
               builder: (_, s) {

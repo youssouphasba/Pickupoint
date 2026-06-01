@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
+import '../models/create_parcel_prefill.dart';
+import '../providers/create_parcel_prefill_provider.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../widgets/relay_selector_modal.dart';
@@ -19,41 +21,6 @@ enum _DestMode { home, relay }
 enum _OriginMode { relay, gps }
 
 enum _InitiatedBy { sender, recipient }
-
-class CreateParcelPrefill {
-  const CreateParcelPrefill({
-    this.source,
-    this.externalRef,
-    this.recipientName,
-    this.recipientPhone,
-    this.deliveryAddressLabel,
-    this.deliveryAddressDistrict,
-    this.deliveryAddressCity,
-    this.declaredValue,
-    this.description,
-  });
-
-  final String? source;
-  final String? externalRef;
-  final String? recipientName;
-  final String? recipientPhone;
-  final String? deliveryAddressLabel;
-  final String? deliveryAddressDistrict;
-  final String? deliveryAddressCity;
-  final double? declaredValue;
-  final String? description;
-
-  bool get hasData =>
-      (source ?? '').trim().isNotEmpty ||
-      (externalRef ?? '').trim().isNotEmpty ||
-      (recipientName ?? '').trim().isNotEmpty ||
-      (recipientPhone ?? '').trim().isNotEmpty ||
-      (deliveryAddressLabel ?? '').trim().isNotEmpty ||
-      (deliveryAddressDistrict ?? '').trim().isNotEmpty ||
-      (deliveryAddressCity ?? '').trim().isNotEmpty ||
-      declaredValue != null ||
-      (description ?? '').trim().isNotEmpty;
-}
 
 class CreateParcelScreen extends ConsumerStatefulWidget {
   const CreateParcelScreen({super.key, this.prefill});
@@ -155,8 +122,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       _destMode = _DestMode.home;
     }
     if (prefill.declaredValue != null && prefill.declaredValue! > 0) {
-      _declaredValueController.text =
-          prefill.declaredValue!.toStringAsFixed(prefill.declaredValue! % 1 == 0 ? 0 : 2);
+      _declaredValueController.text = prefill.declaredValue!
+          .toStringAsFixed(prefill.declaredValue! % 1 == 0 ? 0 : 2);
     }
     _prefillExternalRef = (prefill.externalRef ?? '').trim().isEmpty
         ? null
@@ -164,6 +131,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _prefillDescription = (prefill.description ?? '').trim().isEmpty
         ? null
         : prefill.description!.trim();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(pendingCreateParcelPrefillProvider.notifier).state = null;
+    });
   }
 
   bool get isReverse => _initiatedBy == _InitiatedBy.recipient;
