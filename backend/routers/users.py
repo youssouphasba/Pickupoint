@@ -42,6 +42,7 @@ from services.user_service import (
     get_referral_referred_bonus_xof,
     get_referral_role_config,
     get_referral_share_base_url,
+    get_referral_sponsor_bonus_xof,
     generate_unique_referral_code,
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
@@ -1062,6 +1063,7 @@ async def referral_landing(code: str):
         raise not_found_exception("Code parrainage")
 
     sponsor_role = str(sponsor.get("role") or "client")
+    sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc, sponsor_role)
     referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc, sponsor_role)
     reward_rule = describe_referral_reward_rule(settings_doc, sponsor_role)
     sponsor_name = escape(str(sponsor.get("name") or "Un utilisateur Denkma"))
@@ -1076,6 +1078,7 @@ async def referral_landing(code: str):
             referral_code,
             get_effective_referral_share_base_url(settings_doc),
         ),
+        sponsor_bonus_xof=sponsor_bonus_xof,
         referred_bonus_xof=referred_bonus_xof,
         reward_rule=reward_rule,
     )

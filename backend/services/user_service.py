@@ -212,8 +212,8 @@ def get_referral_share_base_url(settings_doc: dict | None) -> str | None:
 
 
 def get_default_referral_share_base_url() -> str:
-    base_url = str(settings.BASE_URL or "").strip().rstrip("/")
-    return f"{base_url}/api/users/referral/{{code}}"
+    base_url = str(settings.PUBLIC_SITE_URL or settings.BASE_URL or "").strip().rstrip("/")
+    return f"{base_url}/app/?ref={{code}}"
 
 
 def get_effective_referral_share_base_url(settings_doc: dict | None) -> str:

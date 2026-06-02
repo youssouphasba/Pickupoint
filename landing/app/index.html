@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="index,follow" />
   <title>Ouvrir Denkma</title>
-  <meta name="description" content="Ouvrez Denkma pour retrouver les colis liés à votre numéro et suivre leur livraison en direct." />
+  <meta name="description" content="Ouvrez Denkma pour retrouver vos colis ou utiliser un code de parrainage." />
   <link rel="canonical" href="https://denkma.com/app/" />
   <link rel="icon" type="image/png" href="/assets/logo.png" />
   <style>
@@ -99,10 +99,52 @@
       background: #fff;
       color: var(--ink);
     }
+    .store-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 4px;
+    }
+    .store {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 64px;
+      padding: 12px 14px;
+      text-align: left;
+    }
+    .store-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: var(--soft);
+      color: var(--primary);
+      font-weight: 900;
+      flex: 0 0 auto;
+    }
+    .store small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+    .store strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.2;
+    }
     .small {
       margin-top: 18px;
       font-size: 13px;
       color: var(--muted);
+    }
+    @media (max-width: 520px) {
+      .store-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -112,8 +154,8 @@
       <img src="/assets/logo.png" alt="" />
       <span>Denkma</span>
     </div>
-    <h1>Retrouvez votre colis dans l'application</h1>
-    <p>
+    <h1 id="title">Retrouvez votre colis dans l'application</h1>
+    <p id="intro">
       Connectez-vous avec le même numéro que celui utilisé pour recevoir le colis.
       Les colis déjà liés à ce numéro apparaîtront automatiquement dans votre compte,
       avec les détails et le suivi en direct quand la livraison est active.
@@ -121,8 +163,16 @@
     <div class="notice" id="context">Lien de suivi détecté.</div>
     <div class="actions">
       <a class="button primary" id="openApp" href="denkma://app/parcel">Ouvrir l'application</a>
-      <a class="button secondary" href="https://play.google.com/store/apps/details?id=com.denkma.app">Télécharger sur Android</a>
-      <a class="button secondary" href="https://apps.apple.com/fr/app/denkma/id6760837156">Télécharger sur iPhone</a>
+      <div class="store-grid" aria-label="Téléchargement Denkma">
+        <a class="button secondary store" href="https://play.google.com/store/apps/details?id=com.denkma.app">
+          <span class="store-mark">▶</span>
+          <span><small>Disponible sur</small><strong>Google Play</strong></span>
+        </a>
+        <a class="button secondary store" href="https://apps.apple.com/fr/app/denkma/id6760837156">
+          <span class="store-mark"></span>
+          <span><small>Télécharger sur</small><strong>App Store</strong></span>
+        </a>
+      </div>
     </div>
     <p class="small">
       Si l'application ne s'ouvre pas, installez Denkma puis reconnectez-vous avec le numéro destinataire.
@@ -133,15 +183,22 @@
     const params = new URLSearchParams(window.location.search);
     const phone = params.get('phone') || '';
     const tracking = params.get('tracking') || params.get('tracking_code') || '';
-    const deeplink = new URL('denkma://app/parcel');
+    const referral = (params.get('ref') || params.get('code') || '').trim().toUpperCase();
+    const deeplink = new URL(referral ? `denkma://app/referral/${encodeURIComponent(referral)}` : 'denkma://app/parcel');
 
     if (phone) deeplink.searchParams.set('phone', phone);
     if (tracking) deeplink.searchParams.set('tracking', tracking);
 
     document.getElementById('openApp').href = deeplink.toString();
-    document.getElementById('context').textContent = tracking
-      ? `Suivi ${tracking} détecté.`
-      : 'Votre numéro permettra de retrouver vos colis reçus.';
+    if (referral) {
+      document.getElementById('title').textContent = 'Utilisez votre code de parrainage';
+      document.getElementById('intro').textContent = 'Ouvrez Denkma pour créer votre compte avec le code reçu. Si l’application n’est pas encore installée, téléchargez-la puis revenez sur ce lien.';
+      document.getElementById('context').textContent = `Code parrainage ${referral} détecté.`;
+    } else {
+      document.getElementById('context').textContent = tracking
+        ? `Suivi ${tracking} détecté.`
+        : 'Votre numéro permettra de retrouver vos colis reçus.';
+    }
 
     window.setTimeout(() => {
       window.location.href = deeplink.toString();
