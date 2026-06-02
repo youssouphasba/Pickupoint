@@ -146,13 +146,12 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             label: const Text('Appeler'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: () =>
-                                _openWhatsappSupport(
-                                  context,
-                                  ref,
-                                  user.id,
-                                  user.phone,
-                                ),
+                            onPressed: () => _openWhatsappSupport(
+                              context,
+                              ref,
+                              user.id,
+                              user.phone,
+                            ),
                             icon: const Icon(Icons.support_agent_outlined),
                             label: const Text('Support WhatsApp'),
                           ),
@@ -429,7 +428,10 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         '${referral['referrals_count'] ?? 0}',
                       ),
                       const SizedBox(height: 8),
-                      _SponsoredReferralList(summary: sponsoredReferrals),
+                      _SponsoredReferralList(
+                        summary: sponsoredReferrals,
+                        userId: user.id,
+                      ),
                       _InfoRow(
                         'Bonus deja credite',
                         (referral['referral_credited'] as bool? ?? false)
@@ -534,8 +536,9 @@ class AdminUserDetailScreen extends ConsumerWidget {
   ) async {
     final cleanPhone = phone.trim();
     try {
-      final response =
-          await ref.read(apiClientProvider).startWhatsappSupport(userId: userId);
+      final response = await ref
+          .read(apiClientProvider)
+          .startWhatsappSupport(userId: userId);
       final data = Map<String, dynamic>.from(response.data as Map);
       final conversation = Map<String, dynamic>.from(
         data['conversation'] as Map? ?? const {},
@@ -906,13 +909,17 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _SponsoredReferralList extends StatelessWidget {
-  const _SponsoredReferralList({required this.summary});
+class _SponsoredReferralList extends ConsumerWidget {
+  const _SponsoredReferralList({
+    required this.summary,
+    required this.userId,
+  });
 
   final Map<String, dynamic> summary;
+  final String userId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final items = (summary['items'] as List? ?? const [])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -959,36 +966,100 @@ class _SponsoredReferralList extends StatelessWidget {
             for (final item in items.take(8))
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _stringOrDash(item['referred_name']),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _stringOrDash(item['referred_name']),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                '${item['reward_metric_count'] ?? 0} / ${item['reward_count'] ?? 1} objectif',
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '${item['reward_metric_count'] ?? 0} / ${item['reward_count'] ?? 1} objectif',
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                        ),
+                        _StatusChip(
+                          label: _referralStatusLabel(item['status']),
+                          color: _referralStatusColor(item['status']),
+                        ),
+                      ],
+                    ),
+                    if (item['status']?.toString() == 'qualified' &&
+                        (item['referral_id']?.toString().trim().isNotEmpty ??
+                            false))
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Valider paiement'),
+                          onPressed: () => _confirmPayment(context, ref, item),
+                        ),
                       ),
-                    ),
-                    _StatusChip(
-                      label: _referralStatusLabel(item['status']),
-                      color: _referralStatusColor(item['status']),
-                    ),
                   ],
                 ),
               ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmPayment(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> item,
+  ) async {
+    final referralId = item['referral_id']?.toString().trim() ?? '';
+    if (referralId.isEmpty) {
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Valider le paiement ?'),
+        content: Text(
+          "Confirmer que le paiement parrainage de ${_stringOrDash(item['referred_name'])} a été effectué.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Valider'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      await ref.read(apiClientProvider).confirmReferralPayment(referralId);
+      ref.invalidate(adminUserDetailProvider(userId));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paiement parrainage validé')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
   }
 
   static String _stringOrDash(dynamic value) {

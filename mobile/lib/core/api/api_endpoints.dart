@@ -226,4 +226,6 @@ class ApiEndpoints {
       '$_base/api/admin/settings/referral/stats';
   static String adminUserReferralAccess(String id) =>
       '$_base/api/admin/users/$id/referral-access';
+  static String adminReferralPaymentConfirmed(String id) =>
+      '$_base/api/admin/referrals/$id/payment-confirmed';
 }

@@ -751,6 +751,27 @@ class ClientProfileScreen extends ConsumerWidget {
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.link_outlined),
+                    title: const Text('Copier le lien'),
+                    onTap: referralUrl == null || referralUrl.isEmpty
+                        ? null
+                        : () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: referralUrl),
+                            );
+                            if (!sheetContext.mounted) {
+                              return;
+                            }
+                            Navigator.of(sheetContext).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Lien de parrainage copié'),
+                              ),
+                            );
+                          },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
                     leading:
                         const Icon(Icons.message_outlined, color: Colors.green),
                     title: const Text('Partager sur WhatsApp'),

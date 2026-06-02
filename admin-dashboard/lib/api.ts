@@ -825,6 +825,14 @@ export async function setReferralAccess(
   return data;
 }
 
+export async function confirmReferralPayment(referralId: string, note = "") {
+  const { data } = await api.post(
+    `/api/admin/referrals/${referralId}/payment-confirmed`,
+    { note },
+  );
+  return data;
+}
+
 // ───────────────────────── Relay detail ─────────────────────────
 
 export async function fetchRelayDetail(relayId: string) {

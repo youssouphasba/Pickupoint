@@ -8,6 +8,7 @@ import {
   assignRelayPoint,
   banUser,
   changeUserRole,
+  confirmReferralPayment,
   fetchRelays,
   fetchUserDetail,
   fetchUserHistory,
@@ -257,6 +258,14 @@ export default function UserDetailPage() {
     onSuccess: () => {
       invalidate();
       toast("Accès parrainage mis à jour.");
+    },
+  });
+
+  const referralPaymentMut = useMutation({
+    mutationFn: (referralId: string) => confirmReferralPayment(referralId),
+    onSuccess: () => {
+      invalidate();
+      toast("Paiement parrainage validé.");
     },
   });
 
@@ -903,6 +912,7 @@ export default function UserDetailPage() {
                             <th className="py-2 pr-3">Statut</th>
                             <th className="py-2 pr-3">Progression</th>
                             <th className="py-2 pr-3">Bonus</th>
+                            <th className="py-2 pr-3">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -938,6 +948,20 @@ export default function UserDetailPage() {
                                 </td>
                                 <td className="py-2 pr-3">
                                   {xof.format(item.sponsor_bonus_xof ?? 0)} XOF
+                                </td>
+                                <td className="py-2 pr-3">
+                                  {status === "qualified" && item.referral_id ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      disabled={referralPaymentMut.isPending}
+                                      onClick={() => referralPaymentMut.mutate(item.referral_id)}
+                                    >
+                                      Valider paiement
+                                    </Button>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
                                 </td>
                               </tr>
                             );

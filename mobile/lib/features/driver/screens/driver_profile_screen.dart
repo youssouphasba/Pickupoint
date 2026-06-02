@@ -835,46 +835,6 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       ),
                     ),
                   ],
-                  if (sponsorBonus > 0 || refereeBonus > 0) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.green.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.stars, color: Colors.green),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (sponsorBonus > 0)
-                                  Text(
-                                    'Gagnez $sponsorBonus XOF par parrainage valide !',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.green,
-                                    ),
-                                  ),
-                                if (refereeBonus > 0)
-                                  Text(
-                                    'Votre ami recevra $refereeBonus XOF.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.green.shade800,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   _buildReferralTracking(data),
                   const SizedBox(height: 16),
@@ -905,6 +865,21 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                             if (!sheetContext.mounted) return;
                             Navigator.of(sheetContext).pop();
                             _snack('Code parrainage copié');
+                          },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.link_outlined),
+                    title: const Text('Copier le lien'),
+                    onTap: referralUrl == null || referralUrl.isEmpty
+                        ? null
+                        : () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: referralUrl),
+                            );
+                            if (!sheetContext.mounted) return;
+                            Navigator.of(sheetContext).pop();
+                            _snack('Lien de parrainage copié');
                           },
                   ),
                   ListTile(

@@ -559,6 +559,13 @@ class ApiClient {
   Future<Response> getAdminUserDetail(String userId) =>
       _dio.get(ApiEndpoints.adminUserDetail(userId));
 
+  Future<Response> confirmReferralPayment(String referralId,
+          {String note = ''}) =>
+      _dio.post(
+        ApiEndpoints.adminReferralPaymentConfirmed(referralId),
+        data: {'note': note},
+      );
+
   Future<Response> getAdminRelayDetail(String relayId) =>
       _dio.get(ApiEndpoints.adminRelayDetail(relayId));
 

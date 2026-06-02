@@ -51,6 +51,7 @@ from services.user_service import (
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
 )
+from services.referral_service import mark_referral_rewarded
 from services.performance_rewards_service import (
     get_performance_rewards_settings,
     set_performance_rewards_settings,
@@ -129,6 +130,10 @@ class ReferralSettingsRequest(BaseModel):
 
 class UserReferralAccessRequest(BaseModel):
     enabled_override: Optional[bool] = None
+
+
+class ReferralPaymentConfirmRequest(BaseModel):
+    note: str = Field("", max_length=300)
 
 
 class SupportConversationStatusRequest(BaseModel):
@@ -1998,6 +2003,66 @@ async def admin_set_user_referral_access(
         "enabled_override": after.get("referral_enabled_override"),
         "effective_enabled": is_referral_enabled_for_user(after, settings_doc),
     }
+
+
+@router.post("/referrals/{referral_id}/payment-confirmed", summary="Valider le paiement d'un parrainage")
+async def admin_confirm_referral_payment(
+    referral_id: str,
+    body: ReferralPaymentConfirmRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    referral = await db.referrals.find_one({"referral_id": referral_id}, {"_id": 0})
+    if not referral:
+        raise not_found_exception("Parrainage")
+    if referral.get("status") == "rewarded":
+        return {"message": "Paiement parrainage deja valide", "referral": referral}
+    if referral.get("status") != "qualified":
+        raise bad_request_exception("Le parrainage n'est pas encore qualifie pour paiement")
+
+    now = datetime.now(timezone.utc)
+    note = (body.note or "").strip()
+    await mark_referral_rewarded(
+        referred_user_id=referral["referred_user_id"],
+        status="rewarded",
+        sponsor_transaction_reference=referral.get("sponsor_transaction_reference"),
+        referred_transaction_reference=referral.get("referred_transaction_reference"),
+    )
+    await db.referrals.update_one(
+        {"referral_id": referral_id},
+        {
+            "$set": {
+                "payment_confirmed_by": admin_user.get("user_id"),
+                "payment_confirmed_by_name": admin_user.get("name") or admin_user.get("email"),
+                "payment_confirmed_at": now,
+                "payment_confirmation_note": note or None,
+                "updated_at": now,
+            }
+        },
+    )
+    await db.users.update_one(
+        {"user_id": referral["referred_user_id"]},
+        {
+            "$set": {
+                "referral_credited": True,
+                "referral_rewarded_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    await _record_event(
+        event_type="ADMIN_REFERRAL_PAYMENT_CONFIRMED",
+        actor_id=admin_user.get("user_id"),
+        actor_role=admin_user.get("role"),
+        notes=f"Paiement parrainage valide: {referral_id}",
+        metadata={
+            "referral_id": referral_id,
+            "sponsor_user_id": referral.get("sponsor_user_id"),
+            "referred_user_id": referral.get("referred_user_id"),
+            "note": note,
+        },
+    )
+    updated = await db.referrals.find_one({"referral_id": referral_id}, {"_id": 0})
+    return {"message": "Paiement parrainage valide", "referral": updated}
 
 
 @router.get("/fleet/live", summary="Position GPS temps réel de la flotte")
