@@ -111,6 +111,7 @@ class ApiEndpoints {
   static const myWallet = '$_base/api/wallets/me';
   static const transactions = '$_base/api/wallets/me/transactions';
   static const payout = '$_base/api/wallets/me/payout';
+  static const payouts = '$_base/api/wallets/me/payouts';
   static const stripeWalletTopup = '$_base/api/wallets/me/topups/stripe';
 
   // ─── Admin ────────────────────────────────────────────────────────────────

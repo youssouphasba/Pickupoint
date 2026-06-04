@@ -22,6 +22,8 @@ from services.stripe_service import create_wallet_topup_checkout
 
 router = APIRouter()
 
+ALLOWED_PAYOUT_METHODS = {"wave", "orange_money", "free_money"}
+
 
 def _payout_id() -> str:
     return f"pay_{uuid.uuid4().hex[:12]}"
@@ -143,6 +145,9 @@ async def request_payout(
     payout_phone = normalize_phone(body.phone)
     if not payout_phone:
         raise bad_request_exception("Numero de retrait invalide")
+    method = body.method.strip().lower()
+    if method not in ALLOWED_PAYOUT_METHODS:
+        raise bad_request_exception("Methode de retrait invalide")
 
     wallet = await db.wallets.find_one({"owner_id": current_user["user_id"]}, {"_id": 0})
     if not wallet:
@@ -170,7 +175,7 @@ async def request_payout(
         "owner_id": current_user["user_id"],
         "user_id": current_user["user_id"],
         "amount": body.amount,
-        "method": body.method,
+        "method": method,
         "phone": payout_phone,
         "destination": payout_phone,
         "status": "pending",
@@ -201,13 +206,13 @@ async def request_payout(
     await record_admin_event(
         AdminEventType.PAYOUT_REQUESTED,
         title=f"Demande de décaissement : {body.amount:,} XOF".replace(",", " "),
-        message=f"{current_user.get('name') or current_user['phone']} · {body.method}",
+        message=f"{current_user.get('name') or current_user['phone']} · {method}",
         href="/dashboard/payouts",
         metadata={
             "payout_id": payout["payout_id"],
             "owner_id": current_user["user_id"],
             "amount": body.amount,
-            "method": body.method,
+            "method": method,
         },
     )
 

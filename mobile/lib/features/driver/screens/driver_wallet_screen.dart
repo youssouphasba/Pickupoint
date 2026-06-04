@@ -20,6 +20,15 @@ final driverTransactionsProvider =
       .toList();
 });
 
+final driverPayoutsProvider = FutureProvider<List<PayoutRequest>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getMyPayouts();
+  final data = res.data as Map<String, dynamic>;
+  return (data['payouts'] as List? ?? [])
+      .map((e) => PayoutRequest.fromJson(e as Map<String, dynamic>))
+      .toList();
+});
+
 class DriverWalletScreen extends ConsumerStatefulWidget {
   const DriverWalletScreen({super.key});
 
@@ -34,6 +43,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
   Widget build(BuildContext context) {
     final walletAsync = ref.watch(driverWalletProvider);
     final transactionsAsync = ref.watch(driverTransactionsProvider(_period));
+    final payoutsAsync = ref.watch(driverPayoutsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Solde et revenus')),
@@ -41,6 +51,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
         onRefresh: () => Future.wait([
           ref.refresh(driverWalletProvider.future),
           ref.refresh(driverTransactionsProvider(_period).future),
+          ref.refresh(driverPayoutsProvider.future),
         ]),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -48,11 +59,13 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
           child: Column(
             children: [
               _buildBalanceCard(context, walletAsync),
+              const SizedBox(height: 24),
+              _buildPayoutsSection(payoutsAsync),
               const SizedBox(height: 32),
               Row(
                 children: [
                   const Expanded(
-                    child: Text('Historique des revenus',
+                    child: Text('Mouvements',
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
@@ -274,6 +287,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                               'Demande envoyée, en attente de validation.')));
                       ref.invalidate(driverWalletProvider);
                       ref.invalidate(driverTransactionsProvider(_period));
+                      ref.invalidate(driverPayoutsProvider);
                     }
                   } catch (e) {
                     if (ctx.mounted) {
@@ -295,7 +309,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
       AsyncValue<List<WalletTransaction>> transactionsAsync) {
     return transactionsAsync.when(
       data: (txs) {
-        if (txs.isEmpty) return const Text('Aucun revenu enregistré.');
+        if (txs.isEmpty) return const Text('Aucun mouvement.');
         return ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -310,10 +324,16 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                     : Colors.green;
             return ListTile(
               leading: Icon(
-                tx.isRevenue ? Icons.payments_outlined : Icons.add_circle,
+                tx.isRevenue
+                    ? Icons.payments_outlined
+                    : tx.type == 'debit'
+                        ? Icons.remove_circle
+                        : Icons.add_circle,
                 color: color,
               ),
-              title: Text(tx.description ?? tx.type),
+              title: Text(tx.isRevenue
+                  ? 'Revenu hors solde'
+                  : tx.description ?? tx.type),
               subtitle: Text(formatDate(tx.createdAt)),
               trailing: Text(
                 '${tx.isCredit ? '+' : '-'} ${formatXof(tx.amount)}',
@@ -329,6 +349,121 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
       loading: () => const CircularProgressIndicator(),
       error: (e, __) => Text(friendlyError(e)),
     );
+  }
+
+  Widget _buildPayoutsSection(AsyncValue<List<PayoutRequest>> payoutsAsync) {
+    return payoutsAsync.when(
+      data: (payouts) {
+        final recent = payouts.take(3).toList();
+        if (recent.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Retraits',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            ...recent.map(
+              (payout) => Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(
+                    _payoutStatusIcon(payout.status),
+                    color: _payoutStatusColor(payout.status),
+                  ),
+                  title: Text(formatXof(payout.amount)),
+                  subtitle: Text(
+                    '${_payoutMethodLabel(payout.method)} · ${formatDate(payout.updatedAt ?? payout.createdAt)}',
+                  ),
+                  trailing: _StatusPill(
+                    label: _payoutStatusLabel(payout.status),
+                    color: _payoutStatusColor(payout.status),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+String _payoutMethodLabel(String method) {
+  switch (method) {
+    case 'orange_money':
+      return 'Orange Money';
+    case 'free_money':
+      return 'Free Money';
+    case 'wave':
+      return 'Wave';
+    default:
+      return method.isEmpty ? '-' : method;
+  }
+}
+
+String _payoutStatusLabel(String status) {
+  switch (status) {
+    case 'approved':
+      return 'Validé';
+    case 'rejected':
+      return 'Rejeté';
+    default:
+      return 'En attente';
+  }
+}
+
+Color _payoutStatusColor(String status) {
+  switch (status) {
+    case 'approved':
+      return Colors.green;
+    case 'rejected':
+      return Colors.red;
+    default:
+      return Colors.orange;
+  }
+}
+
+IconData _payoutStatusIcon(String status) {
+  switch (status) {
+    case 'approved':
+      return Icons.check_circle;
+    case 'rejected':
+      return Icons.cancel;
+    default:
+      return Icons.hourglass_top;
   }
 }
 

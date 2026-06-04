@@ -19,6 +19,7 @@ from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from database import db
 from models.common import UserRole, ParcelStatus
+from models.delivery import MissionStatus
 from models.wallet import TransactionType
 from services.parcel_service import _record_event, sync_active_mission_with_parcel
 from services.pricing_service import get_pricing_settings
@@ -87,6 +88,23 @@ async def _recent_failed_driver_mission(user_id: str) -> Optional[dict]:
         },
         {"_id": 0, "mission_id": 1},
     )
+
+
+async def _has_active_driver_mission(user_id: str) -> bool:
+    mission = await db.delivery_missions.find_one(
+        {
+            "driver_id": user_id,
+            "status": {
+                "$in": [
+                    MissionStatus.ASSIGNED.value,
+                    MissionStatus.IN_PROGRESS.value,
+                    MissionStatus.INCIDENT_REPORTED.value,
+                ],
+            },
+        },
+        {"_id": 0, "mission_id": 1},
+    )
+    return mission is not None
 
 
 class PaymentOverrideRequest(BaseModel):
@@ -1255,8 +1273,11 @@ async def approve_payout(
         )
     owner_id = payout.get("user_id") or payout.get("owner_id")
     owner = await db.users.find_one({"user_id": owner_id}, {"_id": 0, "role": 1}) if owner_id else None
-    if owner and owner.get("role") == UserRole.DRIVER.value and await _recent_failed_driver_mission(owner_id):
-        raise bad_request_exception("Décaissement bloqué pendant 48h après une mission échouée")
+    if owner and owner.get("role") == UserRole.DRIVER.value:
+        if await _has_active_driver_mission(owner_id):
+            raise bad_request_exception("Décaissement indisponible tant qu'une course est active")
+        if await _recent_failed_driver_mission(owner_id):
+            raise bad_request_exception("Décaissement bloqué pendant 48h après une mission échouée")
 
     now = datetime.now(timezone.utc)
     payout_result = await db.payout_requests.update_one(

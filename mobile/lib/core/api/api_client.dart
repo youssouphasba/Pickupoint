@@ -340,6 +340,8 @@ class ApiClient {
   Future<Response> requestPayout(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.payout, data: body);
 
+  Future<Response> getMyPayouts() => _dio.get(ApiEndpoints.payouts);
+
   Future<Response> createStripeWalletTopup(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.stripeWalletTopup, data: body);
 

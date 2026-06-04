@@ -78,6 +78,8 @@ class PayoutRequest {
     required this.phoneNumber,
     required this.status,
     required this.createdAt,
+    this.updatedAt,
+    this.rejectionReason,
   });
 
   final String id;
@@ -91,6 +93,8 @@ class PayoutRequest {
   /// Statuts : pending | approved | rejected
   final String status;
   final DateTime createdAt;
+  final DateTime? updatedAt;
+  final String? rejectionReason;
 
   factory PayoutRequest.fromJson(Map<String, dynamic> json) => PayoutRequest(
         id: json['payout_id'] as String? ?? json['id'] as String? ?? '',
@@ -102,5 +106,7 @@ class PayoutRequest {
         status: json['status'] as String? ?? 'pending',
         createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
+        updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
+        rejectionReason: json['rejection_reason'] as String?,
       );
 }
