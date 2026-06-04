@@ -168,6 +168,11 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             icon: const Icon(Icons.history_outlined),
                             label: const Text('Historique'),
                           ),
+                          OutlinedButton.icon(
+                            onPressed: () => _resetUserPin(context, ref, user),
+                            icon: const Icon(Icons.password_outlined),
+                            label: const Text('Réinitialiser PIN'),
+                          ),
                           FilledButton.icon(
                             style: FilledButton.styleFrom(
                               backgroundColor:
@@ -598,6 +603,129 @@ class AdminUserDetailScreen extends ConsumerWidget {
       return 'Herite du parametre global';
     }
     return (override as bool) ? 'Force actif' : 'Force inactif';
+  }
+
+  Future<void> _resetUserPin(
+    BuildContext context,
+    WidgetRef ref,
+    User user,
+  ) async {
+    final pinCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    String? errorText;
+
+    final payload = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Réinitialiser le PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: pinCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Nouveau PIN',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Confirmer',
+                  counterText: '',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Motif',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  errorText!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final pin = pinCtrl.text.trim();
+                final confirm = confirmCtrl.text.trim();
+                final reason = reasonCtrl.text.trim();
+                if (pin.length != 4 || int.tryParse(pin) == null) {
+                  setDialogState(
+                    () => errorText = 'Le PIN doit contenir 4 chiffres.',
+                  );
+                  return;
+                }
+                if (pin != confirm) {
+                  setDialogState(
+                    () => errorText = 'Les deux PIN diffèrent.',
+                  );
+                  return;
+                }
+                if (reason.length < 3) {
+                  setDialogState(
+                    () => errorText = 'Indique un motif.',
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, {'pin': pin, 'reason': reason});
+              },
+              child: const Text('Réinitialiser'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    pinCtrl.dispose();
+    confirmCtrl.dispose();
+    reasonCtrl.dispose();
+    if (payload == null) {
+      return;
+    }
+
+    try {
+      await ref.read(apiClientProvider).resetUserPin(
+            user.id,
+            newPin: payload['pin']!,
+            reason: payload['reason']!,
+          );
+      ref.invalidate(adminUserDetailProvider(user.id));
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('PIN utilisateur réinitialisé.')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _toggleBan(

@@ -6,6 +6,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/relay_provider.dart';
@@ -447,6 +448,10 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         child: Column(
                           children: [
                             const SupportWhatsAppTile(
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            const Divider(height: 1),
+                            const ChangePinTile(
                               contentPadding: EdgeInsets.zero,
                             ),
                             const Divider(height: 1),

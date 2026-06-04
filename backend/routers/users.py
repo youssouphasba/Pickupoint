@@ -22,6 +22,7 @@ from config import UPLOADS_DIR, settings
 from core.dependencies import get_current_user, require_role
 from core.exceptions import bad_request_exception, forbidden_exception, not_found_exception
 from core.limiter import limiter
+from core.security import hash_password, verify_password
 from core.utils import normalize_phone
 from database import db, get_db
 from models.common import UserRole
@@ -58,6 +59,11 @@ PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ACTIVE_DRIVER_MISSION_STATUSES = {"assigned", "in_progress", "incident_reported"}
 FINAL_PARCEL_STATUSES = {"delivered", "cancelled", "expired", "returned"}
+
+
+class PinUpdateRequest(BaseModel):
+    current_pin: str = Field(..., min_length=4, max_length=4)
+    new_pin: str = Field(..., min_length=4, max_length=4)
 
 
 def _current_month_bounds() -> tuple[str, datetime, datetime]:
@@ -678,6 +684,57 @@ async def update_my_profile(
         {"_id": 0},
     )
     return updated_user
+
+
+@router.put("/me/pin", summary="Modifier mon code PIN")
+@limiter.limit("5/minute")
+async def update_my_pin(
+    body: PinUpdateRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    current_pin = body.current_pin.strip()
+    new_pin = body.new_pin.strip()
+    if len(current_pin) != 4 or not current_pin.isdigit():
+        raise bad_request_exception("Le code PIN actuel doit contenir 4 chiffres")
+    if len(new_pin) != 4 or not new_pin.isdigit():
+        raise bad_request_exception("Le nouveau code PIN doit contenir 4 chiffres")
+    if current_pin == new_pin:
+        raise bad_request_exception("Le nouveau PIN doit être différent")
+
+    user_doc = await db.users.find_one(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0, "pin_hash": 1, "role": 1},
+    )
+    if not user_doc:
+        raise not_found_exception("Utilisateur")
+    pin_hash = user_doc.get("pin_hash")
+    if not pin_hash or not verify_password(current_pin, pin_hash):
+        raise bad_request_exception("Code PIN actuel incorrect")
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {
+            "$set": {
+                "pin_hash": hash_password(new_pin),
+                "pin_updated_at": now,
+                "updated_at": now,
+            },
+            "$unset": {
+                "pin_failed_attempts": "",
+                "pin_locked_until": "",
+            },
+        },
+    )
+    await _record_event(
+        event_type="USER_PIN_UPDATED",
+        actor_id=current_user["user_id"],
+        actor_role=user_doc.get("role", current_user.get("role", "client")),
+        notes="PIN modifie par l'utilisateur",
+        metadata={"user_id": current_user["user_id"]},
+    )
+    return {"message": "Code PIN modifie"}
 
 
 @router.get("/me/favorite-addresses", summary="Mes adresses favorites")

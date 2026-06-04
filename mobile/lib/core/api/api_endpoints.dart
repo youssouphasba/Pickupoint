@@ -32,6 +32,7 @@ class ApiEndpoints {
   static const profile = '$_base/api/auth/profile';
   static const updateFcm = '$_base/api/users/me/fcm-token';
   static const deleteAccount = '$_base/api/users/me';
+  static const updatePin = '$_base/api/users/me/pin';
   static const loyaltyStats = '$_base/api/users/me/loyalty';
   static const userStats = '$_base/api/users/me/stats';
   static const userAvatar = '$_base/api/users/me/avatar';
@@ -179,6 +180,8 @@ class ApiEndpoints {
       '$_base/api/admin/users/$id/detail';
   static String adminBanUser(String id) => '$_base/api/admin/users/$id/ban';
   static String adminUnbanUser(String id) => '$_base/api/admin/users/$id/unban';
+  static String adminResetUserPin(String id) =>
+      '$_base/api/admin/users/$id/pin-reset';
   static String adminUserProfilePhoto(String id) =>
       '$_base/api/admin/users/$id/profile-photo';
   static String adminUserKyc(String id, String docType) =>

@@ -97,6 +97,9 @@ class ApiClient {
   Future<Response> updateProfile(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.profile, data: body);
 
+  Future<Response> updatePin(Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.updatePin, data: body);
+
   Future<Response> updateFcmToken(String token) =>
       _dio.put(ApiEndpoints.updateFcm, data: {
         'fcm_token': token,
@@ -576,6 +579,16 @@ class ApiClient {
 
   Future<Response> unbanUser(String userId, {required String reason}) =>
       _dio.post(ApiEndpoints.adminUnbanUser(userId), data: {'reason': reason});
+
+  Future<Response> resetUserPin(
+    String userId, {
+    required String newPin,
+    required String reason,
+  }) =>
+      _dio.post(
+        ApiEndpoints.adminResetUserPin(userId),
+        data: {'new_pin': newPin, 'reason': reason},
+      );
 
   Future<Response> moderateProfilePhoto(
     String userId, {

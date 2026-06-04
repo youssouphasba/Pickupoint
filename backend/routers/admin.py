@@ -17,6 +17,7 @@ from config import settings
 from core.dependencies import require_role
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
+from core.security import hash_password
 from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus
@@ -112,6 +113,11 @@ class PaymentOverrideRequest(BaseModel):
 
 
 class AdminDecisionRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=300)
+
+
+class AdminPinResetRequest(BaseModel):
+    new_pin: str = Field(..., min_length=4, max_length=4)
     reason: str = Field(..., min_length=3, max_length=300)
 
 
@@ -1850,6 +1856,56 @@ async def admin_user_detail(
             "sponsored_referrals": await _admin_sponsored_referral_summary(user_id),
         },
     }
+
+
+@router.post("/users/{user_id}/pin-reset", summary="Reinitialiser le PIN d'un utilisateur")
+@limiter.limit("10/minute")
+async def admin_reset_user_pin(
+    user_id: str,
+    body: AdminPinResetRequest,
+    request: Request,
+    _admin=Depends(require_admin_dep),
+):
+    new_pin = body.new_pin.strip()
+    reason = body.reason.strip()
+    if len(new_pin) != 4 or not new_pin.isdigit():
+        raise bad_request_exception("Le nouveau PIN doit contenir exactement 4 chiffres")
+    if not reason:
+        raise bad_request_exception("Le motif est obligatoire")
+
+    before = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not before:
+        raise not_found_exception("Utilisateur")
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "pin_hash": hash_password(new_pin),
+                "pin_reset_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+                "pin_reset_at": now,
+                "updated_at": now,
+            },
+            "$unset": {
+                "pin_failed_attempts": "",
+                "pin_locked_until": "",
+            },
+        },
+    )
+
+    await _record_event(
+        event_type="USER_PIN_RESET",
+        actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
+        actor_role="admin",
+        notes=reason,
+        metadata={
+            "target_user_id": user_id,
+            "had_pin_before": bool(before.get("pin_hash")),
+        },
+    )
+
+    return {"message": "PIN utilisateur reinitialise"}
 
 
 @router.post("/users/{user_id}/ban", summary="Bannir un utilisateur")

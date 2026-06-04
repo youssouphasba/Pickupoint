@@ -12,6 +12,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/driver_provider.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -583,6 +584,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     'Dernière mise à jour',
                     _formatDate(user.updatedAt),
                   ),
+                  const ChangePinTile(contentPadding: EdgeInsets.zero),
                   const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
                   ListTile(
                     contentPadding: EdgeInsets.zero,

@@ -11,6 +11,7 @@ import '../../../core/providers/user_stats_provider.dart';
 import '../../driver/providers/driver_provider.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -456,6 +457,8 @@ class ClientProfileScreen extends ConsumerWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push('/client/notifications'),
           ),
+          const Divider(height: 1),
+          const ChangePinTile(),
           const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.description_outlined),
