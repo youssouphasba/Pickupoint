@@ -22,11 +22,72 @@ final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   );
 });
 
-class ClientProfileScreen extends ConsumerWidget {
-  const ClientProfileScreen({super.key});
+class ClientProfileScreen extends ConsumerStatefulWidget {
+  const ClientProfileScreen({super.key, this.initialSection});
+
+  final String? initialSection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ClientProfileScreen> createState() =>
+      _ClientProfileScreenState();
+}
+
+class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
+  final _scrollController = ScrollController();
+  final _statsKey = GlobalKey();
+  final _loyaltyKey = GlobalKey();
+  final _settingsKey = GlobalKey();
+  final _referralKey = GlobalKey();
+  final _supportKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToInitialSection();
+  }
+
+  @override
+  void didUpdateWidget(covariant ClientProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection != widget.initialSection) {
+      _scrollToInitialSection();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToInitialSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = _sectionContext(widget.initialSection);
+      if (context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        alignment: 0.08,
+      );
+    });
+  }
+
+  BuildContext? _sectionContext(String? section) {
+    final key = switch ((section ?? '').trim().toLowerCase()) {
+      'stats' || 'kpis' => _statsKey,
+      'loyalty' || 'fidelity' => _loyaltyKey,
+      'settings' || 'preferences' || 'security' => _settingsKey,
+      'referral' || 'parrainage' => _referralKey,
+      'support' => _supportKey,
+      _ => null,
+    };
+    return key?.currentContext;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider).valueOrNull;
     final statsAsync = ref.watch(userStatsProvider);
     final referralAsync = ref.watch(_referralInfoProvider);
@@ -40,6 +101,7 @@ class ClientProfileScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () => ref.refresh(userStatsProvider.future),
         child: CustomScrollView(
+          controller: _scrollController,
           slivers: [
             _buildSliverAppBar(context, ref, user),
             SliverToBoxAdapter(
@@ -48,9 +110,15 @@ class ClientProfileScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildStatsRow(context, statsAsync),
+                    KeyedSubtree(
+                      key: _statsKey,
+                      child: _buildStatsRow(context, statsAsync),
+                    ),
                     const SizedBox(height: 24),
-                    _buildLoyaltyProgress(user, statsAsync),
+                    KeyedSubtree(
+                      key: _loyaltyKey,
+                      child: _buildLoyaltyProgress(user, statsAsync),
+                    ),
                     const SizedBox(height: 24),
                     _buildActionsList(context, ref, user, referralAsync),
                     const SizedBox(height: 40),
@@ -427,7 +495,7 @@ class ClientProfileScreen extends ConsumerWidget {
         _buildActionCard([
           const ListTile(
             leading: Icon(Icons.switch_account_outlined),
-            title: Text('Changer de rôle'),
+            title: Text('Changer de r?le'),
             trailing: AccountSwitcherButton(),
           ),
           const Divider(height: 1),
@@ -439,100 +507,114 @@ class ClientProfileScreen extends ConsumerWidget {
           ),
         ]),
         const SizedBox(height: 20),
-        const Text('PRÉFÉRENCES',
-            style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+        const Text(
+          'PR?F?RENCES',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
         const SizedBox(height: 12),
-        _buildActionCard([
-          ListTile(
-            leading: const Icon(Icons.place_outlined),
-            title: const Text('Adresses favorites'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/client/favorites'),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.notifications_outlined),
-            title: const Text('Notifications'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/client/notifications'),
-          ),
-          const Divider(height: 1),
-          const ChangePinTile(),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.description_outlined),
-            title: const Text('Ma Bio professionnelle'),
-            trailing: const Icon(Icons.edit, size: 18, color: Colors.blue),
-            onTap: () => _showEditBio(
-                context, ref, ref.read(authProvider).valueOrNull?.user),
-          ),
-        ]),
+        KeyedSubtree(
+          key: _settingsKey,
+          child: _buildActionCard([
+            ListTile(
+              leading: const Icon(Icons.place_outlined),
+              title: const Text('Adresses favorites'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/client/favorites'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('Notifications'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/client/notifications'),
+            ),
+            const Divider(height: 1),
+            const ChangePinTile(),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('Ma Bio professionnelle'),
+              trailing: const Icon(Icons.edit, size: 18, color: Colors.blue),
+              onTap: () => _showEditBio(
+                  context, ref, ref.read(authProvider).valueOrNull?.user),
+            ),
+          ]),
+        ),
         const SizedBox(height: 20),
-        _buildActionCard([
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: const Text('Historique de fidélité'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/client/loyalty-history'),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: Icon(
-              hasSponsor
-                  ? Icons.verified_outlined
-                  : Icons.card_giftcard_outlined,
+        KeyedSubtree(
+          key: _referralKey,
+          child: _buildActionCard([
+            ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('Historique de fid?lit?'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/client/loyalty-history'),
             ),
-            title: Text(
-              hasSponsor
-                  ? 'Parrainage déjà activé'
-                  : 'J\'ai un code parrainage',
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(
+                hasSponsor
+                    ? Icons.verified_outlined
+                    : Icons.card_giftcard_outlined,
+              ),
+              title: Text(
+                hasSponsor
+                    ? 'Parrainage d?j? activ?'
+                    : 'J\'ai un code parrainage',
+              ),
+              subtitle: Text(
+                hasSponsor
+                    ? (user.referralCredited
+                        ? 'Le bonus de parrainage a d?j? ?t? cr?dit?.'
+                        : 'Votre bonus sera cr?dit? selon les r?gles du programme de parrainage.')
+                    : referralAsync.isLoading
+                        ? 'V?rification des conditions du programme...'
+                        : referralCheckFailed
+                            ? 'Vous pouvez saisir un code. Le serveur v?rifiera les conditions.'
+                            : canApplyReferral
+                                ? applyRule
+                                : 'Le code ne peut plus ?tre appliqu?. $applyRule',
+              ),
+              trailing: hasSponsor
+                  ? const Icon(Icons.lock_outline)
+                  : const Icon(Icons.chevron_right),
+              enabled: hasSponsor || canApplyReferral,
+              onTap: hasSponsor || !canApplyReferral
+                  ? null
+                  : () => _applyReferralCode(context, ref),
             ),
-            subtitle: Text(
-              hasSponsor
-                  ? (user.referralCredited
-                      ? 'Le bonus de parrainage a déjà été crédité.'
-                      : 'Votre bonus sera crédite selon les regles du programme de parrainage.')
-                  : referralAsync.isLoading
-                      ? 'Verification des conditions du programme...'
-                      : referralCheckFailed
-                          ? 'Vous pouvez saisir un code. Le serveur verifiera les conditions.'
-                          : canApplyReferral
-                              ? applyRule
-                              : 'Le code ne peut plus etre applique. $applyRule',
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.share_outlined),
+              title: const Text('Partager mon code parrainage'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _shareReferral(context, ref),
             ),
-            trailing: hasSponsor
-                ? const Icon(Icons.lock_outline)
-                : const Icon(Icons.chevron_right),
-            enabled: hasSponsor || canApplyReferral,
-            onTap: hasSponsor || !canApplyReferral
-                ? null
-                : () => _applyReferralCode(context, ref),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.share_outlined),
-            title: const Text('Partager mon code parrainage'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _shareReferral(context, ref),
-          ),
-        ]),
+          ]),
+        ),
         const SizedBox(height: 20),
-        _buildActionCard([
-          const SupportWhatsAppTile(),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.privacy_tip_outlined),
-            title: const Text('Confidentialité'),
-            onTap: () => context.push('/legal/privacy'),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.gavel_outlined),
-            title: const Text('Conditions (CGU)'),
-            onTap: () => context.push('/legal/cgu'),
-          ),
-        ]),
+        KeyedSubtree(
+          key: _supportKey,
+          child: _buildActionCard([
+            const SupportWhatsAppTile(),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('Confidentialit?'),
+              onTap: () => context.push('/legal/privacy'),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.gavel_outlined),
+              title: const Text('Conditions (CGU)'),
+              onTap: () => context.push('/legal/cgu'),
+            ),
+          ]),
+        ),
       ],
     );
   }

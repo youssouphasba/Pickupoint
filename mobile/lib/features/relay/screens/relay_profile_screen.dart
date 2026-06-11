@@ -13,14 +13,21 @@ import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class RelayProfileScreen extends ConsumerStatefulWidget {
-  const RelayProfileScreen({super.key});
+  const RelayProfileScreen({super.key, this.initialSection});
+
+  final String? initialSection;
 
   @override
   ConsumerState<RelayProfileScreen> createState() => _RelayProfileScreenState();
 }
 
 class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
+  final _scrollController = ScrollController();
   final _formKey = GlobalKey<FormState>();
+  final _identityKey = GlobalKey();
+  final _infoKey = GlobalKey();
+  final _operationsKey = GlobalKey();
+  final _supportKey = GlobalKey();
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -34,15 +41,50 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
   void initState() {
     super.initState();
     _loadRelay();
+    _scrollToInitialSection();
+  }
+
+  @override
+  void didUpdateWidget(covariant RelayProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection != widget.initialSection) {
+      _scrollToInitialSection();
+    }
   }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _descCtrl.dispose();
     _hoursCtrl.dispose();
     super.dispose();
+  }
+
+  void _scrollToInitialSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = _sectionContext(widget.initialSection);
+      if (context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        alignment: 0.08,
+      );
+    });
+  }
+
+  BuildContext? _sectionContext(String? section) {
+    final key = switch ((section ?? '').trim().toLowerCase()) {
+      'identity' => _identityKey,
+      'info' => _infoKey,
+      'operations' || 'wallet' => _operationsKey,
+      'support' || 'security' => _supportKey,
+      _ => null,
+    };
+    return key?.currentContext;
   }
 
   Future<void> _loadRelay() async {
@@ -284,11 +326,14 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
               : RefreshIndicator(
                   onRefresh: _loadRelay,
                   child: ListView(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(16),
                     children: [
                       _buildHeader(user, _relay!),
                       const SizedBox(height: 16),
-                      _SectionCard(
+                      Container(
+                        key: _identityKey,
+                        child: _SectionCard(
                         title: 'Compte agent',
                         subtitle:
                             'Informations utiles pour vous identifier et pour le contrôle admin.',
@@ -319,9 +364,12 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                               _infoRow('Bio', user.bio!.trim()),
                           ],
                         ),
+                        ),
                       ),
                       const SizedBox(height: 16),
-                      _SectionCard(
+                      Container(
+                        key: _infoKey,
+                        child: _SectionCard(
                         title: 'Fiche publique du point relais',
                         subtitle:
                             'Ces informations sont visibles par les clients lors du choix du relais.',
@@ -381,9 +429,12 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ],
                           ),
                         ),
+                        ),
                       ),
                       const SizedBox(height: 16),
-                      _SectionCard(
+                      Container(
+                        key: _operationsKey,
+                        child: _SectionCard(
                         title: 'Operationnel',
                         subtitle:
                             'Vue rapide pour piloter le point relais et verifier sa capacite.',
@@ -439,9 +490,12 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                             ),
                           ],
                         ),
+                        ),
                       ),
                       const SizedBox(height: 16),
-                      _SectionCard(
+                      Container(
+                        key: _supportKey,
+                        child: _SectionCard(
                         title: 'Documents et legal',
                         subtitle:
                             'Acces rapide aux documents utiles et informations de conformite.',
@@ -471,6 +525,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                               onTap: () => context.push('/legal/cgu'),
                             ),
                           ],
+                        ),
                         ),
                       ),
                       const SizedBox(height: 16),

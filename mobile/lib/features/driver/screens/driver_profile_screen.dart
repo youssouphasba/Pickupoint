@@ -27,7 +27,9 @@ final _driverReferralInfoProvider = FutureProvider<Map<String, dynamic>>((
 });
 
 class DriverProfileScreen extends ConsumerStatefulWidget {
-  const DriverProfileScreen({super.key});
+  const DriverProfileScreen({super.key, this.initialSection});
+
+  final String? initialSection;
 
   @override
   ConsumerState<DriverProfileScreen> createState() =>
@@ -35,9 +37,65 @@ class DriverProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
+  final _scrollController = ScrollController();
+  final _performanceKey = GlobalKey();
+  final _identityKey = GlobalKey();
+  final _walletKey = GlobalKey();
+  final _referralKey = GlobalKey();
+  final _kycKey = GlobalKey();
+  final _notificationsKey = GlobalKey();
+  final _supportKey = GlobalKey();
   bool _busyAvailability = false;
   bool _busyAvatar = false;
   String? _busyDocType;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToInitialSection();
+  }
+
+  @override
+  void didUpdateWidget(covariant DriverProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection != widget.initialSection) {
+      _scrollToInitialSection();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToInitialSection() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final context = _sectionContext(widget.initialSection);
+      if (context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+        alignment: 0.08,
+      );
+    });
+  }
+
+  BuildContext? _sectionContext(String? section) {
+    final key = switch ((section ?? '').trim().toLowerCase()) {
+      'performance' => _performanceKey,
+      'identity' => _identityKey,
+      'wallet' => _walletKey,
+      'referral' || 'parrainage' => _referralKey,
+      'kyc' || 'documents' => _kycKey,
+      'notifications' => _notificationsKey,
+      'support' || 'security' => _supportKey,
+      _ => null,
+    };
+    return key?.currentContext;
+  }
 
   Future<void> _refresh() async {
     await ref.read(authProvider.notifier).fetchMe();
@@ -329,12 +387,15 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
+          controller: _scrollController,
           padding: const EdgeInsets.all(20),
           children: [
             _buildHeader(context, user, authState?.canSwitchToClient ?? false),
             const SizedBox(height: 16),
-            Row(
-              children: [
+            Container(
+              key: _performanceKey,
+              child: Row(
+                children: [
                 Expanded(
                   child: _statCard(
                     icon: Icons.local_shipping_outlined,
@@ -354,10 +415,13 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     color: Colors.amber.shade700,
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 16),
-            _section(
+            Container(
+              key: _identityKey,
+              child: _section(
               title: 'Identité',
               subtitle: 'Informations de référence du compte livreur.',
               trailing: IconButton(
@@ -404,9 +468,12 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                 ],
               ),
+              ),
             ),
             const SizedBox(height: 16),
-            _section(
+            Container(
+              key: _walletKey,
+              child: _section(
               title: 'Activité',
               subtitle: 'Contrôle terrain et accès rapides.',
               child: Column(
@@ -470,11 +537,17 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                 ],
               ),
+              ),
             ),
             const SizedBox(height: 16),
-            _buildReferralSection(user),
+            Container(
+              key: _referralKey,
+              child: _buildReferralSection(user),
+            ),
             const SizedBox(height: 16),
-            _section(
+            Container(
+              key: _kycKey,
+              child: _section(
               title: 'Conformite',
               subtitle:
                   'Documents utiles pour la vérification et le contrôle admin.',
@@ -519,9 +592,12 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                 ],
               ),
+              ),
             ),
             const SizedBox(height: 16),
-            _section(
+            Container(
+              key: _notificationsKey,
+              child: _section(
               title: 'Notifications',
               subtitle: 'Canaux et alertes que vous souhaitez recevoir.',
               child: Column(
@@ -558,9 +634,12 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                   ),
                 ],
               ),
+              ),
             ),
             const SizedBox(height: 16),
-            _section(
+            Container(
+              key: _supportKey,
+              child: _section(
               title: 'Sécurité et liens utiles',
               subtitle:
                   'Repère rapide pour le compte, les documents légaux et la navigation.',
@@ -614,6 +693,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       },
                     ),
                 ],
+              ),
               ),
             ),
             const SizedBox(height: 16),

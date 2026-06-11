@@ -842,6 +842,7 @@ export type InAppCampaign = {
   cta_label: string;
   image_url?: string | null;
   target_roles: string[];
+  placements?: string[];
   action_type: "internal_route" | "external_url";
   action_value: string;
   start_date: string;
@@ -859,6 +860,7 @@ export type InAppCampaignPayload = {
   cta_label: string;
   image_url?: string | null;
   target_roles: string[];
+  placements?: string[];
   action_type: "internal_route" | "external_url";
   action_value: string;
   start_date: string;
@@ -877,6 +879,17 @@ export async function fetchInAppCampaigns(activeOnly = false) {
 
 export async function createInAppCampaign(body: InAppCampaignPayload) {
   const { data } = await api.post("/api/admin/campaigns", body);
+  return data;
+}
+
+export async function uploadInAppCampaignImage(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await api.post<{ image_url: string; filename: string }>(
+    "/api/admin/campaigns/image",
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
   return data;
 }
 

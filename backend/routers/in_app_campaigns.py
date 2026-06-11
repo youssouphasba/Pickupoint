@@ -1,10 +1,18 @@
+import os
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
+from gridfs.errors import NoFile
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from core.dependencies import get_current_user, require_role
+from core.exceptions import bad_request_exception
+from config import settings
 from database import db
+from database import get_db
 from models.common import UserRole
 from models.in_app_campaign import (
     CampaignActionType,
@@ -16,6 +24,15 @@ from models.in_app_campaign import (
 
 router = APIRouter(tags=["In-app Campaigns"])
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
+MAX_CAMPAIGN_IMAGE_SIZE = 4 * 1024 * 1024
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _campaign_images_bucket() -> AsyncIOMotorGridFSBucket:
+    database = get_db()
+    if database is None:
+        raise RuntimeError("Database not connected")
+    return AsyncIOMotorGridFSBucket(database, bucket_name="campaign_images")
 
 
 def _clean(document: dict) -> dict:
@@ -30,6 +47,46 @@ def _campaign_payload(campaign: InAppCampaign) -> dict:
     if payload.get("image_url") is not None:
         payload["image_url"] = str(payload["image_url"])
     return payload
+
+
+async def _read_upload_bytes(file: UploadFile, max_size: int) -> bytes:
+    content = await file.read(max_size + 1)
+    if not content:
+        raise bad_request_exception("Fichier vide")
+    if len(content) > max_size:
+        raise bad_request_exception(f"Image trop volumineuse (max {max_size // (1024 * 1024)} Mo)")
+    return content
+
+
+def _guess_image_extension(content: bytes) -> Optional[str]:
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _image_content_type(ext: str) -> str:
+    return {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }[ext]
+
+
+def _validate_campaign_image(file: UploadFile, content: bytes) -> tuple[str, str]:
+    if not (file.content_type or "").startswith("image/"):
+        raise bad_request_exception("Le fichier doit etre une image")
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext and ext not in IMAGE_EXTENSIONS:
+        raise bad_request_exception("Format non supporte (.jpg, .png, .webp uniquement)")
+    detected_ext = _guess_image_extension(content)
+    if not detected_ext:
+        raise bad_request_exception("Image invalide ou format non reconnu")
+    return detected_ext, _image_content_type(detected_ext)
 
 
 def _allowed_view_roles(user: dict) -> set[str]:
@@ -165,6 +222,42 @@ async def delete_campaign(
         raise HTTPException(status_code=404, detail="Campagne introuvable")
     await db.in_app_campaign_events.delete_many({"campaign_id": campaign_id})
     return {"message": "Campagne supprimee"}
+
+
+@router.post("/admin/campaigns/image", response_model=dict)
+async def upload_campaign_image(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_admin),
+):
+    content = await _read_upload_bytes(file, MAX_CAMPAIGN_IMAGE_SIZE)
+    ext, content_type = _validate_campaign_image(file, content)
+    filename = f"campaign_{uuid.uuid4().hex}{ext}"
+    await _campaign_images_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": content_type,
+            "uploaded_by": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
+    return {
+        "image_url": f"{settings.BASE_URL.rstrip('/')}/api/campaigns/assets/{filename}",
+        "filename": filename,
+    }
+
+
+@router.get("/campaigns/assets/{filename}")
+async def get_campaign_image(filename: str):
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise bad_request_exception("Nom de fichier invalide")
+    try:
+        grid_file = await _campaign_images_bucket().open_download_stream_by_name(filename, revision=-1)
+        content = await grid_file.read()
+        media_type = (grid_file.metadata or {}).get("content_type") or "application/octet-stream"
+        return Response(content=content, media_type=media_type)
+    except NoFile:
+        raise HTTPException(status_code=404, detail="Image introuvable")
 
 
 @router.get("/campaigns/active", response_model=dict)

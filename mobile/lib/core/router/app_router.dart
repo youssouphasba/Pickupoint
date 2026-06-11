@@ -531,7 +531,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const ClientSearchScreen()),
           GoRoute(
               path: '/client/profile',
-              builder: (_, __) => const ClientProfileScreen()),
+              builder: (_, state) => ClientProfileScreen(
+                    initialSection: state.uri.queryParameters['section'],
+                  )),
           GoRoute(
               path: '/client/create',
               builder: (_, state) {
@@ -591,7 +593,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/relay', builder: (_, __) => const RelayHome()),
           GoRoute(
               path: '/relay/profile',
-              builder: (_, __) => const RelayProfileScreen()),
+              builder: (_, state) => RelayProfileScreen(
+                    initialSection: state.uri.queryParameters['section'],
+                  )),
           GoRoute(
               path: '/relay/scan-in', builder: (_, __) => const ScanInScreen()),
           GoRoute(
@@ -628,7 +632,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const DriverWalletScreen()),
           GoRoute(
               path: '/driver/profile',
-              builder: (_, __) => const DriverProfileScreen()),
+              builder: (_, state) => DriverProfileScreen(
+                    initialSection: state.uri.queryParameters['section'],
+                  )),
           GoRoute(
               path: '/driver/performance',
               builder: (_, __) => const DriverPerformanceScreen()),

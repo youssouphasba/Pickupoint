@@ -1,7 +1,7 @@
 name: pickupoint
 description: Plateforme livraison & points relais — Sénégal
 publish_to: none
-version: 1.0.12+29
+version: 1.0.13+30
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -31,13 +31,13 @@ dependencies:
   geolocator: ^11.0.0
 
   # Paiement Flutterwave (webview)
-  flutter_inappwebview: ^6.0.0
+  flutter_inappwebview: ^6.1.5
 
   # Notifications
   flutter_local_notifications: ^17.0.0
   firebase_core: ^2.24.2
   firebase_auth: ^4.17.8
-  firebase_messaging: ^14.7.10
+  firebase_messaging: ^14.9.4
 
   # UI utilitaires
   cupertino_icons: ^1.0.8
@@ -47,14 +47,14 @@ dependencies:
 
   # Icônes
   flutter_svg: ^2.0.0
-  google_maps_flutter: ^2.5.3
+  google_maps_flutter: ^2.17.1
   flutter_polyline_points: ^2.0.0
   url_launcher: ^6.3.0
   package_info_plus: ^8.0.0
 
   # Images & Compression (Phase 7)
   image_picker: ^1.0.7
-  flutter_image_compress: ^2.1.0
+  flutter_image_compress: ^2.4.0
   local_auth: ^3.0.1
 
   # Messagerie vocale colis

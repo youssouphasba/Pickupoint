@@ -5,6 +5,7 @@ class InAppCampaign {
     required this.body,
     required this.ctaLabel,
     required this.targetRoles,
+    required this.placements,
     required this.actionType,
     required this.actionValue,
     required this.startDate,
@@ -22,6 +23,7 @@ class InAppCampaign {
   final String ctaLabel;
   final String? imageUrl;
   final List<String> targetRoles;
+  final List<String> placements;
   final String actionType;
   final String actionValue;
   final DateTime startDate;
@@ -39,6 +41,9 @@ class InAppCampaign {
       ctaLabel: json['cta_label']?.toString() ?? 'Voir',
       imageUrl: json['image_url']?.toString(),
       targetRoles: (json['target_roles'] as List? ?? const [])
+          .map((value) => value.toString())
+          .toList(),
+      placements: (json['placements'] as List? ?? const ['home'])
           .map((value) => value.toString())
           .toList(),
       actionType: json['action_type']?.toString() ?? 'internal_route',

@@ -6,6 +6,7 @@ import {
   fetchReferralStats,
   fetchInAppCampaigns,
   createInAppCampaign,
+  uploadInAppCampaignImage,
   updateInAppCampaign,
   deleteInAppCampaign,
   fetchSettings,
@@ -21,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
-import { Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { Loader2, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
 
 const xof = new Intl.NumberFormat("fr-FR");
 
@@ -39,14 +40,29 @@ const campaignRoleOptions = [
 ];
 
 const internalRoutes = [
-  { value: "/client/create", label: "Creer un colis" },
+  { value: "/client/create", label: "Cr?er un colis" },
   { value: "/client/profile", label: "Profil client" },
-  { value: "/client/loyalty-history", label: "Fidelite client" },
+  { value: "/client/profile?section=stats", label: "Profil client - KPIs" },
+  { value: "/client/profile?section=loyalty", label: "Profil client - fid?lit?" },
+  { value: "/client/profile?section=settings", label: "Profil client - pr?f?rences" },
+  { value: "/client/profile?section=referral", label: "Profil client - parrainage" },
+  { value: "/client/profile?section=support", label: "Profil client - support" },
+  { value: "/client/loyalty-history", label: "Historique fid?lit? client" },
   { value: "/client/partnership", label: "Devenir partenaire" },
   { value: "/driver/performance", label: "Performance livreur" },
   { value: "/driver/wallet", label: "Solde livreur" },
+  { value: "/driver/profile", label: "Profil livreur" },
+  { value: "/driver/profile?section=identity", label: "Profil livreur - identit?" },
+  { value: "/driver/profile?section=referral", label: "Profil livreur - parrainage" },
+  { value: "/driver/profile?section=kyc", label: "Profil livreur - documents" },
+  { value: "/driver/profile?section=notifications", label: "Profil livreur - notifications" },
+  { value: "/driver/profile?section=support", label: "Profil livreur - support" },
   { value: "/relay/profile", label: "Profil relais" },
   { value: "/relay/wallet", label: "Solde relais" },
+  { value: "/relay/profile?section=identity", label: "Profil relais - compte agent" },
+  { value: "/relay/profile?section=info", label: "Profil relais - fiche publique" },
+  { value: "/relay/profile?section=operations", label: "Profil relais - op?rationnel" },
+  { value: "/relay/profile?section=support", label: "Profil relais - support" },
 ];
 
 function toDateTimeLocal(value: Date) {
@@ -57,6 +73,11 @@ function toDateTimeLocal(value: Date) {
 
 function fromDateTimeLocal(value: string) {
   return new Date(value).toISOString();
+}
+
+function clampPriority(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(10, Math.max(0, Math.round(value)));
 }
 
 function CampaignsSection() {
@@ -92,7 +113,15 @@ function CampaignsSection() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
       setForm((current) => ({ ...current, title: "", body: "", image_url: "" }));
-      toast("Campagne in-app creee.");
+      toast("Campagne in-app créée.");
+    },
+  });
+
+  const imageMut = useMutation({
+    mutationFn: uploadInAppCampaignImage,
+    onSuccess: (data) => {
+      setForm((current) => ({ ...current, image_url: data.image_url }));
+      toast("Image importée.");
     },
   });
 
@@ -101,7 +130,7 @@ function CampaignsSection() {
       updateInAppCampaign(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
-      toast("Campagne mise a jour.");
+      toast("Campagne mise à jour.");
     },
   });
 
@@ -109,7 +138,7 @@ function CampaignsSection() {
     mutationFn: deleteInAppCampaign,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
-      toast("Campagne supprimee.");
+      toast("Campagne supprimée.");
     },
   });
 
@@ -134,7 +163,7 @@ function CampaignsSection() {
           Campagnes in-app
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Messages affiches dans l'app avec redirection vers une page.
+          Messages affichés dans l'app avec redirection vers une page.
         </p>
       </div>
 
@@ -151,7 +180,27 @@ function CampaignsSection() {
             value={form.body}
             onChange={(e) => setForm({ ...form, body: e.target.value })}
           />
-          <Input placeholder="Image URL optionnelle" value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+          <div className="space-y-2">
+            <Input placeholder="Image URL optionnelle" value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+            <label className="inline-flex">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.currentTarget.value = "";
+                  if (file) imageMut.mutate(file);
+                }}
+              />
+              <Button type="button" variant="outline" disabled={imageMut.isPending} asChild>
+                <span>
+                  {imageMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Importer une image
+                </span>
+              </Button>
+            </label>
+          </div>
           <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
             {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
@@ -172,10 +221,30 @@ function CampaignsSection() {
           )}
           <Input type="datetime-local" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
           <Input type="datetime-local" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
-          <Input type="number" placeholder="Priorite" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })} />
+          <div>
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
+              Priorité d'affichage
+            </label>
+            <Input
+              type="number"
+              min={0}
+              max={10}
+              step={1}
+              value={form.priority}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  priority: clampPriority(Number(e.target.value)),
+                })
+              }
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              De 0 à 10. Plus le chiffre est élevé, plus la campagne passe devant.
+            </p>
+          </div>
           <Button disabled={!canCreate || createMut.isPending} onClick={() => createMut.mutate()}>
             {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Creer la campagne
+            Créer la campagne
           </Button>
         </CardContent>
       </Card>
@@ -217,7 +286,7 @@ function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaig
             <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{campaign.body}</div>
           </div>
           <Badge tone={campaign.is_active && !expired ? "success" : "default"}>
-            {campaign.is_active && !expired ? "Active" : expired ? "Expiree" : "Inactive"}
+            {campaign.is_active && !expired ? "Active" : expired ? "Expirée" : "Inactive"}
           </Badge>
         </div>
         <div className="grid grid-cols-3 gap-3 text-sm">
@@ -228,10 +297,10 @@ function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaig
         <div className="flex flex-wrap gap-2 text-xs">
           <Badge>{roleLabel}</Badge>
           <Badge>{campaign.action_type === "external_url" ? "Lien externe" : campaign.action_value}</Badge>
-          <Badge>Priorite {campaign.priority}</Badge>
+          <Badge>Priorité {campaign.priority}</Badge>
         </div>
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onToggle}>{campaign.is_active ? "Desactiver" : "Activer"}</Button>
+          <Button size="sm" variant="outline" onClick={onToggle}>{campaign.is_active ? "Désactiver" : "Activer"}</Button>
           <Button size="sm" variant="outline" onClick={onDelete}>
             <Trash2 className="h-4 w-4" />
             Supprimer

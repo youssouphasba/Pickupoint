@@ -671,9 +671,13 @@ class ApiClient {
   Future<Response> deletePromotion(String id) =>
       _dio.delete(ApiEndpoints.adminPromotion(id));
 
-  Future<Response> getActiveCampaigns({required String role}) => _dio.get(
+  Future<Response> getActiveCampaigns({
+    required String role,
+    String placement = 'home',
+  }) =>
+      _dio.get(
         ApiEndpoints.activeCampaigns,
-        queryParameters: {'role': role},
+        queryParameters: {'role': role, 'placement': placement},
       );
 
   Future<Response> markCampaignImpression(String id, {required String role}) =>
