@@ -18,6 +18,7 @@ from core.date_filters import date_range_query
 from database import db
 from models.common import UserRole, GeoPin
 from services.admin_events_service import AdminEventType, record_admin_event
+from services.notification_service import notify_application_result
 
 router = APIRouter()
 
@@ -438,6 +439,13 @@ async def approve_application(
         {"application_id": application_id},
         {"$set": {"status": "approved", "admin_notes": admin_notes, "updated_at": now}},
     )
+    await notify_application_result(
+        user_id=user_id,
+        application_id=application_id,
+        application_type=app["type"],
+        approved=True,
+        admin_notes=admin_notes,
+    )
     return {"message": "Candidature approuvée", "application_id": application_id}
 
 
@@ -460,5 +468,12 @@ async def reject_application(
             "admin_notes": admin_notes,
             "updated_at":  datetime.now(timezone.utc),
         }},
+    )
+    await notify_application_result(
+        user_id=app["user_id"],
+        application_id=application_id,
+        application_type=app["type"],
+        approved=False,
+        admin_notes=admin_notes,
     )
     return {"message": "Candidature rejetée"}

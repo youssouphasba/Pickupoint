@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     WHATSAPP_TEMPLATE_CALL_PERMISSION: Optional[str] = None
     WHATSAPP_TEMPLATE_CALL_PERMISSION_LANGUAGE: str = "fr"
     WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES: str = "name,driver_name,tracking_code"
+    WHATSAPP_TEMPLATE_APPLICATION_APPROVED: str = "application_approved_v1"
+    WHATSAPP_TEMPLATE_APPLICATION_REJECTED: str = "application_rejected_v1"
     WHATSAPP_SEND_SEPARATE_RECIPIENT_CODE: bool = True
 
     # Flutterwave

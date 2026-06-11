@@ -1260,6 +1260,74 @@ async def notify_payout_result(user_id: str, amount: float, approved: bool):
     )
 
 
+async def notify_application_result(
+    user_id: str,
+    application_id: str,
+    application_type: str,
+    approved: bool,
+    admin_notes: Optional[str] = None,
+):
+    kind = "livreur" if application_type == "driver" else "point relais"
+    if approved:
+        title = "Candidature approuvée"
+        body = f"Votre candidature {kind} a été approuvée."
+    else:
+        title = "Candidature rejetée"
+        body = f"Votre candidature {kind} n'a pas été retenue."
+    note = (admin_notes or "").strip()
+    if note:
+        body = f"{body} Motif : {note}"
+
+    result = await _store_and_send(
+        user_id=user_id,
+        title=title,
+        body=body,
+        ref_type="application",
+        ref_id=application_id,
+        category="admin",
+        skip_whatsapp=True,
+        metadata={
+            "application_id": application_id,
+            "application_type": application_type,
+            "approved": approved,
+        },
+    )
+
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"phone": 1, "notification_prefs": 1, "full_name": 1, "name": 1},
+    )
+    prefs = (user or {}).get("notification_prefs") or {}
+    phone = (user or {}).get("phone")
+    if phone and prefs.get("whatsapp", True):
+        template_name = (
+            settings.WHATSAPP_TEMPLATE_APPLICATION_APPROVED
+            if approved
+            else settings.WHATSAPP_TEMPLATE_APPLICATION_REJECTED
+        )
+        detail = note or (
+            "Consultez votre compte Denkma pour la suite."
+            if approved
+            else "Vous pouvez contacter le support Denkma si besoin."
+        )
+        if template_name:
+            sent = await _send_whatsapp_template(
+                phone,
+                template_name,
+                [
+                    _first_name((user or {}).get("full_name") or (user or {}).get("name")),
+                    kind,
+                    detail,
+                ],
+            )
+            if not sent:
+                await _send_whatsapp(phone, body)
+        else:
+            await _send_whatsapp(phone, body)
+
+    return result
+
+
 async def notify_parcel_expired(parcel: dict):
     """Notifie l'expéditeur et le destinataire qu'un colis a expiré."""
     tracking_code = parcel.get("tracking_code", "")

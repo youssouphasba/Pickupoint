@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
@@ -338,10 +339,10 @@ class _DriverApplicationFormState
         'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
       });
       if (mounted) {
-        showDialog(
+        await showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (_) => AlertDialog(
+          builder: (dialogContext) => AlertDialog(
             title: const Row(children: [
               Icon(Icons.check_circle, color: Colors.green),
               SizedBox(width: 8),
@@ -353,15 +354,15 @@ class _DriverApplicationFormState
             ),
             actions: [
               ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
             ],
           ),
         );
+        if (mounted) {
+          context.go('/client/profile');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -668,10 +669,10 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
         },
       });
       if (mounted) {
-        showDialog(
+        await showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (_) => AlertDialog(
+          builder: (dialogContext) => AlertDialog(
             title: const Row(children: [
               Icon(Icons.check_circle, color: Colors.orange),
               SizedBox(width: 8),
@@ -683,15 +684,15 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
             ),
             actions: [
               ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
+                onPressed: () => Navigator.of(dialogContext).pop(),
                 child: const Text('OK'),
               ),
             ],
           ),
         );
+        if (mounted) {
+          context.go('/client/profile');
+        }
       }
     } catch (e) {
       if (mounted) {

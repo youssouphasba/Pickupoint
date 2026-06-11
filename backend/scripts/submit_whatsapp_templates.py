@@ -155,6 +155,54 @@ TEMPLATES = [
             {"type": "CALL_PERMISSION_REQUEST"},
         ],
     },
+    {
+        "name": "application_approved_v1",
+        "language": "fr",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Bonjour {{1}}, votre candidature {{2}} Denkma a été approuvée.\n\n"
+                    "{{3}}\n\n"
+                    "Merci d'utiliser Denkma."
+                ),
+                "example": {
+                    "body_text": [
+                        [
+                            "Moussa",
+                            "livreur",
+                            "Consultez votre compte Denkma pour la suite.",
+                        ]
+                    ]
+                },
+            }
+        ],
+    },
+    {
+        "name": "application_rejected_v1",
+        "language": "fr",
+        "category": "UTILITY",
+        "components": [
+            {
+                "type": "BODY",
+                "text": (
+                    "Bonjour {{1}}, votre candidature {{2}} Denkma n'a pas été retenue.\n\n"
+                    "{{3}}\n\n"
+                    "Merci d'utiliser Denkma."
+                ),
+                "example": {
+                    "body_text": [
+                        [
+                            "Moussa",
+                            "point relais",
+                            "Vous pouvez contacter le support Denkma si besoin.",
+                        ]
+                    ]
+                },
+            }
+        ],
+    },
 ]
 
 
@@ -207,6 +255,8 @@ def main() -> int:
     print("  WHATSAPP_TEMPLATE_RELAY_REDIRECTED=parcel_relay_redirected_v4")
     print("  WHATSAPP_TEMPLATE_CALL_PERMISSION=driver_call_permission_v1")
     print("  WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES=name,driver_name,tracking_code")
+    print("  WHATSAPP_TEMPLATE_APPLICATION_APPROVED=application_approved_v1")
+    print("  WHATSAPP_TEMPLATE_APPLICATION_REJECTED=application_rejected_v1")
     return 0
 
 

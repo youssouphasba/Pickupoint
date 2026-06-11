@@ -18,6 +18,7 @@ import httpx
 load_dotenv(Path(__file__).parent / ".env")
 
 PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+WABA_ID = os.environ.get("WHATSAPP_BUSINESS_ACCOUNT_ID")
 ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v21.0")
 
@@ -26,6 +27,8 @@ EXPECTED = {
     "parcel_assigned":   {"vars": 3, "lang": "fr"},
     "parcel_delivered":  {"vars": 2, "lang": "fr"},
     "gps_confirmation":  {"vars": 4, "lang": "fr"},
+    "application_approved_v1": {"vars": 3, "lang": "fr"},
+    "application_rejected_v1": {"vars": 3, "lang": "fr"},
 }
 
 
@@ -52,7 +55,7 @@ def main() -> None:
     # 1. Récupérer le WABA associé au numéro
     r = httpx.get(
         f"{base}/{PHONE_NUMBER_ID}",
-        params={"fields": "display_phone_number,verified_name,whatsapp_business_account"},
+        params={"fields": "display_phone_number,verified_name"},
         headers=headers,
         timeout=10,
     )
@@ -62,7 +65,7 @@ def main() -> None:
         _fail(f"Erreur numéro: {r.status_code} {r.text}")
 
     data = r.json()
-    waba_id = (data.get("whatsapp_business_account") or {}).get("id")
+    waba_id = WABA_ID
     phone_display = data.get("display_phone_number", "?")
     verified_name = data.get("verified_name", "?")
 
