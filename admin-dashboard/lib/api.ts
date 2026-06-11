@@ -835,6 +835,64 @@ export async function confirmReferralPayment(referralId: string, note = "") {
 
 // ───────────────────────── Relay detail ─────────────────────────
 
+export type InAppCampaign = {
+  campaign_id: string;
+  title: string;
+  body: string;
+  cta_label: string;
+  image_url?: string | null;
+  target_roles: string[];
+  action_type: "internal_route" | "external_url";
+  action_value: string;
+  start_date: string;
+  end_date: string;
+  priority: number;
+  is_active: boolean;
+  impressions_count: number;
+  clicks_count: number;
+  created_at?: string;
+};
+
+export type InAppCampaignPayload = {
+  title: string;
+  body: string;
+  cta_label: string;
+  image_url?: string | null;
+  target_roles: string[];
+  action_type: "internal_route" | "external_url";
+  action_value: string;
+  start_date: string;
+  end_date: string;
+  priority: number;
+  is_active: boolean;
+};
+
+export async function fetchInAppCampaigns(activeOnly = false) {
+  const { data } = await api.get<{ campaigns: InAppCampaign[] }>(
+    "/api/admin/campaigns",
+    { params: { active_only: activeOnly } },
+  );
+  return data;
+}
+
+export async function createInAppCampaign(body: InAppCampaignPayload) {
+  const { data } = await api.post("/api/admin/campaigns", body);
+  return data;
+}
+
+export async function updateInAppCampaign(
+  campaignId: string,
+  body: Partial<InAppCampaignPayload>,
+) {
+  const { data } = await api.put(`/api/admin/campaigns/${campaignId}`, body);
+  return data;
+}
+
+export async function deleteInAppCampaign(campaignId: string) {
+  const { data } = await api.delete(`/api/admin/campaigns/${campaignId}`);
+  return data;
+}
+
 export async function fetchRelayDetail(relayId: string) {
   const { data } = await api.get(`/api/admin/relay-points/${relayId}/detail`);
   return data;

@@ -12,6 +12,7 @@ import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
+import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/location_tracking_service.dart';
 
 class DriverHome extends ConsumerStatefulWidget {
@@ -295,6 +296,7 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
         body: Column(
           children: [
             const NotificationPermissionBanner(),
+            const CampaignBanner(role: 'driver'),
             Expanded(
               child: _gpsLoading
                   ? const Center(

@@ -105,6 +105,10 @@ class ApiEndpoints {
 
   static const adminPromotions = '$_base/api/admin/promotions';
   static String adminPromotion(String id) => '$_base/api/admin/promotions/$id';
+  static const activeCampaigns = '$_base/api/campaigns/active';
+  static String campaignImpression(String id) =>
+      '$_base/api/campaigns/$id/impression';
+  static String campaignClick(String id) => '$_base/api/campaigns/$id/click';
   static const checkPromo = '$_base/api/parcels/check-promo';
   static const resolvePhones = '$_base/api/admin/resolve-phones';
 

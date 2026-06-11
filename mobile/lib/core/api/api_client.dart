@@ -671,6 +671,23 @@ class ApiClient {
   Future<Response> deletePromotion(String id) =>
       _dio.delete(ApiEndpoints.adminPromotion(id));
 
+  Future<Response> getActiveCampaigns({required String role}) => _dio.get(
+        ApiEndpoints.activeCampaigns,
+        queryParameters: {'role': role},
+      );
+
+  Future<Response> markCampaignImpression(String id, {required String role}) =>
+      _dio.post(
+        ApiEndpoints.campaignImpression(id),
+        queryParameters: {'role': role},
+      );
+
+  Future<Response> markCampaignClick(String id, {required String role}) =>
+      _dio.post(
+        ApiEndpoints.campaignClick(id),
+        queryParameters: {'role': role},
+      );
+
   Future<Response> checkPromoCode(String code, double price, String mode) =>
       _dio.post(
         ApiEndpoints.checkPromo,

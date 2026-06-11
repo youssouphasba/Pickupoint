@@ -8,6 +8,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
+import '../../../shared/promotions/campaign_banner.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
@@ -73,6 +74,7 @@ class ClientHome extends ConsumerWidget {
         body: Column(
           children: [
             const NotificationPermissionBanner(),
+            const CampaignBanner(role: 'client'),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () => ref.refresh(parcelsProvider.future),

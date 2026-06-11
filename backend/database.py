@@ -141,6 +141,20 @@ async def create_indexes():
             IndexModel([("created_at", -1)]),
             IndexModel([("created_by", 1)]),
         ],
+        "in_app_campaigns": [
+            IndexModel([("campaign_id", 1)], unique=True),
+            IndexModel([("is_active", 1), ("start_date", 1), ("end_date", 1)]),
+            IndexModel([("target_roles", 1)]),
+            IndexModel([("priority", -1), ("created_at", -1)]),
+        ],
+        "in_app_campaign_events": [
+            IndexModel(
+                [("campaign_id", 1), ("user_id", 1), ("event_type", 1)],
+                unique=True,
+            ),
+            IndexModel([("campaign_id", 1), ("event_type", 1)]),
+            IndexModel([("created_at", -1)]),
+        ],
         "referrals": [
             IndexModel([("referral_id", 1)], unique=True),
             IndexModel([("sponsor_user_id", 1)]),

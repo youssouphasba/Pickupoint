@@ -11,6 +11,7 @@ import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
+import '../../../shared/promotions/campaign_banner.dart';
 import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -95,6 +96,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
             return ListView(
               padding: const EdgeInsets.only(bottom: 100),
               children: [
+                const CampaignBanner(role: 'relay_agent'),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: _OverviewCard(

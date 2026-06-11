@@ -4,18 +4,24 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchReferralStats,
+  fetchInAppCampaigns,
+  createInAppCampaign,
+  updateInAppCampaign,
+  deleteInAppCampaign,
   fetchSettings,
   toggleExpress,
   updateLogisticsSettings,
   updateReferralSettings,
   ReferralRoleConfig,
+  InAppCampaign,
+  InAppCampaignPayload,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
-import { Loader2, Pencil, Save, X } from "lucide-react";
+import { Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 
 const xof = new Intl.NumberFormat("fr-FR");
 
@@ -24,6 +30,217 @@ const METRIC_LABELS: Record<string, string> = {
   delivered_sender_parcels: "Colis livrés par le client",
   completed_driver_deliveries: "Missions terminées par le livreur",
 };
+
+const campaignRoleOptions = [
+  { value: "all", label: "Tous" },
+  { value: "client", label: "Clients" },
+  { value: "driver", label: "Livreurs" },
+  { value: "relay_agent", label: "Relais" },
+];
+
+const internalRoutes = [
+  { value: "/client/create", label: "Creer un colis" },
+  { value: "/client/profile", label: "Profil client" },
+  { value: "/client/loyalty-history", label: "Fidelite client" },
+  { value: "/client/partnership", label: "Devenir partenaire" },
+  { value: "/driver/performance", label: "Performance livreur" },
+  { value: "/driver/wallet", label: "Solde livreur" },
+  { value: "/relay/profile", label: "Profil relais" },
+  { value: "/relay/wallet", label: "Solde relais" },
+];
+
+function toDateTimeLocal(value: Date) {
+  const offset = value.getTimezoneOffset();
+  const local = new Date(value.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocal(value: string) {
+  return new Date(value).toISOString();
+}
+
+function CampaignsSection() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const campaigns = useQuery({
+    queryKey: ["in-app-campaigns"],
+    queryFn: () => fetchInAppCampaigns(false),
+  });
+  const now = React.useMemo(() => new Date(), []);
+  const [form, setForm] = React.useState<InAppCampaignPayload>({
+    title: "",
+    body: "",
+    cta_label: "Voir",
+    image_url: "",
+    target_roles: ["all"],
+    action_type: "internal_route",
+    action_value: "/client/create",
+    start_date: toDateTimeLocal(now),
+    end_date: toDateTimeLocal(new Date(now.getTime() + 7 * 24 * 60 * 60_000)),
+    priority: 0,
+    is_active: true,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      createInAppCampaign({
+        ...form,
+        image_url: form.image_url?.trim() || null,
+        start_date: fromDateTimeLocal(form.start_date),
+        end_date: fromDateTimeLocal(form.end_date),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
+      setForm((current) => ({ ...current, title: "", body: "", image_url: "" }));
+      toast("Campagne in-app creee.");
+    },
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<InAppCampaignPayload> }) =>
+      updateInAppCampaign(id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
+      toast("Campagne mise a jour.");
+    },
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: deleteInAppCampaign,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
+      toast("Campagne supprimee.");
+    },
+  });
+
+  function setRole(role: string) {
+    setForm((current) => ({
+      ...current,
+      target_roles: role === "all" ? ["all"] : [role],
+    }));
+  }
+
+  const canCreate =
+    form.title.trim().length > 0 &&
+    form.body.trim().length > 0 &&
+    form.cta_label.trim().length > 0 &&
+    form.action_value.trim().length > 0 &&
+    new Date(form.end_date).getTime() > new Date(form.start_date).getTime();
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Campagnes in-app
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Messages affiches dans l'app avec redirection vers une page.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Nouvelle campagne</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 lg:grid-cols-2">
+          <Input placeholder="Titre" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <Input placeholder="Bouton" value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} />
+          <textarea
+            className="min-h-24 rounded-md border border-input bg-background px-3 py-2 text-sm lg:col-span-2"
+            placeholder="Message court"
+            value={form.body}
+            onChange={(e) => setForm({ ...form, body: e.target.value })}
+          />
+          <Input placeholder="Image URL optionnelle" value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+          <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
+            {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <select
+            value={form.action_type}
+            onChange={(e) => setForm({ ...form, action_type: e.target.value as "internal_route" | "external_url", action_value: e.target.value === "external_url" ? "https://" : "/client/create" })}
+            className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="internal_route">Page de l'app</option>
+            <option value="external_url">Lien externe</option>
+          </select>
+          {form.action_type === "internal_route" ? (
+            <select value={form.action_value} onChange={(e) => setForm({ ...form, action_value: e.target.value })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
+              {internalRoutes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          ) : (
+            <Input placeholder="https://..." value={form.action_value} onChange={(e) => setForm({ ...form, action_value: e.target.value })} />
+          )}
+          <Input type="datetime-local" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+          <Input type="datetime-local" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+          <Input type="number" placeholder="Priorite" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })} />
+          <Button disabled={!canCreate || createMut.isPending} onClick={() => createMut.mutate()}>
+            {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Creer la campagne
+          </Button>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {campaigns.isLoading && (
+          <Card>
+            <CardContent className="flex h-28 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </CardContent>
+          </Card>
+        )}
+        {(campaigns.data?.campaigns ?? []).map((campaign) => (
+          <CampaignCard
+            key={campaign.campaign_id}
+            campaign={campaign}
+            onToggle={() => updateMut.mutate({ id: campaign.campaign_id, body: { is_active: !campaign.is_active } })}
+            onDelete={() => deleteMut.mutate(campaign.campaign_id)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaign; onToggle: () => void; onDelete: () => void }) {
+  const ctr = campaign.impressions_count > 0 ? Math.round((campaign.clicks_count / campaign.impressions_count) * 100) : 0;
+  const expired = new Date(campaign.end_date).getTime() < Date.now();
+  const roleLabel = campaign.target_roles.includes("all")
+    ? "Tous"
+    : campaign.target_roles.map((role) => campaignRoleOptions.find((o) => o.value === role)?.label ?? role).join(", ");
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="font-semibold">{campaign.title}</div>
+            <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{campaign.body}</div>
+          </div>
+          <Badge tone={campaign.is_active && !expired ? "success" : "default"}>
+            {campaign.is_active && !expired ? "Active" : expired ? "Expiree" : "Inactive"}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div><div className="text-xs text-muted-foreground">Vues</div><div className="font-semibold">{campaign.impressions_count}</div></div>
+          <div><div className="text-xs text-muted-foreground">Clics</div><div className="font-semibold">{campaign.clicks_count}</div></div>
+          <div><div className="text-xs text-muted-foreground">CTR</div><div className="font-semibold">{ctr}%</div></div>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Badge>{roleLabel}</Badge>
+          <Badge>{campaign.action_type === "external_url" ? "Lien externe" : campaign.action_value}</Badge>
+          <Badge>Priorite {campaign.priority}</Badge>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onToggle}>{campaign.is_active ? "Desactiver" : "Activer"}</Button>
+          <Button size="sm" variant="outline" onClick={onDelete}>
+            <Trash2 className="h-4 w-4" />
+            Supprimer
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function RoleConfigCard({
   role,
@@ -241,6 +458,8 @@ export default function PromotionsPage() {
           Contrôler la livraison express et les programmes de parrainage.
         </p>
       </div>
+
+      <CampaignsSection />
 
       {loading && (
         <div className="flex h-40 items-center justify-center">
