@@ -75,9 +75,9 @@ android {
         abortOnError false
     }
 
-    packaging {
+    packagingOptions {
         jniLibs {
-            useLegacyPackaging false
+            useLegacyPackaging true
         }
     }
 
