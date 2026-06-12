@@ -121,6 +121,7 @@ workflows:
         PROJECT_PATH: mobile
         ANDROID_COMPILE_SDK: "36"
         ANDROID_TARGET_SDK: "35"
+        SHOREBIRD_ANDROID_RELEASE_VERSION: "latest"
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -172,11 +173,20 @@ workflows:
             echo "ERROR: SHOREBIRD_TOKEN is missing. Create a Shorebird API key in Shorebird Console > Account > API Keys, then add it to Codemagic in a secure group named shorebird." >&2
             exit 1
           fi
+          if [ -z "${SHOREBIRD_ANDROID_RELEASE_VERSION:-}" ]; then
+            echo "ERROR: SHOREBIRD_ANDROID_RELEASE_VERSION is missing. Set it to latest or an existing Android Shorebird release, for example 1.0.12+29." >&2
+            exit 1
+          fi
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
           if [ -n "${SHOREBIRD_FLUTTER_VERSION:-}" ]; then
-            shorebird patch android --flutter-version="$SHOREBIRD_FLUTTER_VERSION" -- --no-tree-shake-icons
+            shorebird patch android \
+              --flutter-version="$SHOREBIRD_FLUTTER_VERSION" \
+              --release-version "$SHOREBIRD_ANDROID_RELEASE_VERSION" \
+              -- --no-tree-shake-icons
           else
-            shorebird patch android -- --no-tree-shake-icons
+            shorebird patch android \
+              --release-version "$SHOREBIRD_ANDROID_RELEASE_VERSION" \
+              -- --no-tree-shake-icons
           fi
 
   ios_release:
