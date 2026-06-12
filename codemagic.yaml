@@ -198,9 +198,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.denkma.app
       groups:
         - firebase_files
         - google_maps
@@ -254,8 +251,12 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
 
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          xcode-project use-profiles --custom-export-options='{"manageAppVersionAndBuildNumber":false}'
+          xcode-project use-profiles --project ios/Runner.xcodeproj --custom-export-options='{"manageAppVersionAndBuildNumber":false}'
       - name: Build iOS Shorebird release
         script: |
           #!/usr/bin/env bash
@@ -298,9 +299,6 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.denkma.app
       groups:
         - firebase_files
         - google_maps
@@ -352,8 +350,12 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
 
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          xcode-project use-profiles --custom-export-options='{"manageAppVersionAndBuildNumber":false}'
+          xcode-project use-profiles --project ios/Runner.xcodeproj --custom-export-options='{"manageAppVersionAndBuildNumber":false}'
       - name: Patch iOS with Shorebird
         script: |
           #!/usr/bin/env bash
