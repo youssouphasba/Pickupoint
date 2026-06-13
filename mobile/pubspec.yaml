@@ -1,7 +1,7 @@
 name: pickupoint
 description: Plateforme livraison & points relais — Sénégal
 publish_to: none
-version: 1.0.15+32
+version: 1.0.16+33
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -24,7 +24,7 @@ dependencies:
   flutter_secure_storage: ^9.0.0
 
   # QR Code (scan + génération)
-  mobile_scanner: ^4.0.0
+  mobile_scanner: ^7.2.0
   qr_flutter: ^4.1.0
 
   # Géolocalisation (driver)
