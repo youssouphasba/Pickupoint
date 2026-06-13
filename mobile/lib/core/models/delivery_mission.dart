@@ -41,6 +41,8 @@ class DeliveryMission {
     this.deliveryVoiceNote,
     this.driverBonusXof = 0.0,
     this.platformCommissionXof = 0.0,
+    this.relayCommissionXof = 0.0,
+    this.totalCommissionXof = 0.0,
     this.walletBalanceRequiredXof = 0.0,
     this.senderPhotoUrl,
     this.recipientPhotoUrl,
@@ -101,6 +103,8 @@ class DeliveryMission {
   final String? deliveryVoiceNote;
   final double driverBonusXof;
   final double platformCommissionXof;
+  final double relayCommissionXof;
+  final double totalCommissionXof;
   final double walletBalanceRequiredXof;
   final String? senderPhotoUrl;
   final String? recipientPhotoUrl;
@@ -163,10 +167,17 @@ class DeliveryMission {
       driverBonusXof: (json['driver_bonus_xof'] as num?)?.toDouble() ?? 0.0,
       platformCommissionXof:
           (json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      relayCommissionXof:
+          (json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      totalCommissionXof:
+          (json['total_commission_xof'] as num?)?.toDouble() ??
+              ((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
+                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0),
       walletBalanceRequiredXof:
           (json['wallet_balance_required_xof'] as num?)?.toDouble() ??
-              (json['platform_commission_xof'] as num?)?.toDouble() ??
-              0.0,
+              (json['total_commission_xof'] as num?)?.toDouble() ??
+              (((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
+                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0)),
       senderPhotoUrl: json['sender_photo_url'] as String?,
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
       encodedPolyline: json['encoded_polyline'] as String?,

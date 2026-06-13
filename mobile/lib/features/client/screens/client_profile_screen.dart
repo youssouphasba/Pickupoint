@@ -495,7 +495,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
         _buildActionCard([
           const ListTile(
             leading: Icon(Icons.switch_account_outlined),
-            title: Text('Changer de r?le'),
+            title: Text('Changer de rôle'),
             trailing: AccountSwitcherButton(),
           ),
           const Divider(height: 1),
@@ -508,7 +508,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
         ]),
         const SizedBox(height: 20),
         const Text(
-          'PR?F?RENCES',
+          'PRÉFÉRENCES',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
@@ -550,7 +550,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
           child: _buildActionCard([
             ListTile(
               leading: const Icon(Icons.history),
-              title: const Text('Historique de fid?lit?'),
+              title: const Text('Historique de fidélité'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/client/loyalty-history'),
             ),
@@ -563,21 +563,21 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
               ),
               title: Text(
                 hasSponsor
-                    ? 'Parrainage d?j? activ?'
+                    ? 'Parrainage déjà activé'
                     : 'J\'ai un code parrainage',
               ),
               subtitle: Text(
                 hasSponsor
                     ? (user.referralCredited
-                        ? 'Le bonus de parrainage a d?j? ?t? cr?dit?.'
-                        : 'Votre bonus sera cr?dit? selon les r?gles du programme de parrainage.')
+                        ? 'Le bonus de parrainage a déjà été crédité.'
+                        : 'Votre bonus sera crédité selon les règles du programme de parrainage.')
                     : referralAsync.isLoading
-                        ? 'V?rification des conditions du programme...'
+                        ? 'Vérification des conditions du programme...'
                         : referralCheckFailed
-                            ? 'Vous pouvez saisir un code. Le serveur v?rifiera les conditions.'
+                            ? 'Vous pouvez saisir un code. Le serveur vérifiera les conditions.'
                             : canApplyReferral
                                 ? applyRule
-                                : 'Le code ne peut plus ?tre appliqu?. $applyRule',
+                                : 'Le code ne peut plus être appliqué. $applyRule',
               ),
               trailing: hasSponsor
                   ? const Icon(Icons.lock_outline)
@@ -604,7 +604,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.privacy_tip_outlined),
-              title: const Text('Confidentialit?'),
+              title: const Text('Confidentialité'),
               onTap: () => context.push('/legal/privacy'),
             ),
             const Divider(height: 1),

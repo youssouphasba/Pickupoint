@@ -29,7 +29,11 @@ from services.notification_service import (
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
 )
-from services.wallet_service import credit_wallet, debit_wallet
+from services.wallet_service import (
+    compute_delivery_commission_breakdown,
+    credit_wallet,
+    debit_wallet,
+)
 from services.whatsapp_call_service import (
     connect_driver_whatsapp_call,
     ensure_driver_call_permission_request,
@@ -81,14 +85,8 @@ def _driver_has_profile_photo(current_user: dict) -> bool:
 
 
 def _mission_commission_xof(parcel: Optional[dict], mission: Optional[dict] = None) -> float:
-    source = parcel or mission or {}
-    price = (
-        source.get("paid_price")
-        or source.get("quoted_price")
-        or (mission or {}).get("quoted_price")
-        or 0
-    )
-    return round(max(float(price or 0), 0.0) * float(settings.PLATFORM_RATE or 0), 2)
+    breakdown = compute_delivery_commission_breakdown(parcel, mission)
+    return float(breakdown["total_commission_xof"])
 
 
 async def _attach_commission_requirements(missions: list[dict]) -> None:
@@ -103,14 +101,34 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
         parcel_lookup = {p["parcel_id"]: p for p in parcels}
 
     for mission in missions:
-        commission = mission.get("platform_commission_xof")
-        if commission is None:
-            commission = _mission_commission_xof(
-                parcel_lookup.get(mission.get("parcel_id")),
-                mission,
-            )
-        mission["platform_commission_xof"] = commission
-        mission["wallet_balance_required_xof"] = commission
+        breakdown = compute_delivery_commission_breakdown(
+            parcel_lookup.get(mission.get("parcel_id")),
+            mission,
+        )
+        mission["platform_commission_xof"] = mission.get(
+            "platform_commission_xof",
+            breakdown["platform_commission_xof"],
+        )
+        mission["relay_commission_xof"] = mission.get(
+            "relay_commission_xof",
+            breakdown["relay_commission_xof"],
+        )
+        mission["origin_relay_commission_xof"] = mission.get(
+            "origin_relay_commission_xof",
+            breakdown["origin_relay_commission_xof"],
+        )
+        mission["destination_relay_commission_xof"] = mission.get(
+            "destination_relay_commission_xof",
+            breakdown["destination_relay_commission_xof"],
+        )
+        mission["total_commission_xof"] = mission.get(
+            "total_commission_xof",
+            breakdown["total_commission_xof"],
+        )
+        mission["wallet_balance_required_xof"] = mission.get(
+            "wallet_balance_required_xof",
+            breakdown["wallet_balance_required_xof"],
+        )
 
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
@@ -420,8 +438,31 @@ async def get_mission(
         },
     )
     if parcel:
-        mission["platform_commission_xof"] = mission.get("platform_commission_xof") or _mission_commission_xof(parcel, mission)
-        mission["wallet_balance_required_xof"] = mission["platform_commission_xof"]
+        breakdown = compute_delivery_commission_breakdown(parcel, mission)
+        mission["platform_commission_xof"] = mission.get(
+            "platform_commission_xof",
+            breakdown["platform_commission_xof"],
+        )
+        mission["relay_commission_xof"] = mission.get(
+            "relay_commission_xof",
+            breakdown["relay_commission_xof"],
+        )
+        mission["origin_relay_commission_xof"] = mission.get(
+            "origin_relay_commission_xof",
+            breakdown["origin_relay_commission_xof"],
+        )
+        mission["destination_relay_commission_xof"] = mission.get(
+            "destination_relay_commission_xof",
+            breakdown["destination_relay_commission_xof"],
+        )
+        mission["total_commission_xof"] = mission.get(
+            "total_commission_xof",
+            breakdown["total_commission_xof"],
+        )
+        mission["wallet_balance_required_xof"] = mission.get(
+            "wallet_balance_required_xof",
+            breakdown["wallet_balance_required_xof"],
+        )
         mission["parcel_status"] = parcel.get("status")
         mission["payment_status"] = parcel.get("payment_status", "pending")
         mission["payment_method"] = mission.get("payment_method") or parcel.get("payment_method")
@@ -522,8 +563,9 @@ async def accept_mission(
         raise forbidden_exception("Vous avez déjà une mission en cours. Terminez-la avant d'en accepter une autre.")
 
     now = datetime.now(timezone.utc)
-    commission_xof = _mission_commission_xof(parcel, mission)
-    if float(settings.PLATFORM_RATE or 0) > 0 and commission_xof <= 0:
+    breakdown = compute_delivery_commission_breakdown(parcel, mission)
+    commission_xof = float(breakdown["total_commission_xof"])
+    if commission_xof <= 0:
         raise bad_request_exception(
             "Commission mission indisponible. Impossible d'accepter cette course pour le moment."
         )
@@ -534,7 +576,7 @@ async def accept_mission(
         )
         if not wallet or float(wallet.get("balance") or 0) < commission_xof:
             raise bad_request_exception(
-                f"Solde insuffisant. Cette mission demande {commission_xof:.0f} XOF de commission Denkma disponible."
+                f"Solde insuffisant. Cette mission demande {commission_xof:.0f} XOF de commission requise disponible."
             )
 
     mission_set = {
@@ -542,7 +584,12 @@ async def accept_mission(
         "status": MissionStatus.ASSIGNED.value,
         "assigned_at": now,
         "updated_at": now,
-        "platform_commission_xof": commission_xof,
+        "platform_commission_xof": breakdown["platform_commission_xof"],
+        "relay_commission_xof": breakdown["relay_commission_xof"],
+        "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
+        "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
+        "total_commission_xof": breakdown["total_commission_xof"],
+        "wallet_balance_required_xof": breakdown["wallet_balance_required_xof"],
         "platform_commission_wallet_reference": f"commission:{mission_id}",
     }
     mission_push = None
@@ -576,7 +623,7 @@ async def accept_mission(
             await debit_wallet(
                 current_user["user_id"],
                 commission_xof,
-                f"Commission Denkma mission {mission_id}",
+                f"Commission requise mission {mission_id}",
                 parcel_id=mission["parcel_id"],
                 reference=f"commission:{mission_id}",
                 ensure_unique=True,
@@ -596,6 +643,11 @@ async def accept_mission(
                         "location_updated_at": "",
                         "gps_trail": "",
                         "platform_commission_xof": "",
+                        "relay_commission_xof": "",
+                        "origin_relay_commission_xof": "",
+                        "destination_relay_commission_xof": "",
+                        "total_commission_xof": "",
+                        "wallet_balance_required_xof": "",
                         "platform_commission_wallet_reference": "",
                     },
                 },
@@ -1059,7 +1111,10 @@ async def release_mission(
         {"$set": {"assigned_driver_id": None, "updated_at": now}},
     )
     commission_xof = float(
-        mission.get("platform_commission_xof")
+        mission.get("total_commission_xof")
+        or mission.get("wallet_balance_required_xof")
+        or mission.get("relay_commission_xof")
+        or mission.get("platform_commission_xof")
         or _mission_commission_xof(None, mission)
         or 0
     )
@@ -1068,7 +1123,7 @@ async def release_mission(
             owner_id=current_user["user_id"],
             owner_type="driver",
             amount=commission_xof,
-            description=f"Remboursement commission Denkma mission {mission_id}",
+            description=f"Remboursement commission requise mission {mission_id}",
             parcel_id=mission["parcel_id"],
             reference=f"commission_refund:{mission_id}",
             count_as_earned=False,

@@ -16,7 +16,10 @@ from core.security import generate_tracking_code
 from models.common import ParcelStatus, DeliveryMode
 from models.parcel import ParcelCreate, ParcelEvent, ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
-from services.wallet_service import distribute_delivery_revenue
+from services.wallet_service import (
+    compute_delivery_commission_breakdown,
+    distribute_delivery_revenue,
+)
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
 from services.payment_service import create_payment_link
 from services.admin_events_service import AdminEventType, record_admin_event
@@ -1303,7 +1306,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
                    if mode == "home_to_home" else settings.DRIVER_RATE)
     earn_amount = round(quoted * driver_rate) + round(parcel.get("driver_bonus_xof", 0.0))
-    platform_commission_xof = round(max(float(quoted or 0), 0.0) * float(settings.PLATFORM_RATE or 0), 2)
+    commission_breakdown = compute_delivery_commission_breakdown(parcel)
 
     now = datetime.now(timezone.utc)
     mission_doc = {
@@ -1335,8 +1338,12 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "payment_method":   parcel.get("payment_method"),
         "quoted_price":      parcel.get("quoted_price"),
         "paid_price":        parcel.get("paid_price"),
-        "platform_commission_xof": platform_commission_xof,
-        "wallet_balance_required_xof": platform_commission_xof,
+        "platform_commission_xof": commission_breakdown["platform_commission_xof"],
+        "relay_commission_xof": commission_breakdown["relay_commission_xof"],
+        "origin_relay_commission_xof": commission_breakdown["origin_relay_commission_xof"],
+        "destination_relay_commission_xof": commission_breakdown["destination_relay_commission_xof"],
+        "total_commission_xof": commission_breakdown["total_commission_xof"],
+        "wallet_balance_required_xof": commission_breakdown["wallet_balance_required_xof"],
         "payment_override": bool(parcel.get("payment_override")),
         "pickup_voice_note": parcel.get("pickup_voice_note"),
         "delivery_voice_note": parcel.get("delivery_voice_note"),
