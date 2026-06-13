@@ -11,6 +11,7 @@ workflows:
         - google_maps
         - shorebird
         - google_play
+        - release_automation
       vars:
         PROJECT_PATH: mobile
         ANDROID_COMPILE_SDK: "36"
@@ -113,6 +114,7 @@ workflows:
           export ANDROID_AAB_PATH="build/app/outputs/bundle/release/app-release.aab"
           bundle exec fastlane android upload_store_listing
           bundle exec fastlane android deploy_internal
+          python3 "$CM_BUILD_DIR/scripts/sync_app_update_settings.py" --platform android --pubspec "$CM_BUILD_DIR/$PROJECT_PATH/pubspec.yaml"
     artifacts:
       - mobile/build/app/outputs/bundle/release/*.aab
       - mobile/build/app/outputs/flutter-apk/*.apk
@@ -214,6 +216,7 @@ workflows:
         - google_maps
         - shorebird
         - ios_signing
+        - release_automation
       vars:
         PROJECT_PATH: mobile
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -293,6 +296,7 @@ workflows:
             shorebird release ios \
               --export-options-plist=/Users/builder/export_options.plist
           fi
+          python3 "$CM_BUILD_DIR/scripts/sync_app_update_settings.py" --platform ios --pubspec "$CM_BUILD_DIR/$PROJECT_PATH/pubspec.yaml"
       - name: Scan iOS private and deprecated APIs
         script: |
           #!/usr/bin/env bash
