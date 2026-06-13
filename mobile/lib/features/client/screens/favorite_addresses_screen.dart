@@ -16,6 +16,10 @@ class FavoriteAddressesScreen extends ConsumerStatefulWidget {
 
 class _FavoriteAddressesScreenState
     extends ConsumerState<FavoriteAddressesScreen> {
+  String _fallbackAddressLabel(LatLng position) {
+    return 'Position sélectionnée (${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)})';
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).valueOrNull?.user;
@@ -160,9 +164,13 @@ class _FavoriteAddressesScreenState
                     if (result != null) {
                       setDialogState(() {
                         selectedLatLng = result.position;
-                        if (result.address != null &&
-                            result.address!.isNotEmpty) {
-                          addrCtrl.text = result.address!;
+                        final resolvedAddress =
+                            (result.address ?? '').trim();
+                        if (resolvedAddress.isNotEmpty) {
+                          addrCtrl.text = resolvedAddress;
+                        } else if (addrCtrl.text.trim().isEmpty) {
+                          addrCtrl.text =
+                              _fallbackAddressLabel(result.position);
                         }
                       });
                     }
@@ -215,9 +223,17 @@ class _FavoriteAddressesScreenState
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameCtrl.text.trim().isEmpty ||
-                    addrCtrl.text.trim().isEmpty ||
-                    selectedLatLng == null) {
+                final selectedPosition = selectedLatLng;
+                final name = nameCtrl.text.trim();
+                final address = addrCtrl.text.trim().isNotEmpty
+                    ? addrCtrl.text.trim()
+                    : (selectedPosition == null
+                        ? ''
+                        : _fallbackAddressLabel(selectedPosition));
+
+                if (name.isEmpty ||
+                    address.isEmpty ||
+                    selectedPosition == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
@@ -228,13 +244,11 @@ class _FavoriteAddressesScreenState
                   return;
                 }
 
-                final name = nameCtrl.text.trim();
-                final address = addrCtrl.text.trim();
                 Navigator.pop(dialogContext);
                 if (existing == null) {
-                  _addAddress(name, address, selectedLatLng!);
+                  _addAddress(name, address, selectedPosition);
                 } else {
-                  _updateAddress(existing.name, name, address, selectedLatLng!);
+                  _updateAddress(existing.name, name, address, selectedPosition);
                 }
               },
               child: Text(existing == null ? 'Enregistrer' : 'Mettre à jour'),
