@@ -213,6 +213,7 @@ workflows:
         - firebase_files
         - google_maps
         - shorebird
+        - ios_signing
       vars:
         PROJECT_PATH: mobile
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -263,7 +264,11 @@ workflows:
           set -euo pipefail
 
           keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            echo "ERROR: CERTIFICATE_PRIVATE_KEY is missing. Add the iOS distribution certificate private key to a secure group named ios_signing in Codemagic." >&2
+            exit 1
+          fi
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
           keychain add-certificates
 
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
@@ -314,6 +319,7 @@ workflows:
         - firebase_files
         - google_maps
         - shorebird
+        - ios_signing
       vars:
         PROJECT_PATH: mobile
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -362,7 +368,11 @@ workflows:
           set -euo pipefail
 
           keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            echo "ERROR: CERTIFICATE_PRIVATE_KEY is missing. Add the iOS distribution certificate private key to a secure group named ios_signing in Codemagic." >&2
+            exit 1
+          fi
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
           keychain add-certificates
 
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
