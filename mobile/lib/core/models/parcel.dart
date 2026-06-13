@@ -91,6 +91,12 @@ class Parcel {
     this.deliveryVoiceNote,
     this.addressChangeSurchargeXof = 0.0,
     this.driverBonusXof = 0.0,
+    this.platformCommissionXof = 0.0,
+    this.relayCommissionXof = 0.0,
+    this.originRelayCommissionXof = 0.0,
+    this.destinationRelayCommissionXof = 0.0,
+    this.totalCommissionXof = 0.0,
+    this.walletBalanceRequiredXof = 0.0,
     this.expiresAt,
   });
 
@@ -160,6 +166,12 @@ class Parcel {
   final String? deliveryVoiceNote;
   final double addressChangeSurchargeXof;
   final double driverBonusXof;
+  final double platformCommissionXof;
+  final double relayCommissionXof;
+  final double originRelayCommissionXof;
+  final double destinationRelayCommissionXof;
+  final double totalCommissionXof;
+  final double walletBalanceRequiredXof;
   final DateTime? expiresAt;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
@@ -249,6 +261,26 @@ class Parcel {
       addressChangeSurchargeXof:
           (json['address_change_surcharge_xof'] as num?)?.toDouble() ?? 0.0,
       driverBonusXof: (json['driver_bonus_xof'] as num?)?.toDouble() ?? 0.0,
+      platformCommissionXof:
+          (json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      relayCommissionXof:
+          (json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      originRelayCommissionXof:
+          (json['origin_relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      destinationRelayCommissionXof:
+          (json['destination_relay_commission_xof'] as num?)?.toDouble() ??
+              0.0,
+      totalCommissionXof:
+          (json['total_commission_xof'] as num?)?.toDouble() ??
+              (((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
+                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0)),
+      walletBalanceRequiredXof:
+          (json['wallet_balance_required_xof'] as num?)?.toDouble() ??
+              ((json['total_commission_xof'] as num?)?.toDouble() ??
+                  (((json['platform_commission_xof'] as num?)?.toDouble() ??
+                          0.0) +
+                      ((json['relay_commission_xof'] as num?)?.toDouble() ??
+                          0.0))),
       expiresAt: DateTime.tryParse(json['expires_at']?.toString() ?? ''),
     );
   }

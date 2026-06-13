@@ -184,6 +184,55 @@ class _AdminParcelAuditScreenState
                   ],
                 ),
                 const SizedBox(height: 22),
+                const _SectionTitle('Commissions et couverture'),
+                _InfoPanel(
+                  children: [
+                    _InfoLine(
+                      label: 'Commission totale requise',
+                      value: _formatXofValue(
+                        financial['total_commission_xof'],
+                      ),
+                    ),
+                    _InfoLine(
+                      label: 'Couverture wallet livreur',
+                      value: _formatXofValue(
+                        financial['wallet_balance_required_xof'],
+                      ),
+                    ),
+                    _InfoLine(
+                      label: 'Part Denkma',
+                      value: _formatXofValue(
+                        financial['platform_commission_xof'],
+                      ),
+                    ),
+                    _InfoLine(
+                      label: 'Part relais totale',
+                      value: _formatXofValue(
+                        financial['relay_commission_xof'],
+                      ),
+                    ),
+                    if ((financial['origin_relay_commission_xof'] as num?) !=
+                            null &&
+                        (financial['origin_relay_commission_xof'] as num) > 0)
+                      _InfoLine(
+                        label: 'Relais origine',
+                        value:
+                            '${_formatXofValue(financial['origin_relay_commission_xof'])} · ${_creditStatusLabel(financial['origin_relay_commission_recorded'] == true, financial['origin_relay_commission_recorded_at'])}',
+                      ),
+                    if ((financial['destination_relay_commission_xof']
+                                    as num?) !=
+                                null &&
+                            (financial['destination_relay_commission_xof']
+                                    as num) >
+                                0)
+                      _InfoLine(
+                        label: 'Relais destination',
+                        value:
+                            '${_formatXofValue(financial['destination_relay_commission_xof'])} · ${_creditStatusLabel(financial['destination_relay_commission_recorded'] == true, financial['destination_relay_commission_recorded_at'])}',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 22),
                 const _SectionTitle('Missions et trace réelle'),
                 if (missions.isEmpty)
                   const Padding(
@@ -862,4 +911,20 @@ String? _formatDateTime(Object? value) {
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
   return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} à $hh:$mm';
+}
+
+String _formatXofValue(Object? value) {
+  final amount = (value as num?)?.toDouble() ?? 0.0;
+  return '${amount.toStringAsFixed(0)} XOF';
+}
+
+String _creditStatusLabel(bool recorded, Object? recordedAt) {
+  if (!recorded) {
+    return 'non crédité';
+  }
+  final formatted = _formatDateTime(recordedAt);
+  if (formatted == null || formatted.isEmpty) {
+    return 'crédité';
+  }
+  return 'crédité le $formatted';
 }

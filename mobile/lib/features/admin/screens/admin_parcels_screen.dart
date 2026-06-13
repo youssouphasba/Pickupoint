@@ -536,6 +536,48 @@ class _ParcelCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (parcel.totalCommissionXof > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MetaLine(
+                      icon: Icons.account_balance_outlined,
+                      label: 'Commission totale',
+                      value: formatXof(parcel.totalCommissionXof),
+                    ),
+                  ),
+                  Expanded(
+                    child: _MetaLine(
+                      icon: Icons.storefront_outlined,
+                      label: 'Part relais',
+                      value: parcel.relayCommissionXof > 0
+                          ? formatXof(parcel.relayCommissionXof)
+                          : '-',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _MetaLine(
+                      icon: Icons.business_center_outlined,
+                      label: 'Part Denkma',
+                      value: formatXof(parcel.platformCommissionXof),
+                    ),
+                  ),
+                  Expanded(
+                    child: _MetaLine(
+                      icon: Icons.lock_outline,
+                      label: 'Couverture livreur',
+                      value: formatXof(parcel.walletBalanceRequiredXof),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (parcel.deliveryBlockedByPayment) ...[
               const SizedBox(height: 12),
               Container(

@@ -58,7 +58,10 @@ from services.performance_rewards_service import (
     get_performance_rewards_settings,
     set_performance_rewards_settings,
 )
-from services.wallet_service import record_wallet_transaction
+from services.wallet_service import (
+    compute_delivery_commission_breakdown,
+    record_wallet_transaction,
+)
 
 router = APIRouter()
 
@@ -1017,6 +1020,20 @@ async def admin_list_parcels(
     total = await db.parcels.count_documents(query)
     parcels = await cursor.to_list(length=safe_limit)
     await _restore_admin_parcel_phones(parcels)
+    for parcel in parcels:
+        breakdown = compute_delivery_commission_breakdown(parcel)
+        parcel["platform_commission_xof"] = breakdown["platform_commission_xof"]
+        parcel["relay_commission_xof"] = breakdown["relay_commission_xof"]
+        parcel["origin_relay_commission_xof"] = breakdown[
+            "origin_relay_commission_xof"
+        ]
+        parcel["destination_relay_commission_xof"] = breakdown[
+            "destination_relay_commission_xof"
+        ]
+        parcel["total_commission_xof"] = breakdown["total_commission_xof"]
+        parcel["wallet_balance_required_xof"] = breakdown[
+            "wallet_balance_required_xof"
+        ]
     return {"parcels": parcels, "total": total}
 
 
@@ -2759,6 +2776,23 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
 
     missions_cursor = db.delivery_missions.find({"parcel_id": parcel_id}, {"_id": 0})
     missions = await missions_cursor.to_list(length=10)
+    commission_breakdown = compute_delivery_commission_breakdown(parcel)
+    origin_relay_credit_tx = await db.wallet_transactions.find_one(
+        {
+            "parcel_id": parcel_id,
+            "reference": f"relay_origin_commission:{parcel_id}",
+            "tx_type": TransactionType.CREDIT.value,
+        },
+        {"_id": 0, "amount": 1, "wallet_id": 1, "created_at": 1},
+    )
+    destination_relay_credit_tx = await db.wallet_transactions.find_one(
+        {
+            "parcel_id": parcel_id,
+            "reference": f"relay_destination_commission:{parcel_id}",
+            "tx_type": TransactionType.CREDIT.value,
+        },
+        {"_id": 0, "amount": 1, "wallet_id": 1, "created_at": 1},
+    )
     relay_ids = [
         parcel.get("origin_relay_id"),
         parcel.get("destination_relay_id"),
@@ -2834,6 +2868,24 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
             "payment_url": parcel.get("payment_url"),
             "address_change_surcharge_xof": parcel.get("address_change_surcharge_xof", 0.0),
             "driver_bonus_xof": parcel.get("driver_bonus_xof", 0.0),
+            "platform_commission_xof": commission_breakdown["platform_commission_xof"],
+            "relay_commission_xof": commission_breakdown["relay_commission_xof"],
+            "origin_relay_commission_xof": commission_breakdown["origin_relay_commission_xof"],
+            "destination_relay_commission_xof": commission_breakdown["destination_relay_commission_xof"],
+            "total_commission_xof": commission_breakdown["total_commission_xof"],
+            "wallet_balance_required_xof": commission_breakdown["wallet_balance_required_xof"],
+            "origin_relay_commission_recorded": origin_relay_credit_tx is not None,
+            "destination_relay_commission_recorded": destination_relay_credit_tx is not None,
+            "origin_relay_commission_recorded_at": (
+                origin_relay_credit_tx.get("created_at")
+                if origin_relay_credit_tx
+                else None
+            ),
+            "destination_relay_commission_recorded_at": (
+                destination_relay_credit_tx.get("created_at")
+                if destination_relay_credit_tx
+                else None
+            ),
         },
         "timeline": timeline,
         "missions": missions,
