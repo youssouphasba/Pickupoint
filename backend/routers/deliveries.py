@@ -19,13 +19,20 @@ from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
-from services.parcel_service import transition_status, _record_event
+from services.parcel_service import (
+    _record_event,
+    _find_candidate_drivers_within_radius,
+    get_delivery_dispatch_settings,
+    resolve_delivery_dispatch_state,
+    transition_status,
+)
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.google_maps_service import get_directions_eta
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.ranking_service import refresh_driver_stats_for_period
 from services.notification_service import (
     notify_approaching_driver,
+    notify_new_mission_dispatch_wave,
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
 )
@@ -173,32 +180,68 @@ async def advance_pending_delivery_dispatch() -> int:
     updated_count = 0
 
     for mission in raw_missions:
-        if mission.get("is_broadcast") or not mission.get("ping_expires_at"):
+        ping_expires_at = _as_aware_utc(mission.get("ping_expires_at"))
+        dispatch_next_escalation_at = _as_aware_utc(mission.get("dispatch_next_escalation_at"))
+        next_escalation_at = dispatch_next_escalation_at or ping_expires_at
+        if next_escalation_at is None or now <= next_escalation_at:
             continue
 
-        expires_at = mission["ping_expires_at"].replace(tzinfo=timezone.utc)
-        if now <= expires_at:
-            continue
+        pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+        dispatch_settings = mission.get("delivery_dispatch")
+        if not dispatch_settings:
+            dispatch_settings = await get_delivery_dispatch_settings()
 
-        candidates = mission.get("candidate_drivers") or []
-        next_idx = mission.get("ping_index", 0) + 1
-        updates: dict[str, object] = {"updated_at": now}
+        dispatch_started_at = _as_aware_utc(mission.get("dispatch_started_at")) or _as_aware_utc(
+            mission.get("created_at")
+        ) or now
+        dispatch_state = resolve_delivery_dispatch_state(
+            dispatch_settings,
+            dispatch_started_at,
+            now=now,
+        )
 
-        if next_idx < len(candidates):
-            updates["ping_index"] = next_idx
-            updates["ping_expires_at"] = now + timedelta(seconds=30)
-        else:
-            updates["is_broadcast"] = True
-            updates["ping_expires_at"] = None
+        notified_driver_ids = list(mission.get("dispatch_notified_driver_ids") or [])
+        candidate_drivers = list(mission.get("candidate_drivers") or [])
+        new_driver_ids: list[str] = []
 
-        await db.delivery_missions.update_one({"mission_id": mission["mission_id"]}, {"$set": updates})
+        if pickup_geopin:
+            eligible_driver_ids = await _find_candidate_drivers_within_radius(
+                pickup_geopin["lat"],
+                pickup_geopin["lng"],
+                dispatch_state["radius_km"],
+            )
+            new_driver_ids = [
+                driver_id for driver_id in eligible_driver_ids if driver_id not in notified_driver_ids
+            ]
+            notified_driver_ids.extend(new_driver_ids)
+            candidate_drivers = notified_driver_ids[:]
+
+        updates: dict[str, object] = {
+            "updated_at": now,
+            "delivery_dispatch": dispatch_settings,
+            "dispatch_stage_index": dispatch_state["stage_index"],
+            "dispatch_radius_km": dispatch_state["radius_km"],
+            "dispatch_next_escalation_at": dispatch_state["next_escalation_at"],
+            "dispatch_notified_driver_ids": notified_driver_ids,
+            "candidate_drivers": candidate_drivers,
+            "is_broadcast": dispatch_state["is_final_stage"],
+            "ping_expires_at": dispatch_state["next_escalation_at"],
+            "ping_index": 0,
+        }
+
+        await db.delivery_missions.update_one(
+            {"mission_id": mission["mission_id"]},
+            {"$set": updates},
+        )
         updated_count += 1
 
-        if next_idx < len(candidates):
-            from services.notification_service import notify_new_mission_ping
-
+        if new_driver_ids:
             updated_mission = {**mission, **updates}
-            await notify_new_mission_ping(candidates[next_idx], updated_mission)
+            await notify_new_mission_dispatch_wave(
+                user_ids=new_driver_ids,
+                mission=updated_mission,
+                radius_km=dispatch_state["radius_km"],
+            )
 
     return updated_count
 
@@ -246,9 +289,45 @@ async def available_missions(
 
     missions = filtered_missions
 
+    if current_user["role"] != UserRole.DRIVER.value:
+        missions = raw_missions
+    elif lat is None or lng is None:
+        missions = [
+            mission
+            for mission in raw_missions
+            if mission.get("is_broadcast")
+            or user_id in (mission.get("dispatch_notified_driver_ids") or [])
+            or user_id in (mission.get("candidate_drivers") or [])
+        ]
+    else:
+        visible_missions = []
+        for mission in raw_missions:
+            pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+            dispatch_radius_km = mission.get("dispatch_radius_km")
+            if dispatch_radius_km is None:
+                dispatch_radius_km = 10.0 if mission.get("is_broadcast") else radius_km
+
+            if pickup_geopin:
+                distance_km = _haversine_km(
+                    lat,
+                    lng,
+                    pickup_geopin["lat"],
+                    pickup_geopin["lng"],
+                )
+                if distance_km <= float(dispatch_radius_km):
+                    mission["distance_km"] = round(distance_km, 2)
+                    visible_missions.append(mission)
+            else:
+                mission["distance_km"] = None
+                visible_missions.append(mission)
+        missions = visible_missions
+
     if lat is not None and lng is not None:
         result = []
         for m in missions:
+            if current_user["role"] == UserRole.DRIVER.value and "distance_km" in m:
+                result.append(m)
+                continue
             geopin = m.get("pickup_geopin") or {}
             plat   = geopin.get("lat")
             plng   = geopin.get("lng")

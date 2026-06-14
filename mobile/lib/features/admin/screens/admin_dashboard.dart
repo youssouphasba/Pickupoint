@@ -27,6 +27,18 @@ final _referralSettingsProvider =
   );
 });
 
+final _deliveryDispatchSettingsProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAppSettings();
+  final data = Map<String, dynamic>.from(
+    res.data as Map<String, dynamic>? ?? const {},
+  );
+  return Map<String, dynamic>.from(
+    data['delivery_dispatch'] as Map? ?? const {'stages': []},
+  );
+});
+
 class AdminDashboard extends ConsumerWidget {
   const AdminDashboard({super.key});
 
@@ -48,6 +60,7 @@ class AdminDashboard extends ConsumerWidget {
         onRefresh: () => Future.wait([
           ref.refresh(adminDashboardProvider.future),
           ref.refresh(_expressSettingsProvider.future),
+          ref.refresh(_deliveryDispatchSettingsProvider.future),
           ref.refresh(_referralSettingsProvider.future),
         ]),
         child: statsAsync.when(
@@ -153,6 +166,8 @@ class _DashboardBody extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const _ExpressToggleTile(),
+          const SizedBox(height: 12),
+          const _DeliveryDispatchSettingsTile(),
           const SizedBox(height: 12),
           const _ReferralSettingsTile(),
           const SizedBox(height: 32),
@@ -829,6 +844,208 @@ class _ExpressToggleTileState extends ConsumerState<_ExpressToggleTile> {
                   ),
             value: enabled,
             onChanged: _loading ? null : (_) => _toggle(enabled),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _DeliveryDispatchSettingsTile extends ConsumerStatefulWidget {
+  const _DeliveryDispatchSettingsTile();
+
+  @override
+  ConsumerState<_DeliveryDispatchSettingsTile> createState() =>
+      _DeliveryDispatchSettingsTileState();
+}
+
+class _DeliveryDispatchSettingsTileState
+    extends ConsumerState<_DeliveryDispatchSettingsTile> {
+  bool _loading = false;
+
+  List<Map<String, dynamic>> _stagesFromData(Map<String, dynamic> data) {
+    final rawStages = List<Map<String, dynamic>>.from(
+      (data['stages'] as List? ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map)),
+    );
+    return rawStages
+        .map((stage) => {
+              'radius_km': _doubleValue(stage['radius_km']),
+              'start_after_seconds': _intValue(stage['start_after_seconds']),
+            })
+        .toList();
+  }
+
+  String _summary(List<Map<String, dynamic>> stages) {
+    if (stages.isEmpty) {
+      return 'Aucun palier configuré.';
+    }
+    return stages
+        .map((stage) {
+          final seconds = _intValue(stage['start_after_seconds']);
+          final radius = _doubleValue(stage['radius_km']);
+          final radiusLabel =
+              radius == radius.roundToDouble() ? radius.toInt().toString() : radius.toStringAsFixed(1);
+          if (seconds == 0) {
+            return '$radiusLabel km immédiatement';
+          }
+          return '$radiusLabel km après ${seconds}s';
+        })
+        .join(' • ');
+  }
+
+  Future<void> _editStages(Map<String, dynamic> data) async {
+    final stages = _stagesFromData(data);
+    final radiusControllers = stages
+        .map((stage) =>
+            TextEditingController(text: _doubleValue(stage['radius_km']).toString()))
+        .toList();
+    final delayControllers = stages
+        .map((stage) => TextEditingController(
+            text: _intValue(stage['start_after_seconds']).toString()))
+        .toList();
+
+    final result = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Diffusion des courses'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: List.generate(stages.length, (index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: radiusControllers[index],
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: 'Rayon palier ${index + 1} (km)',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: delayControllers[index],
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Départ après (s)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final nextStages = <Map<String, dynamic>>[];
+                for (var index = 0; index < stages.length; index++) {
+                  final radius = double.tryParse(radiusControllers[index].text.trim());
+                  final startAfterSeconds =
+                      int.tryParse(delayControllers[index].text.trim());
+                  if (radius == null || startAfterSeconds == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Vérifie les rayons et délais saisis.'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+                  nextStages.add({
+                    'radius_km': radius,
+                    'start_after_seconds': startAfterSeconds,
+                  });
+                }
+                Navigator.of(ctx).pop(nextStages);
+              },
+              child: const Text('Enregistrer'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    for (final controller in [...radiusControllers, ...delayControllers]) {
+      controller.dispose();
+    }
+
+    if (result == null) {
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      await ref.read(apiClientProvider).setDeliveryDispatchSettings({
+        'stages': result,
+      });
+      ref.invalidate(_deliveryDispatchSettingsProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Diffusion des courses mise à jour')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final asyncValue = ref.watch(_deliveryDispatchSettingsProvider);
+
+    return asyncValue.when(
+      data: (data) {
+        final stages = _stagesFromData(data);
+        return Card(
+          child: ListTile(
+            leading: Icon(
+              Icons.radar,
+              color: _loading ? Colors.grey : Colors.blueGrey,
+            ),
+            title: const Text(
+              'Diffusion des courses',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(_summary(stages)),
+            trailing: _loading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.tune),
+            onTap: _loading ? null : () => _editStages(data),
           ),
         );
       },

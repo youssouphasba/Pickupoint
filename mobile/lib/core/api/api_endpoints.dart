@@ -228,6 +228,8 @@ class ApiEndpoints {
   // ─── App Settings (admin) ─────────────────────────────────────────────────
   static const adminSettings = '$_base/api/admin/settings';
   static const adminSettingsExpress = '$_base/api/admin/settings/express';
+  static const adminSettingsDeliveryDispatch =
+      '$_base/api/admin/settings/delivery-dispatch';
   static const adminSettingsAppUpdate = '$_base/api/admin/settings/app-update';
   static const adminSettingsReferral = '$_base/api/admin/settings/referral';
   static const adminSettingsReferralStats =

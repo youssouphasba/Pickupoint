@@ -28,6 +28,15 @@ from services.google_maps_service import reverse_geocode
 import random
 logger = logging.getLogger(__name__)
 
+DEFAULT_DELIVERY_DISPATCH_STAGES = (
+    {"radius_km": 1.0, "start_after_seconds": 0},
+    {"radius_km": 2.0, "start_after_seconds": 15},
+    {"radius_km": 3.0, "start_after_seconds": 45},
+    {"radius_km": 4.0, "start_after_seconds": 75},
+    {"radius_km": 5.0, "start_after_seconds": 105},
+    {"radius_km": 10.0, "start_after_seconds": 180},
+)
+
 def _generate_code() -> str:
     """Génère un code numérique à 6 chiffres (pickup_code livreur)."""
     return f"{random.randint(100000, 999999)}"
@@ -268,6 +277,114 @@ async def find_nearest_relay(lat: float, lng: float) -> Optional[dict]:
     return nearest
 
 
+def _default_delivery_dispatch_settings() -> dict:
+    return {"stages": [dict(stage) for stage in DEFAULT_DELIVERY_DISPATCH_STAGES]}
+
+
+def normalize_delivery_dispatch_settings(raw_settings: Optional[dict]) -> dict:
+    stages = (raw_settings or {}).get("stages")
+    if not isinstance(stages, list) or not stages:
+        return _default_delivery_dispatch_settings()
+
+    normalized: list[dict] = []
+    for index, item in enumerate(stages):
+        if not isinstance(item, dict):
+            raise ValueError("Chaque palier de diffusion doit être un objet")
+        try:
+            radius_km = float(item.get("radius_km"))
+        except (TypeError, ValueError):
+            raise ValueError(f"Rayon invalide pour le palier {index + 1}")
+        try:
+            start_after_seconds = int(float(item.get("start_after_seconds", 0)))
+        except (TypeError, ValueError):
+            raise ValueError(f"Délai invalide pour le palier {index + 1}")
+        if radius_km <= 0:
+            raise ValueError("Chaque rayon doit être strictement positif")
+        if radius_km > 10:
+            raise ValueError("Le rayon maximum de diffusion ne peut pas dépasser 10 km")
+        if start_after_seconds < 0:
+            raise ValueError("Les délais de diffusion ne peuvent pas être négatifs")
+        normalized.append(
+            {
+                "radius_km": round(radius_km, 2),
+                "start_after_seconds": start_after_seconds,
+            }
+        )
+
+    normalized.sort(key=lambda stage: stage["start_after_seconds"])
+    normalized[0]["start_after_seconds"] = 0
+
+    previous_start = -1
+    previous_radius = 0.0
+    for stage in normalized:
+        if stage["start_after_seconds"] == previous_start:
+            raise ValueError("Chaque palier doit avoir un délai distinct")
+        if stage["radius_km"] < previous_radius:
+            raise ValueError("Les rayons de diffusion doivent être croissants")
+        previous_start = stage["start_after_seconds"]
+        previous_radius = stage["radius_km"]
+
+    return {"stages": normalized}
+
+
+async def get_delivery_dispatch_settings(settings_doc: Optional[dict] = None) -> dict:
+    if settings_doc is None:
+        settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    try:
+        return normalize_delivery_dispatch_settings(settings_doc.get("delivery_dispatch"))
+    except ValueError:
+        logger.warning("Configuration delivery_dispatch invalide, retour aux valeurs par défaut")
+        return _default_delivery_dispatch_settings()
+
+
+def resolve_delivery_dispatch_state(
+    dispatch_settings: dict,
+    dispatch_started_at: datetime,
+    now: Optional[datetime] = None,
+) -> dict:
+    reference_now = now or datetime.now(timezone.utc)
+    started_at = (
+        dispatch_started_at.replace(tzinfo=timezone.utc)
+        if dispatch_started_at.tzinfo is None
+        else dispatch_started_at.astimezone(timezone.utc)
+    )
+    current_now = (
+        reference_now.replace(tzinfo=timezone.utc)
+        if reference_now.tzinfo is None
+        else reference_now.astimezone(timezone.utc)
+    )
+    stages = [
+        {
+            "radius_km": float(stage["radius_km"]),
+            "start_after_seconds": int(stage["start_after_seconds"]),
+        }
+        for stage in (dispatch_settings.get("stages") or _default_delivery_dispatch_settings()["stages"])
+    ]
+    elapsed_seconds = max(0, int((current_now - started_at).total_seconds()))
+
+    stage_index = 0
+    for index, stage in enumerate(stages):
+        if elapsed_seconds >= stage["start_after_seconds"]:
+            stage_index = index
+        else:
+            break
+
+    next_escalation_at = None
+    if stage_index + 1 < len(stages):
+        next_escalation_at = started_at + timedelta(
+            seconds=stages[stage_index + 1]["start_after_seconds"]
+        )
+
+    return {
+        "stages": stages,
+        "stage_index": stage_index,
+        "radius_km": stages[stage_index]["radius_km"],
+        "elapsed_seconds": elapsed_seconds,
+        "next_escalation_at": next_escalation_at,
+        "is_final_stage": stage_index == len(stages) - 1,
+    }
+
+
 async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5) -> list[str]:
     """Trouve les X livreurs les plus proches actifs récemment."""
     from models.common import UserRole
@@ -291,6 +408,42 @@ async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5
     
     candidates.sort(key=lambda x: x["dist"])
     return [c["id"] for c in candidates[:limit]]
+
+
+async def _find_candidate_drivers_within_radius(
+    lat: float,
+    lng: float,
+    radius_km: float,
+) -> list[str]:
+    from models.common import UserRole
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    cursor = db.users.find(
+        {
+            "role": UserRole.DRIVER.value,
+            "is_active": True,
+            "is_available": True,
+            "last_driver_location_at": {"$gte": cutoff},
+        },
+        {"_id": 0, "user_id": 1, "last_driver_location": 1},
+    )
+    drivers = await cursor.to_list(length=100)
+
+    candidates = []
+    for driver in drivers:
+        location = driver.get("last_driver_location")
+        if location and location.get("lat") is not None and location.get("lng") is not None:
+            dist = _haversine_km(
+                lat,
+                lng,
+                float(location["lat"]),
+                float(location["lng"]),
+            )
+            if dist <= radius_km:
+                candidates.append({"id": driver["user_id"], "dist": dist})
+
+    candidates.sort(key=lambda item: item["dist"])
+    return [item["id"] for item in candidates]
 
 
 def _round_to_50(value: float) -> float:
@@ -1354,6 +1507,12 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "ping_index":        0,
         "ping_expires_at":   None,
         "is_broadcast":      False,
+        "delivery_dispatch": _default_delivery_dispatch_settings(),
+        "dispatch_stage_index": 0,
+        "dispatch_radius_km": None,
+        "dispatch_started_at": now,
+        "dispatch_next_escalation_at": None,
+        "dispatch_notified_driver_ids": [],
         # Tracking livreur
         "driver_location":     None,
         "location_updated_at": None,
@@ -1369,18 +1528,41 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     }
     
     # ── Calcul du Cascade ──
+    dispatch_settings = await get_delivery_dispatch_settings()
+    dispatch_state = resolve_delivery_dispatch_state(dispatch_settings, now, now=now)
+    mission_doc["delivery_dispatch"] = dispatch_settings
+    mission_doc["dispatch_stage_index"] = dispatch_state["stage_index"]
+    mission_doc["dispatch_radius_km"] = dispatch_state["radius_km"]
+    mission_doc["dispatch_next_escalation_at"] = dispatch_state["next_escalation_at"]
+    mission_doc["is_broadcast"] = dispatch_state["is_final_stage"]
+
+    candidates: list[str] = []
     if pickup_geopin:
-        candidates = await _find_nearest_candidate_drivers(pickup_geopin["lat"], pickup_geopin["lng"])
+        candidates = await _find_candidate_drivers_within_radius(
+            pickup_geopin["lat"],
+            pickup_geopin["lng"],
+            dispatch_state["radius_km"],
+        )
         if candidates:
             mission_doc["candidate_drivers"] = candidates
-            mission_doc["ping_expires_at"]   = now + timedelta(seconds=30)
-            # Notifier le premier driver
-            from services.notification_service import notify_new_mission_ping
-            await notify_new_mission_ping(candidates[0], mission_doc)
+            mission_doc["dispatch_notified_driver_ids"] = candidates
+            mission_doc["ping_expires_at"] = dispatch_state["next_escalation_at"]
+            from services.notification_service import notify_new_mission_dispatch_wave
+            await notify_new_mission_dispatch_wave(
+                user_ids=candidates,
+                mission=mission_doc,
+                radius_km=dispatch_state["radius_km"],
+            )
         else:
             mission_doc["is_broadcast"] = True # Aucun livreur proche → broadcast immédiat
     else:
         mission_doc["is_broadcast"] = True
+
+    if pickup_geopin and not candidates:
+        mission_doc["is_broadcast"] = dispatch_state["is_final_stage"]
+        mission_doc["ping_expires_at"] = dispatch_state["next_escalation_at"]
+    if not pickup_geopin:
+        mission_doc["dispatch_next_escalation_at"] = None
 
     await db.delivery_missions.insert_one(mission_doc)
     logger.info("Mission créée: %s pour colis %s (Cascade: %s)", 

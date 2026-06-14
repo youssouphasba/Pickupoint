@@ -801,6 +801,9 @@ class ApiClient {
   Future<Response> setExpressEnabled(bool enabled) =>
       _dio.put(ApiEndpoints.adminSettingsExpress, data: {'enabled': enabled});
 
+  Future<Response> setDeliveryDispatchSettings(Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.adminSettingsDeliveryDispatch, data: body);
+
   Future<Response> setAppUpdateSettings(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.adminSettingsAppUpdate, data: body);
 

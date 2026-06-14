@@ -22,7 +22,12 @@ from database import db
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
-from services.parcel_service import _record_event, sync_active_mission_with_parcel
+from services.parcel_service import (
+    _record_event,
+    get_delivery_dispatch_settings,
+    normalize_delivery_dispatch_settings,
+    sync_active_mission_with_parcel,
+)
 from services.pricing_service import get_pricing_settings
 from services.notification_service import notify_payout_result, send_targeted_notifications
 from services.admin_events_service import AdminEventType, record_admin_event
@@ -3927,6 +3932,7 @@ async def reject_payout(
 async def get_app_settings(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     pricing_settings = await get_pricing_settings()
+    delivery_dispatch = await get_delivery_dispatch_settings(settings_doc)
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
@@ -3950,6 +3956,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
         },
         "pricing": pricing_settings,
         "performance_rewards": await get_performance_rewards_settings(),
+        "delivery_dispatch": delivery_dispatch,
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
@@ -4158,6 +4165,29 @@ async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
     )
     status = "activée" if enabled else "désactivée"
     return {"express_enabled": enabled, "message": f"Livraison Express {status}"}
+
+
+@router.put("/settings/delivery-dispatch", summary="Configurer la diffusion des courses livreurs")
+async def update_delivery_dispatch_settings(body: dict, _admin=Depends(require_admin_dep)):
+    try:
+        delivery_dispatch = normalize_delivery_dispatch_settings({"stages": body.get("stages")})
+    except ValueError as exc:
+        raise bad_request_exception(str(exc))
+
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {
+            "$set": {
+                "delivery_dispatch": delivery_dispatch,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+        upsert=True,
+    )
+    return {
+        "delivery_dispatch": delivery_dispatch,
+        "message": "Diffusion des courses mise a jour",
+    }
 
 
 @router.put("/settings/logistics", summary="Configurer les règles logistiques")
