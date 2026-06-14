@@ -616,6 +616,18 @@ export async function updateLogisticsSettings(body: {
   return data;
 }
 
+export type DeliveryDispatchStage = {
+  radius_km: number;
+  start_after_seconds: number;
+};
+
+export async function updateDeliveryDispatchSettings(body: {
+  stages: DeliveryDispatchStage[];
+}) {
+  const { data } = await api.put("/api/admin/settings/delivery-dispatch", body);
+  return data;
+}
+
 export type OperationalSettingsPayload = {
   express_enabled: boolean;
   base_relay_to_relay: number;

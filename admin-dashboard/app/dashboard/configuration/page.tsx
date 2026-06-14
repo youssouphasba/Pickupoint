@@ -4,11 +4,13 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import {
+  updateDeliveryDispatchSettings,
   fetchSettings,
   updateAppUpdateSettings,
   updateOperationalSettings,
   updatePerformanceRewardsSettings,
   type AppUpdateSettingsPayload,
+  type DeliveryDispatchStage,
   type OperationalSettingsPayload,
   type PerformanceRewardsPayload,
 } from "@/lib/api";
@@ -158,6 +160,26 @@ function buildInitialAppUpdatePayload(settings: any): AppUpdateSettingsPayload {
   };
 }
 
+function buildInitialDeliveryDispatchStages(settings: any): DeliveryDispatchStage[] {
+  const stages = Array.isArray(settings?.delivery_dispatch?.stages)
+    ? settings.delivery_dispatch.stages
+    : [];
+  if (stages.length === 0) {
+    return [
+      { radius_km: 1, start_after_seconds: 0 },
+      { radius_km: 2, start_after_seconds: 15 },
+      { radius_km: 3, start_after_seconds: 45 },
+      { radius_km: 4, start_after_seconds: 75 },
+      { radius_km: 5, start_after_seconds: 105 },
+      { radius_km: 10, start_after_seconds: 180 },
+    ];
+  }
+  return stages.map((stage: any) => ({
+    radius_km: numberValue(stage?.radius_km, 0),
+    start_after_seconds: numberValue(stage?.start_after_seconds, 0),
+  }));
+}
+
 function buildInitialPerformanceRewardsPayload(settings: any): PerformanceRewardsPayload {
   const rewards = settings?.performance_rewards ?? {};
   return {
@@ -216,6 +238,8 @@ export default function ConfigurationPage() {
   );
   const [appUpdateForm, setAppUpdateForm] =
     React.useState<AppUpdateSettingsPayload | null>(null);
+  const [deliveryDispatchStages, setDeliveryDispatchStages] =
+    React.useState<DeliveryDispatchStage[] | null>(null);
   const [performanceRewardsForm, setPerformanceRewardsForm] =
     React.useState<PerformanceRewardsPayload | null>(null);
 
@@ -223,6 +247,7 @@ export default function ConfigurationPage() {
     if (data) {
       setForm(buildInitialPayload(data));
       setAppUpdateForm(buildInitialAppUpdatePayload(data));
+      setDeliveryDispatchStages(buildInitialDeliveryDispatchStages(data));
       setPerformanceRewardsForm(buildInitialPerformanceRewardsPayload(data));
     }
   }, [data]);
@@ -242,6 +267,20 @@ export default function ConfigurationPage() {
       qc.invalidateQueries({ queryKey: ["settings"] });
       setAppUpdateForm(updated.app_update);
       toast("Règles de mise à jour sauvegardées.");
+    },
+  });
+
+  const deliveryDispatchMutation = useMutation({
+    mutationFn: () =>
+      updateDeliveryDispatchSettings({ stages: deliveryDispatchStages! }),
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      setDeliveryDispatchStages(
+        buildInitialDeliveryDispatchStages({
+          delivery_dispatch: updated.delivery_dispatch,
+        })
+      );
+      toast("Diffusion des courses sauvegardée.");
     },
   });
 
@@ -278,7 +317,13 @@ export default function ConfigurationPage() {
     );
   }
 
-  if (isLoading || !form || !appUpdateForm || !performanceRewardsForm) {
+  if (
+    isLoading ||
+    !form ||
+    !appUpdateForm ||
+    !deliveryDispatchStages ||
+    !performanceRewardsForm
+  ) {
     return (
       <div className="flex h-80 items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -321,6 +366,13 @@ export default function ConfigurationPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {(appUpdateMutation.error as any)?.response?.data?.detail ??
             "Erreur de sauvegarde des mises à jour."}
+        </div>
+      )}
+
+      {deliveryDispatchMutation.isError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {(deliveryDispatchMutation.error as any)?.response?.data?.detail ??
+            "Erreur de sauvegarde de la diffusion des courses."}
         </div>
       )}
 
@@ -517,6 +569,93 @@ export default function ConfigurationPage() {
                 }`}
               />
             </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>Diffusion des courses</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Définissez les rayons successifs et le moment où chaque palier devient visible avec notification push.
+            </p>
+          </div>
+          <Button
+            onClick={() => deliveryDispatchMutation.mutate()}
+            disabled={deliveryDispatchMutation.isPending}
+            className="w-full md:w-auto"
+          >
+            {deliveryDispatchMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Sauvegarder la diffusion
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {deliveryDispatchStages.map((stage, index) => (
+              <div key={`${index}-${stage.start_after_seconds}`} className="rounded-lg border p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="font-medium">Palier {index + 1}</div>
+                  <Badge tone={index === deliveryDispatchStages.length - 1 ? "success" : "default"}>
+                    {index === 0 ? "Initial" : index === deliveryDispatchStages.length - 1 ? "Portée max" : "Extension"}
+                  </Badge>
+                </div>
+                <div className="grid gap-3">
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted-foreground">Rayon visible</span>
+                    <Input
+                      type="number"
+                      min={0.1}
+                      max={10}
+                      step="0.1"
+                      value={stage.radius_km}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        setDeliveryDispatchStages((current) =>
+                          current
+                            ? current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? { ...item, radius_km: Number.isFinite(value) ? value : item.radius_km }
+                                  : item
+                              )
+                            : current
+                        );
+                      }}
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span className="text-muted-foreground">Départ après</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={stage.start_after_seconds}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        setDeliveryDispatchStages((current) =>
+                          current
+                            ? current.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      start_after_seconds: Number.isFinite(value)
+                                        ? Math.max(0, Math.round(value))
+                                        : item.start_after_seconds,
+                                    }
+                                  : item
+                              )
+                            : current
+                        );
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
