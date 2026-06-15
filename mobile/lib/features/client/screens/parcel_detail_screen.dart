@@ -19,6 +19,7 @@ import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../core/location/fresh_position_helper.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -417,20 +418,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   Future<void> _confirmLocation() async {
     setState(() => _isConfirmingLocation = true);
     try {
-      // 1. Déclenchement permission & capture GPS
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          throw 'Permission GPS refusée';
-        }
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      final pos = await FreshPositionHelper.getStrictFreshPosition(
+        context: 'la confirmation de votre adresse',
       );
-
-      // 2. Appel API
       final api = ref.read(apiClientProvider);
       final body = <String, dynamic>{
         'lat': pos.latitude,
@@ -448,21 +438,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         });
       }
 
-      // 3. Succès
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Position confirmée avec succès !')),
         );
-        // Rafraîchir le colis
         ref.invalidate(parcelProvider(widget.id));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(friendlyError(e)),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(friendlyError(e))),
         );
       }
     } finally {

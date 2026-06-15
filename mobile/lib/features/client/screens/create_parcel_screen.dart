@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../models/create_parcel_prefill.dart';
@@ -248,25 +248,16 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   Future<void> _captureOriginGPS() async {
     setState(() => _gpsLoading = true);
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.denied) {
-        _showError('Permission GPS refusée. Activez-la dans les paramètres.');
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(const Duration(seconds: 15));
+      final pos = await FreshPositionHelper.getStrictFreshPosition(
+        context: 'la création de la course',
+      );
       setState(() {
         _originLat = pos.latitude;
         _originLng = pos.longitude;
         _originAccuracy = pos.accuracy;
       });
     } catch (e) {
-      _showError('Impossible d\'obtenir la position GPS.');
+      _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _gpsLoading = false);
     }

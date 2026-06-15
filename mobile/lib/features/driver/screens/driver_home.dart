@@ -13,6 +13,7 @@ import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
+import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/location/location_tracking_service.dart';
 
 class _MissionPreview {
@@ -51,7 +52,7 @@ class DriverHome extends ConsumerStatefulWidget {
   ConsumerState<DriverHome> createState() => _DriverHomeState();
 }
 
-class _DriverHomeState extends ConsumerState<DriverHome> {
+class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObserver {
   double? _driverLat;
   double? _driverLng;
   bool _gpsLoading = true;
@@ -60,29 +61,31 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchDriverLocation();
-    // Initialiser le tracking global pour les missions actives
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(locationTrackingServiceProvider);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _fetchDriverLocation();
+    }
   }
 
   /// Capture la position du livreur pour filtrer les missions par proximité.
   Future<void> _fetchDriverLocation() async {
     setState(() => _gpsLoading = true);
     try {
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        if (mounted) setState(() => _gpsLoading = false);
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      ).timeout(const Duration(seconds: 10));
+      final pos = await FreshPositionHelper.getDriverSearchPosition();
       if (mounted) {
         setState(() {
           _driverLat = pos.latitude;
@@ -91,7 +94,13 @@ class _DriverHomeState extends ConsumerState<DriverHome> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _gpsLoading = false);
+      if (mounted) {
+        setState(() {
+          _driverLat = null;
+          _driverLng = null;
+          _gpsLoading = false;
+        });
+      }
     }
   }
 
@@ -926,15 +935,15 @@ class _MissionCard extends ConsumerWidget {
   }
 
   String _pickupZoneLabel() {
-    if (mission.pickupCity.trim().isNotEmpty) {
-      return mission.pickupCity.trim();
+    if (mission.pickupAreaLabel.trim().isNotEmpty) {
+      return mission.pickupAreaLabel.trim();
     }
     return mission.pickupLabel;
   }
 
   String _deliveryZoneLabel() {
-    if (mission.deliveryCity.trim().isNotEmpty) {
-      return mission.deliveryCity.trim();
+    if (mission.deliveryAreaLabel.trim().isNotEmpty) {
+      return mission.deliveryAreaLabel.trim();
     }
     return mission.deliveryLabel;
   }

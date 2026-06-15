@@ -55,6 +55,7 @@ from services.parcel_service import (
     preview_address_change,
     refresh_quote_if_ready,
     sync_active_mission_with_parcel,
+    ensure_live_location_accuracy,
 )
 from services.pricing_service import calculate_price, _haversine_km
 from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
@@ -482,6 +483,11 @@ async def quote_parcel(
     body: ParcelQuote,
     current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
+    if body.delivery_mode.value.startswith("home_to_") and body.origin_location and body.origin_location.geopin:
+        ensure_live_location_accuracy(
+            body.origin_location.geopin.accuracy,
+            context="la collecte du colis",
+        )
     sender_tier = "bronze"
     is_frequent = False
     is_first = False
@@ -1041,6 +1047,10 @@ async def preview_delivery_address_change(
     if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
         raise bad_request_exception("Colis déjà terminé, modification impossible")
 
+    ensure_live_location_accuracy(
+        payload.accuracy,
+        context="la mise à jour de l'adresse de livraison",
+    )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     return {"ok": True, **preview}
 
@@ -1062,6 +1072,10 @@ async def apply_delivery_address_change(
     if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
         raise bad_request_exception("Colis déjà terminé, modification impossible")
 
+    ensure_live_location_accuracy(
+        payload.accuracy,
+        context="la mise à jour de l'adresse de livraison",
+    )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     if preview["requires_acceptance"] and not payload.accept_surcharge:
         raise bad_request_exception("Ce changement nécessite l'acceptation du surcoût avant application")
@@ -1144,6 +1158,10 @@ async def update_delivery_address(
     if parcel.get("status") in ("delivered", "cancelled", "returned"):
         raise bad_request_exception("Colis déjà terminé, modification impossible")
 
+    ensure_live_location_accuracy(
+        payload.accuracy,
+        context="la mise à jour de l'adresse de livraison",
+    )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     if preview["requires_acceptance"]:
         return {

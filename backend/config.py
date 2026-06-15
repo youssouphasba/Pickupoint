@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     NIGHT_MULTIPLIER:    float = 1.20    # +20 % (20h-7h et dimanche)
     DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
     REDIRECT_RELAY_MAX_DISTANCE_KM: float = 1.0  # relais de repli proche du destinataire uniquement
+    STRICT_GPS_MAX_ACCURACY_METERS: float = 60.0
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15
@@ -111,6 +112,8 @@ class Settings(BaseSettings):
 
         if self.GPS_REMINDER_MAX_COUNT < 1:
             raise ValueError("GPS_REMINDER_MAX_COUNT must be >= 1")
+        if self.STRICT_GPS_MAX_ACCURACY_METERS <= 0:
+            raise ValueError("STRICT_GPS_MAX_ACCURACY_METERS must be > 0")
 
         if is_prod and self.FLUTTERWAVE_SECRET_KEY and not self.FLUTTERWAVE_WEBHOOK_SECRET:
             raise ValueError("FLUTTERWAVE_WEBHOOK_SECRET must be configured in production when Flutterwave is enabled")

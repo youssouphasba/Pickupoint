@@ -23,7 +23,7 @@ from core.limiter import limiter
 from config import UPLOADS_DIR
 from database import db
 from models.parcel import ParcelQuote
-from services.parcel_service import _record_event
+from services.parcel_service import _record_event, ensure_live_location_accuracy
 from services.pricing_service import calculate_price
 from services.payment_service import create_payment_link
 from services.google_maps_service import reverse_geocode
@@ -771,6 +771,10 @@ async def save_voice_note(token: str, payload: dict, request: Request):
     if _is_confirm_token_expired(parcel):
         raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
 
+    ensure_live_location_accuracy(
+        payload.accuracy,
+        context="la confirmation de position",
+    )
     is_recipient = parcel.get("recipient_confirm_token") == token
     field = "delivery_voice_note" if is_recipient else "pickup_voice_note"
     message_field = "delivery_voice_message_id" if is_recipient else "pickup_voice_message_id"

@@ -5,8 +5,10 @@ class DeliveryMission {
     required this.status,
     required this.pickupLabel,
     required this.pickupCity,
+    required this.pickupAreaLabel,
     required this.deliveryLabel,
     required this.deliveryCity,
+    required this.deliveryAreaLabel,
     required this.earnAmount,
     required this.createdAt,
     this.distanceKm,
@@ -62,6 +64,7 @@ class DeliveryMission {
   final String? pickupRelayId;
   final String pickupLabel; // texte affiché dans la carte
   final String pickupCity;
+  final String pickupAreaLabel;
   final double? pickupLat;
   final double? pickupLng;
 
@@ -70,6 +73,7 @@ class DeliveryMission {
   final String? deliveryRelayId;
   final String deliveryLabel;
   final String deliveryCity;
+  final String deliveryAreaLabel;
   final double? deliveryLat;
   final double? deliveryLng;
 
@@ -128,12 +132,20 @@ class DeliveryMission {
       pickupRelayId: json['pickup_relay_id'] as String?,
       pickupLabel: json['pickup_label'] as String? ?? '—',
       pickupCity: json['pickup_city'] as String? ?? '',
+      pickupAreaLabel: json['pickup_area_label'] as String? ??
+          json['pickup_city'] as String? ??
+          json['pickup_label'] as String? ??
+          'Zone non précisée',
       pickupLat: pg?['lat'] != null ? (pg!['lat'] as num).toDouble() : null,
       pickupLng: pg?['lng'] != null ? (pg!['lng'] as num).toDouble() : null,
       deliveryType: json['delivery_type'] as String?,
       deliveryRelayId: json['delivery_relay_id'] as String?,
       deliveryLabel: json['delivery_label'] as String? ?? '—',
       deliveryCity: json['delivery_city'] as String? ?? '',
+      deliveryAreaLabel: json['delivery_area_label'] as String? ??
+          json['delivery_city'] as String? ??
+          json['delivery_label'] as String? ??
+          'Zone non précisée',
       deliveryLat: dg?['lat'] != null ? (dg!['lat'] as num).toDouble() : null,
       deliveryLng: dg?['lng'] != null ? (dg!['lng'] as num).toDouble() : null,
       recipientName: json['recipient_name'] as String?,
