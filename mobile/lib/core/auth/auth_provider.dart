@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'dart:async';
 import '../api/api_client.dart';
 import '../models/user.dart';
 import 'token_storage.dart';
@@ -74,6 +75,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 class AuthNotifier extends AsyncNotifier<AuthState> {
   final _storage = TokenStorage();
+  Future<String?>? _refreshInFlight;
 
   @override
   Future<AuthState> build() async {
@@ -374,8 +376,19 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   Future<String?> refreshAndGetAccessToken() async {
+    final pendingRefresh = _refreshInFlight;
+    if (pendingRefresh != null) {
+      return pendingRefresh;
+    }
+
+    final completer = Completer<String?>();
+    _refreshInFlight = completer.future;
     final current = state.valueOrNull;
-    if (current?.refreshToken == null) return null;
+    if (current?.refreshToken == null) {
+      completer.complete(null);
+      _refreshInFlight = null;
+      return null;
+    }
 
     try {
       final client = ApiClient();
@@ -397,10 +410,21 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       state = AsyncData(
         current.copyWith(accessToken: newAccess, refreshToken: newRefresh),
       );
+      completer.complete(newAccess);
       return newAccess;
+    } on DioException catch (error) {
+      final statusCode = error.response?.statusCode;
+      if (statusCode == 400 || statusCode == 401 || statusCode == 403) {
+        await logout();
+      }
+      completer.complete(null);
+      return null;
     } catch (_) {
       await logout();
+      completer.complete(null);
       return null;
+    } finally {
+      _refreshInFlight = null;
     }
   }
 
