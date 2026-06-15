@@ -169,6 +169,64 @@ def _normalize_geopin(source: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _format_distance_text(distance_meters: Optional[float]) -> Optional[str]:
+    if distance_meters is None:
+        return None
+    if distance_meters < 1000:
+        return f"{round(distance_meters)} m"
+    return f"{distance_meters / 1000:.1f} km"
+
+
+def _format_duration_text(duration_seconds: Optional[int]) -> Optional[str]:
+    if duration_seconds is None:
+        return None
+    if duration_seconds < 3600:
+        minutes = max(1, math.ceil(duration_seconds / 60))
+        return f"{minutes} min"
+    hours = duration_seconds // 3600
+    minutes = math.ceil((duration_seconds % 3600) / 60)
+    if minutes == 60:
+        hours += 1
+        minutes = 0
+    if minutes == 0:
+        return f"{hours} h"
+    return f"{hours} h {minutes:02d}"
+
+
+def _can_driver_preview_pending_mission(
+    mission: dict,
+    driver_user_id: str,
+    lat: Optional[float],
+    lng: Optional[float],
+) -> bool:
+    if mission.get("status") != MissionStatus.PENDING.value:
+        return False
+
+    if mission.get("is_broadcast"):
+        return True
+
+    candidates = mission.get("candidate_drivers") or []
+    notified_driver_ids = mission.get("dispatch_notified_driver_ids") or []
+    if driver_user_id not in candidates and driver_user_id not in notified_driver_ids:
+        return False
+
+    pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+    if pickup_geopin is None or lat is None or lng is None:
+        return True
+
+    dispatch_radius_km = mission.get("dispatch_radius_km")
+    if dispatch_radius_km is None:
+        dispatch_radius_km = 10.0 if mission.get("is_broadcast") else 5.0
+
+    distance_km = _haversine_km(
+        lat,
+        lng,
+        pickup_geopin["lat"],
+        pickup_geopin["lng"],
+    )
+    return distance_km <= float(dispatch_radius_km)
+
+
 async def advance_pending_delivery_dispatch() -> int:
     """
     Fait progresser le dispatch en cascade hors du flux HTTP.
@@ -383,6 +441,122 @@ async def my_missions(
                 m["recipient_phone"] = mask_phone(m["recipient_phone"])
                 
     return {"missions": missions}
+
+
+@router.get("/{mission_id}/preview", summary="Aperçu d'une mission disponible")
+async def mission_preview(
+    mission_id: str,
+    lat: Optional[float] = Query(None, description="Latitude courante du livreur"),
+    lng: Optional[float] = Query(None, description="Longitude courante du livreur"),
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+
+    if current_user["role"] == UserRole.DRIVER.value:
+        if not _driver_has_profile_photo(current_user):
+            raise bad_request_exception(
+                "Votre photo de profil doit être ajoutée puis approuvée avant de recevoir des missions."
+            )
+        if not _can_driver_preview_pending_mission(
+            mission,
+            current_user["user_id"],
+            lat,
+            lng,
+        ):
+            raise forbidden_exception("Cette course n'est plus disponible pour vous.")
+
+    await _attach_commission_requirements([mission])
+    _mask_recipient_phone_for_driver([mission], current_user)
+
+    pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+    delivery_geopin = _normalize_geopin(mission.get("delivery_geopin"))
+
+    pickup_distance_km: Optional[float] = None
+    pickup_distance_text: Optional[str] = None
+    pickup_eta_seconds: Optional[int] = None
+    pickup_eta_text: Optional[str] = None
+
+    if lat is not None and lng is not None and pickup_geopin is not None:
+        pickup_distance_km = round(
+            _haversine_km(lat, lng, pickup_geopin["lat"], pickup_geopin["lng"]),
+            2,
+        )
+        pickup_distance_text = f"{pickup_distance_km:.1f} km"
+        pickup_route = await get_directions_eta(
+            lat,
+            lng,
+            pickup_geopin["lat"],
+            pickup_geopin["lng"],
+        )
+        if pickup_route:
+            pickup_distance_text = pickup_route.get("distance_text") or pickup_distance_text
+            pickup_eta_seconds = pickup_route.get("duration_seconds")
+            pickup_eta_text = pickup_route.get("duration_text")
+
+    delivery_distance_km: Optional[float] = None
+    delivery_distance_text: Optional[str] = None
+    delivery_eta_seconds: Optional[int] = None
+    delivery_eta_text: Optional[str] = None
+
+    if pickup_geopin is not None and delivery_geopin is not None:
+        delivery_distance_km = round(
+            _haversine_km(
+                pickup_geopin["lat"],
+                pickup_geopin["lng"],
+                delivery_geopin["lat"],
+                delivery_geopin["lng"],
+            ),
+            2,
+        )
+        delivery_distance_text = f"{delivery_distance_km:.1f} km"
+        delivery_route = await get_directions_eta(
+            pickup_geopin["lat"],
+            pickup_geopin["lng"],
+            delivery_geopin["lat"],
+            delivery_geopin["lng"],
+        )
+        if delivery_route:
+            delivery_distance_text = delivery_route.get("distance_text") or delivery_distance_text
+            delivery_eta_seconds = delivery_route.get("duration_seconds")
+            delivery_eta_text = delivery_route.get("duration_text")
+
+    total_distance_km: Optional[float] = None
+    total_eta_seconds: Optional[int] = None
+    if pickup_distance_km is not None or delivery_distance_km is not None:
+        total_distance_km = round((pickup_distance_km or 0.0) + (delivery_distance_km or 0.0), 2)
+    if pickup_eta_seconds is not None or delivery_eta_seconds is not None:
+        total_eta_seconds = (pickup_eta_seconds or 0) + (delivery_eta_seconds or 0)
+
+    pickup_distance_meters = pickup_distance_km * 1000 if pickup_distance_km is not None else None
+    delivery_distance_meters = delivery_distance_km * 1000 if delivery_distance_km is not None else None
+    total_distance_meters = total_distance_km * 1000 if total_distance_km is not None else None
+
+    if pickup_distance_text is None:
+        pickup_distance_text = _format_distance_text(pickup_distance_meters)
+    if delivery_distance_text is None:
+        delivery_distance_text = _format_distance_text(delivery_distance_meters)
+
+    return {
+        "mission": mission,
+        "preview": {
+            "pickup_distance_km": pickup_distance_km,
+            "pickup_distance_text": pickup_distance_text,
+            "pickup_eta_seconds": pickup_eta_seconds,
+            "pickup_eta_text": pickup_eta_text,
+            "delivery_distance_km": delivery_distance_km,
+            "delivery_distance_text": delivery_distance_text,
+            "delivery_eta_seconds": delivery_eta_seconds,
+            "delivery_eta_text": delivery_eta_text,
+            "total_distance_km": total_distance_km,
+            "total_distance_text": _format_distance_text(total_distance_meters),
+            "total_eta_seconds": total_eta_seconds,
+            "total_eta_text": _format_duration_text(total_eta_seconds),
+        },
+    }
 
 class ConfirmPickupRequest(BaseModel):
     code: str

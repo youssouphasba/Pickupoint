@@ -79,6 +79,7 @@ class ApiEndpoints {
   static const availableMissions = '$_base/api/deliveries/available';
   static const myMissions = '$_base/api/deliveries/my';
   static String delivery(String id) => '$_base/api/deliveries/$id';
+  static String deliveryPreview(String id) => '$_base/api/deliveries/$id/preview';
   static String deliveryLocation(String id) =>
       '$_base/api/deliveries/$id/location';
   static String acceptMission(String id) => '$_base/api/deliveries/$id/accept';

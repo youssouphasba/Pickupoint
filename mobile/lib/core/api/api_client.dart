@@ -258,6 +258,19 @@ class ApiClient {
 
   Future<Response> getMission(String id) => _dio.get(ApiEndpoints.delivery(id));
 
+  Future<Response> getMissionPreview(
+    String id, {
+    double? lat,
+    double? lng,
+  }) =>
+      _dio.get(
+        ApiEndpoints.deliveryPreview(id),
+        queryParameters: {
+          if (lat != null) 'lat': lat,
+          if (lng != null) 'lng': lng,
+        },
+      );
+
   Future<Response> acceptMission(
     String id, {
     Map<String, dynamic>? location,

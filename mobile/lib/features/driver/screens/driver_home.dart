@@ -15,6 +15,35 @@ import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/location_tracking_service.dart';
 
+class _MissionPreview {
+  const _MissionPreview({
+    this.pickupDistanceText,
+    this.pickupEtaText,
+    this.deliveryDistanceText,
+    this.deliveryEtaText,
+    this.totalDistanceText,
+    this.totalEtaText,
+  });
+
+  final String? pickupDistanceText;
+  final String? pickupEtaText;
+  final String? deliveryDistanceText;
+  final String? deliveryEtaText;
+  final String? totalDistanceText;
+  final String? totalEtaText;
+
+  factory _MissionPreview.fromJson(Map<String, dynamic> json) {
+    return _MissionPreview(
+      pickupDistanceText: json['pickup_distance_text']?.toString(),
+      pickupEtaText: json['pickup_eta_text']?.toString(),
+      deliveryDistanceText: json['delivery_distance_text']?.toString(),
+      deliveryEtaText: json['delivery_eta_text']?.toString(),
+      totalDistanceText: json['total_distance_text']?.toString(),
+      totalEtaText: json['total_eta_text']?.toString(),
+    );
+  }
+}
+
 class DriverHome extends ConsumerStatefulWidget {
   const DriverHome({super.key});
 
@@ -686,9 +715,9 @@ class _MissionCard extends ConsumerWidget {
             width: double.infinity,
             child: isAvailable
                 ? ElevatedButton.icon(
-                    onPressed: () => _accept(context, ref),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Accepter la course'),
+                    onPressed: () => _showPreviewSheet(context, ref),
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('Voir l’aperçu'),
                     style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         padding: const EdgeInsets.symmetric(vertical: 12)),
@@ -703,6 +732,228 @@ class _MissionCard extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  Future<_MissionPreview> _loadPreview(WidgetRef ref) async {
+    final api = ref.read(apiClientProvider);
+    final response = await api.getMissionPreview(
+      mission.id,
+      lat: driverLoc.lat,
+      lng: driverLoc.lng,
+    );
+    final data = response.data as Map<String, dynamic>;
+    final previewJson = data['preview'] as Map<String, dynamic>? ?? const {};
+    return _MissionPreview.fromJson(previewJson);
+  }
+
+  Future<void> _showPreviewSheet(BuildContext context, WidgetRef ref) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: FutureBuilder<_MissionPreview>(
+            future: _loadPreview(ref),
+            builder: (context, snapshot) {
+              final preview = snapshot.data;
+              final isLoading = snapshot.connectionState == ConnectionState.waiting;
+              final loadError = snapshot.hasError;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Aperçu de la course',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _PreviewChip(
+                                    icon: Icons.route_outlined,
+                                    label: _deliveryModeLabel(),
+                                  ),
+                                  if (mission.distanceKm != null)
+                                    _PreviewChip(
+                                      icon: Icons.near_me_outlined,
+                                      label: '${mission.distanceKm!.toStringAsFixed(1)} km du pickup',
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          formatXof(mission.earnAmount),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _PreviewSection(
+                      title: 'Collecte',
+                      children: [
+                        _PreviewLine(
+                          icon: mission.pickupIsRelay
+                              ? Icons.storefront_outlined
+                              : Icons.my_location_outlined,
+                          label: 'Zone',
+                          value: _pickupZoneLabel(),
+                        ),
+                        _PreviewLine(
+                          icon: Icons.directions_car_outlined,
+                          label: 'Distance',
+                          value: preview?.pickupDistanceText ??
+                              (mission.distanceKm != null
+                                  ? '${mission.distanceKm!.toStringAsFixed(1)} km'
+                                  : 'Non disponible'),
+                          trailing: preview?.pickupEtaText,
+                          loading: isLoading,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _PreviewSection(
+                      title: 'Trajet',
+                      children: [
+                        _PreviewLine(
+                          icon: Icons.flag_outlined,
+                          label: 'Destination',
+                          value: _deliveryZoneLabel(),
+                        ),
+                        _PreviewLine(
+                          icon: Icons.alt_route_outlined,
+                          label: 'Distance totale',
+                          value: preview?.totalDistanceText ??
+                              preview?.deliveryDistanceText ??
+                              'Non disponible',
+                          trailing:
+                              preview?.totalEtaText ?? preview?.deliveryEtaText,
+                          loading: isLoading,
+                        ),
+                        _PreviewLine(
+                          icon: Icons.local_shipping_outlined,
+                          label: 'Type de course',
+                          value: _serviceLabel(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _PreviewSection(
+                      title: 'Conditions',
+                      children: [
+                        _PreviewLine(
+                          icon: Icons.account_balance_wallet_outlined,
+                          label: 'Commission requise',
+                          value: formatXof(
+                            mission.walletBalanceRequiredXof > 0
+                                ? mission.walletBalanceRequiredXof
+                                : mission.totalCommissionXof,
+                          ),
+                        ),
+                        if (mission.recipientName != null)
+                          _PreviewLine(
+                            icon: Icons.person_outline,
+                            label: 'Destinataire',
+                            value: mission.recipientName!,
+                          ),
+                      ],
+                    ),
+                    if (loadError) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        friendlyError(snapshot.error ?? Exception('Erreur')),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            child: const Text('Fermer'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              Navigator.of(sheetContext).pop();
+                              await _accept(context, ref);
+                            },
+                            icon: const Icon(Icons.check),
+                            label: const Text('Accepter'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  String _pickupZoneLabel() {
+    if (mission.pickupCity.trim().isNotEmpty) {
+      return mission.pickupCity.trim();
+    }
+    return mission.pickupLabel;
+  }
+
+  String _deliveryZoneLabel() {
+    if (mission.deliveryCity.trim().isNotEmpty) {
+      return mission.deliveryCity.trim();
+    }
+    return mission.deliveryLabel;
+  }
+
+  String _deliveryModeLabel() {
+    if (mission.pickupIsRelay && mission.deliveryIsRelay) {
+      return 'Relais → Relais';
+    }
+    if (mission.pickupIsRelay && !mission.deliveryIsRelay) {
+      return 'Relais → Domicile';
+    }
+    if (!mission.pickupIsRelay && mission.deliveryIsRelay) {
+      return 'Domicile → Relais';
+    }
+    return 'Domicile → Domicile';
+  }
+
+  String _serviceLabel() {
+    return _deliveryModeLabel();
   }
 
   Color _distanceColor(double km) {
@@ -831,6 +1082,149 @@ class _MissionCard extends ConsumerWidget {
               context.go('/driver/wallet');
             },
             child: const Text('Recharger'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewSection extends StatelessWidget {
+  const _PreviewSection({
+    required this.title,
+    required this.children,
+  });
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(16),
+        color: Colors.grey.shade50,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.blueGrey.shade700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewLine extends StatelessWidget {
+  const _PreviewLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.trailing,
+    this.loading = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? trailing;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.blueGrey.shade500),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.blueGrey.shade500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  loading && value == 'Non disponible' ? 'Chargement…' : value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if ((trailing ?? '').isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                trailing!,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PreviewChip extends StatelessWidget {
+  const _PreviewChip({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.blue.shade700),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.blue.shade700,
+            ),
           ),
         ],
       ),
