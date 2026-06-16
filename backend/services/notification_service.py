@@ -1142,6 +1142,28 @@ async def notify_new_mission_dispatch_wave(
     )
 
 
+async def notify_pending_mission_dispatch_reminder(
+    *,
+    user_ids: list[str],
+    mission: dict,
+    radius_km: float,
+) -> dict:
+    tracking_code = mission.get("tracking_code", "N/A")
+    radius_label = f"{radius_km:.0f}" if float(radius_km).is_integer() else f"{radius_km:.1f}"
+    return await send_targeted_notifications(
+        user_ids=user_ids,
+        title="Course toujours disponible",
+        body=(
+            f"La course pour le colis {tracking_code} est toujours disponible dans un rayon de "
+            f"{radius_label} km."
+        ),
+        category="parcel_updates",
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+        metadata={"dispatch_radius_km": radius_km, "reminder": True},
+    )
+
+
 async def notify_new_parcel_message(parcel: dict, sender_id: str, sender_name: str, message_text: str):
     """Notifie les autres participants du colis (sender, recipient, driver) qu'un nouveau message est arrivé.
 

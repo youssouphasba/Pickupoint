@@ -3408,6 +3408,7 @@ async def admin_reassign_mission(
         "is_broadcast": False,
         "ping_index": 0,
         "ping_expires_at": None,
+        "dispatch_last_reminder_at": now,
         "dispatch_notified_driver_ids": [body.new_driver_id],
         "candidate_drivers": candidate_drivers,
         "admin_requested_driver_id": body.new_driver_id,

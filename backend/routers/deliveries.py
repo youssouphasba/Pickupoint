@@ -33,6 +33,7 @@ from services.ranking_service import refresh_driver_stats_for_period
 from services.notification_service import (
     notify_approaching_driver,
     notify_new_mission_dispatch_wave,
+    notify_pending_mission_dispatch_reminder,
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
 )
@@ -227,6 +228,113 @@ def _can_driver_preview_pending_mission(
     return distance_km <= float(dispatch_radius_km)
 
 
+def _merge_driver_ids(existing: list[str], incoming: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for driver_id in [*(existing or []), *(incoming or [])]:
+        if not driver_id or driver_id in seen:
+            continue
+        seen.add(driver_id)
+        merged.append(driver_id)
+    return merged
+
+
+async def _eligible_driver_ids_for_dispatch_stage(
+    mission: dict,
+    dispatch_state: dict,
+    pickup_geopin: Optional[dict],
+) -> list[str]:
+    requested_driver_id = mission.get("admin_requested_driver_id")
+    if requested_driver_id:
+        return [requested_driver_id]
+    if not pickup_geopin:
+        return []
+    return await _find_candidate_drivers_within_radius(
+        pickup_geopin["lat"],
+        pickup_geopin["lng"],
+        dispatch_state["radius_km"],
+    )
+
+
+async def _notify_driver_when_entering_dispatch_radius(
+    *,
+    driver_user_id: str,
+    lat: float,
+    lng: float,
+    now: datetime,
+) -> int:
+    cursor = db.delivery_missions.find(
+        {"status": MissionStatus.PENDING.value},
+        {"_id": 0},
+    )
+    pending_missions = await cursor.to_list(length=200)
+    notified_count = 0
+
+    for mission in pending_missions:
+        requested_driver_id = mission.get("admin_requested_driver_id")
+        if requested_driver_id and requested_driver_id != driver_user_id:
+            continue
+
+        pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+        if pickup_geopin is None:
+            continue
+
+        dispatch_settings = mission.get("delivery_dispatch")
+        if not dispatch_settings:
+            dispatch_settings = await get_delivery_dispatch_settings()
+
+        dispatch_started_at = _as_aware_utc(mission.get("dispatch_started_at")) or _as_aware_utc(
+            mission.get("created_at")
+        ) or now
+        dispatch_state = resolve_delivery_dispatch_state(
+            dispatch_settings,
+            dispatch_started_at,
+            now=now,
+        )
+
+        distance_km = _haversine_km(
+            lat,
+            lng,
+            pickup_geopin["lat"],
+            pickup_geopin["lng"],
+        )
+        if distance_km > float(dispatch_state["radius_km"]):
+            continue
+
+        notified_driver_ids = list(mission.get("dispatch_notified_driver_ids") or [])
+        candidate_drivers = list(mission.get("candidate_drivers") or [])
+        if driver_user_id in notified_driver_ids or driver_user_id in candidate_drivers:
+            continue
+
+        notified_driver_ids = _merge_driver_ids(notified_driver_ids, [driver_user_id])
+        candidate_drivers = _merge_driver_ids(candidate_drivers, [driver_user_id])
+        updates = {
+            "updated_at": now,
+            "delivery_dispatch": dispatch_settings,
+            "dispatch_stage_index": dispatch_state["stage_index"],
+            "dispatch_radius_km": dispatch_state["radius_km"],
+            "dispatch_next_escalation_at": dispatch_state["next_escalation_at"],
+            "dispatch_notified_driver_ids": notified_driver_ids,
+            "candidate_drivers": candidate_drivers,
+            "is_broadcast": dispatch_state["is_final_stage"],
+            "ping_expires_at": dispatch_state["next_escalation_at"],
+            "ping_index": 0,
+        }
+        await db.delivery_missions.update_one(
+            {"mission_id": mission["mission_id"], "status": MissionStatus.PENDING.value},
+            {"$set": updates},
+        )
+        updated_mission = {**mission, **updates}
+        await notify_new_mission_dispatch_wave(
+            user_ids=[driver_user_id],
+            mission=updated_mission,
+            radius_km=dispatch_state["radius_km"],
+        )
+        notified_count += 1
+
+    return notified_count
+
+
 async def advance_pending_delivery_dispatch() -> int:
     """
     Fait progresser le dispatch en cascade hors du flux HTTP.
@@ -236,14 +344,9 @@ async def advance_pending_delivery_dispatch() -> int:
     cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value}, {"_id": 0})
     raw_missions = await cursor.to_list(length=200)
     updated_count = 0
+    reminder_interval = timedelta(minutes=5)
 
     for mission in raw_missions:
-        ping_expires_at = _as_aware_utc(mission.get("ping_expires_at"))
-        dispatch_next_escalation_at = _as_aware_utc(mission.get("dispatch_next_escalation_at"))
-        next_escalation_at = dispatch_next_escalation_at or ping_expires_at
-        if next_escalation_at is None or now <= next_escalation_at:
-            continue
-
         pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
         dispatch_settings = mission.get("delivery_dispatch")
         if not dispatch_settings:
@@ -261,45 +364,89 @@ async def advance_pending_delivery_dispatch() -> int:
         notified_driver_ids = list(mission.get("dispatch_notified_driver_ids") or [])
         candidate_drivers = list(mission.get("candidate_drivers") or [])
         new_driver_ids: list[str] = []
+        updates: dict[str, object] = {}
 
-        if pickup_geopin:
-            eligible_driver_ids = await _find_candidate_drivers_within_radius(
-                pickup_geopin["lat"],
-                pickup_geopin["lng"],
-                dispatch_state["radius_km"],
+        ping_expires_at = _as_aware_utc(mission.get("ping_expires_at"))
+        dispatch_next_escalation_at = _as_aware_utc(mission.get("dispatch_next_escalation_at"))
+        next_escalation_at = dispatch_next_escalation_at or ping_expires_at
+        should_escalate = next_escalation_at is not None and now > next_escalation_at
+
+        if should_escalate:
+            eligible_driver_ids = await _eligible_driver_ids_for_dispatch_stage(
+                mission,
+                dispatch_state,
+                pickup_geopin,
             )
             new_driver_ids = [
                 driver_id for driver_id in eligible_driver_ids if driver_id not in notified_driver_ids
             ]
-            notified_driver_ids.extend(new_driver_ids)
-            candidate_drivers = notified_driver_ids[:]
+            notified_driver_ids = _merge_driver_ids(notified_driver_ids, new_driver_ids)
+            candidate_drivers = _merge_driver_ids(candidate_drivers, eligible_driver_ids)
+            updates.update({
+                "updated_at": now,
+                "delivery_dispatch": dispatch_settings,
+                "dispatch_stage_index": dispatch_state["stage_index"],
+                "dispatch_radius_km": dispatch_state["radius_km"],
+                "dispatch_next_escalation_at": dispatch_state["next_escalation_at"],
+                "dispatch_notified_driver_ids": notified_driver_ids,
+                "candidate_drivers": candidate_drivers,
+                "is_broadcast": dispatch_state["is_final_stage"],
+                "ping_expires_at": dispatch_state["next_escalation_at"],
+                "ping_index": 0,
+            })
 
-        updates: dict[str, object] = {
-            "updated_at": now,
-            "delivery_dispatch": dispatch_settings,
-            "dispatch_stage_index": dispatch_state["stage_index"],
-            "dispatch_radius_km": dispatch_state["radius_km"],
-            "dispatch_next_escalation_at": dispatch_state["next_escalation_at"],
-            "dispatch_notified_driver_ids": notified_driver_ids,
-            "candidate_drivers": candidate_drivers,
-            "is_broadcast": dispatch_state["is_final_stage"],
-            "ping_expires_at": dispatch_state["next_escalation_at"],
-            "ping_index": 0,
-        }
-
-        await db.delivery_missions.update_one(
-            {"mission_id": mission["mission_id"]},
-            {"$set": updates},
+        last_reminder_at = _as_aware_utc(mission.get("dispatch_last_reminder_at"))
+        should_send_reminder = (
+            last_reminder_at is None or now - last_reminder_at >= reminder_interval
         )
-        updated_count += 1
+        reminder_driver_ids: list[str] = []
+        if should_send_reminder:
+            reminder_driver_ids = await _eligible_driver_ids_for_dispatch_stage(
+                {**mission, **updates},
+                dispatch_state,
+                pickup_geopin,
+            )
+            if reminder_driver_ids:
+                notified_driver_ids = _merge_driver_ids(notified_driver_ids, reminder_driver_ids)
+                candidate_drivers = _merge_driver_ids(candidate_drivers, reminder_driver_ids)
+                updates.update({
+                    "updated_at": now,
+                    "delivery_dispatch": dispatch_settings,
+                    "dispatch_stage_index": dispatch_state["stage_index"],
+                    "dispatch_radius_km": dispatch_state["radius_km"],
+                    "dispatch_next_escalation_at": dispatch_state["next_escalation_at"],
+                    "dispatch_notified_driver_ids": notified_driver_ids,
+                    "candidate_drivers": candidate_drivers,
+                    "is_broadcast": dispatch_state["is_final_stage"],
+                    "ping_expires_at": dispatch_state["next_escalation_at"],
+                    "ping_index": 0,
+                    "dispatch_last_reminder_at": now,
+                })
 
+        if updates:
+            await db.delivery_missions.update_one(
+                {"mission_id": mission["mission_id"]},
+                {"$set": updates},
+            )
+            updated_count += 1
+
+        updated_mission = {**mission, **updates}
         if new_driver_ids:
-            updated_mission = {**mission, **updates}
             await notify_new_mission_dispatch_wave(
                 user_ids=new_driver_ids,
                 mission=updated_mission,
                 radius_km=dispatch_state["radius_km"],
             )
+        if reminder_driver_ids:
+            reminder_targets = [
+                driver_id for driver_id in reminder_driver_ids if driver_id not in new_driver_ids
+            ]
+            if reminder_targets:
+                await notify_pending_mission_dispatch_reminder(
+                    user_ids=reminder_targets,
+                    mission=updated_mission,
+                    radius_km=dispatch_state["radius_km"],
+                )
 
     return updated_count
 
@@ -1138,6 +1285,17 @@ async def update_my_driver_location(
             }
         },
     )
+    if (
+        current_user.get("role") == UserRole.DRIVER.value
+        and current_user.get("is_available", False)
+        and _driver_has_profile_photo(current_user)
+    ):
+        await _notify_driver_when_entering_dispatch_radius(
+            driver_user_id=current_user["user_id"],
+            lat=body.lat,
+            lng=body.lng,
+            now=now,
+        )
     return {"message": "Position livreur mise ? jour"}
 
 
