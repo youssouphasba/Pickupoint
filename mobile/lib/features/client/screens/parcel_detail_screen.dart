@@ -40,6 +40,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   bool _driverOnline = false;
   GoogleMapController? _mapController;
   bool _isConfirmingLocation = false;
+  String? _confirmLocationStatus;
+  double? _confirmLocationAccuracy;
+  DateTime? _confirmLocationUpdatedAt;
   String? _liveEtaText;
   String? _liveDistanceText;
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
@@ -390,6 +393,80 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               onPressed: _confirmLocation,
             ),
           ),
+          if (_isConfirmingLocation || _confirmLocationStatus != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isConfirmingLocation
+                    ? Colors.orange.shade100
+                    : Colors.green.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isConfirmingLocation
+                      ? Colors.orange.shade200
+                      : Colors.green.shade200,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: _isConfirmingLocation
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.orange.shade800,
+                            ),
+                          )
+                        : Icon(
+                            Icons.check_circle,
+                            size: 18,
+                            color: Colors.green.shade700,
+                          ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isConfirmingLocation
+                              ? 'Confirmation de la position en cours...'
+                              : (_confirmLocationStatus ??
+                                  'Position prise en compte.'),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _isConfirmingLocation
+                                ? Colors.orange.shade900
+                                : Colors.green.shade900,
+                          ),
+                        ),
+                        if (!_isConfirmingLocation &&
+                            _confirmLocationUpdatedAt != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Mise à jour le ${formatDate(_confirmLocationUpdatedAt!)}'
+                              '${_confirmLocationAccuracy != null ? ' • précision ±${_confirmLocationAccuracy!.round()} m' : ''}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
@@ -416,7 +493,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   }
 
   Future<void> _confirmLocation() async {
-    setState(() => _isConfirmingLocation = true);
+    setState(() {
+      _isConfirmingLocation = true;
+      _confirmLocationStatus = null;
+    });
     try {
       final pos = await FreshPositionHelper.getStrictFreshPosition(
         context: 'la confirmation de votre adresse',
@@ -439,13 +519,22 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       }
 
       if (mounted) {
+        final now = DateTime.now();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Position confirmée avec succès !')),
         );
+        setState(() {
+          _confirmLocationStatus = 'Position confirmée avec succès.';
+          _confirmLocationAccuracy = pos.accuracy;
+          _confirmLocationUpdatedAt = now;
+        });
         ref.invalidate(parcelProvider(widget.id));
       }
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _confirmLocationStatus = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(friendlyError(e))),
         );
