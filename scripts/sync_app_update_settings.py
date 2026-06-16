@@ -19,6 +19,10 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return value.strip().lower() not in FALSE_VALUES
 
 
+def _warn_only_on_failure() -> bool:
+    return not _env_flag("APP_UPDATE_SYNC_REQUIRED", default=False)
+
+
 def _normalize_base_url(raw_base_url: str) -> str:
     base_url = raw_base_url.strip().rstrip("/")
     if not base_url:
@@ -155,5 +159,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
+        if _warn_only_on_failure():
+            print(f"AVERTISSEMENT: synchro app update ignorée: {exc}", file=sys.stderr)
+            raise SystemExit(0)
         print(f"ERREUR: {exc}", file=sys.stderr)
         raise
