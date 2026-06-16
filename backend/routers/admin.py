@@ -2480,14 +2480,26 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
     for mission in missions:
         parcel = parcel_lookup.get(mission.get("parcel_id"), {})
         driver = driver_lookup.get(mission.get("driver_id"), {})
-        live_location = _normalize_geopin(mission.get("driver_location"))
-        last_seen_at = mission.get("location_updated_at")
+        mission_location = _normalize_geopin(mission.get("driver_location"))
+        mission_seen_at = mission.get("location_updated_at")
+        driver_profile_location = _normalize_geopin(driver.get("last_driver_location"))
+        driver_profile_seen_at = driver.get("last_driver_location_at")
+        live_location = mission_location
+        last_seen_at = mission_seen_at
         location_source = "mission"
-        if not live_location:
-            live_location = _normalize_geopin(driver.get("last_driver_location"))
-            last_seen_at = driver.get("last_driver_location_at")
-            if live_location:
-                location_source = "driver_profile"
+        if driver_profile_location and (
+            not mission_location
+            or (
+                driver_profile_seen_at
+                and (
+                    not mission_seen_at
+                    or _as_aware_utc(driver_profile_seen_at) >= _as_aware_utc(mission_seen_at)
+                )
+            )
+        ):
+            live_location = driver_profile_location
+            last_seen_at = driver_profile_seen_at
+            location_source = "driver_profile"
         if live_location:
             with_live_location += 1
         else:

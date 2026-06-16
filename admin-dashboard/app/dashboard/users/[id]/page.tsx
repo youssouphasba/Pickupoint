@@ -183,6 +183,12 @@ function resolveGeoPoint(point?: {
   return { lat, lng };
 }
 
+function parseTimestamp(value?: string | null) {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -333,13 +339,25 @@ export default function UserDetailPage() {
     : [];
   const missionLocation = resolveGeoPoint(data.active_mission?.driver_location);
   const profileLocation = resolveGeoPoint(user.last_driver_location);
-  const displayLocation = missionLocation ?? profileLocation;
-  const displayLocationUpdatedAt =
-    data.active_mission?.location_updated_at ?? user.last_driver_location_at;
-  const displayLocationSource = missionLocation
+  const missionLocationUpdatedAt = data.active_mission?.location_updated_at ?? null;
+  const profileLocationUpdatedAt = user.last_driver_location_at ?? null;
+  const missionLocationTs = missionLocation
+    ? parseTimestamp(missionLocationUpdatedAt)
+    : 0;
+  const profileLocationTs = profileLocation
+    ? parseTimestamp(profileLocationUpdatedAt)
+    : 0;
+  const useMissionLocation =
+    missionLocation != null &&
+    (profileLocation == null || missionLocationTs >= profileLocationTs);
+  const displayLocation = useMissionLocation ? missionLocation : profileLocation;
+  const displayLocationUpdatedAt = useMissionLocation
+    ? missionLocationUpdatedAt
+    : profileLocationUpdatedAt;
+  const displayLocationSource = useMissionLocation
     ? "Mission active"
     : profileLocation
-      ? "Dernière position connue"
+      ? "Presence app"
       : null;
   const referralUrl = referral?.referral_url ?? "";
   const referralShareMessage = referralUrl

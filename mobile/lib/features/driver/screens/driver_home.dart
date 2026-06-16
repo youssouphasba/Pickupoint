@@ -106,12 +106,24 @@ class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObse
         });
       }
     } catch (_) {
-      if (mounted) {
-        setState(() {
-          _driverLat = null;
-          _driverLng = null;
-          _gpsLoading = false;
-        });
+      try {
+        final pos = await FreshPositionHelper.getDriverPresencePosition();
+        await _syncDriverPresenceLocation(pos);
+        if (mounted) {
+          setState(() {
+            _driverLat = pos.latitude;
+            _driverLng = pos.longitude;
+            _gpsLoading = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _driverLat = null;
+            _driverLng = null;
+            _gpsLoading = false;
+          });
+        }
       }
     }
   }

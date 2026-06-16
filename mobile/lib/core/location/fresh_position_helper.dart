@@ -56,12 +56,25 @@ class FreshPositionHelper {
     );
   }
 
+  static Future<Position> getDriverPresencePosition() {
+    return _resolveFreshPosition(
+      maxAccuracyMeters: 500,
+      attempts: 4,
+      timeoutPerAttempt: const Duration(seconds: 8),
+      desiredAccuracy: LocationAccuracy.high,
+      failureMessage:
+          'Localisation indisponible. Vérifiez le GPS puis réessayez.',
+      returnBestMeasuredPosition: true,
+    );
+  }
+
   static Future<Position> _resolveFreshPosition({
     required double maxAccuracyMeters,
     required int attempts,
     required Duration timeoutPerAttempt,
     required LocationAccuracy desiredAccuracy,
     required String failureMessage,
+    bool returnBestMeasuredPosition = false,
   }) async {
     await ensureLocationAccess();
 
@@ -91,6 +104,9 @@ class FreshPositionHelper {
     }
 
     final measuredAccuracy = bestPosition?.accuracy;
+    if (returnBestMeasuredPosition && bestPosition != null) {
+      return bestPosition;
+    }
     if (measuredAccuracy != null) {
       throw _LocationError(
         '$failureMessage (précision actuelle : ${measuredAccuracy.round()} m).',
