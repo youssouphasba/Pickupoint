@@ -752,7 +752,7 @@ class _MissionCard extends ConsumerWidget {
                 ? ElevatedButton.icon(
                     onPressed: () => _showPreviewSheet(context, ref),
                     icon: const Icon(Icons.visibility_outlined),
-                    label: const Text('Voir l’aperçu'),
+                    label: const Text('Voir course'),
                     style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
                         padding: const EdgeInsets.symmetric(vertical: 12)),

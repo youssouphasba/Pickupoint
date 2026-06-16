@@ -317,7 +317,7 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
   static String _paymentLabel(Parcel parcel) {
     if (parcel.whoPays == 'recipient' && parcel.paymentStatus != 'paid') {
-      return 'contre-remboursement';
+      return 'paye par le destinataire a la livraison';
     }
     return parcel.paymentStatus ?? '-';
   }

@@ -368,7 +368,7 @@ class _ParcelCard extends StatelessWidget {
   static String _paymentLabel(Parcel parcel) {
     final status = parcel.paymentStatus ?? '-';
     if (parcel.whoPays == 'recipient' && status != 'paid') {
-      return 'contre-remboursement';
+      return 'paye par le destinataire a la livraison';
     }
     return status;
   }
