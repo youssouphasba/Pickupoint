@@ -330,6 +330,28 @@ async def available_missions(
     # On récupère toutes les missions PENDING
     cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value}, {"_id": 0})
     raw_missions = await cursor.to_list(length=200)
+    if raw_missions:
+        parcel_ids = list({mission.get("parcel_id") for mission in raw_missions if mission.get("parcel_id")})
+        if parcel_ids:
+            parcels_cursor = db.parcels.find(
+                {"parcel_id": {"$in": parcel_ids}},
+                {"_id": 0, "parcel_id": 1, "status": 1},
+            )
+            parcel_rows = await parcels_cursor.to_list(length=len(parcel_ids))
+            parcel_statuses = {row["parcel_id"]: row.get("status") for row in parcel_rows if row.get("parcel_id")}
+            hidden_statuses = {
+                ParcelStatus.CANCELLED.value,
+                ParcelStatus.RETURNED.value,
+                ParcelStatus.DELIVERED.value,
+                ParcelStatus.EXPIRED.value,
+                ParcelStatus.DISPUTED.value,
+                ParcelStatus.SUSPENDED.value,
+            }
+            raw_missions = [
+                mission
+                for mission in raw_missions
+                if parcel_statuses.get(mission.get("parcel_id")) not in hidden_statuses
+            ]
 
     filtered_missions = []
     
