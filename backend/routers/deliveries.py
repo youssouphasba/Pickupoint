@@ -53,6 +53,15 @@ from core.utils import check_code_lockout, record_failed_attempt, clear_code_att
 
 router = APIRouter()
 
+_DISPATCH_HIDDEN_PARCEL_STATUSES = {
+    ParcelStatus.CANCELLED.value,
+    ParcelStatus.RETURNED.value,
+    ParcelStatus.DELIVERED.value,
+    ParcelStatus.EXPIRED.value,
+    ParcelStatus.DISPUTED.value,
+    ParcelStatus.SUSPENDED.value,
+}
+
 
 def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
@@ -239,6 +248,57 @@ def _merge_driver_ids(existing: list[str], incoming: list[str]) -> list[str]:
     return merged
 
 
+async def _filter_dispatchable_pending_missions(
+    missions: list[dict],
+    *,
+    cleanup_stale: bool = False,
+) -> list[dict]:
+    parcel_ids = list({mission.get("parcel_id") for mission in missions if mission.get("parcel_id")})
+    if not parcel_ids:
+        return missions
+
+    parcels_cursor = db.parcels.find(
+        {"parcel_id": {"$in": parcel_ids}},
+        {"_id": 0, "parcel_id": 1, "status": 1},
+    )
+    parcel_rows = await parcels_cursor.to_list(length=len(parcel_ids))
+    parcel_statuses = {
+        row["parcel_id"]: row.get("status")
+        for row in parcel_rows
+        if row.get("parcel_id")
+    }
+
+    stale_mission_ids = [
+        mission["mission_id"]
+        for mission in missions
+        if parcel_statuses.get(mission.get("parcel_id")) in _DISPATCH_HIDDEN_PARCEL_STATUSES
+        and mission.get("mission_id")
+    ]
+    if cleanup_stale and stale_mission_ids:
+        now = datetime.now(timezone.utc)
+        await db.delivery_missions.update_many(
+            {
+                "mission_id": {"$in": stale_mission_ids},
+                "status": MissionStatus.PENDING.value,
+            },
+            {
+                "$set": {
+                    "status": MissionStatus.CANCELLED.value,
+                    "failure_reason": "parcel_not_dispatchable",
+                    "completed_at": now,
+                    "updated_at": now,
+                    "is_broadcast": False,
+                }
+            },
+        )
+
+    return [
+        mission
+        for mission in missions
+        if parcel_statuses.get(mission.get("parcel_id")) not in _DISPATCH_HIDDEN_PARCEL_STATUSES
+    ]
+
+
 async def _eligible_driver_ids_for_dispatch_stage(
     mission: dict,
     dispatch_state: dict,
@@ -268,6 +328,10 @@ async def _notify_driver_when_entering_dispatch_radius(
         {"_id": 0},
     )
     pending_missions = await cursor.to_list(length=200)
+    pending_missions = await _filter_dispatchable_pending_missions(
+        pending_missions,
+        cleanup_stale=True,
+    )
     notified_count = 0
 
     for mission in pending_missions:
@@ -343,6 +407,10 @@ async def advance_pending_delivery_dispatch() -> int:
     now = datetime.now(timezone.utc)
     cursor = db.delivery_missions.find({"status": MissionStatus.PENDING.value}, {"_id": 0})
     raw_missions = await cursor.to_list(length=200)
+    raw_missions = await _filter_dispatchable_pending_missions(
+        raw_missions,
+        cleanup_stale=True,
+    )
     updated_count = 0
     reminder_interval = timedelta(minutes=5)
 
