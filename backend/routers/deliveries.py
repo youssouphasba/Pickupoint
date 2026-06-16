@@ -1175,6 +1175,51 @@ async def decline_mission(
     return {"message": "Mission refusée"}
 
 
+async def _update_driver_presence_location(
+    *,
+    body: LocationUpdate,
+    current_user: dict,
+) -> dict:
+    if current_user["role"] != UserRole.DRIVER.value:
+        raise forbidden_exception("Seuls les livreurs peuvent mettre a jour cette position")
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {
+            "$set": {
+                "last_driver_location": {"lat": body.lat, "lng": body.lng},
+                "last_driver_location_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    if (
+        current_user.get("is_available", False)
+        and _driver_has_profile_photo(current_user)
+    ):
+        await _notify_driver_when_entering_dispatch_radius(
+            driver_user_id=current_user["user_id"],
+            lat=body.lat,
+            lng=body.lng,
+            now=now,
+        )
+    return {"message": "Position livreur mise a jour"}
+
+
+@router.put("/me/location", summary="Mettre a jour la position du livreur connecte")
+async def update_my_driver_location_legacy(
+    body: LocationUpdate,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    return await _update_driver_presence_location(
+        body=body,
+        current_user=current_user,
+    )
+
+
 @router.put("/{mission_id}/location", summary="Mettre à jour position GPS")
 async def update_location(
     mission_id: str,
@@ -1264,39 +1309,17 @@ async def update_location(
     return {"message": "Position mise à jour"}
 
 
-@router.put("/me/location", summary="Mettre ? jour la position du livreur connect?")
+@router.put("/driver-presence/location", summary="Mettre a jour la position de presence du livreur connecte")
 async def update_my_driver_location(
     body: LocationUpdate,
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    if current_user["role"] != UserRole.DRIVER.value:
-        raise forbidden_exception("Seuls les livreurs peuvent mettre ? jour cette position")
-
-    now = datetime.now(timezone.utc)
-    await db.users.update_one(
-        {"user_id": current_user["user_id"]},
-        {
-            "$set": {
-                "last_driver_location": {"lat": body.lat, "lng": body.lng},
-                "last_driver_location_at": now,
-                "updated_at": now,
-            }
-        },
+    return await _update_driver_presence_location(
+        body=body,
+        current_user=current_user,
     )
-    if (
-        current_user.get("role") == UserRole.DRIVER.value
-        and current_user.get("is_available", False)
-        and _driver_has_profile_photo(current_user)
-    ):
-        await _notify_driver_when_entering_dispatch_radius(
-            driver_user_id=current_user["user_id"],
-            lat=body.lat,
-            lng=body.lng,
-            now=now,
-        )
-    return {"message": "Position livreur mise ? jour"}
 
 
 @router.post("/{mission_id}/contact-recipient", summary="Contacter le destinataire via Denkma")
