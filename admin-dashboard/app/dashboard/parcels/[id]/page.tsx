@@ -409,6 +409,15 @@ export default function ParcelDetailPage() {
     ) ??
     routeMissions[0] ??
     null;
+  const assignableMission = React.useMemo(() => {
+    const missions = Array.isArray(audit.data?.missions) ? audit.data.missions : [];
+    const statuses = ["assigned", "pending", "incident_reported"];
+    for (const status of statuses) {
+      const mission = missions.find((item: any) => item.status === status);
+      if (mission) return mission;
+    }
+    return null;
+  }, [audit.data?.missions]);
 
   const selectedTrail =
     selectedRouteMission?.gps_trail
@@ -513,14 +522,16 @@ export default function ParcelDetailPage() {
             Résoudre incident
           </Button>
         )}
-        {parcel.assigned_driver_id && (
+        {assignableMission && (
           <Button
             variant="outline"
             size="sm"
             onClick={() => setReassignOpen(true)}
           >
             <RefreshCw className="h-4 w-4" />
-            Réassigner mission
+            {parcel.assigned_driver_id
+              ? "Reassigner mission"
+              : "Assigner un livreur"}
           </Button>
         )}
         <Button
@@ -1187,10 +1198,12 @@ export default function ParcelDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="w-full max-w-md rounded-lg border bg-background p-6 shadow-lg">
             <h3 className="mb-2 text-lg font-semibold">
-              Réassigner la mission
+              {parcel.assigned_driver_id
+                ? "Reassigner la mission"
+                : "Assigner un livreur"}
             </h3>
             <p className="mb-3 text-sm text-muted-foreground">
-              Choisir un nouveau livreur pour ce colis.
+              {parcel.assigned_driver_id ? "Choisir un nouveau livreur pour ce colis." : "Choisir un livreur pour attribuer ce colis."}
             </p>
             <select
               value={reassignDriverId}
@@ -1244,12 +1257,9 @@ export default function ParcelDetailPage() {
                 size="sm"
                 disabled={!reassignDriverId || reassignMut.isPending}
                 onClick={async () => {
-                  const activeMission = audit.data?.missions?.find(
-                    (m: any) =>
-                      m.status === "assigned" || m.status === "in_progress",
-                  );
+                  const activeMission = assignableMission;
                   if (!activeMission) {
-                    toast("Aucune mission active trouvée.", "error");
+                    toast("Aucune mission eligible trouvee.", "error");
                     return;
                   }
                   await reassignMut.mutateAsync({
@@ -1262,13 +1272,13 @@ export default function ParcelDetailPage() {
                 {reassignMut.isPending && (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 )}
-                Réassigner
+                {parcel.assigned_driver_id ? "Reassigner" : "Assigner"}
               </Button>
             </div>
             {reassignMut.isError && (
               <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {(reassignMut.error as any)?.response?.data?.detail ??
-                  "Erreur lors de la réassignation."}
+                  "Erreur lors de l'assignation."}
               </div>
             )}
           </div>
