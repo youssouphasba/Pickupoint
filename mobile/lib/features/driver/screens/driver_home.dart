@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -819,7 +821,7 @@ class _MissionCard extends ConsumerWidget {
                               child: Text(
                                 'Apercu de la course',
                                 style: TextStyle(
-                                  fontSize: 22,
+                                  fontSize: 20,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -827,7 +829,7 @@ class _MissionCard extends ConsumerWidget {
                             Text(
                               formatXof(mission.earnAmount),
                               style: const TextStyle(
-                                fontSize: 22,
+                                fontSize: 20,
                                 fontWeight: FontWeight.w800,
                                 color: Colors.green,
                               ),
@@ -835,109 +837,116 @@ class _MissionCard extends ConsumerWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: _buildPreviewMap(),
-                      ),
-                      const SizedBox(height: 14),
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x14000000),
-                              blurRadius: 18,
-                              offset: Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () async {
-                                      Navigator.of(sheetContext).pop();
-                                      await _decline(context, ref);
-                                    },
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(56),
-                                      side: BorderSide(color: Colors.grey.shade900),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(18),
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      'Refuser',
-                                      style: TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: () async {
-                                      Navigator.of(sheetContext).pop();
-                                      await _accept(context, ref);
-                                    },
-                                    style: FilledButton.styleFrom(
-                                      minimumSize: const Size.fromHeight(56),
-                                      backgroundColor: const Color(0xFFF4FF5A),
-                                      foregroundColor: Colors.black87,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(18),
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      'Accepter',
-                                      style: TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _PreviewMetricCard(
-                                    label: 'Gain estime',
-                                    value: formatXof(mission.earnAmount),
-                                    icon: Icons.payments_outlined,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _PreviewMetricCard(
-                                    label: 'Solde requis',
-                                    value: formatXof(_requiredBalance()),
-                                    icon: Icons.account_balance_wallet_outlined,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
                       Expanded(
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              _buildPreviewMap(),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  const _MapLegendChip(
+                                    color: Colors.blue,
+                                    icon: Icons.navigation_outlined,
+                                    label: 'Vous',
+                                  ),
+                                  _MapLegendChip(
+                                    color: Colors.green,
+                                    icon: mission.pickupIsRelay
+                                        ? Icons.storefront_outlined
+                                        : Icons.my_location_outlined,
+                                    label: mission.pickupIsRelay
+                                        ? 'Relais de depart'
+                                        : 'Collecte',
+                                  ),
+                                  _MapLegendChip(
+                                    color: Colors.red,
+                                    icon: mission.deliveryIsRelay
+                                        ? Icons.inventory_2_outlined
+                                        : Icons.flag_outlined,
+                                    label: mission.deliveryIsRelay
+                                        ? "Relais d'arrivee"
+                                        : 'Livraison',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _PreviewMetricCard(
+                                      label: 'Gain estime',
+                                      value: formatXof(mission.earnAmount),
+                                      icon: Icons.payments_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _PreviewMetricCard(
+                                      label: 'Solde requis',
+                                      value: formatXof(_requiredBalance()),
+                                      icon: Icons.account_balance_wallet_outlined,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: () async {
+                                        Navigator.of(sheetContext).pop();
+                                        await _decline(context, ref);
+                                      },
+                                      style: OutlinedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(52),
+                                        side: BorderSide(color: Colors.grey.shade900),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(18),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'Refuser',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: FilledButton(
+                                      onPressed: () async {
+                                        Navigator.of(sheetContext).pop();
+                                        await _accept(context, ref);
+                                      },
+                                      style: FilledButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(52),
+                                        backgroundColor: const Color(0xFFF4FF5A),
+                                        foregroundColor: Colors.black87,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(18),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'Accepter',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
                               _PreviewSection(
                                 title: 'Resume',
                                 children: [
@@ -977,27 +986,33 @@ class _MissionCard extends ConsumerWidget {
                                     icon: mission.pickupIsRelay
                                         ? Icons.storefront_outlined
                                         : Icons.my_location_outlined,
-                                    label: 'Expediteur',
+                                    label: 'Zone de collecte',
                                     value: _pickupZoneLabel(),
                                   ),
+                                  if ((mission.senderName ?? '').trim().isNotEmpty)
+                                    _PreviewLine(
+                                      icon: Icons.person_outline,
+                                      label: 'Nom expediteur',
+                                      value: mission.senderName!.trim(),
+                                    ),
                                   _PreviewLine(
                                     icon: mission.deliveryIsRelay
                                         ? Icons.inventory_2_outlined
                                         : Icons.flag_outlined,
-                                    label: 'Destinataire',
+                                    label: 'Zone de livraison',
                                     value: _deliveryZoneLabel(),
                                   ),
+                                  if ((mission.recipientName ?? '').trim().isNotEmpty)
+                                    _PreviewLine(
+                                      icon: Icons.person_outline,
+                                      label: 'Nom destinataire',
+                                      value: mission.recipientName!.trim(),
+                                    ),
                                   _PreviewLine(
                                     icon: Icons.wallet_outlined,
                                     label: 'Paiement',
                                     value: _payerLabel(),
                                   ),
-                                  if (mission.recipientName != null)
-                                    _PreviewLine(
-                                      icon: Icons.person_outline,
-                                      label: 'Nom du destinataire',
-                                      value: mission.recipientName!,
-                                    ),
                                 ],
                               ),
                               if (loadError) ...[
@@ -1037,10 +1052,10 @@ class _MissionCard extends ConsumerWidget {
 
     if (points.isEmpty) {
       return Container(
-        height: 280,
+        height: 220,
         decoration: BoxDecoration(
           color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(24),
         ),
         alignment: Alignment.center,
         child: const Text('Carte indisponible'),
@@ -1089,16 +1104,22 @@ class _MissionCard extends ConsumerWidget {
     };
 
     return SizedBox(
-      height: 280,
+      height: 220,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
         child: Stack(
           children: [
             GoogleMap(
+              gestureRecognizers: {
+                Factory<OneSequenceGestureRecognizer>(
+                  () => EagerGestureRecognizer(),
+                ),
+              },
               initialCameraPosition: CameraPosition(
                 target: points.first,
                 zoom: points.length == 1 ? 14 : 11,
               ),
+              rotateGesturesEnabled: false,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
               mapToolbarEnabled: false,
@@ -1115,50 +1136,34 @@ class _MissionCard extends ConsumerWidget {
                 }
               },
             ),
-            Positioned(
-              top: 14,
-              left: 14,
-              right: 14,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _MapLabelCard(
-                    title: mission.pickupIsRelay ? 'Relais de depart' : 'Expediteur',
-                    value: _pickupZoneLabel(),
-                  ),
-                  const SizedBox(height: 8),
-                  _MapLabelCard(
-                    title: mission.deliveryIsRelay ? "Relais d'arrivee" : 'Destinataire',
-                    value: _deliveryZoneLabel(),
-                  ),
-                ],
-              ),
-            ),
             if (driverPoint != null)
               Positioned(
-                bottom: 14,
-                left: 14,
+                bottom: 10,
+                left: 10,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.white.withValues(alpha: 0.96),
+                    borderRadius: BorderRadius.circular(14),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x12000000),
-                        blurRadius: 12,
-                        offset: Offset(0, 6),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
                       ),
                     ],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.navigation_outlined, size: 16, color: Colors.blue),
-                      SizedBox(width: 6),
+                      Icon(Icons.navigation_outlined, size: 14, color: Colors.blue),
+                      SizedBox(width: 5),
                       Text(
-                        'Votre position',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                        'Vous',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -1572,50 +1577,36 @@ class _PreviewMetricCard extends StatelessWidget {
   }
 }
 
-class _MapLabelCard extends StatelessWidget {
-  const _MapLabelCard({
-    required this.title,
-    required this.value,
+class _MapLegendChip extends StatelessWidget {
+  const _MapLegendChip({
+    required this.color,
+    required this.icon,
+    required this.label,
   });
 
-  final String title;
-  final String value;
+  final Color color;
+  final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 240),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12000000),
-            blurRadius: 12,
-            offset: Offset(0, 6),
-          ),
-        ],
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
           Text(
-            title,
+            label,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: Colors.blueGrey.shade500,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
+              color: color,
             ),
           ),
         ],
