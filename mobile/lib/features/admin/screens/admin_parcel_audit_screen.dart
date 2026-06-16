@@ -296,9 +296,9 @@ class _AdminParcelAuditScreenState
 
   void _showReassignDialog(BuildContext context, String missionId) {
     final driverController = TextEditingController();
-    final reasonController = TextEditingController(
-      text: "Reaffectation manuelle depuis l'audit colis",
-    );
+      final reasonController = TextEditingController(
+        text: "Reaffectation manuelle par l'administration",
+      );
     var assignmentMode = 'normal';
     showDialog<void>(
       context: context,

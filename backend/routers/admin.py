@@ -138,7 +138,7 @@ class PayoutBlockRequest(BaseModel):
 
 class MissionReassignRequest(BaseModel):
     new_driver_id: str = Field(..., min_length=3, max_length=64)
-    reason: str = Field("Reassignation admin", min_length=3, max_length=300)
+    reason: str = Field("Reaffectation manuelle par l'administration", min_length=3, max_length=300)
     assignment_mode: str = Field("normal", pattern="^(normal|driver_debt|platform_sponsored)$")
 
 
