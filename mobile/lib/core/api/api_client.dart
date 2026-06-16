@@ -335,6 +335,9 @@ class ApiClient {
   Future<Response> updateLocation(String id, Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.deliveryLocation(id), data: body);
 
+  Future<Response> updateMyDriverLocation(Map<String, dynamic> body) =>
+      _dio.put(ApiEndpoints.myDriverLocation, data: body);
+
   Future<Response> getRankings({String? period}) => _dio.get(
         ApiEndpoints.rankings,
         queryParameters: {if (period != null) 'period': period},

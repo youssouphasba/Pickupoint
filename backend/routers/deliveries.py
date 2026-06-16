@@ -1036,6 +1036,30 @@ async def update_location(
     return {"message": "Position mise à jour"}
 
 
+@router.put("/me/location", summary="Mettre ? jour la position du livreur connect?")
+async def update_my_driver_location(
+    body: LocationUpdate,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    if current_user["role"] != UserRole.DRIVER.value:
+        raise forbidden_exception("Seuls les livreurs peuvent mettre ? jour cette position")
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {
+            "$set": {
+                "last_driver_location": {"lat": body.lat, "lng": body.lng},
+                "last_driver_location_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    return {"message": "Position livreur mise ? jour"}
+
+
 @router.post("/{mission_id}/contact-recipient", summary="Contacter le destinataire via Denkma")
 @limiter.limit("6/minute")
 async def contact_recipient_via_denkma(

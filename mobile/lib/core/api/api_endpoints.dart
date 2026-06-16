@@ -82,6 +82,7 @@ class ApiEndpoints {
   static String deliveryPreview(String id) => '$_base/api/deliveries/$id/preview';
   static String deliveryLocation(String id) =>
       '$_base/api/deliveries/$id/location';
+  static const myDriverLocation = '$_base/api/deliveries/me/location';
   static String acceptMission(String id) => '$_base/api/deliveries/$id/accept';
   static String confirmPickup(String id) =>
       '$_base/api/deliveries/$id/confirm-pickup';

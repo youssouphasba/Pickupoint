@@ -81,11 +81,22 @@ class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObse
     }
   }
 
+  Future<void> _syncDriverPresenceLocation(Position pos) async {
+    try {
+      await ref.read(apiClientProvider).updateMyDriverLocation({
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'accuracy': pos.accuracy,
+      });
+    } catch (_) {}
+  }
+
   /// Capture la position du livreur pour filtrer les missions par proximité.
   Future<void> _fetchDriverLocation() async {
     setState(() => _gpsLoading = true);
     try {
       final pos = await FreshPositionHelper.getDriverSearchPosition();
+      await _syncDriverPresenceLocation(pos);
       if (mounted) {
         setState(() {
           _driverLat = pos.latitude;
