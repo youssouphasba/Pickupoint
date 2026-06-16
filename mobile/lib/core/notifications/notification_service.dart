@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../router/app_router.dart';
+import 'notification_navigation.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
 
@@ -18,6 +21,8 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   NotificationService(this._ref);
+
+  bool _initialMessageHandled = false;
 
   Future<void> init() async {
     if (Platform.isAndroid) {
@@ -44,6 +49,8 @@ class NotificationService {
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         _showLocalNotification(message);
       });
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleRemoteMessageNavigation);
+      await _handleInitialMessage();
       return;
     }
 
@@ -112,6 +119,8 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
     });
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleRemoteMessageNavigation);
+    await _handleInitialMessage();
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -125,7 +134,12 @@ class NotificationService {
       android: androidInit,
       iOS: iosInit,
     );
-    await _localNotifs.initialize(initSettings);
+    await _localNotifs.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (response) {
+        _handleLocalNotificationResponse(response);
+      },
+    );
   }
 
   Future<void> _tryUploadCurrentToken() async {
@@ -167,8 +181,56 @@ class NotificationService {
             priority: Priority.high,
           ),
         ),
+        payload: jsonEncode(message.data),
       );
     }
+  }
+
+  Future<void> _handleInitialMessage() async {
+    if (_initialMessageHandled) return;
+    _initialMessageHandled = true;
+    final message = await _fcm.getInitialMessage();
+    if (message != null) {
+      await _handleRemoteMessageNavigation(message);
+    }
+  }
+
+  Future<void> _handleRemoteMessageNavigation(RemoteMessage message) async {
+    await _navigateFromData(message.data);
+  }
+
+  Future<void> _handleLocalNotificationResponse(
+    NotificationResponse response,
+  ) async {
+    final payload = response.payload;
+    if (payload == null || payload.trim().isEmpty) {
+      return;
+    }
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map) {
+        await _navigateFromData(
+          decoded.map(
+            (key, value) => MapEntry(key.toString(), value?.toString() ?? ''),
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _navigateFromData(Map<String, dynamic> data) async {
+    final authState = _ref.read(authProvider).valueOrNull;
+    final role = authState?.effectiveRole ?? 'client';
+    final route = notificationRouteFor(
+      refType: data['ref_type']?.toString(),
+      refId: data['ref_id']?.toString(),
+      role: role,
+    );
+    if (route == null || route.isEmpty) {
+      return;
+    }
+    final router = _ref.read(appRouterProvider);
+    router.go(route);
   }
 
   Future<void> requestPermission() async {

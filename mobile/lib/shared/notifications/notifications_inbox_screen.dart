@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/notifications/notification_navigation.dart';
 import '../utils/error_utils.dart';
 
 final unreadNotificationsCountProvider = StreamProvider.autoDispose<int>((
@@ -103,15 +104,12 @@ class _NotificationsInboxScreenState
   }
 
   String? _hrefFor(Map<String, dynamic> notif) {
-    final refType = notif['ref_type'] as String?;
-    final refId = notif['ref_id'] as String?;
-    if (refType == 'parcel' &&
-        refId != null &&
-        refId.isNotEmpty &&
-        widget.parcelDetailsRoutePrefix != null) {
-      return '${widget.parcelDetailsRoutePrefix}/$refId';
-    }
-    return null;
+    final auth = ref.read(authProvider).valueOrNull;
+    return notificationRouteFor(
+      refType: notif['ref_type'] as String?,
+      refId: notif['ref_id'] as String?,
+      role: auth?.effectiveRole ?? 'client',
+    );
   }
 
   @override
