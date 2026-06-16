@@ -382,6 +382,14 @@ async def available_missions(
     else:
         visible_missions = []
         for mission in raw_missions:
+            if current_user["role"] == UserRole.DRIVER.value and not mission.get("is_broadcast"):
+                candidates = mission.get("candidate_drivers") or []
+                ping_idx = mission.get("ping_index", 0)
+                requested_driver_id = mission.get("admin_requested_driver_id")
+                is_targeted_driver = requested_driver_id == user_id
+                is_current_candidate = ping_idx < len(candidates) and candidates[ping_idx] == user_id
+                if not is_targeted_driver and not is_current_candidate:
+                    continue
             pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
             dispatch_radius_km = mission.get("dispatch_radius_km")
             if dispatch_radius_km is None:
@@ -818,6 +826,9 @@ async def accept_mission(
         raise not_found_exception("Mission")
     if mission["status"] != MissionStatus.PENDING.value:
         raise bad_request_exception("Mission déjà prise en charge")
+    requested_driver_id = mission.get("admin_requested_driver_id")
+    if requested_driver_id and requested_driver_id != current_user["user_id"]:
+        raise forbidden_exception("Cette mission est réservée à un autre livreur")
 
     parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
     if not parcel:
@@ -859,12 +870,14 @@ async def accept_mission(
         "status": MissionStatus.ASSIGNED.value,
         "assigned_at": now,
         "updated_at": now,
+        "admin_assignment_status": "accepted" if requested_driver_id else mission.get("admin_assignment_status"),
         "platform_commission_xof": breakdown["platform_commission_xof"],
         "relay_commission_xof": breakdown["relay_commission_xof"],
         "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
         "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
         "total_commission_xof": breakdown["total_commission_xof"],
         "wallet_balance_required_xof": breakdown["wallet_balance_required_xof"],
+        "commission_charge_mode": "wallet_hold",
         "platform_commission_wallet_reference": f"commission:{mission_id}",
     }
     mission_push = None
@@ -967,6 +980,52 @@ async def accept_mission(
             },
         )
     return {"message": "Mission acceptée", "mission_id": mission_id}
+
+
+@router.post("/{mission_id}/decline", summary="Refuser une mission proposée")
+async def decline_mission(
+    mission_id: str,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    if mission["status"] != MissionStatus.PENDING.value:
+        raise bad_request_exception("Impossible de refuser une mission déjà prise en charge")
+
+    user_id = current_user["user_id"]
+    candidate_drivers = [driver_id for driver_id in (mission.get("candidate_drivers") or []) if driver_id != user_id]
+    notified_driver_ids = [
+        driver_id for driver_id in (mission.get("dispatch_notified_driver_ids") or []) if driver_id != user_id
+    ]
+    requested_driver_id = mission.get("admin_requested_driver_id")
+    if user_id not in (mission.get("candidate_drivers") or []) and user_id not in (mission.get("dispatch_notified_driver_ids") or []):
+        raise forbidden_exception("Cette mission ne vous est pas proposée")
+
+    now = datetime.now(timezone.utc)
+    update_doc = {
+        "candidate_drivers": candidate_drivers,
+        "dispatch_notified_driver_ids": notified_driver_ids,
+        "updated_at": now,
+    }
+    if requested_driver_id == user_id:
+        update_doc["admin_assignment_status"] = "declined"
+
+    await db.delivery_missions.update_one(
+        {"mission_id": mission_id},
+        {"$set": update_doc},
+    )
+    await _record_event(
+        parcel_id=mission["parcel_id"],
+        event_type="MISSION_DECLINED",
+        actor_id=user_id,
+        actor_role=current_user["role"],
+        notes="Mission refusée par le livreur",
+        metadata={"mission_id": mission_id},
+    )
+    return {"message": "Mission refusée"}
 
 
 @router.put("/{mission_id}/location", summary="Mettre à jour position GPS")
@@ -1417,7 +1476,8 @@ async def release_mission(
         or _mission_commission_xof(None, mission)
         or 0
     )
-    if commission_xof > 0:
+    charge_mode = mission.get("commission_charge_mode") or "wallet_hold"
+    if commission_xof > 0 and charge_mode in {"wallet_hold", "driver_debt"}:
         await credit_wallet(
             owner_id=current_user["user_id"],
             owner_type="driver",

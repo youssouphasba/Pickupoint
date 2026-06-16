@@ -26,7 +26,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                     Icon(Icons.check_circle_outline,
                         size: 64, color: Colors.green),
                     SizedBox(height: 16),
-                    Text('Aucune anomalie détectée.',
+                    Text('Aucune anomalie dÃ©tectÃ©e.',
                         style: TextStyle(color: Colors.grey)),
                   ],
                 ),
@@ -104,7 +104,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                                       context, ref, a['mission_id'].toString())
                                   : null,
                               icon: const Icon(Icons.swap_horiz, size: 18),
-                              label: const Text('Réassigner'),
+                              label: const Text('RÃ©assigner'),
                               style: TextButton.styleFrom(
                                   foregroundColor: Colors.blue),
                             ),
@@ -141,7 +141,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              'Réassignation indisponible après collecte. Utilise plutôt l’audit colis.',
+                              'RÃ©assignation indisponible aprÃ¨s collecte. Utilise plutÃ´t lâ€™audit colis.',
                               style: TextStyle(
                                   color: Colors.grey.shade600, fontSize: 12),
                             ),
@@ -164,65 +164,95 @@ class AdminAnomaliesScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref, String missionId) {
     final driverController = TextEditingController();
     final reasonController = TextEditingController(
-        text: 'Réassignation manuelle depuis le centre anomalies');
+        text: 'Reaffectation manuelle depuis le centre anomalies');
+    var assignmentMode = 'normal';
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Réassigner la mission'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: driverController,
-              decoration: const InputDecoration(
-                labelText: 'ID du nouveau livreur',
-                hintText: 'drv_...',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Reaffecter la mission'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: driverController,
+                decoration: const InputDecoration(
+                  labelText: 'ID du nouveau livreur',
+                  hintText: 'drv_...',
+                ),
               ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: assignmentMode,
+                decoration: const InputDecoration(
+                  labelText: "Mode d'assignation",
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'normal',
+                    child: Text('Flux normal (solde requis)'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'driver_debt',
+                    child: Text('Forcer avec dette livreur'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'platform_sponsored',
+                    child: Text('Commission offerte par Denkma'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setDialogState(() => assignmentMode = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Motif',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Annuler'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Motif',
-              ),
+            ElevatedButton(
+              onPressed: () async {
+                if (driverController.text.trim().isEmpty ||
+                    reasonController.text.trim().isEmpty) {
+                  return;
+                }
+                try {
+                  await ref.read(apiClientProvider).reassignMission(
+                        missionId,
+                        driverController.text.trim(),
+                        reason: reasonController.text.trim(),
+                        assignmentMode: assignmentMode,
+                      );
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ref.invalidate(adminAnomalyProvider);
+                    ref.invalidate(adminDashboardProvider);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Mission reaffectee !')),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(friendlyError(e))));
+                  }
+                }
+              },
+              child: const Text('Confirmer'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Annuler')),
-          ElevatedButton(
-            onPressed: () async {
-              if (driverController.text.trim().isEmpty ||
-                  reasonController.text.trim().isEmpty) {
-                return;
-              }
-              try {
-                await ref.read(apiClientProvider).reassignMission(
-                      missionId,
-                      driverController.text.trim(),
-                      reason: reasonController.text.trim(),
-                    );
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ref.invalidate(adminAnomalyProvider);
-                  ref.invalidate(adminDashboardProvider);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Mission réassignée !')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text(friendlyError(e))));
-                }
-              }
-            },
-            child: const Text('Confirmer'),
-          ),
-        ],
       ),
     );
   }

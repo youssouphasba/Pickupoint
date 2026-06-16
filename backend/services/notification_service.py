@@ -1090,6 +1090,36 @@ async def notify_new_mission_ping(user_id: str, mission: dict):
     )
 
 
+async def notify_driver_admin_assignment(user_id: str, mission: dict, assignment_mode: str):
+    tracking_code = mission.get("tracking_code", "N/A")
+    if assignment_mode == "driver_debt":
+        title = "Mission assignée par l'administration"
+        body = (
+            f"La mission pour le colis {tracking_code} vous a été attribuée. "
+            "La commission est enregistrée comme dette livreur."
+        )
+    elif assignment_mode == "platform_sponsored":
+        title = "Mission assignée par l'administration"
+        body = (
+            f"La mission pour le colis {tracking_code} vous a été attribuée. "
+            "La commission est prise en charge par Denkma."
+        )
+    else:
+        title = "Nouvelle mission proposée"
+        body = (
+            f"La mission pour le colis {tracking_code} vous est proposée. "
+            "Acceptez-la dans l'application."
+        )
+
+    await _store_and_send(
+        user_id=user_id,
+        title=title,
+        body=body,
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+    )
+
+
 async def notify_new_mission_dispatch_wave(
     *,
     user_ids: list[str],

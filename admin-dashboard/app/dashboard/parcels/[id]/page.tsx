@@ -298,6 +298,9 @@ export default function ParcelDetailPage() {
   const [photoOpen, setPhotoOpen] = React.useState(false);
   const [reassignOpen, setReassignOpen] = React.useState(false);
   const [reassignDriverId, setReassignDriverId] = React.useState("");
+  const [reassignMode, setReassignMode] = React.useState<
+    "normal" | "driver_debt" | "platform_sponsored"
+  >("normal");
   const [selectedRouteMissionId, setSelectedRouteMissionId] = React.useState<
     string | null
   >(null);
@@ -367,15 +370,18 @@ export default function ParcelDetailPage() {
     mutationFn: ({
       missionId,
       driverId,
+      assignmentMode,
     }: {
       missionId: string;
       driverId: string;
-    }) => reassignMission(missionId, driverId),
+      assignmentMode: "normal" | "driver_debt" | "platform_sponsored";
+    }) => reassignMission(missionId, driverId, assignmentMode),
     onSuccess: () => {
       invalidate();
-      toast("Mission r��assignée.");
+      toast("Mission reaffectee.");
       setReassignOpen(false);
       setReassignDriverId("");
+      setReassignMode("normal");
     },
   });
 
@@ -1201,11 +1207,36 @@ export default function ParcelDetailPage() {
                   </option>
                 ))}
             </select>
+            <select
+              value={reassignMode}
+              onChange={(e) =>
+                setReassignMode(
+                  e.target.value as
+                    | "normal"
+                    | "driver_debt"
+                    | "platform_sponsored",
+                )
+              }
+              className="mb-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="normal">Flux normal (solde requis)</option>
+              <option value="driver_debt">Forcer avec dette livreur</option>
+              <option value="platform_sponsored">
+                Commission offerte par Denkma
+              </option>
+            </select>
+            <p className="mb-4 text-sm text-muted-foreground">
+              En mode normal, le livreur reçoit la mission, peut l'accepter ou
+              la refuser, et doit recharger si son solde est insuffisant.
+            </p>
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setReassignOpen(false)}
+                onClick={() => {
+                  setReassignOpen(false);
+                  setReassignMode("normal");
+                }}
               >
                 Annuler
               </Button>
@@ -1224,6 +1255,7 @@ export default function ParcelDetailPage() {
                   await reassignMut.mutateAsync({
                     missionId: activeMission.mission_id,
                     driverId: reassignDriverId,
+                    assignmentMode: reassignMode,
                   });
                 }}
               >

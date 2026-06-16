@@ -64,7 +64,9 @@ from services.performance_rewards_service import (
     set_performance_rewards_settings,
 )
 from services.wallet_service import (
+    credit_wallet,
     compute_delivery_commission_breakdown,
+    debit_wallet_allow_negative,
     record_wallet_transaction,
 )
 
@@ -137,6 +139,7 @@ class PayoutBlockRequest(BaseModel):
 class MissionReassignRequest(BaseModel):
     new_driver_id: str = Field(..., min_length=3, max_length=64)
     reason: str = Field("Reassignation admin", min_length=3, max_length=300)
+    assignment_mode: str = Field("normal", pattern="^(normal|driver_debt|platform_sponsored)$")
 
 
 class ReferralRoleConfig(BaseModel):
@@ -3344,7 +3347,7 @@ async def admin_reassign_mission(
     if not driver:
         raise bad_request_exception("Livreur cible introuvable ou inactif")
     if not (driver.get("profile_picture_url") or "").strip() or driver.get("profile_picture_status") != "approved":
-        raise bad_request_exception("Le livreur cible doit avoir une photo de profil approuvée avant d'être assigné")
+        raise bad_request_exception("Le livreur cible doit avoir une photo de profil approuvee avant d'etre assigne")
     if driver.get("is_available") is False:
         raise bad_request_exception("Le livreur cible est actuellement indisponible")
 
@@ -3359,35 +3362,114 @@ async def admin_reassign_mission(
     if active_mission:
         raise bad_request_exception("Le livreur cible a deja une mission en cours")
 
+    parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+
     now = datetime.now(timezone.utc)
+    breakdown = compute_delivery_commission_breakdown(parcel, mission)
+    commission_xof = float(breakdown["total_commission_xof"])
+    assignment_mode = body.assignment_mode
+    previous_driver_id = mission.get("driver_id")
+    previous_charge_mode = mission.get("commission_charge_mode") or "wallet_hold"
+
+    if previous_driver_id and previous_driver_id != body.new_driver_id and commission_xof > 0:
+        if previous_charge_mode in {"wallet_hold", "driver_debt"}:
+            await credit_wallet(
+                owner_id=previous_driver_id,
+                owner_type="driver",
+                amount=commission_xof,
+                description=f"Annulation commission mission {mission_id}",
+                parcel_id=mission["parcel_id"],
+                reference=f"commission_reversal:{mission_id}:{previous_driver_id}",
+                count_as_earned=False,
+                ensure_unique=True,
+            )
+
     current_candidates = list(mission.get("candidate_drivers") or [])
     candidate_drivers = [body.new_driver_id] + [
         driver_id for driver_id in current_candidates if driver_id != body.new_driver_id
     ]
 
-    await db.delivery_missions.update_one(
-        {"mission_id": mission_id},
-        {"$set": {
+    mission_set = {
+        "updated_at": now,
+        "is_broadcast": False,
+        "ping_index": 0,
+        "ping_expires_at": None,
+        "dispatch_notified_driver_ids": [body.new_driver_id],
+        "candidate_drivers": candidate_drivers,
+        "admin_requested_driver_id": body.new_driver_id,
+        "admin_assignment_mode": assignment_mode,
+        "platform_commission_xof": breakdown["platform_commission_xof"],
+        "relay_commission_xof": breakdown["relay_commission_xof"],
+        "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
+        "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
+        "total_commission_xof": breakdown["total_commission_xof"],
+        "wallet_balance_required_xof": breakdown["wallet_balance_required_xof"],
+    }
+    mission_unset = {
+        "driver_location": "",
+        "location_updated_at": "",
+        "gps_trail": "",
+        "commission_debt_xof": "",
+        "sponsored_commission_xof": "",
+        "platform_commission_wallet_reference": "",
+    }
+
+    if assignment_mode == "normal":
+        mission_set.update({
+            "driver_id": None,
+            "status": MissionStatus.PENDING.value,
+            "assigned_at": None,
+            "admin_assignment_status": "awaiting_driver_response",
+            "commission_charge_mode": "wallet_hold",
+        })
+        await db.delivery_missions.update_one(
+            {"mission_id": mission_id},
+            {"$set": mission_set, "$unset": mission_unset},
+        )
+        await db.parcels.update_one(
+            {"parcel_id": mission["parcel_id"]},
+            {"$set": {"assigned_driver_id": None, "updated_at": now}},
+        )
+    else:
+        mission_set.update({
             "driver_id": body.new_driver_id,
             "status": MissionStatus.ASSIGNED.value,
             "assigned_at": now,
-            "updated_at": now,
-            "is_broadcast": False,
-            "ping_index": 0,
-            "ping_expires_at": None,
-            "candidate_drivers": candidate_drivers,
-        }},
-    )
+            "admin_assignment_status": "forced",
+            "commission_charge_mode": assignment_mode,
+            "wallet_balance_required_xof": 0.0,
+        })
+        if assignment_mode == "driver_debt":
+            mission_set["commission_debt_xof"] = commission_xof
+            await debit_wallet_allow_negative(
+                owner_id=body.new_driver_id,
+                owner_type="driver",
+                amount=commission_xof,
+                description=f"Commission mission imposee {mission_id}",
+                parcel_id=mission["parcel_id"],
+                reference=f"commission_debt:{mission_id}",
+                ensure_unique=True,
+            )
+        elif assignment_mode == "platform_sponsored":
+            mission_set["sponsored_commission_xof"] = commission_xof
+
+        await db.delivery_missions.update_one(
+            {"mission_id": mission_id},
+            {"$set": mission_set, "$unset": mission_unset},
+        )
+        await db.parcels.update_one(
+            {"parcel_id": mission["parcel_id"]},
+            {"$set": {
+                "assigned_driver_id": body.new_driver_id,
+                "updated_at": now,
+            }},
+        )
+
     updated_mission = await db.delivery_missions.find_one(
         {"mission_id": mission_id},
         {"_id": 0},
-    )
-    await db.parcels.update_one(
-        {"parcel_id": mission["parcel_id"]},
-        {"$set": {
-            "assigned_driver_id": body.new_driver_id,
-            "updated_at": now,
-        }},
     )
 
     await _record_event(
@@ -3400,19 +3482,28 @@ async def admin_reassign_mission(
             "mission_id": mission_id,
             "previous_driver_id": mission.get("driver_id"),
             "new_driver_id": body.new_driver_id,
+            "assignment_mode": assignment_mode,
         },
     )
     if updated_mission:
-        from services.notification_service import notify_new_mission_ping
+        from services.notification_service import notify_driver_admin_assignment, notify_new_mission_ping
 
-        await notify_new_mission_ping(body.new_driver_id, updated_mission)
+        if assignment_mode == "normal":
+            await notify_new_mission_ping(body.new_driver_id, updated_mission)
+        else:
+            await notify_driver_admin_assignment(
+                body.new_driver_id,
+                updated_mission,
+                assignment_mode,
+            )
 
     return {
-        "message": "Mission reassignée avec succes",
+        "message": "Mission reaffectee avec succes",
         "mission_id": mission_id,
         "parcel_id": mission.get("parcel_id"),
         "driver_id": body.new_driver_id,
         "driver_name": driver.get("name"),
+        "assignment_mode": assignment_mode,
     }
 
 

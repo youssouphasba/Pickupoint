@@ -286,6 +286,53 @@ async def debit_wallet(
     return await _run_in_transaction(_op)
 
 
+async def debit_wallet_allow_negative(
+    owner_id: str,
+    owner_type: str,
+    amount: float,
+    description: str,
+    parcel_id: Optional[str] = None,
+    reference: Optional[str] = None,
+    ensure_unique: bool = False,
+) -> dict:
+    wallet = await get_or_create_wallet(owner_id, owner_type)
+
+    async def _op(session):
+        if ensure_unique and reference:
+            existing = await db.wallet_transactions.find_one(
+                {
+                    "wallet_id": wallet["wallet_id"],
+                    "reference": reference,
+                    "tx_type": TransactionType.DEBIT.value,
+                },
+                {"_id": 0},
+                session=session,
+            )
+            if existing:
+                return existing
+
+        now = datetime.now(timezone.utc)
+        await db.wallets.update_one(
+            {"owner_id": owner_id},
+            {"$inc": {"balance": -amount}, "$set": {"updated_at": now}},
+            session=session,
+        )
+        return await record_wallet_transaction(
+            wallet_id=wallet["wallet_id"],
+            amount=amount,
+            tx_type=TransactionType.DEBIT.value,
+            description=description,
+            parcel_id=parcel_id,
+            reference=reference,
+            ensure_unique=ensure_unique,
+            session=session,
+        )
+
+    tx = await _run_in_transaction(_op)
+    logger.info(f"Wallet débité avec découvert : owner={owner_id} montant={amount} XOF")
+    return tx
+
+
 async def distribute_delivery_revenue(parcel: dict):
     """
     Distribue les revenus à chaque livraison réussie.

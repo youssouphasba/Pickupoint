@@ -914,8 +914,11 @@ class _MissionCard extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(sheetContext).pop(),
-                            child: const Text('Fermer'),
+                            onPressed: () async {
+                              Navigator.of(sheetContext).pop();
+                              await _decline(context, ref);
+                            },
+                            child: const Text('Refuser'),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1016,7 +1019,7 @@ class _MissionCard extends ConsumerWidget {
     try {
       final requiredBalance = mission.walletBalanceRequiredXof > 0
           ? mission.walletBalanceRequiredXof
-          : mission.platformCommissionXof;
+          : mission.totalCommissionXof;
       if (requiredBalance > 0) {
         final wallet = await ref.read(driverWalletProvider.future);
         if (wallet.balance < requiredBalance) {
@@ -1073,6 +1076,30 @@ class _MissionCard extends ConsumerWidget {
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _decline(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(apiClientProvider).declineMission(mission.id);
+      ref.invalidate(availableMissionsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mission refusée.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }

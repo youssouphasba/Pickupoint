@@ -277,6 +277,9 @@ class ApiClient {
   }) =>
       _dio.post(ApiEndpoints.acceptMission(id), data: location);
 
+  Future<Response> declineMission(String id) =>
+      _dio.post(ApiEndpoints.declineMission(id));
+
   Future<Response> confirmPickup(
     String id,
     String code, {
@@ -420,10 +423,15 @@ class ApiClient {
     String id,
     String driverId, {
     String reason = 'Reassignation admin',
+    String assignmentMode = 'normal',
   }) =>
       _dio.post(
         ApiEndpoints.adminReassignMission(id),
-        data: {'new_driver_id': driverId, 'reason': reason},
+        data: {
+          'new_driver_id': driverId,
+          'reason': reason,
+          'assignment_mode': assignmentMode,
+        },
       );
 
   Future<Response> forceParcelStatus(

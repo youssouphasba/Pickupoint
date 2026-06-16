@@ -776,10 +776,12 @@ export async function fetchParcelAudit(parcelId: string) {
 export async function reassignMission(
   missionId: string,
   newDriverId: string,
+  assignmentMode: "normal" | "driver_debt" | "platform_sponsored" = "normal",
   reason?: string,
 ) {
   const { data } = await api.post(`/api/admin/missions/${missionId}/reassign`, {
     new_driver_id: newDriverId,
+    assignment_mode: assignmentMode,
     reason,
   });
   return data;
