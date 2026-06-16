@@ -781,6 +781,7 @@ class _MissionCard extends ConsumerWidget {
     return _MissionPreview.fromJson(previewJson);
   }
   Future<void> _showPreviewSheet(BuildContext context, WidgetRef ref) async {
+    final parentContext = context;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -797,7 +798,7 @@ class _MissionCard extends ConsumerWidget {
               top: false,
               child: FutureBuilder<_MissionPreview>(
                 future: _loadPreview(ref),
-                builder: (context, snapshot) {
+                builder: (builderContext, snapshot) {
                   final preview = snapshot.data;
                   final isLoading = snapshot.connectionState == ConnectionState.waiting;
                   final loadError = snapshot.hasError;
@@ -901,7 +902,7 @@ class _MissionCard extends ConsumerWidget {
                                     child: OutlinedButton(
                                       onPressed: () async {
                                         Navigator.of(sheetContext).pop();
-                                        await _decline(context, ref);
+                                        await _decline(parentContext, ref);
                                       },
                                       style: OutlinedButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
@@ -925,7 +926,7 @@ class _MissionCard extends ConsumerWidget {
                                     child: FilledButton(
                                       onPressed: () async {
                                         Navigator.of(sheetContext).pop();
-                                        await _accept(context, ref);
+                                        await _accept(parentContext, ref);
                                       },
                                       style: FilledButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
