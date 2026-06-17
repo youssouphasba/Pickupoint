@@ -1,56 +1,90 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
-import '../providers/admin_provider.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../providers/admin_provider.dart';
 
-class AdminFinanceScreen extends ConsumerWidget {
+class AdminFinanceScreen extends ConsumerStatefulWidget {
   const AdminFinanceScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final financeAsync = ref.watch(adminFinanceProvider);
+  ConsumerState<AdminFinanceScreen> createState() => _AdminFinanceScreenState();
+}
+
+class _AdminFinanceScreenState extends ConsumerState<AdminFinanceScreen> {
+  late String _selectedPeriod;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedPeriod = _monthValue(now);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final overviewAsync =
+        ref.watch(adminFinanceOverviewProvider(_selectedPeriod));
     final reconciliationAsync = ref.watch(adminReconciliationProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Controle Finance & Reconciliation')),
+      appBar: AppBar(title: const Text('Finance')),
       body: RefreshIndicator(
         onRefresh: () => Future.wait([
-          ref.refresh(adminFinanceProvider.future),
+          ref.refresh(adminFinanceOverviewProvider(_selectedPeriod).future),
           ref.refresh(adminReconciliationProvider.future),
         ]),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-            reconciliationAsync.when(
-              data: _buildReconciliationSection,
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, __) => Card(
-                child: ListTile(
-                  leading: const Icon(Icons.error_outline, color: Colors.red),
-                  title: const Text('Erreur de reconciliation'),
-                  subtitle: Text(friendlyError(e)),
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Vue d ensemble finance',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Paiements, commissions, relais, retraits et points a surveiller.',
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _PeriodPicker(
+                  value: _selectedPeriod,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _selectedPeriod = value);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            overviewAsync.when(
+              data: (data) => _OverviewBody(
+                data: data,
+                reconciliation: reconciliationAsync.valueOrNull,
+              ),
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: CircularProgressIndicator(),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Cash COD a encaisser',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            financeAsync.when(
-              data: (fin) => _buildCodSection(context, ref, fin),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, __) => Card(
-                child: ListTile(
-                  leading: const Icon(Icons.error_outline, color: Colors.red),
-                  title: const Text('Erreur de suivi COD'),
-                  subtitle: Text(friendlyError(e)),
-                ),
+              error: (e, __) => _ErrorCard(
+                title: 'Erreur de chargement finance',
+                message: friendlyError(e),
               ),
             ),
           ],
@@ -58,359 +92,657 @@ class AdminFinanceScreen extends ConsumerWidget {
       ),
     );
   }
+}
 
-  Widget _buildReconciliationSection(Map<String, dynamic> report) {
-    final summary = report['summary'] as Map<String, dynamic>? ?? const {};
+class _OverviewBody extends StatelessWidget {
+  const _OverviewBody({
+    required this.data,
+    required this.reconciliation,
+  });
+
+  final Map<String, dynamic> data;
+  final Map<String, dynamic>? reconciliation;
+
+  @override
+  Widget build(BuildContext context) {
+    final alerts = List<Map<String, dynamic>>.from(
+      data['alerts'] as List? ?? const [],
+    );
+    final payments =
+        Map<String, dynamic>.from(data['payments'] as Map? ?? const {});
+    final commissions =
+        Map<String, dynamic>.from(data['commissions'] as Map? ?? const {});
+    final relays =
+        Map<String, dynamic>.from(data['relays'] as Map? ?? const {});
+    final payouts =
+        Map<String, dynamic>.from(data['payouts'] as Map? ?? const {});
+    final wallets =
+        Map<String, dynamic>.from(data['wallets'] as Map? ?? const {});
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Reconciliation systeme',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
+        if (alerts.isNotEmpty) ...[
+          const _SectionTitle('A surveiller'),
+          const SizedBox(height: 10),
+          ...alerts.map(
+            (alert) => _AlertCard(
+              label: alert['label']?.toString() ?? '-',
+              value: '${alert['value'] ?? 0}',
+              tone: alert['tone']?.toString() ?? 'info',
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        const _SectionTitle('Paiements colis'),
+        const SizedBox(height: 10),
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.3,
+          childAspectRatio: 1.22,
           children: [
-            _SummaryCard(
-              title: 'Issues totales',
-              value: '${summary['issues_total'] ?? 0}',
-              color: Colors.red,
-              icon: Icons.warning_amber_rounded,
+            _MetricCard(
+              title: 'Montant attendu',
+              value: formatXof(
+                (payments['expected_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              subtitle: '${payments['total_parcels'] ?? 0} colis',
             ),
-            _SummaryCard(
-              title: 'Ledger payouts',
-              value: '${summary['payout_ledger_gaps'] ?? 0}',
-              color: Colors.deepOrange,
-              icon: Icons.receipt_long_outlined,
+            _MetricCard(
+              title: 'Montant confirme',
+              value: formatXof(
+                (payments['received_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              subtitle: '${payments['paid_parcels'] ?? 0} colis regles',
+              color: Colors.green,
             ),
-            _SummaryCard(
-              title: 'Wallet pending',
-              value: '${summary['wallet_pending_mismatches'] ?? 0}',
-              color: Colors.amber.shade800,
-              icon: Icons.account_balance_wallet_outlined,
+            _MetricCard(
+              title: 'En attente',
+              value: '${payments['waiting_payment_parcels'] ?? 0}',
+              subtitle: 'Colis a regler',
+              color: Colors.orange,
             ),
-            _SummaryCard(
-              title: 'Mission vs colis',
-              value: '${summary['mission_parcel_mismatches'] ?? 0}',
-              color: Colors.indigo,
-              icon: Icons.sync_problem_outlined,
+            _MetricCard(
+              title: 'Validation admin',
+              value: '${payments['admin_validated_parcels'] ?? 0}',
+              subtitle: 'Cas exceptionnels',
+              color: Colors.blue,
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        _IssueBlock(
-          title: 'Ecarts pending wallet',
-          subtitle:
-              'Le montant pending du wallet doit egaler la somme des retraits en attente.',
-          items: List<Map<String, dynamic>>.from(
-            report['wallet_pending_mismatches'] as List? ?? const [],
-          ),
-          builder: (item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.account_balance_wallet_outlined),
-            title: Text('${item['owner_type']} • ${item['owner_id']}'),
-            subtitle: Text(
-              'Wallet: ${formatXof((item['wallet_pending'] as num?)?.toDouble() ?? 0)} • Attendu: ${formatXof((item['expected_pending'] as num?)?.toDouble() ?? 0)}',
+        const SizedBox(height: 12),
+        _DetailCard(
+          title: 'Repartition des paiements',
+          rows: [
+            _RowData(
+              'Expediteur paie',
+              '${payments['sender_pays_parcels'] ?? 0} colis',
             ),
-          ),
-        ),
-        _IssueBlock(
-          title: 'Payouts sans ecriture ledger',
-          subtitle:
-              'Chaque payout doit avoir son ecriture pending/debit/credit correspondante.',
-          items: List<Map<String, dynamic>>.from(
-            report['payout_ledger_gaps'] as List? ?? const [],
-          ),
-          builder: (item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.receipt_long_outlined),
-            title: Text('${item['payout_id']} • ${item['status']}'),
-            subtitle: Text(
-              'Wallet: ${item['wallet_id']} • Ecriture attendue: ${item['expected_tx_type']} • Montant: ${formatXof((item['amount'] as num?)?.toDouble() ?? 0)}',
+            _RowData(
+              'Destinataire paie',
+              '${payments['recipient_pays_parcels'] ?? 0} colis',
             ),
-          ),
-        ),
-        _IssueBlock(
-          title: 'Wallets negatifs',
-          subtitle:
-              'Un wallet ne devrait pas avoir de balance ou pending negatif.',
-          items: List<Map<String, dynamic>>.from(
-            report['negative_wallets'] as List? ?? const [],
-          ),
-          builder: (item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.money_off_csred_outlined),
-            title: Text('${item['owner_type']} • ${item['owner_id']}'),
-            subtitle: Text(
-              'Balance: ${formatXof((item['balance'] as num?)?.toDouble() ?? 0)} • Pending: ${formatXof((item['pending'] as num?)?.toDouble() ?? 0)}',
+            _RowData(
+              'Colis livres',
+              '${payments['delivered_parcels'] ?? 0} colis',
             ),
-          ),
-        ),
-        _IssueBlock(
-          title: 'Missions incoherentes',
-          subtitle:
-              'Mission active avec colis absent ou dans un statut non compatible.',
-          items: List<Map<String, dynamic>>.from(
-            report['mission_parcel_mismatches'] as List? ?? const [],
-          ),
-          builder: (item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.sync_problem_outlined),
-            title: Text('${item['mission_id']} • colis ${item['parcel_id']}'),
-            subtitle: Text(
-              'Mission: ${item['mission_status'] ?? '-'} • Colis: ${item['parcel_status'] ?? 'introuvable'}',
+            _RowData(
+              'Colis livres en attente',
+              '${payments['delivered_waiting_payment_parcels'] ?? 0}',
+              highlight: ((payments['delivered_waiting_payment_parcels'] ?? 0)
+                      as num) >
+                  0,
             ),
-          ),
+          ],
         ),
-        _IssueBlock(
-          title: 'Colis livres non payes',
-          subtitle: 'A verifier pour eviter qu\'un expediteur soit lese.',
-          items: List<Map<String, dynamic>>.from(
-            report['delivered_unpaid'] as List? ?? const [],
-          ),
-          builder: (item) => ListTile(
-            dense: true,
-            leading: const Icon(Icons.lock_clock_outlined),
-            title: Text('${item['tracking_code'] ?? item['parcel_id']}'),
-            subtitle: Text(
-              'Statut paiement: ${item['payment_status'] ?? '-'} • Qui paie: ${item['who_pays'] ?? '-'}',
+        const SizedBox(height: 20),
+        const _SectionTitle('Commissions'),
+        const SizedBox(height: 10),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.22,
+          children: [
+            _MetricCard(
+              title: 'Part Denkma',
+              value: formatXof(
+                (commissions['platform_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.indigo,
             ),
-          ),
+            _MetricCard(
+              title: 'Part relais',
+              value: formatXof(
+                (commissions['relay_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.teal,
+            ),
+            _MetricCard(
+              title: 'Commission totale',
+              value: formatXof(
+                (commissions['total_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+            ),
+            _MetricCard(
+              title: 'Commission offerte',
+              value: formatXof(
+                (commissions['offered_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              subtitle:
+                  '${commissions['offered_by_denkma_count'] ?? 0} courses',
+              color: Colors.purple,
+            ),
+          ],
         ),
+        const SizedBox(height: 12),
+        _DetailCard(
+          title: 'Mode de prise en charge',
+          rows: [
+            _RowData(
+              'Prelevee sur le solde',
+              '${commissions['charged_to_balance_count'] ?? 0} courses',
+            ),
+            _RowData(
+              'A la charge du livreur',
+              '${commissions['charged_as_debt_count'] ?? 0} courses',
+            ),
+            _RowData(
+              'Offerte par Denkma',
+              '${commissions['offered_by_denkma_count'] ?? 0} courses',
+            ),
+            _RowData(
+              'Montant a recuperer',
+              formatXof(
+                (commissions['debt_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+            ),
+            _RowData(
+              'En attente de reponse livreur',
+              '${commissions['waiting_driver_confirmation_count'] ?? 0} courses',
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const _SectionTitle('Relais'),
+        const SizedBox(height: 10),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.22,
+          children: [
+            _MetricCard(
+              title: 'Montant a verser',
+              value: formatXof(
+                (relays['amount_due_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.blueGrey,
+            ),
+            _MetricCard(
+              title: 'Deja envoye',
+              value: formatXof(
+                (relays['amount_already_sent_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.green,
+            ),
+            _MetricCard(
+              title: 'Reste a verser',
+              value: formatXof(
+                (relays['amount_remaining_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.orange,
+            ),
+            _MetricCard(
+              title: 'Colis a regulariser',
+              value: '${relays['parcels_waiting_relay_payment'] ?? 0}',
+              color: Colors.redAccent,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _DetailCard(
+          title: 'Detail relais',
+          rows: [
+            _RowData(
+              'Part relais depart',
+              formatXof(
+                (relays['origin_amount_due_xof'] as num?)?.toDouble() ?? 0,
+              ),
+            ),
+            _RowData(
+              'Part relais arrivee',
+              formatXof(
+                (relays['destination_amount_due_xof'] as num?)?.toDouble() ?? 0,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const _SectionTitle('Retraits'),
+        const SizedBox(height: 10),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.22,
+          children: [
+            _MetricCard(
+              title: 'En attente',
+              value: '${payouts['waiting_count'] ?? 0}',
+              subtitle: formatXof(
+                (payouts['waiting_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.orange,
+            ),
+            _MetricCard(
+              title: 'Envoyes',
+              value: '${payouts['sent_count'] ?? 0}',
+              subtitle: formatXof(
+                (payouts['sent_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.green,
+            ),
+            _MetricCard(
+              title: 'Refuses',
+              value: '${payouts['refused_count'] ?? 0}',
+              subtitle: formatXof(
+                (payouts['refused_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.redAccent,
+            ),
+            _MetricCard(
+              title: 'Comptes bloques',
+              value: '${payouts['blocked_wallets'] ?? 0}',
+              color: Colors.blueGrey,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const _SectionTitle('Soldes'),
+        const SizedBox(height: 10),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.22,
+          children: [
+            _MetricCard(
+              title: 'Solde disponible',
+              value: formatXof(
+                (wallets['total_available_amount_xof'] as num?)?.toDouble() ??
+                    0,
+              ),
+            ),
+            _MetricCard(
+              title: 'Montant en attente',
+              value: formatXof(
+                (wallets['total_waiting_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.orange,
+            ),
+            _MetricCard(
+              title: 'Comptes livreurs',
+              value: '${wallets['driver_wallets'] ?? 0}',
+            ),
+            _MetricCard(
+              title: 'Comptes relais',
+              value: '${wallets['relay_wallets'] ?? 0}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _DetailCard(
+          title: 'A surveiller sur les soldes',
+          rows: [
+            _RowData(
+              'Soldes negatifs',
+              '${wallets['negative_wallets'] ?? 0}',
+              highlight: ((wallets['negative_wallets'] ?? 0) as num) > 0,
+            ),
+            _RowData(
+              'Comptes avec attente',
+              '${wallets['wallets_with_waiting_money'] ?? 0} comptes',
+            ),
+          ],
+        ),
+        if (reconciliation != null) ...[
+          const SizedBox(height: 20),
+          const _SectionTitle('Points a verifier'),
+          const SizedBox(height: 10),
+          ..._buildIssueCards(reconciliation!),
+        ],
       ],
     );
   }
 
-  Widget _buildCodSection(
-    BuildContext context,
-    WidgetRef ref,
-    List<Map<String, dynamic>> fin,
-  ) {
-    if (fin.isEmpty) {
-      return const Card(
-        child: ListTile(
-          leading: Icon(Icons.check_circle_outline, color: Colors.green),
-          title: Text('Aucun cash COD a encaisser'),
+  List<Widget> _buildIssueCards(Map<String, dynamic> reconciliation) {
+    const labels = {
+      'wallet_pending_mismatches': 'Montants en attente a corriger',
+      'negative_wallets': 'Soldes negatifs a verifier',
+      'payout_ledger_gaps': 'Retraits a revoir',
+      'mission_parcel_mismatches': 'Courses a revoir',
+      'delivered_unpaid': 'Colis livres non regles',
+    };
+    final widgets = <Widget>[];
+    for (final entry in labels.entries) {
+      final count = (reconciliation[entry.key] as List?)?.length ?? 0;
+      if (count == 0) continue;
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _AlertCard(
+            label: entry.value,
+            value: '$count',
+            tone: 'warning',
+          ),
         ),
       );
     }
-
-    return Column(
-      children: fin.map((e) {
-        final amount = (e['cod_balance'] as num?)?.toDouble() ?? 0.0;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            leading: CircleAvatar(
-              backgroundColor:
-                  amount > 0 ? Colors.orange.shade50 : Colors.grey.shade50,
-              child: Icon(
-                Icons.person,
-                color: amount > 0 ? Colors.orange : Colors.grey,
-              ),
-            ),
-            title: Text(
-              e['name'] ?? 'Livreur inconnu',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              'ID: ${e['user_id']}',
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-            ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  formatXof(amount),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: amount > 0
-                        ? Colors.red.shade700
-                        : Colors.green.shade700,
-                  ),
-                ),
-                if (amount > 0)
-                  const Text(
-                    'A encaisser',
-                    style: TextStyle(fontSize: 10, color: Colors.orange),
-                  ),
-              ],
-            ),
-            onTap: amount > 0
-                ? () => _showSettleDialog(
-                      context,
-                      ref,
-                      amount,
-                      e['user_id']?.toString() ?? '',
-                      e['name']?.toString() ?? 'Livreur',
-                    )
-                : null,
-          ),
-        );
-      }).toList(),
-    );
+    return widgets;
   }
+}
 
-  void _showSettleDialog(
-    BuildContext context,
-    WidgetRef ref,
-    double amount,
-    String driverId,
-    String name,
-  ) {
-    showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirmer l\'encaissement'),
-        content: Text(
-          'Voulez-vous marquer ${formatXof(amount)} collectes par $name comme encaissees ?',
+class _PeriodPicker extends StatelessWidget {
+  const _PeriodPicker({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _monthOptions();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: value,
+            items: items
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item.value,
+                    child: Text(item.label),
+                  ),
+                )
+                .toList(),
+            onChanged: onChanged,
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await ref.read(apiClientProvider).settleCod(driverId);
-                if (dialogContext.mounted) {
-                  Navigator.pop(dialogContext);
-                  ref.invalidate(adminFinanceProvider);
-                  ref.invalidate(adminReconciliationProvider);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Tresorerie soldee avec succes.'),
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(friendlyError(e))),
-                  );
-                }
-              }
-            },
-            child: const Text('Confirmer'),
-          ),
-        ],
       ),
     );
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
     required this.title,
     required this.value,
-    required this.color,
-    required this.icon,
+    this.subtitle,
+    this.color,
   });
 
   final String title;
   final String value;
-  final Color color;
-  final IconData icon;
+  final String? subtitle;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final tone = color ?? Colors.black87;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        color: tone.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: tone.withValues(alpha: 0.14)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+            ),
+          ),
           const Spacer(),
           Text(
             value,
             style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: tone,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _IssueBlock extends StatelessWidget {
-  const _IssueBlock({
+class _DetailCard extends StatelessWidget {
+  const _DetailCard({
     required this.title,
-    required this.subtitle,
-    required this.items,
-    required this.builder,
+    required this.rows,
   });
 
   final String title;
-  final String subtitle;
-  final List<Map<String, dynamic>> items;
-  final Widget Function(Map<String, dynamic> item) builder;
+  final List<_RowData> rows;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 14),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ExpansionTile(
-        initiallyExpanded: items.isNotEmpty,
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          items.isEmpty ? 'Aucun ecart detecte.' : subtitle,
-          style: const TextStyle(fontSize: 12),
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: items.isEmpty
-                ? Colors.green.withValues(alpha: 0.12)
-                : Colors.red.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '${items.length}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: items.isEmpty ? Colors.green : Colors.red,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
-          ),
-        ),
-        children: items.isEmpty
-            ? const [
-                ListTile(
-                  dense: true,
-                  leading:
-                      Icon(Icons.check_circle_outline, color: Colors.green),
-                  title: Text('Aucun probleme detecte sur ce controle.'),
+            const SizedBox(height: 12),
+            ...rows.map(
+              (row) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        row.label,
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ),
+                    Container(
+                      padding: row.highlight
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            )
+                          : EdgeInsets.zero,
+                      decoration: row.highlight
+                          ? BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            )
+                          : null,
+                      child: Text(
+                        row.value,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: row.highlight ? Colors.orange.shade900 : null,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ]
-            : items.map(builder).toList(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _AlertCard extends StatelessWidget {
+  const _AlertCard({
+    required this.label,
+    required this.value,
+    required this.tone,
+  });
+
+  final String label;
+  final String value;
+  final String tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (tone) {
+      'danger' => Colors.red,
+      'warning' => Colors.orange,
+      _ => Colors.blue,
+    };
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        title: Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  const _ErrorCard({
+    required this.title,
+    required this.message,
+  });
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.error_outline, color: Colors.red),
+        title: Text(title),
+        subtitle: Text(message),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+    );
+  }
+}
+
+class _RowData {
+  const _RowData(this.label, this.value, {this.highlight = false});
+
+  final String label;
+  final String value;
+  final bool highlight;
+}
+
+class _MonthItem {
+  const _MonthItem(this.value, this.label);
+
+  final String value;
+  final String label;
+}
+
+String _monthValue(DateTime date) {
+  final month = date.month.toString().padLeft(2, '0');
+  return '${date.year}-$month';
+}
+
+String _monthLabel(String value) {
+  final parts = value.split('-');
+  if (parts.length != 2) return value;
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  const labels = [
+    'janvier',
+    'fevrier',
+    'mars',
+    'avril',
+    'mai',
+    'juin',
+    'juillet',
+    'aout',
+    'septembre',
+    'octobre',
+    'novembre',
+    'decembre',
+  ];
+  if (year == null || month == null || month < 1 || month > 12) return value;
+  return '${labels[month - 1]} $year';
+}
+
+List<_MonthItem> _monthOptions() {
+  final now = DateTime.now();
+  return List.generate(18, (index) {
+    final date = DateTime(now.year, now.month - index, 1);
+    final value = _monthValue(date);
+    return _MonthItem(value, _monthLabel(value));
+  });
 }

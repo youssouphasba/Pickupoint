@@ -4451,3 +4451,344 @@ async def update_referral_settings(
         "effective_referral_share_base_url": get_effective_referral_share_base_url(after),
         "message": "Configuration du parrainage mise a jour",
     }
+
+
+@router.get("/finance/overview", summary="Vue d'ensemble finance")
+async def get_finance_overview(
+    period: str = Query(..., description="Format YYYY-MM"),
+    _admin=Depends(require_admin_dep),
+):
+    start, end = _month_bounds(period)
+    date_query = {"$gte": start, "$lte": end}
+
+    parcel_docs = await db.parcels.find(
+        {"created_at": date_query},
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "status": 1,
+            "payment_status": 1,
+            "payment_override": 1,
+            "who_pays": 1,
+            "quoted_price": 1,
+            "paid_price": 1,
+            "delivery_mode": 1,
+            "origin_relay_id": 1,
+            "destination_relay_id": 1,
+            "redirect_relay_id": 1,
+        },
+    ).to_list(length=5000)
+
+    mission_docs = await db.delivery_missions.find(
+        {"created_at": date_query},
+        {
+            "_id": 0,
+            "mission_id": 1,
+            "parcel_id": 1,
+            "status": 1,
+            "driver_id": 1,
+            "delivery_mode": 1,
+            "quoted_price": 1,
+            "commission_charge_mode": 1,
+            "commission_debt_xof": 1,
+            "sponsored_commission_xof": 1,
+            "admin_assignment_status": 1,
+        },
+    ).to_list(length=5000)
+
+    payout_docs = await db.payout_requests.find(
+        {"created_at": date_query},
+        {
+            "_id": 0,
+            "status": 1,
+            "amount": 1,
+        },
+    ).to_list(length=5000)
+
+    wallet_docs = await db.wallets.find(
+        {},
+        {
+            "_id": 0,
+            "owner_type": 1,
+            "balance": 1,
+            "pending": 1,
+            "payout_blocked": 1,
+        },
+    ).to_list(length=5000)
+
+    relay_credit_docs = await db.wallet_transactions.find(
+        {
+            "created_at": date_query,
+            "reference": {"$regex": r"^relay_(origin|destination)_commission:"},
+        },
+        {
+            "_id": 0,
+            "reference": 1,
+            "amount": 1,
+        },
+    ).to_list(length=10000)
+
+    parcel_by_id = {parcel["parcel_id"]: parcel for parcel in parcel_docs}
+    relay_credit_refs = {
+        str(tx.get("reference") or ""): float(tx.get("amount", 0.0) or 0.0)
+        for tx in relay_credit_docs
+        if tx.get("reference")
+    }
+
+    expected_amount_xof = 0.0
+    received_amount_xof = 0.0
+    paid_parcels = 0
+    waiting_payment_parcels = 0
+    admin_validated_parcels = 0
+    sender_pays_parcels = 0
+    recipient_pays_parcels = 0
+    delivered_waiting_payment_parcels = 0
+
+    relay_due_xof = 0.0
+    relay_due_origin_xof = 0.0
+    relay_due_destination_xof = 0.0
+    relay_already_sent_xof = 0.0
+    relay_missing_parcel_ids: set[str] = set()
+
+    for parcel in parcel_docs:
+        quoted_price = float(parcel.get("quoted_price", 0.0) or 0.0)
+        paid_price = float(parcel.get("paid_price", 0.0) or 0.0)
+        payment_status = str(parcel.get("payment_status") or "pending")
+        payment_override = bool(parcel.get("payment_override"))
+        parcel_status = str(parcel.get("status") or "")
+        who_pays = str(parcel.get("who_pays") or "sender")
+        parcel_id = str(parcel.get("parcel_id") or "")
+
+        expected_amount_xof += quoted_price
+
+        if who_pays == "recipient":
+            recipient_pays_parcels += 1
+        else:
+            sender_pays_parcels += 1
+
+        if payment_override:
+            admin_validated_parcels += 1
+            received_amount_xof += paid_price or quoted_price
+        elif payment_status == "paid":
+            paid_parcels += 1
+            received_amount_xof += paid_price or quoted_price
+        elif parcel_status not in {
+            ParcelStatus.CANCELLED.value,
+            ParcelStatus.EXPIRED.value,
+        }:
+            waiting_payment_parcels += 1
+
+        if (
+            parcel_status == ParcelStatus.DELIVERED.value
+            and payment_status != "paid"
+            and not payment_override
+        ):
+            delivered_waiting_payment_parcels += 1
+
+        if parcel_status == ParcelStatus.DELIVERED.value:
+            breakdown = compute_delivery_commission_breakdown(parcel)
+            origin_due = float(breakdown["origin_relay_commission_xof"] or 0.0)
+            destination_due = float(breakdown["destination_relay_commission_xof"] or 0.0)
+            relay_due_origin_xof += origin_due
+            relay_due_destination_xof += destination_due
+            relay_due_xof += origin_due + destination_due
+
+            if origin_due > 0:
+                ref = f"relay_origin_commission:{parcel_id}"
+                if ref in relay_credit_refs:
+                    relay_already_sent_xof += relay_credit_refs[ref]
+                else:
+                    relay_missing_parcel_ids.add(parcel_id)
+
+            if destination_due > 0:
+                ref = f"relay_destination_commission:{parcel_id}"
+                if ref in relay_credit_refs:
+                    relay_already_sent_xof += relay_credit_refs[ref]
+                else:
+                    relay_missing_parcel_ids.add(parcel_id)
+
+    total_commission_xof = 0.0
+    platform_commission_xof = 0.0
+    relay_commission_xof = 0.0
+    charged_to_balance_count = 0
+    charged_as_debt_count = 0
+    offered_by_denkma_count = 0
+    waiting_driver_confirmation_count = 0
+    debt_amount_xof = 0.0
+    offered_amount_xof = 0.0
+
+    for mission in mission_docs:
+        parcel = parcel_by_id.get(mission.get("parcel_id"))
+        breakdown = compute_delivery_commission_breakdown(parcel, mission)
+        mission_total_commission = float(breakdown["total_commission_xof"] or 0.0)
+        total_commission_xof += mission_total_commission
+        platform_commission_xof += float(
+            breakdown["platform_commission_xof"] or 0.0
+        )
+        relay_commission_xof += float(breakdown["relay_commission_xof"] or 0.0)
+
+        charge_mode = str(mission.get("commission_charge_mode") or "").strip()
+        admin_assignment_status = str(
+            mission.get("admin_assignment_status") or ""
+        ).strip()
+
+        if admin_assignment_status == "awaiting_driver_response":
+            waiting_driver_confirmation_count += 1
+
+        if charge_mode == "driver_debt":
+            charged_as_debt_count += 1
+            debt_amount_xof += float(
+                mission.get("commission_debt_xof") or mission_total_commission or 0.0
+            )
+        elif charge_mode == "platform_sponsored":
+            offered_by_denkma_count += 1
+            offered_amount_xof += float(
+                mission.get("sponsored_commission_xof")
+                or mission_total_commission
+                or 0.0
+            )
+        elif charge_mode == "wallet_hold":
+            charged_to_balance_count += 1
+
+    payouts_waiting_count = 0
+    payouts_waiting_amount_xof = 0.0
+    payouts_sent_count = 0
+    payouts_sent_amount_xof = 0.0
+    payouts_refused_count = 0
+    payouts_refused_amount_xof = 0.0
+
+    for payout in payout_docs:
+        amount = float(payout.get("amount", 0.0) or 0.0)
+        status = str(payout.get("status") or "pending")
+        if status == "approved":
+            payouts_sent_count += 1
+            payouts_sent_amount_xof += amount
+        elif status == "rejected":
+            payouts_refused_count += 1
+            payouts_refused_amount_xof += amount
+        else:
+            payouts_waiting_count += 1
+            payouts_waiting_amount_xof += amount
+
+    driver_wallets = 0
+    relay_wallets = 0
+    negative_wallets = 0
+    blocked_wallets = 0
+    wallets_with_waiting_money = 0
+    total_available_amount_xof = 0.0
+    total_waiting_amount_xof = 0.0
+
+    for wallet in wallet_docs:
+        owner_type = str(wallet.get("owner_type") or "")
+        balance = float(wallet.get("balance", 0.0) or 0.0)
+        pending_amount = float(wallet.get("pending", 0.0) or 0.0)
+
+        if owner_type == "driver":
+            driver_wallets += 1
+        elif owner_type == "relay":
+            relay_wallets += 1
+
+        if balance < 0:
+            negative_wallets += 1
+        if wallet.get("payout_blocked"):
+            blocked_wallets += 1
+        if pending_amount > 0:
+            wallets_with_waiting_money += 1
+
+        total_available_amount_xof += balance
+        total_waiting_amount_xof += pending_amount
+
+    alerts = []
+    if delivered_waiting_payment_parcels > 0:
+        alerts.append(
+            {
+                "label": "Colis livres en attente de paiement",
+                "value": delivered_waiting_payment_parcels,
+                "tone": "warning",
+            }
+        )
+    if relay_missing_parcel_ids:
+        alerts.append(
+            {
+                "label": "Commissions relais encore a verser",
+                "value": len(relay_missing_parcel_ids),
+                "tone": "warning",
+            }
+        )
+    if payouts_waiting_count > 0:
+        alerts.append(
+            {
+                "label": "Retraits en attente",
+                "value": payouts_waiting_count,
+                "tone": "warning",
+            }
+        )
+    if negative_wallets > 0:
+        alerts.append(
+            {
+                "label": "Soldes negatifs a surveiller",
+                "value": negative_wallets,
+                "tone": "danger",
+            }
+        )
+
+    return {
+        "period": period,
+        "from": start,
+        "to": end,
+        "payments": {
+            "total_parcels": len(parcel_docs),
+            "delivered_parcels": sum(
+                1
+                for parcel in parcel_docs
+                if parcel.get("status") == ParcelStatus.DELIVERED.value
+            ),
+            "paid_parcels": paid_parcels,
+            "waiting_payment_parcels": waiting_payment_parcels,
+            "admin_validated_parcels": admin_validated_parcels,
+            "sender_pays_parcels": sender_pays_parcels,
+            "recipient_pays_parcels": recipient_pays_parcels,
+            "expected_amount_xof": round(expected_amount_xof, 2),
+            "received_amount_xof": round(received_amount_xof, 2),
+            "delivered_waiting_payment_parcels": delivered_waiting_payment_parcels,
+        },
+        "commissions": {
+            "charged_to_balance_count": charged_to_balance_count,
+            "charged_as_debt_count": charged_as_debt_count,
+            "offered_by_denkma_count": offered_by_denkma_count,
+            "waiting_driver_confirmation_count": waiting_driver_confirmation_count,
+            "platform_amount_xof": round(platform_commission_xof, 2),
+            "relay_amount_xof": round(relay_commission_xof, 2),
+            "total_amount_xof": round(total_commission_xof, 2),
+            "debt_amount_xof": round(debt_amount_xof, 2),
+            "offered_amount_xof": round(offered_amount_xof, 2),
+        },
+        "relays": {
+            "amount_due_xof": round(relay_due_xof, 2),
+            "amount_already_sent_xof": round(relay_already_sent_xof, 2),
+            "amount_remaining_xof": round(
+                max(relay_due_xof - relay_already_sent_xof, 0.0), 2
+            ),
+            "origin_amount_due_xof": round(relay_due_origin_xof, 2),
+            "destination_amount_due_xof": round(relay_due_destination_xof, 2),
+            "parcels_waiting_relay_payment": len(relay_missing_parcel_ids),
+        },
+        "payouts": {
+            "waiting_count": payouts_waiting_count,
+            "waiting_amount_xof": round(payouts_waiting_amount_xof, 2),
+            "sent_count": payouts_sent_count,
+            "sent_amount_xof": round(payouts_sent_amount_xof, 2),
+            "refused_count": payouts_refused_count,
+            "refused_amount_xof": round(payouts_refused_amount_xof, 2),
+            "blocked_wallets": blocked_wallets,
+        },
+        "wallets": {
+            "driver_wallets": driver_wallets,
+            "relay_wallets": relay_wallets,
+            "negative_wallets": negative_wallets,
+            "wallets_with_waiting_money": wallets_with_waiting_money,
+            "total_available_amount_xof": round(total_available_amount_xof, 2),
+            "total_waiting_amount_xof": round(total_waiting_amount_xof, 2),
+        },
+        "alerts": alerts,
+    }

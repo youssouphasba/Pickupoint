@@ -402,6 +402,10 @@ class ApiClient {
 
   Future<Response> getCodMonitoring() =>
       _dio.get(ApiEndpoints.adminCodMonitoring);
+  Future<Response> getFinanceOverview(String period) => _dio.get(
+        ApiEndpoints.adminFinanceOverview,
+        queryParameters: {'period': period},
+      );
   Future<Response> getFinanceReconciliation() =>
       _dio.get(ApiEndpoints.adminFinanceReconciliation);
 

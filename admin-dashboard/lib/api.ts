@@ -570,6 +570,13 @@ export async function fetchFinanceReconciliation() {
   return data;
 }
 
+export async function fetchFinanceOverview(period: string) {
+  const { data } = await api.get("/api/admin/finance/overview", {
+    params: { period },
+  });
+  return data;
+}
+
 export async function fetchFinanceMonthlySummary(period: string) {
   const { data } = await api.get("/api/admin/finance/monthly-summary", {
     params: { period },

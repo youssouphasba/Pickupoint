@@ -1,20 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
-  fetchCodMonitoring,
-  fetchDrivers,
-  fetchFinanceMonthlySummary,
+  fetchFinanceOverview,
   fetchFinanceReconciliation,
-  settleCod,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/components/ui/toaster";
-import { Banknote, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 const xof = new Intl.NumberFormat("fr-FR");
@@ -36,95 +30,118 @@ function monthLabel(value: string) {
   const [year, month] = value.split("-").map(Number);
   const labels = [
     "janvier",
-    "février",
+    "fevrier",
     "mars",
     "avril",
     "mai",
     "juin",
     "juillet",
-    "août",
+    "aout",
     "septembre",
     "octobre",
     "novembre",
-    "décembre",
+    "decembre",
   ];
   return `${labels[month - 1] ?? value} ${year}`;
 }
 
-const SUMMARY_LABELS: Record<string, string> = {
-  wallets_checked: "Wallets vérifiés",
-  payouts_checked: "Payouts vérifiés",
-  wallet_pending_mismatches: "Écarts pending",
-  negative_wallets: "Wallets négatifs",
-  payout_ledger_gaps: "Écarts payout/ledger",
-  mission_parcel_mismatches: "Écarts mission/colis",
-  delivered_unpaid: "Livrés non payés",
-  issues_total: "Problèmes total",
+function StatCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        <div className="mt-1 text-xl font-bold">{value}</div>
+        {hint ? (
+          <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-border/60 py-3 last:border-b-0">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="text-sm font-medium text-right">{value}</div>
+    </div>
+  );
+}
+
+function AlertTone({
+  tone,
+}: {
+  tone?: string;
+}) {
+  if (tone === "danger") {
+    return "danger" as const;
+  }
+  if (tone === "warning") {
+    return "warning" as const;
+  }
+  return "info" as const;
+}
+
+const ISSUE_LABELS: Record<string, string> = {
+  wallet_pending_mismatches: "Montants en attente a corriger",
+  negative_wallets: "Soldes negatifs a verifier",
+  payout_ledger_gaps: "Retraits a revoir",
+  mission_parcel_mismatches: "Courses a revoir",
+  delivered_unpaid: "Colis livres non regles",
 };
 
 export default function FinancePage() {
-  const qc = useQueryClient();
-  const { toast } = useToast();
   const [period, setPeriod] = React.useState(() => monthValue(new Date()));
+
+  const overview = useQuery({
+    queryKey: ["finance-overview", period],
+    queryFn: () => fetchFinanceOverview(period),
+  });
 
   const recon = useQuery({
     queryKey: ["finance-recon"],
     queryFn: fetchFinanceReconciliation,
   });
 
-  const monthly = useQuery({
-    queryKey: ["finance-monthly", period],
-    queryFn: () => fetchFinanceMonthlySummary(period),
-  });
+  const loading = overview.isLoading || recon.isLoading;
+  const error = overview.isError || recon.isError;
 
-  const cod = useQuery({
-    queryKey: ["finance-cod"],
-    queryFn: fetchCodMonitoring,
-  });
-
-  const drivers = useQuery({
-    queryKey: ["drivers-list"],
-    queryFn: () => fetchDrivers(),
-  });
-
-  const loading = recon.isLoading || cod.isLoading || monthly.isLoading;
-  const error = recon.isError || cod.isError || monthly.isError;
-
-  const [settleOpen, setSettleOpen] = React.useState(false);
-  const [settleDriverId, setSettleDriverId] = React.useState("");
-  const [settleAmount, setSettleAmount] = React.useState("");
-
-  const settleMut = useMutation({
-    mutationFn: () =>
-      settleCod(
-        settleDriverId,
-        settleAmount ? parseFloat(settleAmount) : undefined
-      ),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["finance-cod"] });
-      toast(
-        `COD encaissé : ${xof.format(res.amount_settled ?? 0)} XOF`
-      );
-      setSettleOpen(false);
-      setSettleDriverId("");
-      setSettleAmount("");
-    },
-  });
-
+  const data = overview.data;
   const summary = recon.data?.summary;
-  const codEntities = cod.data?.entities ?? [];
-  const monthlySummary = monthly.data;
+  const issues = [
+    "wallet_pending_mismatches",
+    "negative_wallets",
+    "payout_ledger_gaps",
+    "mission_parcel_mismatches",
+    "delivered_unpaid",
+  ];
 
   return (
     <div className="space-y-6 p-8">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Finance</h1>
           <p className="text-sm text-muted-foreground">
-            Réconciliation financière et suivi du cash en circulation.
+            Vue claire des paiements, des commissions, des relais et des retraits.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-3">
           <select
             value={period}
             onChange={(event) => setPeriod(event.target.value)}
@@ -136,262 +153,330 @@ export default function FinancePage() {
               </option>
             ))}
           </select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSettleOpen(!settleOpen)}
+          <Link
+            href="/dashboard/payouts"
+            className="inline-flex h-9 items-center rounded-md border border-input px-3 text-sm font-medium hover:bg-accent"
           >
-            <Banknote className="h-4 w-4" />
-            Encaisser COD
-          </Button>
+            Voir les retraits
+          </Link>
         </div>
       </div>
 
-      {monthlySummary && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Synthèse {monthLabel(period)}
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardContent className="p-5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Ventes
-                </div>
-                <div className="mt-1 text-xl font-bold">
-                  {xof.format(monthlySummary.sales_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Dépenses
-                </div>
-                <div className="mt-1 text-xl font-bold">
-                  {xof.format(monthlySummary.commissions_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Net estimé
-                </div>
-                <div className="mt-1 text-xl font-bold">
-                  {xof.format(monthlySummary.net_after_commissions_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Colis livrés
-                </div>
-                <div className="mt-1 text-xl font-bold">
-                  {monthlySummary.parcels_delivered ?? 0} / {monthlySummary.parcels_created ?? 0}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Paiements reçus</div>
-                <div className="mt-1 font-semibold">
-                  {xof.format(monthlySummary.paid_sales_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Retraits validés</div>
-                <div className="mt-1 font-semibold">
-                  {xof.format(monthlySummary.payouts_approved_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Retraits en attente</div>
-                <div className="mt-1 font-semibold">
-                  {xof.format(monthlySummary.payouts_pending_xof ?? 0)} XOF
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-      )}
-
-      {settleOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Confirmer l'encaissement du cash (COD)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[200px] flex-1">
-                <label className="mb-1.5 block text-sm font-medium">
-                  Livreur
-                </label>
-                <select
-                  value={settleDriverId}
-                  onChange={(e) => setSettleDriverId(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Sélectionner un livreur…</option>
-                  {(drivers.data?.drivers ?? []).map((d: any) => (
-                    <option key={d.user_id} value={d.user_id}>
-                      {d.name ?? d.full_name ?? d.phone} — {d.user_id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-40">
-                <label className="mb-1.5 block text-sm font-medium">
-                  Montant (vide = tout)
-                </label>
-                <Input
-                  type="number"
-                  placeholder="XOF"
-                  value={settleAmount}
-                  onChange={(e) => setSettleAmount(e.target.value)}
-                />
-              </div>
-              <Button
-                onClick={() => settleMut.mutate()}
-                disabled={!settleDriverId || settleMut.isPending}
-              >
-                {settleMut.isPending && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                Encaisser
-              </Button>
-            </div>
-            {settleMut.isError && (
-              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {(settleMut.error as any)?.response?.data?.detail ??
-                  "Erreur lors de l'encaissement."}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {loading && (
+      {loading ? (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-      )}
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Erreur de chargement des données financières.
-        </div>
-      )}
+      ) : null}
 
-      {/* Reconciliation summary */}
-      {summary && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Réconciliation
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(summary).map(([key, val]) => (
-              <Card key={key}>
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          Impossible de charger les donnees finance pour le moment.
+        </div>
+      ) : null}
+
+      {data ? (
+        <>
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                A surveiller
+              </h2>
+              {data.alerts.length === 0 ? (
+                <Badge tone="success">Rien d urgent</Badge>
+              ) : null}
+            </div>
+            {data.alerts.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {data.alerts.map((alert: any) => (
+                  <Card key={alert.label}>
+                    <CardContent className="flex items-center justify-between gap-4 p-5">
+                      <div>
+                        <div className="text-sm font-medium">{alert.label}</div>
+                      </div>
+                      <Badge tone={AlertTone({ tone: alert.tone })}>
+                        {alert.value}
+                      </Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Paiements colis
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Montant attendu"
+                value={`${xof.format(data.payments.expected_amount_xof ?? 0)} XOF`}
+                hint={`${data.payments.total_parcels ?? 0} colis sur ${monthLabel(period)}`}
+              />
+              <StatCard
+                label="Montant confirme"
+                value={`${xof.format(data.payments.received_amount_xof ?? 0)} XOF`}
+                hint={`${data.payments.paid_parcels ?? 0} colis regles`}
+              />
+              <StatCard
+                label="En attente"
+                value={data.payments.waiting_payment_parcels ?? 0}
+                hint="Colis qui attendent encore un reglement"
+              />
+              <StatCard
+                label="Validation admin"
+                value={data.payments.admin_validated_parcels ?? 0}
+                hint="Colis valides sans paiement standard"
+              />
+            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Repartition des paiements</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DetailRow
+                  label="Expediteur paie"
+                  value={`${data.payments.sender_pays_parcels ?? 0} colis`}
+                />
+                <DetailRow
+                  label="Destinataire paie"
+                  value={`${data.payments.recipient_pays_parcels ?? 0} colis`}
+                />
+                <DetailRow
+                  label="Colis livres"
+                  value={`${data.payments.delivered_parcels ?? 0} colis`}
+                />
+                <DetailRow
+                  label="Colis livres en attente de paiement"
+                  value={
+                    <Badge
+                      tone={
+                        (data.payments.delivered_waiting_payment_parcels ?? 0) > 0
+                          ? "warning"
+                          : "success"
+                      }
+                    >
+                      {data.payments.delivered_waiting_payment_parcels ?? 0}
+                    </Badge>
+                  }
+                />
+              </CardContent>
+            </Card>
+          </section>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Commissions
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard
+                  label="Part Denkma"
+                  value={`${xof.format(data.commissions.platform_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Part relais"
+                  value={`${xof.format(data.commissions.relay_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Commission totale"
+                  value={`${xof.format(data.commissions.total_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Commission offerte"
+                  value={`${xof.format(data.commissions.offered_amount_xof ?? 0)} XOF`}
+                  hint={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
+                />
+              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Mode de prise en charge</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DetailRow
+                    label="Prelevee sur le solde du livreur"
+                    value={`${data.commissions.charged_to_balance_count ?? 0} courses`}
+                  />
+                  <DetailRow
+                    label="Mise a la charge du livreur"
+                    value={`${data.commissions.charged_as_debt_count ?? 0} courses`}
+                  />
+                  <DetailRow
+                    label="Offerte par Denkma"
+                    value={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
+                  />
+                  <DetailRow
+                    label="Montant encore a recuperer"
+                    value={`${xof.format(data.commissions.debt_amount_xof ?? 0)} XOF`}
+                  />
+                  <DetailRow
+                    label="En attente de reponse livreur"
+                    value={`${data.commissions.waiting_driver_confirmation_count ?? 0} courses`}
+                  />
+                </CardContent>
+              </Card>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Relais
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard
+                  label="Montant a verser"
+                  value={`${xof.format(data.relays.amount_due_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Deja envoye"
+                  value={`${xof.format(data.relays.amount_already_sent_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Reste a verser"
+                  value={`${xof.format(data.relays.amount_remaining_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Colis a regulariser"
+                  value={data.relays.parcels_waiting_relay_payment ?? 0}
+                />
+              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Detail relais</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DetailRow
+                    label="Part relais de depart"
+                    value={`${xof.format(data.relays.origin_amount_due_xof ?? 0)} XOF`}
+                  />
+                  <DetailRow
+                    label="Part relais d arrivee"
+                    value={`${xof.format(data.relays.destination_amount_due_xof ?? 0)} XOF`}
+                  />
+                </CardContent>
+              </Card>
+            </section>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Retraits
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <StatCard
+                  label="En attente"
+                  value={`${data.payouts.waiting_count ?? 0}`}
+                  hint={`${xof.format(data.payouts.waiting_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Envoyes"
+                  value={`${data.payouts.sent_count ?? 0}`}
+                  hint={`${xof.format(data.payouts.sent_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Refuses"
+                  value={`${data.payouts.refused_count ?? 0}`}
+                  hint={`${xof.format(data.payouts.refused_amount_xof ?? 0)} XOF`}
+                />
+              </div>
+              <Card>
                 <CardContent className="p-5">
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {SUMMARY_LABELS[key] ?? key.replace(/_/g, " ")}
-                  </div>
-                  <div className={`mt-1 text-xl font-bold ${key === "issues_total" && (val as number) > 0 ? "text-red-600" : ""}`}>
-                    {typeof val === "number" ? val : String(val)}
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-medium">Comptes bloques pour retrait</div>
+                      <div className="text-xs text-muted-foreground">
+                        Comptes qui ne peuvent pas demander un retrait pour le moment
+                      </div>
+                    </div>
+                    <Badge
+                      tone={
+                        (data.payouts.blocked_wallets ?? 0) > 0 ? "warning" : "success"
+                      }
+                    >
+                      {data.payouts.blocked_wallets ?? 0}
+                    </Badge>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Soldes
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard
+                  label="Solde disponible"
+                  value={`${xof.format(data.wallets.total_available_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Montant en attente"
+                  value={`${xof.format(data.wallets.total_waiting_amount_xof ?? 0)} XOF`}
+                />
+                <StatCard
+                  label="Comptes livreurs"
+                  value={data.wallets.driver_wallets ?? 0}
+                />
+                <StatCard
+                  label="Comptes relais"
+                  value={data.wallets.relay_wallets ?? 0}
+                />
+              </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">A surveiller sur les soldes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DetailRow
+                    label="Soldes negatifs"
+                    value={
+                      <Badge
+                        tone={
+                          (data.wallets.negative_wallets ?? 0) > 0 ? "warning" : "success"
+                        }
+                      >
+                        {data.wallets.negative_wallets ?? 0}
+                      </Badge>
+                    }
+                  />
+                  <DetailRow
+                    label="Comptes avec montant en attente"
+                    value={`${data.wallets.wallets_with_waiting_money ?? 0} comptes`}
+                  />
+                </CardContent>
+              </Card>
+            </section>
           </div>
 
-          {recon.data && (() => {
-            const issues = [
-              { key: "wallet_pending_mismatches", label: "Écarts pending wallet" },
-              { key: "negative_wallets", label: "Wallets négatifs" },
-              { key: "payout_ledger_gaps", label: "Écarts payout/ledger" },
-              { key: "mission_parcel_mismatches", label: "Écarts mission/colis" },
-              { key: "delivered_unpaid", label: "Livrés non payés" },
-            ];
-            const hasIssues = issues.some((i) => (recon.data[i.key]?.length ?? 0) > 0);
-            if (!hasIssues) return null;
-            return (
-              <div className="mt-4 space-y-3">
-                {issues.map(({ key, label }) => {
-                  const items = recon.data[key] ?? [];
-                  if (items.length === 0) return null;
+          {summary ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Points a verifier
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {issues.map((key) => {
+                  const count = recon.data?.[key]?.length ?? 0;
+                  if (count === 0) {
+                    return null;
+                  }
                   return (
                     <Card key={key}>
-                      <CardHeader>
-                        <CardTitle className="text-sm text-red-600">
-                          {label} ({items.length})
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {items.slice(0, 10).map((item: any, i: number) => (
-                            <div key={i} className="rounded border p-2 text-xs font-mono">
-                              {JSON.stringify(item)}
-                            </div>
-                          ))}
+                      <CardContent className="p-5">
+                        <div className="text-sm font-medium">
+                          {ISSUE_LABELS[key] ?? key}
+                        </div>
+                        <div className="mt-2">
+                          <Badge tone={count > 0 ? "warning" : "success"}>{count}</Badge>
                         </div>
                       </CardContent>
                     </Card>
                   );
                 })}
               </div>
-            );
-          })()}
-        </section>
-      )}
-
-      {codEntities.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Cash on delivery (COD) — Soldes livreurs
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {codEntities.map((e: any) => (
-              <Card key={e.user_id}>
-                <CardContent className="flex items-center justify-between p-5">
-                  <div>
-                    <Link
-                      href={`/dashboard/users/${e.user_id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {e.name ?? e.user_id}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">{e.user_id}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-lg font-bold ${(e.cod_balance ?? 0) > 0 ? "text-amber-600" : ""}`}>
-                      {xof.format(e.cod_balance ?? 0)} XOF
-                    </div>
-                    {(e.cod_balance ?? 0) > 0 && (
-                      <Badge tone="warning">À encaisser</Badge>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {codEntities.length === 0 && !loading && cod.data && (
-        <Card>
-          <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Aucun solde COD en cours.
-          </CardContent>
-        </Card>
-      )}
+            </section>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

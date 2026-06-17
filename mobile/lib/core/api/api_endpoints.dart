@@ -79,12 +79,15 @@ class ApiEndpoints {
   static const availableMissions = '$_base/api/deliveries/available';
   static const myMissions = '$_base/api/deliveries/my';
   static String delivery(String id) => '$_base/api/deliveries/$id';
-  static String deliveryPreview(String id) => '$_base/api/deliveries/$id/preview';
+  static String deliveryPreview(String id) =>
+      '$_base/api/deliveries/$id/preview';
   static String deliveryLocation(String id) =>
       '$_base/api/deliveries/$id/location';
-  static const myDriverLocation = '$_base/api/deliveries/driver-presence/location';
+  static const myDriverLocation =
+      '$_base/api/deliveries/driver-presence/location';
   static String acceptMission(String id) => '$_base/api/deliveries/$id/accept';
-  static String declineMission(String id) => '$_base/api/deliveries/$id/decline';
+  static String declineMission(String id) =>
+      '$_base/api/deliveries/$id/decline';
   static String confirmPickup(String id) =>
       '$_base/api/deliveries/$id/confirm-pickup';
   static String releaseMission(String id) =>
@@ -164,6 +167,7 @@ class ApiEndpoints {
   static const adminHeatmap = '$_base/api/admin/analytics/heatmap-rich';
   static const adminHeatmapLegacy = '$_base/api/admin/analytics/heatmap';
   static const adminCodMonitoring = '$_base/api/admin/finance/cod-monitoring';
+  static const adminFinanceOverview = '$_base/api/admin/finance/overview';
   static const adminFinanceReconciliation =
       '$_base/api/admin/finance/reconciliation';
   static String adminParcelAudit(String id) =>

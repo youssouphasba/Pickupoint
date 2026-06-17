@@ -89,6 +89,13 @@ final adminStaleParcelsProvider =
 });
 
 /// Provider pour le suivi financier (COD).
+final adminFinanceOverviewProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, period) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getFinanceOverview(period);
+  return res.data as Map<String, dynamic>;
+});
+
 final adminFinanceProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final api = ref.watch(apiClientProvider);
