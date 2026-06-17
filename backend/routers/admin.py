@@ -1028,7 +1028,11 @@ async def admin_list_parcels(
         query["payment_status"] = {"$ne": "paid"}
         query["payment_override"] = {"$ne": True}
 
-    if finance_filter == "delivered_paid":
+    if finance_filter == "sender_pays":
+        query["who_pays"] = "sender"
+    elif finance_filter == "recipient_pays":
+        query["who_pays"] = "recipient"
+    elif finance_filter == "delivered_paid":
         query["status"] = ParcelStatus.DELIVERED.value
         query["$or"] = [
             {"payment_status": "paid"},
@@ -1039,12 +1043,24 @@ async def admin_list_parcels(
         query["payment_status"] = {"$ne": "paid"}
         query["payment_override"] = {"$ne": True}
     elif finance_filter in {
+        "charge_mode_wallet_hold",
+        "charge_mode_driver_debt",
+        "charge_mode_platform_sponsored",
+        "awaiting_driver_response",
         "commission_received",
         "commission_debt",
         "commission_offered",
     }:
         mission_query: dict[str, Any] = {}
-        if finance_filter == "commission_received":
+        if finance_filter == "charge_mode_wallet_hold":
+            mission_query["commission_charge_mode"] = "wallet_hold"
+        elif finance_filter == "charge_mode_driver_debt":
+            mission_query["commission_charge_mode"] = "driver_debt"
+        elif finance_filter == "charge_mode_platform_sponsored":
+            mission_query["commission_charge_mode"] = "platform_sponsored"
+        elif finance_filter == "awaiting_driver_response":
+            mission_query["admin_assignment_status"] = "awaiting_driver_response"
+        elif finance_filter == "commission_received":
             mission_query["commission_charge_mode"] = "wallet_hold"
         elif finance_filter == "commission_debt":
             mission_query["commission_charge_mode"] = "driver_debt"
@@ -4711,6 +4727,7 @@ async def get_finance_overview(
     cancelled_amount_xof = 0.0
     delivered_amount_xof = 0.0
     delivered_received_amount_xof = 0.0
+    delivered_received_parcels = 0
     delivered_waiting_payment_amount_xof = 0.0
 
     active_statuses = {
@@ -4768,11 +4785,13 @@ async def get_finance_overview(
             received_amount_xof += paid_price or quoted_price
             if parcel_status == ParcelStatus.DELIVERED.value:
                 delivered_received_amount_xof += paid_price or quoted_price
+                delivered_received_parcels += 1
         elif payment_status == "paid":
             paid_parcels += 1
             received_amount_xof += paid_price or quoted_price
             if parcel_status == ParcelStatus.DELIVERED.value:
                 delivered_received_amount_xof += paid_price or quoted_price
+                delivered_received_parcels += 1
         elif parcel_status not in {
             ParcelStatus.CANCELLED.value,
             ParcelStatus.EXPIRED.value,
@@ -4987,6 +5006,7 @@ async def get_finance_overview(
             "delivered_amount_xof": round(delivered_amount_xof, 2),
             "received_amount_xof": round(received_amount_xof, 2),
             "delivered_received_amount_xof": round(delivered_received_amount_xof, 2),
+            "delivered_received_parcels": delivered_received_parcels,
             "delivered_waiting_payment_parcels": delivered_waiting_payment_parcels,
             "delivered_waiting_payment_amount_xof": round(
                 delivered_waiting_payment_amount_xof, 2

@@ -104,15 +104,32 @@ function StatCard({
 function DetailRow({
   label,
   value,
+  href,
+  hint,
 }: {
   label: string;
   value: React.ReactNode;
+  href?: string;
+  hint?: string;
 }) {
-  return (
+  const content = (
     <div className="flex items-center justify-between gap-4 border-b border-border/60 py-3 last:border-b-0">
-      <div className="text-sm text-muted-foreground">{label}</div>
+      <div>
+        <div className="text-sm text-muted-foreground">{label}</div>
+        {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
+      </div>
       <div className="text-right text-sm font-medium">{value}</div>
     </div>
+  );
+
+  if (!href) {
+    return content;
+  }
+
+  return (
+    <Link href={href} className="block transition-colors hover:text-primary">
+      {content}
+    </Link>
   );
 }
 
@@ -251,17 +268,21 @@ export default function FinancePage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Paiements colis
             </h2>
+            <p className="text-sm text-muted-foreground">
+              Suivi du règlement des colis sur la période. Denkma n’encaisse pas ce paiement;
+              la recette Denkma se trouve dans les commissions.
+            </p>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
-                label="Montant sur colis en cours"
+                label="Valeur des colis en cours"
                 value={`${xof.format(data.payments.active_expected_amount_xof ?? 0)} XOF`}
                 hint={`${data.payments.active_parcels ?? 0} colis actifs`}
                 href={routes.active}
               />
               <StatCard
-                label="Montant encaissé"
-                value={`${xof.format(data.payments.received_amount_xof ?? 0)} XOF`}
-                hint={`${data.payments.paid_parcels ?? 0} colis réglés`}
+                label="Valeur des colis livrés payés"
+                value={`${xof.format(data.payments.delivered_received_amount_xof ?? 0)} XOF`}
+                hint={`${data.payments.delivered_received_parcels ?? 0} colis livrés payés`}
                 href={routes.deliveredPaid}
               />
               <StatCard
@@ -279,23 +300,28 @@ export default function FinancePage() {
             </div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Répartition des paiements</CardTitle>
+                <CardTitle className="text-base">Répartition du paiement des colis</CardTitle>
               </CardHeader>
               <CardContent>
                 <DetailRow
                   label="Expéditeur paie"
                   value={`${data.payments.sender_pays_parcels ?? 0} colis`}
+                  hint="Tous statuts confondus sur la période sélectionnée"
+                  href={buildParcelHref(period, { finance_filter: "sender_pays" })}
                 />
                 <DetailRow
                   label="Destinataire paie"
                   value={`${data.payments.recipient_pays_parcels ?? 0} colis`}
+                  hint="Tous statuts confondus sur la période sélectionnée"
+                  href={buildParcelHref(period, { finance_filter: "recipient_pays" })}
                 />
                 <DetailRow
                   label="Colis livrés"
                   value={`${data.payments.delivered_parcels ?? 0} colis`}
+                  href={routes.delivered}
                 />
                 <DetailRow
-                  label="Colis livrés en attente de paiement"
+                  label="Colis livrés non payés"
                   value={
                     <Link href={routes.deliveredUnpaid}>
                       <Badge
@@ -309,10 +335,12 @@ export default function FinancePage() {
                       </Badge>
                     </Link>
                   }
+                  href={routes.deliveredUnpaid}
                 />
                 <DetailRow
-                  label="Montant encore à encaisser sur les livrés"
+                  label="Valeur des colis livrés non payés"
                   value={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF`}
+                  href={routes.deliveredUnpaid}
                 />
               </CardContent>
             </Card>
@@ -323,6 +351,9 @@ export default function FinancePage() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Commissions
               </h2>
+              <p className="text-sm text-muted-foreground">
+                Partie réellement liée au revenu Denkma, prélevée depuis les soldes livreurs.
+              </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard
                   label="Commission Denkma attendue"
@@ -354,22 +385,27 @@ export default function FinancePage() {
                   <DetailRow
                     label="Prélevée sur le solde du livreur"
                     value={`${data.commissions.charged_to_balance_count ?? 0} courses`}
+                    href={buildParcelHref(period, { finance_filter: "charge_mode_wallet_hold" })}
                   />
                   <DetailRow
                     label="Mise à la charge du livreur"
                     value={`${data.commissions.charged_as_debt_count ?? 0} courses`}
+                    href={buildParcelHref(period, { finance_filter: "charge_mode_driver_debt" })}
                   />
                   <DetailRow
                     label="Offerte par Denkma"
                     value={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
+                    href={buildParcelHref(period, { finance_filter: "charge_mode_platform_sponsored" })}
                   />
                   <DetailRow
                     label="Montant encore à récupérer"
                     value={`${xof.format(data.commissions.debt_amount_xof ?? 0)} XOF`}
+                    href={routes.commissionDebt}
                   />
                   <DetailRow
                     label="En attente de réponse livreur"
                     value={`${data.commissions.waiting_driver_confirmation_count ?? 0} courses`}
+                    href={buildParcelHref(period, { finance_filter: "awaiting_driver_response" })}
                   />
                 </CardContent>
               </Card>
