@@ -199,6 +199,11 @@ class ProfilePhotoModerationRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
+class UserKycModerationRequest(BaseModel):
+    status: str = Field(..., pattern="^(verified|rejected|pending)$")
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
 class TargetedNotificationRequest(BaseModel):
     title: str = Field(..., min_length=2, max_length=90)
     body: str = Field(..., min_length=3, max_length=600)
@@ -1796,6 +1801,60 @@ async def admin_moderate_profile_photo(
         metadata={
             "target_user_id": user_id,
             "profile_picture_url": user.get("profile_picture_url"),
+        },
+    )
+
+    updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    updated_user["profile_picture_status"] = _profile_picture_status(updated_user)
+    return {"user": updated_user}
+
+
+@router.patch("/users/{user_id}/kyc", summary="Moderer le statut KYC d'un utilisateur")
+async def admin_moderate_user_kyc(
+    user_id: str,
+    body: UserKycModerationRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise not_found_exception("Utilisateur")
+
+    id_card_url = (user.get("kyc_id_card_url") or "").strip()
+    license_url = (user.get("kyc_license_url") or "").strip()
+
+    if body.status == "verified":
+        if user.get("role") == UserRole.DRIVER.value:
+            if not id_card_url or not license_url:
+                raise bad_request_exception(
+                    "Le livreur doit fournir la piece d'identite et le permis avant validation KYC"
+                )
+        elif not id_card_url and not license_url:
+            raise bad_request_exception(
+                "Aucun document KYC disponible pour cet utilisateur"
+            )
+
+    if body.status == "rejected" and not (body.reason or "").strip():
+        raise bad_request_exception("Indiquez un motif de refus")
+
+    now = datetime.now(timezone.utc)
+    updates: dict[str, Any] = {
+        "kyc_status": body.status,
+        "updated_at": now,
+    }
+    if body.status == "rejected":
+        updates["is_available"] = False
+
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    await _record_event(
+        event_type=f"USER_KYC_{body.status.upper()}",
+        actor_id=admin_user.get("user_id"),
+        actor_role=admin_user.get("role"),
+        notes=(body.reason or "").strip() or None,
+        metadata={
+            "target_user_id": user_id,
+            "kyc_status": body.status,
+            "has_id_card": bool(id_card_url),
+            "has_license": bool(license_url),
         },
     )
 

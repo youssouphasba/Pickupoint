@@ -632,6 +632,20 @@ class ApiClient {
         },
       );
 
+  Future<Response> moderateUserKyc(
+    String userId, {
+    required String status,
+    String? reason,
+  }) =>
+      _dio.patch(
+        ApiEndpoints.adminUserKycModeration(userId),
+        data: {
+          'status': status,
+          if (reason != null && reason.trim().isNotEmpty)
+            'reason': reason.trim(),
+        },
+      );
+
   Future<Response> getRelayPoint(String id) =>
       _dio.get(ApiEndpoints.relayPoint(id));
 

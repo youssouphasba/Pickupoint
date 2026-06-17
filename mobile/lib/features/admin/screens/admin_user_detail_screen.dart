@@ -65,6 +65,16 @@ class AdminUserDetailScreen extends ConsumerWidget {
           final sponsoredReferrals = Map<String, dynamic>.from(
             referral['sponsored_referrals'] as Map? ?? const {},
           );
+          final kycDocuments = <Map<String, String>>[
+            {
+              'label': "Piece d'identite",
+              'url': _stringOrEmpty(userData['kyc_id_card_url']),
+            },
+            {
+              'label': 'Permis de conduire',
+              'url': _stringOrEmpty(userData['kyc_license_url']),
+            },
+          ].where((document) => document['url']!.isNotEmpty).toList();
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -104,6 +114,90 @@ class AdminUserDetailScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
+                const SizedBox(height: 16),
+                _SectionCard(
+                  title: 'KYC',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _StatusChip(
+                            label: _kycStatusLabel(user.kycStatus),
+                            color: _kycColor(user.kycStatus),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              user.isDriver
+                                  ? "Pour un livreur, la piece d'identite et le permis sont requis avant validation."
+                                  : "L'utilisateur peut transmettre ses pieces plus tard depuis son profil.",
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (kycDocuments.isEmpty)
+                        const Text(
+                          'Aucun document KYC transmis pour le moment.',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final document in kycDocuments)
+                              OutlinedButton.icon(
+                                onPressed: () => _openDocumentPreview(
+                                  context,
+                                  ref,
+                                  document['label']!,
+                                  document['url']!,
+                                ),
+                                icon: const Icon(Icons.visibility_outlined),
+                                label: Text(document['label']!),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: kycDocuments.isEmpty
+                                ? null
+                                : () => _moderateKyc(
+                                      context,
+                                      ref,
+                                      user,
+                                      status: 'verified',
+                                    ),
+                            icon: const Icon(Icons.verified_user_outlined),
+                            label: const Text('Verifier'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: kycDocuments.isEmpty
+                                ? null
+                                : () => _moderateKyc(
+                                      context,
+                                      ref,
+                                      user,
+                                      status: 'rejected',
+                                    ),
+                            icon: const Icon(Icons.block_outlined),
+                            label: const Text('Refuser'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 16),
                 _SectionCard(
                   title: 'Résumé',
@@ -587,6 +681,79 @@ class AdminUserDetailScreen extends ConsumerWidget {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Acces parrainage mis a jour')),
+      );
+    } catch (e) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _moderateKyc(
+    BuildContext context,
+    WidgetRef ref,
+    User user, {
+    required String status,
+  }) async {
+    String? reason;
+    if (status == 'rejected') {
+      reason = await _askAdminReason(
+        context: context,
+        title: 'Refuser le KYC',
+        helper:
+            "Explique pourquoi les pieces de ${user.name} ne sont pas valides.",
+        confirmLabel: 'Refuser',
+        confirmColor: Colors.red,
+      );
+      if (reason == null) {
+        return;
+      }
+    } else {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Verifier le KYC'),
+          content: Text(
+            'Confirmer la validation KYC de ${user.name} ?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Verifier'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) {
+        return;
+      }
+    }
+
+    try {
+      await ref.read(apiClientProvider).moderateUserKyc(
+            user.id,
+            status: status,
+            reason: reason,
+          );
+      ref.invalidate(adminUsersProvider);
+      ref.invalidate(adminUserDetailProvider(user.id));
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'verified' ? 'KYC verifie.' : 'KYC refuse.',
+          ),
+          backgroundColor: status == 'verified' ? Colors.green : Colors.red,
+        ),
       );
     } catch (e) {
       if (!context.mounted) {
@@ -1639,7 +1806,7 @@ String _roleLabel(String role) {
 
 Color _kycColor(String status) {
   switch (status) {
-    case 'approved':
+    case 'verified':
       return Colors.green;
     case 'pending':
       return Colors.orange;
@@ -1647,5 +1814,18 @@ Color _kycColor(String status) {
       return Colors.red;
     default:
       return Colors.grey;
+  }
+}
+
+String _kycStatusLabel(String status) {
+  switch (status) {
+    case 'verified':
+      return 'Verifie';
+    case 'pending':
+      return 'En attente';
+    case 'rejected':
+      return 'Refuse';
+    default:
+      return 'Non fourni';
   }
 }

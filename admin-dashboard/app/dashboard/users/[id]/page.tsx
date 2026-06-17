@@ -13,6 +13,7 @@ import {
   fetchUserDetail,
   fetchUserHistory,
   moderateProfilePhoto,
+  moderateUserKyc,
   setReferralAccess,
   setUserPayoutBlock,
   startWhatsappSupport,
@@ -81,11 +82,25 @@ const PROFILE_PHOTO_TONES: Record<string, BadgeTone> = {
   missing: "default",
 };
 
+const KYC_TONES: Record<string, BadgeTone> = {
+  verified: "success",
+  pending: "warning",
+  rejected: "danger",
+  none: "default",
+};
+
 const PROFILE_PHOTO_LABELS: Record<string, string> = {
   approved: "Approuvée",
   pending: "À vérifier",
   rejected: "Refusée",
   missing: "Absente",
+};
+
+const KYC_LABELS: Record<string, string> = {
+  verified: "Verifie",
+  pending: "En attente",
+  rejected: "Refuse",
+  none: "Non fourni",
 };
 
 type ApplicationDocument = {
@@ -224,6 +239,8 @@ export default function UserDetailPage() {
   const [roleOpen, setRoleOpen] = React.useState(false);
   const [approvePhotoOpen, setApprovePhotoOpen] = React.useState(false);
   const [rejectPhotoOpen, setRejectPhotoOpen] = React.useState(false);
+  const [approveKycOpen, setApproveKycOpen] = React.useState(false);
+  const [rejectKycOpen, setRejectKycOpen] = React.useState(false);
   const [payoutBlockOpen, setPayoutBlockOpen] = React.useState(false);
   const [payoutUnblockOpen, setPayoutUnblockOpen] = React.useState(false);
   const [selectedRole, setSelectedRole] = React.useState("");
@@ -287,6 +304,20 @@ export default function UserDetailPage() {
     onSuccess: () => {
       invalidate();
       toast("Photo de profil mise à jour.");
+    },
+  });
+
+  const kycModerationMut = useMutation({
+    mutationFn: ({
+      status,
+      reason,
+    }: {
+      status: "verified" | "rejected" | "pending";
+      reason?: string;
+    }) => moderateUserKyc(id, status, reason),
+    onSuccess: () => {
+      invalidate();
+      toast("KYC mis a jour.");
     },
   });
 
@@ -365,6 +396,16 @@ export default function UserDetailPage() {
     updatedAt: displayLocationUpdatedAt,
   });
   const referralUrl = referral?.referral_url ?? "";
+  const kycDocuments = [
+    {
+      label: "Piece d'identite",
+      url: user.kyc_id_card_url as string | null | undefined,
+    },
+    {
+      label: "Permis de conduire",
+      url: user.kyc_license_url as string | null | undefined,
+    },
+  ].filter((document) => document.url);
   const referralShareMessage = referralUrl
     ? `Utilise mon code parrainage Denkma ${referral.code ?? ""} pour rejoindre l'app. Lien d'inscription : ${referralUrl}`
     : "";
@@ -520,6 +561,63 @@ export default function UserDetailPage() {
                 Désapprouver
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">KYC</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={KYC_TONES[user.kyc_status ?? "none"] ?? "default"}>
+              {KYC_LABELS[user.kyc_status ?? "none"] ?? user.kyc_status}
+            </Badge>
+            <span className="text-sm text-muted-foreground">
+              {user.role === "driver"
+                ? "Pour un livreur, la piece d'identite et le permis sont requis avant validation."
+                : "L'utilisateur peut transmettre ses pieces plus tard depuis son profil."}
+            </span>
+          </div>
+          {kycDocuments.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {kycDocuments.map((document) => (
+                <Button
+                  key={document.label}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    void openSecureDocument(document.url!).catch(() => {
+                      toast("Impossible d'ouvrir le document.");
+                    });
+                  }}
+                >
+                  Voir {document.label.toLowerCase()}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Aucun document KYC transmis pour le moment.
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={kycDocuments.length === 0 || kycModerationMut.isPending}
+              onClick={() => setApproveKycOpen(true)}
+            >
+              Verifier
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={kycDocuments.length === 0 || kycModerationMut.isPending}
+              onClick={() => setRejectKycOpen(true)}
+            >
+              Refuser
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -1185,6 +1283,32 @@ export default function UserDetailPage() {
         confirmVariant="destructive"
         onConfirm={async (reason) => {
           await photoModerationMut.mutateAsync({ status: "rejected", reason });
+        }}
+      />
+
+      <ConfirmModal
+        open={approveKycOpen}
+        onOpenChange={setApproveKycOpen}
+        title="Verifier le KYC"
+        description="Les documents seront consideres comme valides dans l'administration."
+        confirmLabel="Verifier"
+        onConfirm={async () => {
+          await kycModerationMut.mutateAsync({ status: "verified" });
+        }}
+      />
+
+      <ActionModal
+        open={rejectKycOpen}
+        onOpenChange={setRejectKycOpen}
+        title="Refuser le KYC"
+        description="L'utilisateur pourra renvoyer ses pieces plus tard depuis son profil."
+        inputLabel="Motif du refus"
+        inputPlaceholder="Ex: document incomplet, photo floue, informations illisibles..."
+        inputType="textarea"
+        confirmLabel="Refuser"
+        confirmVariant="destructive"
+        onConfirm={async (reason) => {
+          await kycModerationMut.mutateAsync({ status: "rejected", reason });
         }}
       />
 

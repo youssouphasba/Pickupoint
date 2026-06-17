@@ -155,6 +155,18 @@ export async function moderateProfilePhoto(
   return data;
 }
 
+export async function moderateUserKyc(
+  userId: string,
+  status: "verified" | "rejected" | "pending",
+  reason?: string,
+) {
+  const { data } = await api.patch(`/api/admin/users/${userId}/kyc`, {
+    status,
+    reason,
+  });
+  return data;
+}
+
 export type AdminApplication = {
   application_id: string;
   user_id: string;

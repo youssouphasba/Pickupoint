@@ -195,6 +195,8 @@ class ApiEndpoints {
       '$_base/api/admin/users/$id/pin-reset';
   static String adminUserProfilePhoto(String id) =>
       '$_base/api/admin/users/$id/profile-photo';
+  static String adminUserKycModeration(String id) =>
+      '$_base/api/admin/users/$id/kyc';
   static String adminUserKyc(String id, String docType) =>
       '$_base/api/users/$id/kyc/$docType';
   static String adminRelayDetail(String id) =>
