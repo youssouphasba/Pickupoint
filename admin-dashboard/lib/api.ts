@@ -630,6 +630,7 @@ export async function updateDeliveryDispatchSettings(body: {
 
 export type OperationalSettingsPayload = {
   express_enabled: boolean;
+  assigned_mission_auto_release_minutes: number;
   base_relay_to_relay: number;
   base_relay_to_home: number;
   base_home_to_relay: number;

@@ -56,7 +56,7 @@ class _AdminParcelAuditScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const _SectionTitle('SynthÃ¨se colis'),
+                const _SectionTitle('Synthèse colis'),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -83,7 +83,7 @@ class _AdminParcelAuditScreenState
                       color: Colors.orange,
                     ),
                     _MetricCard(
-                      title: 'DurÃ©e totale',
+                      title: 'Durée totale',
                       value: _formatDuration(
                         parcelSummary['total_delivery_seconds'] as int?,
                       ),
@@ -96,7 +96,7 @@ class _AdminParcelAuditScreenState
                 _InfoPanel(
                   children: [
                     _InfoLine(
-                      label: 'ExpÃ©diteur',
+                      label: 'Expéditeur',
                       value: parcel['sender_name'] as String? ??
                           parcel['sender_user_id'] as String? ??
                           'Inconnu',
@@ -107,16 +107,16 @@ class _AdminParcelAuditScreenState
                           '${parcel['recipient_name'] ?? "Inconnu"} (${parcel['recipient_phone'] ?? "-"})',
                     ),
                     _InfoLine(
-                      label: 'Adresse expÃ©diteur',
+                      label: 'Adresse expéditeur',
                       value: parcel['origin_address_label'] as String? ??
                           _locationLabel(parcel['origin_location']) ??
-                          'Non renseignÃ©e',
+                          'Non renseignée',
                     ),
                     _InfoLine(
                       label: 'Adresse destinataire',
                       value: parcel['destination_address_label'] as String? ??
                           _locationLabel(parcel['delivery_address']) ??
-                          'Non renseignÃ©e',
+                          'Non renseignée',
                     ),
                     if (_locationLabel(parcel['origin_relay']) != null)
                       _InfoLine(
@@ -152,7 +152,7 @@ class _AdminParcelAuditScreenState
                     if ((financial['payment_method'] as String?)?.isNotEmpty ??
                         false)
                       _InfoLine(
-                        label: 'MÃ©thode',
+                        label: 'Méthode',
                         value: financial['payment_method'] as String,
                       ),
                     if ((financial['who_pays'] as String?)?.isNotEmpty ?? false)
@@ -171,7 +171,7 @@ class _AdminParcelAuditScreenState
                             null &&
                         (financial['address_change_surcharge_xof'] as num) > 0)
                       _InfoLine(
-                        label: 'SurcoÃ»t adresse',
+                        label: 'Surcoût adresse',
                         value:
                             '${financial['address_change_surcharge_xof']} XOF',
                       ),
@@ -217,7 +217,7 @@ class _AdminParcelAuditScreenState
                       _InfoLine(
                         label: 'Relais origine',
                         value:
-                            '${_formatXofValue(financial['origin_relay_commission_xof'])} Â· ${_creditStatusLabel(financial['origin_relay_commission_recorded'] == true, financial['origin_relay_commission_recorded_at'])}',
+                            '${_formatXofValue(financial['origin_relay_commission_xof'])} · ${_creditStatusLabel(financial['origin_relay_commission_recorded'] == true, financial['origin_relay_commission_recorded_at'])}',
                       ),
                     if ((financial['destination_relay_commission_xof']
                                 as num?) !=
@@ -227,16 +227,16 @@ class _AdminParcelAuditScreenState
                       _InfoLine(
                         label: 'Relais destination',
                         value:
-                            '${_formatXofValue(financial['destination_relay_commission_xof'])} Â· ${_creditStatusLabel(financial['destination_relay_commission_recorded'] == true, financial['destination_relay_commission_recorded_at'])}',
+                            '${_formatXofValue(financial['destination_relay_commission_xof'])} · ${_creditStatusLabel(financial['destination_relay_commission_recorded'] == true, financial['destination_relay_commission_recorded_at'])}',
                       ),
                   ],
                 ),
                 const SizedBox(height: 22),
-                const _SectionTitle('Missions et trace rÃ©elle'),
+                const _SectionTitle('Missions et trace réelle'),
                 if (missions.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
-                    child: Text('Aucune mission trouvÃ©e pour ce colis.'),
+                    child: Text('Aucune mission trouvée pour ce colis.'),
                   )
                 else
                   ...missions.map(
@@ -254,9 +254,9 @@ class _AdminParcelAuditScreenState
                     ),
                   ),
                 const SizedBox(height: 22),
-                const _SectionTitle('Timeline des Ã©vÃ©nements'),
+                const _SectionTitle('Timeline des événements'),
                 if (timeline.isEmpty)
-                  const Text('Aucun Ã©vÃ©nement journalisÃ©.')
+                  const Text('Aucun événement journalisé.')
                 else
                   ...timeline.map(
                     (event) => Card(
@@ -264,13 +264,13 @@ class _AdminParcelAuditScreenState
                       child: ListTile(
                         leading: const Icon(Icons.history),
                         title: Text(
-                            event['event_type'] as String? ?? 'Ã‰vÃ©nement'),
+                            event['event_type'] as String? ?? 'Événement'),
                         subtitle: Text(
                           [
                             _formatDateTime(event['timestamp']) ??
                                 event['timestamp']?.toString() ??
                                 '-',
-                            'Acteur: ${event['actor_name'] ?? event['actor_id'] ?? event['actor_role'] ?? "SystÃ¨me"}',
+                            'Acteur: ${event['actor_name'] ?? event['actor_id'] ?? event['actor_role'] ?? "Système"}',
                             if ((event['notes'] as String?)?.isNotEmpty ??
                                 false)
                               'Notes: ${event['notes']}',
@@ -438,7 +438,7 @@ class _MissionAuditCard extends StatelessWidget {
             ? null
             : IconButton(
                 icon: const Icon(Icons.swap_horiz, color: Colors.blue),
-                tooltip: 'RÃ©assigner',
+                tooltip: 'Réassigner',
                 onPressed: onReassign,
               ),
         children: [
@@ -455,19 +455,19 @@ class _MissionAuditCard extends StatelessWidget {
               ),
               _MetricCard(
                 title: 'ETA',
-                value: (routeSummary['eta_text'] as String?) ?? 'Non calculÃ©e',
+                value: (routeSummary['eta_text'] as String?) ?? 'Non calculée',
                 icon: Icons.schedule,
                 color: Colors.orange,
               ),
               _MetricCard(
                 title: 'Distance',
                 value: (routeSummary['distance_text'] as String?) ??
-                    'Non calculÃ©e',
+                    'Non calculée',
                 icon: Icons.straighten,
                 color: Colors.blue,
               ),
               _MetricCard(
-                title: 'DurÃ©e active',
+                title: 'Durée active',
                 value: _formatDuration(
                   durations['active_elapsed_seconds'] as int?,
                 ),
@@ -482,16 +482,16 @@ class _MissionAuditCard extends StatelessWidget {
           _InfoPanel(
             children: [
               _InfoLine(
-                label: 'DÃ©part',
+                label: 'Départ',
                 value: _locationLabel(mission['pickup']) ?? 'Inconnu',
               ),
               _InfoLine(
-                label: 'ArrivÃ©e',
+                label: 'Arrivée',
                 value: _locationLabel(mission['delivery']) ?? 'Inconnue',
               ),
               if ((mission['driver_phone'] as String?)?.isNotEmpty ?? false)
                 _InfoLine(
-                  label: 'TÃ©lÃ©phone livreur',
+                  label: 'Téléphone livreur',
                   value: mission['driver_phone'] as String,
                 ),
               if (_formatDateTime(routeSummary['last_seen_at']) != null)
@@ -567,7 +567,7 @@ class _AuditMissionMapState extends State<_AuditMissionMap> {
         child: const Padding(
           padding: EdgeInsets.all(20),
           child: Text(
-            'Aucune gÃ©olocalisation exploitable pour cette mission.',
+            'Aucune géolocalisation exploitable pour cette mission.',
             textAlign: TextAlign.center,
           ),
         ),
@@ -583,7 +583,7 @@ class _AuditMissionMapState extends State<_AuditMissionMap> {
             BitmapDescriptor.hueGreen,
           ),
           infoWindow: InfoWindow(
-            title: 'DÃ©part',
+            title: 'Départ',
             snippet: _locationLabel(widget.mission['pickup']),
           ),
         ),
@@ -595,7 +595,7 @@ class _AuditMissionMapState extends State<_AuditMissionMap> {
             BitmapDescriptor.hueRed,
           ),
           infoWindow: InfoWindow(
-            title: 'ArrivÃ©e',
+            title: 'Arrivée',
             snippet: _locationLabel(widget.mission['delivery']),
           ),
         ),
@@ -884,15 +884,15 @@ LatLngBounds _boundsFromPoints(List<LatLng> points) {
 String _statusLabel(String status) {
   switch (status) {
     case 'created':
-      return 'CrÃ©Ã©';
+      return 'Créé';
     case 'assigned':
-      return 'AssignÃ©e';
+      return 'Assignée';
     case 'in_progress':
       return 'En cours';
     case 'incident_reported':
       return 'Incident';
     case 'delivered':
-      return 'LivrÃ©';
+      return 'Livré';
     case 'available_at_relay':
       return 'Disponible au relais';
     default:
@@ -903,13 +903,13 @@ String _statusLabel(String status) {
 String _deliveryModeLabel(String? mode) {
   switch (mode) {
     case 'relay_to_relay':
-      return 'Relais â†’ relais';
+      return 'Relais → relais';
     case 'relay_to_home':
-      return 'Relais â†’ domicile';
+      return 'Relais → domicile';
     case 'home_to_relay':
-      return 'Domicile â†’ relais';
+      return 'Domicile → relais';
     case 'home_to_home':
-      return 'Domicile â†’ domicile';
+      return 'Domicile → domicile';
     default:
       return mode ?? 'Inconnu';
   }
@@ -938,7 +938,7 @@ String? _formatDateTime(Object? value) {
   final local = parsed.toLocal();
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
-  return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} Ã  $hh:$mm';
+  return '${local.day.toString().padLeft(2, '0')}/${local.month.toString().padLeft(2, '0')} à $hh:$mm';
 }
 
 String _formatXofValue(Object? value) {
@@ -948,11 +948,11 @@ String _formatXofValue(Object? value) {
 
 String _creditStatusLabel(bool recorded, Object? recordedAt) {
   if (!recorded) {
-    return 'non crÃ©ditÃ©';
+    return 'non crédité';
   }
   final formatted = _formatDateTime(recordedAt);
   if (formatted == null || formatted.isEmpty) {
-    return 'crÃ©ditÃ©';
+    return 'crédité';
   }
-  return 'crÃ©ditÃ© le $formatted';
+  return 'crédité le $formatted';
 }

@@ -37,6 +37,8 @@ DEFAULT_DELIVERY_DISPATCH_STAGES = (
     {"radius_km": 10.0, "start_after_seconds": 180},
 )
 
+DEFAULT_ASSIGNED_MISSION_AUTO_RELEASE_MINUTES = 30
+
 
 def _clean_text(value: Optional[object]) -> Optional[str]:
     return value.strip() if isinstance(value, str) and value.strip() else None
@@ -364,6 +366,41 @@ async def get_delivery_dispatch_settings(settings_doc: Optional[dict] = None) ->
     except ValueError:
         logger.warning("Configuration delivery_dispatch invalide, retour aux valeurs par défaut")
         return _default_delivery_dispatch_settings()
+
+
+def normalize_assigned_mission_auto_release_minutes(value: Optional[object]) -> int:
+    raw_value = (
+        settings.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES
+        if value is None
+        else value
+    )
+    try:
+        minutes = int(round(float(raw_value)))
+    except (TypeError, ValueError):
+        raise ValueError("Le délai de réattribution après assignation est invalide")
+    if minutes < 5 or minutes > 180:
+        raise ValueError(
+            "Le délai de réattribution après assignation doit être compris entre 5 et 180 minutes"
+        )
+    return minutes
+
+
+async def get_assigned_mission_auto_release_minutes(
+    settings_doc: Optional[dict] = None,
+) -> int:
+    if settings_doc is None:
+        settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    try:
+        return normalize_assigned_mission_auto_release_minutes(
+            settings_doc.get("assigned_mission_auto_release_minutes")
+        )
+    except ValueError:
+        logger.warning(
+            "Configuration assigned_mission_auto_release_minutes invalide, retour à la valeur par défaut"
+        )
+        return normalize_assigned_mission_auto_release_minutes(
+            settings.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES
+        )
 
 
 def resolve_delivery_dispatch_state(

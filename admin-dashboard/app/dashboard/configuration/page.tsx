@@ -86,6 +86,14 @@ const PRICING_FIELDS: Field[] = [
 
 const DELIVERY_FIELDS: Field[] = [
   {
+    key: "assigned_mission_auto_release_minutes",
+    label: "Délai de collecte après assignation",
+    help: "Temps maximum laissé au livreur pour confirmer la collecte avant réattribution automatique.",
+    suffix: "min",
+    min: 5,
+    step: "1",
+  },
+  {
     key: "redirect_relay_max_distance_km",
     label: "Rayon maximum relais de repli",
     help: "Si aucun relais proche/ouvert n'est trouvé autour du destinataire, retour à l'expéditeur.",
@@ -128,6 +136,10 @@ function buildInitialPayload(settings: any): OperationalSettingsPayload {
   const pricing = settings?.pricing ?? {};
   return {
     express_enabled: Boolean(settings?.express_enabled),
+    assigned_mission_auto_release_minutes: numberValue(
+      settings?.assigned_mission_auto_release_minutes,
+      30
+    ),
     base_relay_to_relay: numberValue(pricing.base_relay_to_relay),
     base_relay_to_home: numberValue(pricing.base_relay_to_home),
     base_home_to_relay: numberValue(pricing.base_home_to_relay),

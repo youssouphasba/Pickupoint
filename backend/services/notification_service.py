@@ -1120,6 +1120,49 @@ async def notify_driver_admin_assignment(user_id: str, mission: dict, assignment
     )
 
 
+async def notify_driver_pickup_confirmation_reminder(
+    *,
+    user_id: str,
+    mission: dict,
+    minutes_remaining: int,
+) -> None:
+    tracking_code = mission.get("tracking_code", "N/A")
+    body = (
+        f"Confirmez la collecte du colis {tracking_code} dans {minutes_remaining} min. "
+        "Sinon la mission sera réattribuée."
+    )
+    await _store_and_send(
+        user_id=user_id,
+        title="Collecte à confirmer",
+        body=body,
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+    )
+
+
+async def notify_driver_mission_auto_released(
+    *,
+    user_id: str,
+    mission: dict,
+) -> None:
+    tracking_code = mission.get("tracking_code", "N/A")
+    body = (
+        f"La mission du colis {tracking_code} a été retirée faute de confirmation "
+        "de la collecte dans les délais."
+    )
+    await _store_and_send(
+        user_id=user_id,
+        title="Mission réattribuée",
+        body=body,
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+    )
+
+
 async def notify_new_mission_dispatch_wave(
     *,
     user_ids: list[str],

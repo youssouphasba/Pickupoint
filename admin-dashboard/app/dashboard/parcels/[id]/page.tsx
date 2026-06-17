@@ -129,6 +129,7 @@ type ParcelMission = {
   mission_id?: string;
   status?: string;
   driver_name?: string;
+  driver_location?: GeoPoint | null;
   assigned_at?: string;
   started_at?: string;
   completed_at?: string;
@@ -155,6 +156,35 @@ function readLatLng(point?: GeoPoint | null) {
 function missionRouteLabel(mission: ParcelMission, index: number) {
   const driver = mission.driver_name ? ` - ${mission.driver_name}` : "";
   return `Mission ${index + 1}${driver}`;
+}
+
+function distanceBetweenMeters(
+  from?: { lat: number; lng: number } | null,
+  to?: { lat: number; lng: number } | null,
+) {
+  if (!from || !to) return null;
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const lat1 = toRad(from.lat);
+  const lat2 = toRad(to.lat);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+}
+
+function formatDistanceMeters(distanceMeters?: number | null) {
+  if (distanceMeters == null || !Number.isFinite(distanceMeters)) return "—";
+  if (distanceMeters < 1000) {
+    return `${Math.round(distanceMeters)} m`;
+  }
+  return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
 function formatAddress(address: any): string | null {
@@ -424,10 +454,23 @@ export default function ParcelDetailPage() {
       ?.map(readLatLng)
       .filter((point): point is { lat: number; lng: number } => point !== null) ??
     [];
+  const selectedDriver = readLatLng(selectedRouteMission?.driver_location);
   const selectedPickup = readLatLng(selectedRouteMission?.pickup?.geopin);
   const selectedDelivery = readLatLng(selectedRouteMission?.delivery?.geopin);
+  const driverToPickupDistance = distanceBetweenMeters(
+    selectedDriver,
+    selectedPickup,
+  );
+  const driverToDeliveryDistance = distanceBetweenMeters(
+    selectedDriver,
+    selectedDelivery,
+  );
   const selectedMapCenter =
-    selectedTrail[0] ?? selectedPickup ?? selectedDelivery ?? DEFAULT_MAP_CENTER;
+    selectedDriver ??
+    selectedTrail[0] ??
+    selectedPickup ??
+    selectedDelivery ??
+    DEFAULT_MAP_CENTER;
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 
   if (isLoading) {
@@ -870,6 +913,15 @@ export default function ParcelDetailPage() {
                           />
                         </AdvancedMarker>
                       )}
+                      {selectedDriver && (
+                        <AdvancedMarker position={selectedDriver}>
+                          <Pin
+                            background="#2563eb"
+                            borderColor="#1d4ed8"
+                            glyphColor="#fff"
+                          />
+                        </AdvancedMarker>
+                      )}
                     </Map>
                   </APIProvider>
                 </div>
@@ -878,6 +930,22 @@ export default function ParcelDetailPage() {
                 <Row
                   label="Livreur"
                   value={selectedRouteMission?.driver_name ?? "—"}
+                />
+                <Row
+                  label="Position live"
+                  value={
+                    selectedDriver
+                      ? `${selectedDriver.lat.toFixed(5)}, ${selectedDriver.lng.toFixed(5)}`
+                      : "—"
+                  }
+                />
+                <Row
+                  label="Vers l'expéditeur"
+                  value={formatDistanceMeters(driverToPickupDistance)}
+                />
+                <Row
+                  label="Vers le destinataire"
+                  value={formatDistanceMeters(driverToDeliveryDistance)}
                 />
                 <Row
                   label="Points GPS"

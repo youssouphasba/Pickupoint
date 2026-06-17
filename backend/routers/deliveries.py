@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from services.parcel_service import (
     _record_event,
     _find_candidate_drivers_within_radius,
+    get_assigned_mission_auto_release_minutes,
     get_delivery_dispatch_settings,
     resolve_delivery_dispatch_state,
     transition_status,
@@ -201,6 +202,37 @@ def _format_duration_text(duration_seconds: Optional[int]) -> Optional[str]:
     if minutes == 0:
         return f"{hours} h"
     return f"{hours} h {minutes:02d}"
+
+
+def _attach_pickup_confirmation_window(
+    mission: dict,
+    *,
+    auto_release_minutes: int,
+    now: Optional[datetime] = None,
+) -> None:
+    mission["pickup_confirmation_timeout_minutes"] = int(auto_release_minutes)
+    assigned_at = _as_aware_utc(mission.get("assigned_at"))
+    if assigned_at is None:
+        mission["pickup_confirmation_deadline_at"] = None
+        mission["pickup_confirmation_remaining_seconds"] = None
+        return
+
+    deadline_at = assigned_at + timedelta(minutes=auto_release_minutes)
+    mission["pickup_confirmation_deadline_at"] = deadline_at.isoformat()
+
+    if (
+        mission.get("status") != MissionStatus.ASSIGNED.value
+        or mission.get("started_at") is not None
+    ):
+        mission["pickup_confirmation_remaining_seconds"] = None
+        return
+
+    reference_now = _as_aware_utc(now) or datetime.now(timezone.utc)
+    remaining_seconds = max(
+        0,
+        int((deadline_at - reference_now).total_seconds()),
+    )
+    mission["pickup_confirmation_remaining_seconds"] = remaining_seconds
 
 
 def _can_driver_preview_pending_mission(
@@ -675,6 +707,12 @@ async def my_missions(
         {"_id": 0},
     ).sort("created_at", -1).limit(50)
     missions = await cursor.to_list(length=50)
+    auto_release_minutes = await get_assigned_mission_auto_release_minutes()
+    for mission in missions:
+        _attach_pickup_confirmation_window(
+            mission,
+            auto_release_minutes=auto_release_minutes,
+        )
     await _attach_commission_requirements(missions)
     
     # Masquage numéro destinataire — révélé seulement si :
@@ -971,6 +1009,11 @@ async def get_mission(
         mission["driver_bonus_xof"] = float(parcel.get("driver_bonus_xof", 0.0))
         mission["delivery_blocked_by_payment"] = False
 
+    _attach_pickup_confirmation_window(
+        mission,
+        auto_release_minutes=await get_assigned_mission_auto_release_minutes(),
+    )
+
     # Enrichissement Photos
     # Driver
     if mission.get("driver_id"):
@@ -1085,6 +1128,8 @@ async def accept_mission(
         "status": MissionStatus.ASSIGNED.value,
         "assigned_at": now,
         "updated_at": now,
+        "pickup_reminder_10_sent_at": None,
+        "pickup_reminder_5_sent_at": None,
         "admin_assignment_status": "accepted" if requested_driver_id else mission.get("admin_assignment_status"),
         "platform_commission_xof": breakdown["platform_commission_xof"],
         "relay_commission_xof": breakdown["relay_commission_xof"],
@@ -1706,12 +1751,18 @@ async def release_mission(
     now = datetime.now(timezone.utc)
     await db.delivery_missions.update_one(
         {"mission_id": mission_id},
-        {"$set": {
-            "status":      MissionStatus.PENDING.value,
-            "driver_id":   None,
-            "assigned_at": None,
-            "updated_at":  now,
-        }},
+        {
+            "$set": {
+                "status": MissionStatus.PENDING.value,
+                "driver_id": None,
+                "assigned_at": None,
+                "updated_at": now,
+            },
+            "$unset": {
+                "pickup_reminder_10_sent_at": "",
+                "pickup_reminder_5_sent_at": "",
+            },
+        },
     )
     await db.parcels.update_one(
         {"parcel_id": mission["parcel_id"]},

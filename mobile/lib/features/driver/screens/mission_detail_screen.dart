@@ -38,6 +38,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   RTCPeerConnection? _callPeerConnection;
   MediaStream? _callLocalStream;
   Timer? _callStatusTimer;
+  Timer? _assignmentCountdownTimer;
   String? _activeWhatsappCallId;
   String? _whatsappCallStatus;
   Color _whatsappCallStatusColor = Colors.blueGrey;
@@ -46,11 +47,17 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   void initState() {
     super.initState();
     _refreshDriverPosition(silent: true);
+    _assignmentCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
   void dispose() {
     _callStatusTimer?.cancel();
+    _assignmentCountdownTimer?.cancel();
     _callPeerConnection?.close();
     _callLocalStream?.getTracks().forEach((track) => track.stop());
     super.dispose();
@@ -1980,6 +1987,92 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     );
   }
 
+  Duration? _pickupConfirmationRemaining(DeliveryMission mission) {
+    final deadline = mission.pickupConfirmationDeadlineAt;
+    if (!mission.isAssigned || deadline == null) {
+      return null;
+    }
+    final remaining = deadline.toLocal().difference(DateTime.now());
+    if (remaining.isNegative) {
+      return Duration.zero;
+    }
+    return remaining;
+  }
+
+  String _formatRemainingDuration(Duration remaining) {
+    final totalSeconds = remaining.inSeconds;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _buildPickupConfirmationCountdownCard(DeliveryMission mission) {
+    final remaining = _pickupConfirmationRemaining(mission);
+    final timeoutMinutes = mission.pickupConfirmationTimeoutMinutes;
+    if (remaining == null || timeoutMinutes == null) {
+      return const SizedBox.shrink();
+    }
+
+    final remainingMinutes = remaining.inMinutes;
+    final isExpired = remaining == Duration.zero;
+    final isCritical = remainingMinutes < 5;
+    final isWarning = remainingMinutes < 10;
+    final color = isExpired
+        ? Colors.red
+        : isCritical
+            ? Colors.red
+            : isWarning
+                ? Colors.orange
+                : Colors.green;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, color: color, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Temps restant pour récupérer le colis',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _formatRemainingDuration(remaining),
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isExpired
+                ? 'La mission peut être réattribuée à tout moment.'
+                : 'Après $timeoutMinutes min sans confirmation de collecte, la mission sera réattribuée.',
+            style: TextStyle(
+              fontSize: 12,
+              color: color.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionButtons(DeliveryMission mission) {
     final status = mission.status;
 
@@ -1987,6 +2080,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (status == 'assigned') {
       return Column(
         children: [
+          _buildPickupConfirmationCountdownCard(mission),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(

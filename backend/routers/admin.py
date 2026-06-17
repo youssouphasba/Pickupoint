@@ -24,7 +24,9 @@ from models.delivery import MissionStatus
 from models.wallet import TransactionType
 from services.parcel_service import (
     _record_event,
+    get_assigned_mission_auto_release_minutes,
     get_delivery_dispatch_settings,
+    normalize_assigned_mission_auto_release_minutes,
     normalize_delivery_dispatch_settings,
     sync_active_mission_with_parcel,
 )
@@ -4040,6 +4042,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     delivery_dispatch = await get_delivery_dispatch_settings(settings_doc)
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
+        "assigned_mission_auto_release_minutes": await get_assigned_mission_auto_release_minutes(settings_doc),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "support_whatsapp_phone": settings_doc.get("support_whatsapp_phone") or settings.SUPPORT_WHATSAPP_PHONE,
         "app_update": {
@@ -4356,6 +4359,17 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         raise bad_request_exception("Le multiplicateur nuit/dimanche doit être supérieur ou égal à 1")
     if updates["min_price"] < 100:
         raise bad_request_exception("Le prix minimum est trop faible")
+    try:
+        updates["assigned_mission_auto_release_minutes"] = (
+            normalize_assigned_mission_auto_release_minutes(
+                body.get(
+                    "assigned_mission_auto_release_minutes",
+                    settings.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES,
+                )
+            )
+        )
+    except ValueError as exc:
+        raise bad_request_exception(str(exc))
 
     updates["express_enabled"] = bool(body.get("express_enabled", False))
     updates["updated_at"] = datetime.now(timezone.utc)
@@ -4368,6 +4382,12 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
     after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     return {
         "express_enabled": after.get("express_enabled", False),
+        "assigned_mission_auto_release_minutes": int(
+            after.get(
+                "assigned_mission_auto_release_minutes",
+                settings.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES,
+            )
+        ),
         "redirect_relay_max_distance_km": after.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "pricing": await get_pricing_settings(),
         "message": "Configuration opérationnelle mise à jour",

@@ -30,14 +30,22 @@ logger = logging.getLogger(__name__)
 
 async def _auto_release_stuck_missions() -> None:
     """
-    Toutes les 2 min : libère les missions ASSIGNED depuis plus de 15 min
+    Toutes les 2 min : libère les missions ASSIGNED après le délai configuré
     sans que le livreur ait confirmé la collecte (started_at absent).
     """
     from database import db as _db
+    from services.notification_service import (
+        notify_driver_mission_auto_released,
+        notify_driver_pickup_confirmation_reminder,
+    )
+    from services.parcel_service import get_assigned_mission_auto_release_minutes
+
     while True:
         await asyncio.sleep(120)  # vérification toutes les 2 minutes
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+            now = datetime.now(timezone.utc)
+            auto_release_minutes = await get_assigned_mission_auto_release_minutes()
+            cutoff = now - timedelta(minutes=auto_release_minutes)
             cursor = _db.delivery_missions.find({
                 "status":      "assigned",
                 "assigned_at": {"$lt": cutoff},
@@ -45,7 +53,6 @@ async def _auto_release_stuck_missions() -> None:
             })
             released = 0
             async for mission in cursor:
-                now = datetime.now(timezone.utc)
                 update_result = await _db.delivery_missions.update_one(
                     {
                         "mission_id": mission["mission_id"],
@@ -54,12 +61,18 @@ async def _auto_release_stuck_missions() -> None:
                         "started_at": None,
                         "driver_id": mission.get("driver_id"),
                     },
-                    {"$set": {
-                        "status": "pending",
-                        "driver_id": None,
-                        "assigned_at": None,
-                        "updated_at": now,
-                    }},
+                    {
+                        "$set": {
+                            "status": "pending",
+                            "driver_id": None,
+                            "assigned_at": None,
+                            "updated_at": now,
+                        },
+                        "$unset": {
+                            "pickup_reminder_10_sent_at": "",
+                            "pickup_reminder_5_sent_at": "",
+                        },
+                    },
                 )
                 if update_result.modified_count == 0:
                     continue
@@ -70,9 +83,66 @@ async def _auto_release_stuck_missions() -> None:
                     },
                     {"$set": {"assigned_driver_id": None, "updated_at": now}},
                 )
+                if mission.get("driver_id"):
+                    await notify_driver_mission_auto_released(
+                        user_id=mission["driver_id"],
+                        mission=mission,
+                    )
                 released += 1
+            reminder_cursor = _db.delivery_missions.find(
+                {
+                    "status": "assigned",
+                    "started_at": None,
+                    "assigned_at": {"$ne": None},
+                },
+                {"_id": 0},
+            )
+            async for mission in reminder_cursor:
+                assigned_at = mission.get("assigned_at")
+                driver_id = mission.get("driver_id")
+                if not assigned_at or not driver_id:
+                    continue
+                assigned_at = (
+                    assigned_at.replace(tzinfo=timezone.utc)
+                    if assigned_at.tzinfo is None
+                    else assigned_at.astimezone(timezone.utc)
+                )
+                deadline = assigned_at + timedelta(minutes=auto_release_minutes)
+                remaining_seconds = int((deadline - now).total_seconds())
+                if remaining_seconds <= 0:
+                    continue
+                for threshold_minutes, field_name in (
+                    (10, "pickup_reminder_10_sent_at"),
+                    (5, "pickup_reminder_5_sent_at"),
+                ):
+                    if auto_release_minutes <= threshold_minutes:
+                        continue
+                    if remaining_seconds > threshold_minutes * 60:
+                        continue
+                    if mission.get(field_name):
+                        continue
+                    reminder_update = await _db.delivery_missions.update_one(
+                        {
+                            "mission_id": mission["mission_id"],
+                            field_name: {"$in": [None, False]},
+                            "status": "assigned",
+                            "started_at": None,
+                        },
+                        {"$set": {field_name: now, "updated_at": now}},
+                    )
+                    if reminder_update.modified_count == 0:
+                        continue
+                    await notify_driver_pickup_confirmation_reminder(
+                        user_id=driver_id,
+                        mission=mission,
+                        minutes_remaining=max(1, (remaining_seconds + 59) // 60),
+                    )
             if released:
-                logger.info(f"Auto-release : {released} mission(s) libérée(s) après 15 min d'inactivité")
+                logger.info(
+                    "Auto-release : %s mission(s) libérée(s) après %s min d'inactivité",
+                    released,
+                    auto_release_minutes,
+                )
         except Exception as exc:
             logger.error(f"Erreur auto-release missions : {exc}")
 

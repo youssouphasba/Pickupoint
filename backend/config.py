@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
     REDIRECT_RELAY_MAX_DISTANCE_KM: float = 1.0  # relais de repli proche du destinataire uniquement
     STRICT_GPS_MAX_ACCURACY_METERS: float = 60.0
+    ASSIGNED_MISSION_AUTO_RELEASE_MINUTES: int = 30
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15
@@ -114,6 +115,8 @@ class Settings(BaseSettings):
             raise ValueError("GPS_REMINDER_MAX_COUNT must be >= 1")
         if self.STRICT_GPS_MAX_ACCURACY_METERS <= 0:
             raise ValueError("STRICT_GPS_MAX_ACCURACY_METERS must be > 0")
+        if self.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES < 5:
+            raise ValueError("ASSIGNED_MISSION_AUTO_RELEASE_MINUTES must be >= 5")
 
         if is_prod and self.FLUTTERWAVE_SECRET_KEY and not self.FLUTTERWAVE_WEBHOOK_SECRET:
             raise ValueError("FLUTTERWAVE_WEBHOOK_SECRET must be configured in production when Flutterwave is enabled")

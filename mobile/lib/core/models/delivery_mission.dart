@@ -31,6 +31,9 @@ class DeliveryMission {
     this.failureReason,
     this.assignedAt,
     this.completedAt,
+    this.pickupConfirmationTimeoutMinutes,
+    this.pickupConfirmationDeadlineAt,
+    this.pickupConfirmationRemainingSeconds,
     this.etaSeconds,
     this.etaText,
     this.distanceText,
@@ -93,6 +96,9 @@ class DeliveryMission {
   final DateTime createdAt;
   final DateTime? assignedAt;
   final DateTime? completedAt;
+  final int? pickupConfirmationTimeoutMinutes;
+  final DateTime? pickupConfirmationDeadlineAt;
+  final int? pickupConfirmationRemainingSeconds;
 
   // ── Real-time Navigation ──
   final int? etaSeconds;
@@ -165,6 +171,16 @@ class DeliveryMission {
       completedAt: json['completed_at'] != null
           ? DateTime.tryParse(json['completed_at'] as String)
           : null,
+      pickupConfirmationTimeoutMinutes:
+          (json['pickup_confirmation_timeout_minutes'] as num?)?.toInt(),
+      pickupConfirmationDeadlineAt:
+          json['pickup_confirmation_deadline_at'] != null
+              ? DateTime.tryParse(
+                  json['pickup_confirmation_deadline_at'] as String,
+                )
+              : null,
+      pickupConfirmationRemainingSeconds:
+          (json['pickup_confirmation_remaining_seconds'] as num?)?.toInt(),
       etaSeconds: json['eta_seconds'] as int?,
       etaText: json['eta_text'] as String?,
       distanceText: json['distance_text'] as String?,
