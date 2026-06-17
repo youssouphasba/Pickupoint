@@ -1,17 +1,20 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import '../../../core/auth/auth_provider.dart';
-import '../../../shared/widgets/loading_button.dart';
-import '../../../shared/utils/error_utils.dart';
+import 'package:path_provider/path_provider.dart';
 
-/// Écran de candidature partenariat (devenir livreur ou point relais).
+import '../../../core/auth/auth_provider.dart';
+import '../../../shared/utils/error_utils.dart';
+import '../../../shared/widgets/loading_button.dart';
+
 class PartnershipScreen extends ConsumerStatefulWidget {
   const PartnershipScreen({super.key});
 
@@ -63,13 +66,20 @@ class _PartnershipScreenState extends ConsumerState<PartnershipScreen>
   }
 }
 
-// ── Formulaire Livreur ───────────────────────────────────────────────────────
 class _DriverApplicationForm extends ConsumerStatefulWidget {
   const _DriverApplicationForm();
 
   @override
   ConsumerState<_DriverApplicationForm> createState() =>
       _DriverApplicationFormState();
+}
+
+enum _DriverDocSlot {
+  profilePhoto,
+  idCardFront,
+  idCardBack,
+  licenseFront,
+  licenseBack,
 }
 
 class _DriverApplicationFormState
@@ -79,15 +89,17 @@ class _DriverApplicationFormState
   final _cniCtrl = TextEditingController();
   final _licCtrl = TextEditingController();
   final _msgCtrl = TextEditingController();
+  final _picker = ImagePicker();
+
   String _vehicle = 'moto';
   bool _loading = false;
   File? _profilePhotoFile;
-  File? _idCardFile;
-  File? _licenseFile;
+  File? _idCardFrontFile;
+  File? _idCardBackFile;
+  File? _licenseFrontFile;
+  File? _licenseBackFile;
   String? _idCardUrl;
   String? _licenseUrl;
-
-  final _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -104,116 +116,161 @@ class _DriverApplicationFormState
       padding: const EdgeInsets.all(24),
       child: Form(
         key: _formKey,
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const SizedBox(height: 8),
-          // Intro
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.shade100),
-            ),
-            child: const Column(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade100),
+              ),
+              child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Devenez livreur Denkma',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.blue)),
+                  Text(
+                    'Devenez livreur Denkma',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
                   SizedBox(height: 6),
                   Text(
-                    'Livrez des colis à votre rythme et gagnez de l\'argent. '
-                    'Nous vérifierons votre permis et votre identité avant validation.',
+                    'Livrez des colis a votre rythme et gagnez de l argent. '
+                    'Nous verifierons votre permis et votre identite avant validation.',
                     style: TextStyle(fontSize: 13, color: Colors.blueGrey),
                   ),
-                ]),
-          ),
-          const SizedBox(height: 24),
-          const Text('Photo de profil *',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text(
-            'Cette photo sera visible par les clients et vérifiée par l’administration avant activation des missions.',
-            style: TextStyle(fontSize: 12, color: Colors.blueGrey),
-          ),
-          const SizedBox(height: 12),
-          _docPicker(
-            label: _hasProfilePhoto
-                ? 'Photo de profil déjà ajoutée'
-                : 'Ajouter une photo de profil',
-            file: _profilePhotoFile,
-            onTap: () => _pickDoc('profile_photo'),
-          ),
-          const SizedBox(height: 24),
-          _field(_nameCtrl, 'Nom complet *', Icons.person,
-              validator: _required),
-          const SizedBox(height: 16),
-          _field(_cniCtrl, 'Numéro CNI (carte d\'identité) *', Icons.badge,
-              validator: _required),
-          const SizedBox(height: 16),
-          _field(_licCtrl, 'Numéro de permis de conduire *', Icons.credit_card,
-              validator: _required),
-          const SizedBox(height: 16),
-          // Type de véhicule
-          DropdownButtonFormField<String>(
-            initialValue: _vehicle,
-            decoration: const InputDecoration(
-              labelText: 'Type de véhicule *',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.directions_car),
+                ],
+              ),
             ),
-            items: const [
-              DropdownMenuItem(value: 'moto', child: Text('Moto')),
-              DropdownMenuItem(value: 'car', child: Text('Voiture')),
-              DropdownMenuItem(value: 'van', child: Text('Camionnette')),
-              DropdownMenuItem(
-                  value: 'tricycle', child: Text('Tricycle / Jakarta')),
-            ],
-            onChanged: (v) => setState(() => _vehicle = v!),
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _msgCtrl,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Message (optionnel)',
-              hintText:
-                  'Parlez-nous de votre expérience, votre quartier de prédilection…',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.message),
-              alignLabelWithHint: true,
+            const SizedBox(height: 24),
+            const Text(
+              'Photo de profil *',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
-          ),
-          const SizedBox(height: 24),
-          const Text('Documents (KYC) *',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          _docPicker(
-            label: 'Photo CNI (Recto/Verso)',
-            file: _idCardFile,
-            onTap: () => _pickDoc('id_card'),
-          ),
-          const SizedBox(height: 12),
-          _docPicker(
-            label: 'Photo Permis de conduire',
-            file: _licenseFile,
-            onTap: () => _pickDoc('license'),
-          ),
-          const SizedBox(height: 28),
-          LoadingButton(
-            label: 'Envoyer ma candidature',
-            isLoading: _loading,
-            onPressed: _submit,
-            color: Colors.blue,
-          ),
-        ]),
+            const SizedBox(height: 8),
+            const Text(
+              'Cette photo sera visible par les clients et verifiee par l administration avant activation des missions.',
+              style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+            ),
+            const SizedBox(height: 12),
+            _simpleDocPicker(
+              label: _hasProfilePhoto
+                  ? 'Photo de profil deja ajoutee'
+                  : 'Ajouter une photo de profil',
+              file: _profilePhotoFile,
+              onTap: () => _pickDoc(_DriverDocSlot.profilePhoto),
+            ),
+            const SizedBox(height: 24),
+            _field(_nameCtrl, 'Nom complet *', Icons.person,
+                validator: _required),
+            const SizedBox(height: 16),
+            _field(_cniCtrl, 'Numero CNI (carte d identite) *', Icons.badge,
+                validator: _required),
+            const SizedBox(height: 16),
+            _field(
+                _licCtrl, 'Numero de permis de conduire *', Icons.credit_card,
+                validator: _required),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _vehicle,
+              decoration: const InputDecoration(
+                labelText: 'Type de vehicule *',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.directions_car),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'moto', child: Text('Moto')),
+                DropdownMenuItem(value: 'car', child: Text('Voiture')),
+                DropdownMenuItem(value: 'van', child: Text('Camionnette')),
+                DropdownMenuItem(
+                  value: 'tricycle',
+                  child: Text('Tricycle / Jakarta'),
+                ),
+              ],
+              onChanged: (value) => setState(() => _vehicle = value!),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _msgCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Message (optionnel)',
+                hintText:
+                    'Parlez-nous de votre experience, votre quartier de predilection...',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.message),
+                alignLabelWithHint: true,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Documents (KYC) *',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: const Text(
+                'Ajoutez le recto et le verso de votre CNI puis de votre permis. '
+                'Chaque piece est fusionnee proprement avant envoi pour la verification.',
+                style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _documentSection(
+              title: 'Carte d identite',
+              subtitle:
+                  'Le recto et le verso doivent etre nets, complets et bien cadres.',
+              frontLabel: 'Recto',
+              backLabel: 'Verso',
+              frontGuideAsset: 'assets/kyc_guides/id_card_front.jpg',
+              backGuideAsset: 'assets/kyc_guides/id_card_back.jpg',
+              frontFile: _idCardFrontFile,
+              backFile: _idCardBackFile,
+              onPickFront: () => _pickDoc(_DriverDocSlot.idCardFront),
+              onPickBack: () => _pickDoc(_DriverDocSlot.idCardBack),
+            ),
+            const SizedBox(height: 12),
+            _documentSection(
+              title: 'Permis de conduire',
+              subtitle:
+                  'Le numero, les dates et les categories doivent rester lisibles.',
+              frontLabel: 'Recto',
+              backLabel: 'Verso',
+              frontGuideAsset: 'assets/kyc_guides/license_front.jpg',
+              backGuideAsset: 'assets/kyc_guides/license_back.jpg',
+              frontFile: _licenseFrontFile,
+              backFile: _licenseBackFile,
+              onPickFront: () => _pickDoc(_DriverDocSlot.licenseFront),
+              onPickBack: () => _pickDoc(_DriverDocSlot.licenseBack),
+            ),
+            const SizedBox(height: 28),
+            LoadingButton(
+              label: 'Envoyer ma candidature',
+              isLoading: _loading,
+              onPressed: _submit,
+              color: Colors.blue,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _docPicker(
-      {required String label, File? file, required VoidCallback onTap}) {
+  Widget _simpleDocPicker({
+    required String label,
+    File? file,
+    required VoidCallback onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -222,8 +279,8 @@ class _DriverApplicationFormState
           color: file == null ? Colors.grey.shade50 : Colors.green.shade50,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color:
-                  file == null ? Colors.grey.shade300 : Colors.green.shade300),
+            color: file == null ? Colors.grey.shade300 : Colors.green.shade300,
+          ),
         ),
         child: Row(
           children: [
@@ -236,17 +293,21 @@ class _DriverApplicationFormState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.bold)),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   Text(
                     file == null
                         ? 'Cliquer pour choisir'
-                        : 'Fichier sélectionné : ${file.path.split('/').last}',
+                        : 'Fichier selectionne : ${_fileName(file)}',
                     style: TextStyle(
-                        fontSize: 11,
-                        color:
-                            file == null ? Colors.grey : Colors.green.shade700),
+                      fontSize: 11,
+                      color: file == null ? Colors.grey : Colors.green.shade700,
+                    ),
                   ),
                 ],
               ),
@@ -257,23 +318,212 @@ class _DriverApplicationFormState
     );
   }
 
-  Future<void> _pickDoc(String type) async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        if (type == 'profile_photo') {
-          _profilePhotoFile = File(pickedFile.path);
-        } else if (type == 'id_card') {
-          _idCardFile = File(pickedFile.path);
-        } else {
-          _licenseFile = File(pickedFile.path);
-        }
-      });
-    }
+  Widget _documentSection({
+    required String title,
+    required String subtitle,
+    required String frontLabel,
+    required String backLabel,
+    required String frontGuideAsset,
+    required String backGuideAsset,
+    required File? frontFile,
+    required File? backFile,
+    required VoidCallback onPickFront,
+    required VoidCallback onPickBack,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final vertical = constraints.maxWidth < 720;
+              final frontWidget = _guidedDocPicker(
+                label: frontLabel,
+                guideAsset: frontGuideAsset,
+                file: frontFile,
+                onTap: onPickFront,
+              );
+              final backWidget = _guidedDocPicker(
+                label: backLabel,
+                guideAsset: backGuideAsset,
+                file: backFile,
+                onTap: onPickBack,
+              );
+              if (vertical) {
+                return Column(
+                  children: [
+                    frontWidget,
+                    const SizedBox(height: 12),
+                    backWidget,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: frontWidget),
+                  const SizedBox(width: 12),
+                  Expanded(child: backWidget),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget _field(TextEditingController ctrl, String label, IconData icon,
-      {String? Function(String?)? validator}) {
+  Widget _guidedDocPicker({
+    required String label,
+    required String guideAsset,
+    required File? file,
+    required VoidCallback onTap,
+  }) {
+    final selected = file != null;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? Colors.green.shade50 : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? Colors.green.shade300 : Colors.grey.shade300,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  selected
+                      ? Icons.check_circle
+                      : Icons.photo_camera_back_outlined,
+                  color: selected ? Colors.green : Colors.blueGrey,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color:
+                        selected ? Colors.green.shade100 : Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    selected ? 'Ajoute' : 'Exemple',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: selected
+                          ? Colors.green.shade800
+                          : Colors.blue.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 1.58,
+                child: selected
+                    ? Image.file(file, fit: BoxFit.cover)
+                    : Image.asset(guideAsset, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              selected
+                  ? _fileName(file)
+                  : 'Ajoutez une photo nette, bien cadree et sans reflet fort.',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: selected ? Colors.green.shade800 : Colors.blueGrey,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onTap,
+                icon: Icon(selected ? Icons.refresh : Icons.upload_file),
+                label: Text(selected ? 'Remplacer' : 'Choisir la photo'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDoc(_DriverDocSlot slot) async {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile == null) {
+      return;
+    }
+    final file = File(pickedFile.path);
+    setState(() {
+      switch (slot) {
+        case _DriverDocSlot.profilePhoto:
+          _profilePhotoFile = file;
+          break;
+        case _DriverDocSlot.idCardFront:
+          _idCardFrontFile = file;
+          break;
+        case _DriverDocSlot.idCardBack:
+          _idCardBackFile = file;
+          break;
+        case _DriverDocSlot.licenseFront:
+          _licenseFrontFile = file;
+          break;
+        case _DriverDocSlot.licenseBack:
+          _licenseBackFile = file;
+          break;
+      }
+    });
+  }
+
+  Widget _field(
+    TextEditingController ctrl,
+    String label,
+    IconData icon, {
+    String? Function(String?)? validator,
+  }) {
     return TextFormField(
       controller: ctrl,
       validator: validator,
@@ -285,34 +535,47 @@ class _DriverApplicationFormState
     );
   }
 
-  String? _required(String? v) =>
-      (v == null || v.trim().isEmpty) ? 'Champ obligatoire' : null;
+  String? _required(String? value) =>
+      (value == null || value.trim().isEmpty) ? 'Champ obligatoire' : null;
 
   bool get _hasProfilePhoto {
     final url = ref.read(authProvider).valueOrNull?.user?.profilePictureUrl;
     return url != null && url.trim().isNotEmpty;
   }
 
+  String _fileName(File file) => file.path.split(RegExp(r'[\\/]')).last;
+
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
     if (!_hasProfilePhoto && _profilePhotoFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Veuillez ajouter une photo de profil'),
-            backgroundColor: Colors.orange),
+          content: Text('Veuillez ajouter une photo de profil'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
-    if (_idCardFile == null || _licenseFile == null) {
+    if (_idCardFrontFile == null ||
+        _idCardBackFile == null ||
+        _licenseFrontFile == null ||
+        _licenseBackFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Veuillez uploader la CNI et le Permis'),
-            backgroundColor: Colors.orange),
+          content:
+              Text('Veuillez ajouter le recto et le verso de chaque document'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
 
     setState(() => _loading = true);
+    File? mergedIdCardFile;
+    File? mergedLicenseFile;
+
     try {
       final api = ref.read(apiClientProvider);
 
@@ -321,14 +584,23 @@ class _DriverApplicationFormState
         await ref.read(authProvider.notifier).fetchMe();
       }
 
-      // 1. Upload des docs d'abord
-      final idRes = await api.uploadKyc(_idCardFile!, 'id_card');
+      mergedIdCardFile = await _mergeDocumentSides(
+        front: _idCardFrontFile!,
+        back: _idCardBackFile!,
+        prefix: 'driver_id_card',
+      );
+      mergedLicenseFile = await _mergeDocumentSides(
+        front: _licenseFrontFile!,
+        back: _licenseBackFile!,
+        prefix: 'driver_license',
+      );
+
+      final idRes = await api.uploadKyc(mergedIdCardFile, 'id_card');
       _idCardUrl = idRes.data['doc_url'];
 
-      final licRes = await api.uploadKyc(_licenseFile!, 'license');
+      final licRes = await api.uploadKyc(mergedLicenseFile, 'license');
       _licenseUrl = licRes.data['doc_url'];
 
-      // 2. Soumission candidature
       await api.applyDriver({
         'full_name': _nameCtrl.text.trim(),
         'id_card_number': _cniCtrl.text.trim(),
@@ -338,46 +610,108 @@ class _DriverApplicationFormState
         'license_url': _licenseUrl,
         'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
       });
-      if (mounted) {
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => AlertDialog(
-            title: const Row(children: [
+
+      if (!mounted) {
+        return;
+      }
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Row(
+            children: [
               Icon(Icons.check_circle, color: Colors.green),
               SizedBox(width: 8),
-              Text('Candidature envoyée'),
-            ]),
-            content: const Text(
-              'Votre dossier a été transmis à l\'équipe Denkma. '
-              'Nous vous contacterons par téléphone dans les 48h pour vérifier vos pièces.',
-            ),
-            actions: [
-              ElevatedButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('OK'),
-              ),
+              Text('Candidature envoyee'),
             ],
           ),
-        );
-        if (mounted) {
-          context.go('/client/profile');
-        }
+          content: const Text(
+            'Votre dossier a ete transmis a l equipe Denkma. '
+            'Nous vous contacterons par telephone dans les 48h pour verifier vos pieces.',
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+
+      if (mounted) {
+        context.go('/client/profile');
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      try {
+        await mergedIdCardFile?.delete();
+      } catch (_) {}
+      try {
+        await mergedLicenseFile?.delete();
+      } catch (_) {}
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
+  }
+
+  Future<File> _mergeDocumentSides({
+    required File front,
+    required File back,
+    required String prefix,
+  }) async {
+    final frontBytes = await front.readAsBytes();
+    final backBytes = await back.readAsBytes();
+    final decodedFront = img.decodeImage(frontBytes);
+    final decodedBack = img.decodeImage(backBytes);
+    if (decodedFront == null || decodedBack == null) {
+      throw Exception('Impossible de lire une des images du document');
+    }
+
+    final frontImage = img.bakeOrientation(decodedFront);
+    final backImage = img.bakeOrientation(decodedBack);
+    final targetWidth =
+        frontImage.width > backImage.width ? frontImage.width : backImage.width;
+    final normalizedFront = frontImage.width == targetWidth
+        ? frontImage
+        : img.copyResize(frontImage, width: targetWidth);
+    final normalizedBack = backImage.width == targetWidth
+        ? backImage
+        : img.copyResize(backImage, width: targetWidth);
+
+    const gap = 32;
+    final canvas = img.Image(
+      width: targetWidth,
+      height: normalizedFront.height + normalizedBack.height + gap,
+      numChannels: 3,
+    );
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(canvas, normalizedFront, dstX: 0, dstY: 0);
+    img.compositeImage(
+      canvas,
+      normalizedBack,
+      dstX: 0,
+      dstY: normalizedFront.height + gap,
+    );
+
+    final directory = await getTemporaryDirectory();
+    final output = File(
+      '${directory.path}${Platform.pathSeparator}${prefix}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+    );
+    await output.writeAsBytes(img.encodeJpg(canvas, quality: 90), flush: true);
+    return output;
   }
 }
 
-// ── Formulaire Point Relais ──────────────────────────────────────────────────
 class _RelayApplicationForm extends ConsumerStatefulWidget {
   const _RelayApplicationForm();
 
@@ -466,7 +800,6 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
             ),
           ),
           const SizedBox(height: 8),
-          // Sélection Location GPS
           InkWell(
             onTap: _pickLocation,
             child: Container(
@@ -520,9 +853,7 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
               ),
             ),
           ),
-
           const SizedBox(height: 16),
-          // Note GPS
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -562,7 +893,7 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
   }
 
   Future<void> _pickLocation() async {
-    LatLng initialPos = const LatLng(14.6928, -17.4467); // Dakar
+    LatLng initialPos = const LatLng(14.6928, -17.4467);
     try {
       final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
