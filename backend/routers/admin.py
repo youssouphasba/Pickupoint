@@ -77,6 +77,14 @@ router = APIRouter()
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 
 
+def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _month_bounds(period: str) -> tuple[datetime, datetime]:
     if not re.fullmatch(r"\d{4}-\d{2}", period or ""):
         raise bad_request_exception("Période invalide")

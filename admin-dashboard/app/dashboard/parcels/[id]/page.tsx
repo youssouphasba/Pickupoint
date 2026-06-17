@@ -28,6 +28,10 @@ import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import { useToast } from "@/components/ui/toaster";
+import {
+  formatLocationRelativeTime,
+  resolveLocationSignal,
+} from "@/lib/location-signal";
 import { formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -465,6 +469,14 @@ export default function ParcelDetailPage() {
     selectedDriver,
     selectedDelivery,
   );
+  const selectedRouteLocationUpdatedAt =
+    selectedRouteMission?.route_summary?.last_seen_at ??
+    selectedRouteMission?.driver_location?.ts ??
+    null;
+  const selectedRouteSignal = resolveLocationSignal({
+    hasLocation: selectedDriver != null,
+    updatedAt: selectedRouteLocationUpdatedAt,
+  });
   const selectedMapCenter =
     selectedDriver ??
     selectedTrail[0] ??
@@ -931,6 +943,7 @@ export default function ParcelDetailPage() {
                   label="Livreur"
                   value={selectedRouteMission?.driver_name ?? "—"}
                 />
+                <Row label="Etat GPS" value={selectedRouteSignal.label} />
                 <Row
                   label="Position live"
                   value={
@@ -946,6 +959,10 @@ export default function ParcelDetailPage() {
                 <Row
                   label="Vers le destinataire"
                   value={formatDistanceMeters(driverToDeliveryDistance)}
+                />
+                <Row
+                  label="Fraicheur signal"
+                  value={formatLocationRelativeTime(selectedRouteLocationUpdatedAt)}
                 />
                 <Row
                   label="Points GPS"

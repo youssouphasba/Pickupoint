@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
 import { LocationPreviewMap } from "@/components/location-preview-map";
 import { SecureProfileImage } from "@/components/secure-profile-image";
+import { resolveLocationSignal } from "@/lib/location-signal";
 import {
   Select,
   SelectContent,
@@ -359,6 +360,10 @@ export default function UserDetailPage() {
     : profileLocation
       ? "Presence app"
       : null;
+  const locationSignal = resolveLocationSignal({
+    hasLocation: displayLocation != null,
+    updatedAt: displayLocationUpdatedAt,
+  });
   const referralUrl = referral?.referral_url ?? "";
   const referralShareMessage = referralUrl
     ? `Utilise mon code parrainage Denkma ${referral.code ?? ""} pour rejoindre l'app. Lien d'inscription : ${referralUrl}`
@@ -742,7 +747,11 @@ export default function UserDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex justify-end">
+                <Badge tone={locationSignal.tone}>{locationSignal.label}</Badge>
+              </div>
               <div className="grid gap-2 text-sm">
+                <InfoLine label="Etat GPS" value={locationSignal.label} />
                 <InfoLine label="Source" value={displayLocationSource} />
                 <InfoLine
                   label="Dernière remontée"
