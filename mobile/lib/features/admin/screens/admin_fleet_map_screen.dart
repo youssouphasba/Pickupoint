@@ -1134,8 +1134,11 @@ class _DriverDetailsSheet extends StatelessWidget {
     final isStale = data['is_stale'] as bool? ?? false;
     final eta = data['eta_text'] as String?;
     final distance = data['distance_text'] as String?;
+    final senderName = data['sender_name'] as String?;
     final recipientName = data['recipient_name'] as String?;
     final recipientPhone = data['recipient_phone'] as String?;
+    final pickup = _locationLabel(data['pickup']);
+    final delivery = _locationLabel(data['delivery']);
     final updatedAt = _formatDateTime(data['location_updated_at']);
     final photoUrl = data['driver_photo_url'] as String?;
 
@@ -1234,6 +1237,11 @@ class _DriverDetailsSheet extends StatelessWidget {
                 ),
               if (!isIdle && tracking != null && tracking.isNotEmpty)
                 _SheetRow(icon: Icons.qr_code, label: 'Colis $tracking'),
+              if (!isIdle && senderName != null && senderName.isNotEmpty)
+                _SheetRow(
+                  icon: Icons.storefront_outlined,
+                  label: 'Expéditeur : $senderName',
+                ),
               if (!isIdle && recipientName != null && recipientName.isNotEmpty)
                 _SheetRow(
                   icon: Icons.person,
@@ -1246,6 +1254,16 @@ class _DriverDetailsSheet extends StatelessWidget {
                               tooltip: 'Appeler le destinataire',
                             )
                           : null,
+                ),
+              if (!isIdle && pickup != null && pickup.isNotEmpty)
+                _SheetRow(
+                  icon: Icons.my_location_outlined,
+                  label: 'Départ : $pickup',
+                ),
+              if (!isIdle && delivery != null && delivery.isNotEmpty)
+                _SheetRow(
+                  icon: Icons.location_on_outlined,
+                  label: 'Arrivée : $delivery',
                 ),
               if (!isIdle && (eta != null || distance != null))
                 _SheetRow(

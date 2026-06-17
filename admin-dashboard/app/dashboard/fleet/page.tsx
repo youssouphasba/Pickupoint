@@ -42,6 +42,7 @@ type FleetMission = {
   eta_text?: string;
   distance_text?: string;
   encoded_polyline?: string;
+  sender_name?: string;
   recipient_name?: string;
   recipient_phone?: string;
   pickup?: { label?: string | null; geopin?: GeoPoint | null };
@@ -145,6 +146,7 @@ export default function FleetPage() {
   const searchParams = useSearchParams();
   const selectedFilter = searchParams.get("filter") ?? "all";
   const [selectedPin, setSelectedPin] = useState<SelectedPin>(null);
+  const [hoveredPin, setHoveredPin] = useState<SelectedPin>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["fleet-live"],
@@ -201,8 +203,10 @@ export default function FleetPage() {
   }, [filteredMissions, filteredIdle]);
 
   const totalVisible = filteredMissions.length + filteredIdle.length;
+  const infoPin = selectedPin ?? hoveredPin;
+  const compactPopup = !selectedPin && hoveredPin !== null;
   const selectedMission =
-    selectedPin?.kind === "mission" ? selectedPin.data : null;
+    infoPin?.kind === "mission" ? infoPin.data : null;
   const selectedTrail = selectedMission?.gps_trail
     ?.map(readLatLng)
     .filter((point): point is { lat: number; lng: number } => point !== null) ?? [];
@@ -279,6 +283,10 @@ export default function FleetPage() {
                 defaultZoom={12}
                 gestureHandling="greedy"
                 disableDefaultUI={false}
+                onClick={() => {
+                  setSelectedPin(null);
+                  setHoveredPin(null);
+                }}
               >
                 {filteredMissions.map((mission) => {
                   const location = readLatLng(mission.driver_location);
@@ -289,6 +297,15 @@ export default function FleetPage() {
                       key={`mission:${mission.mission_id}`}
                       position={location}
                       onClick={() => setSelectedPin({ kind: "mission", data: mission })}
+                      onMouseEnter={() => setHoveredPin({ kind: "mission", data: mission })}
+                      onMouseLeave={() =>
+                        setHoveredPin((current) =>
+                          current?.kind === "mission" &&
+                          current.data.mission_id === mission.mission_id
+                            ? null
+                            : current
+                        )
+                      }
                     >
                       <Pin
                         background={colors.background}
@@ -307,6 +324,15 @@ export default function FleetPage() {
                       key={`idle:${driver.driver_id}`}
                       position={location}
                       onClick={() => setSelectedPin({ kind: "idle", data: driver })}
+                      onMouseEnter={() => setHoveredPin({ kind: "idle", data: driver })}
+                      onMouseLeave={() =>
+                        setHoveredPin((current) =>
+                          current?.kind === "idle" &&
+                          current.data.driver_id === driver.driver_id
+                            ? null
+                            : current
+                        )
+                      }
                     >
                       <Pin
                         background={driver.is_stale ? "#f59e0b" : "#8b5cf6"}
@@ -349,15 +375,18 @@ export default function FleetPage() {
                   </AdvancedMarker>
                 )}
 
-                {selectedPin && (
+                {infoPin && (
                   <InfoWindow
-                    position={readLatLng(selectedPin.data.driver_location) ?? undefined}
-                    onCloseClick={() => setSelectedPin(null)}
+                    position={readLatLng(infoPin.data.driver_location) ?? undefined}
+                    onCloseClick={() => {
+                      setSelectedPin(null);
+                      setHoveredPin(null);
+                    }}
                   >
-                    {selectedPin.kind === "mission" ? (
-                      <MissionPopup mission={selectedPin.data} />
+                    {infoPin.kind === "mission" ? (
+                      <MissionPopup mission={infoPin.data} compact={compactPopup} />
                     ) : (
-                      <IdlePopup driver={selectedPin.data} />
+                      <IdlePopup driver={infoPin.data} compact={compactPopup} />
                     )}
                   </InfoWindow>
                 )}
@@ -525,7 +554,7 @@ function IdleDriverCard({ driver }: { driver: IdleDriver }) {
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="font-medium">{driver.driver_name ?? "—"}</div>
+            <div className="font-medium">{driver.driver_name ?? "-"}</div>
             <div className="text-xs text-muted-foreground">{driver.driver_id}</div>
           </div>
           <Badge tone={driver.is_stale ? "warning" : "default"}>
@@ -547,9 +576,14 @@ function IdleDriverCard({ driver }: { driver: IdleDriver }) {
           )}
         </div>
 
-        <div className="mt-1 text-[11px] text-muted-foreground">
-          Dernière mise à jour : {fmtTime(driver.location_updated_at)} ·{" "}
+        <div
+          className={`mt-1 text-[11px] ${
+            driver.is_stale ? "text-orange-700" : "text-muted-foreground"
+          }`}
+        >
+          Derniere mise a jour : {fmtTime(driver.location_updated_at)} -{" "}
           {relativeTime(driver.location_updated_at)}
+          {driver.is_stale ? " - signal ancien" : ""}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -573,7 +607,13 @@ function IdleDriverCard({ driver }: { driver: IdleDriver }) {
   );
 }
 
-function MissionPopup({ mission }: { mission: FleetMission }) {
+function MissionPopup({
+  mission,
+  compact = false,
+}: {
+  mission: FleetMission;
+  compact?: boolean;
+}) {
   return (
     <div className="min-w-[240px] space-y-2 p-1 text-sm">
       <div className="font-semibold">{mission.driver_name ?? "Livreur"}</div>
@@ -596,47 +636,61 @@ function MissionPopup({ mission }: { mission: FleetMission }) {
           Colis : <span className="font-mono">{mission.tracking_code}</span>
         </div>
       )}
+      {mission.sender_name && (
+        <div className="text-xs text-slate-600">Expediteur : {mission.sender_name}</div>
+      )}
       {mission.recipient_name && (
         <div className="text-xs text-slate-600">
           Destinataire : {mission.recipient_name}
         </div>
       )}
+      {mission.pickup?.label && (
+        <div className="text-xs text-slate-600">Depart : {mission.pickup.label}</div>
+      )}
       {mission.delivery?.label && (
-        <div className="text-xs text-slate-600">Arrivée : {mission.delivery.label}</div>
+        <div className="text-xs text-slate-600">Arrivee : {mission.delivery.label}</div>
       )}
       {(mission.eta_text || mission.distance_text) && (
         <div className="text-xs text-slate-600">
-          {mission.distance_text ? `${mission.distance_text} · ` : ""}
+          {mission.distance_text ? `${mission.distance_text} - ` : ""}
           {mission.eta_text ?? ""}
         </div>
       )}
       <div className="text-xs text-slate-500">
-        Dernière MAJ : {fmtTime(mission.location_updated_at)} ·{" "}
+        Derniere MAJ : {fmtTime(mission.location_updated_at)} -{" "}
         {relativeTime(mission.location_updated_at)}
       </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        {mission.driver_id && (
-          <Link
-            href={`/dashboard/users/${mission.driver_id}`}
-            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-          >
-            Fiche livreur
-          </Link>
-        )}
-        {mission.parcel_id && (
-          <Link
-            href={`/dashboard/parcels/${mission.parcel_id}`}
-            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-          >
-            Fiche colis
-          </Link>
-        )}
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {mission.driver_id && (
+            <Link
+              href={`/dashboard/users/${mission.driver_id}`}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+            >
+              Fiche livreur
+            </Link>
+          )}
+          {mission.parcel_id && (
+            <Link
+              href={`/dashboard/parcels/${mission.parcel_id}`}
+              className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+            >
+              Fiche colis
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function IdlePopup({ driver }: { driver: IdleDriver }) {
+function IdlePopup({
+  driver,
+  compact = false,
+}: {
+  driver: IdleDriver;
+  compact?: boolean;
+}) {
   return (
     <div className="min-w-[220px] space-y-2 p-1 text-sm">
       <div className="font-semibold">{driver.driver_name ?? "Livreur"}</div>
@@ -655,17 +709,19 @@ function IdlePopup({ driver }: { driver: IdleDriver }) {
         </div>
       )}
       <div className="text-xs text-slate-500">
-        Dernière position : {fmtTime(driver.location_updated_at)} ·{" "}
+        Derniere position : {fmtTime(driver.location_updated_at)} -{" "}
         {relativeTime(driver.location_updated_at)}
       </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        <Link
-          href={`/dashboard/users/${driver.driver_id}`}
-          className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-        >
-          Fiche livreur
-        </Link>
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Link
+            href={`/dashboard/users/${driver.driver_id}`}
+            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
+          >
+            Fiche livreur
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
