@@ -3467,6 +3467,7 @@ async def admin_reassign_mission(
             )
         elif assignment_mode == "platform_sponsored":
             mission_set["sponsored_commission_xof"] = commission_xof
+            mission_unset.pop("sponsored_commission_xof", None)
 
         await db.delivery_missions.update_one(
             {"mission_id": mission_id},
