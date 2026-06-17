@@ -651,7 +651,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/admin', builder: (_, __) => const AdminDashboard()),
           GoRoute(
               path: '/admin/parcels',
-              builder: (_, __) => const AdminParcelsScreen()),
+              builder: (_, state) => AdminParcelsScreen(
+                    initialFilter:
+                        state.uri.queryParameters['filter'] ?? 'all',
+                    initialPeriod: state.uri.queryParameters['period'],
+                  )),
           GoRoute(
               path: '/admin/relays',
               builder: (_, __) => const AdminRelaysScreen()),

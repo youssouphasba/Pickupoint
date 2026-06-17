@@ -5,19 +5,20 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
+import { Loader2 } from "lucide-react";
+
 import { AdminParcel, fetchParcels } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   created: "Créé",
   dropped_at_origin_relay: "Déposé relais origine",
   in_transit: "En transit",
   at_destination_relay: "Au relais destination",
-  available_at_relay: "Dispo relais",
+  available_at_relay: "Disponible en relais",
   out_for_delivery: "En livraison",
   redirected_to_relay: "Redirigé relais",
   delivery_failed: "Échec livraison",
@@ -62,6 +63,7 @@ type ParcelFilter = {
   params: {
     status?: string;
     scope?: string;
+    finance_filter?: string;
     created_today?: boolean;
     payment_blocked?: boolean;
   };
@@ -69,42 +71,58 @@ type ParcelFilter = {
 
 const FILTERS: ParcelFilter[] = [
   { value: "all", label: "Tous", params: {} },
-  { value: "today", label: "Aujourd'hui", params: { created_today: true } },
+  { value: "today", label: "Aujourd’hui", params: { created_today: true } },
   { value: "active", label: "Actifs", params: { scope: "active" } },
   {
     value: "payment_blocked",
     label: "Paiement bloqué",
     params: { payment_blocked: true },
   },
-  { value: "created", label: "Créés", params: { status: "created" } },
-  { value: "in_transit", label: "En transit", params: { status: "in_transit" } },
-  {
-    value: "available_at_relay",
-    label: "Dispo relais",
-    params: { status: "available_at_relay" },
-  },
-  {
-    value: "out_for_delivery",
-    label: "En livraison",
-    params: { status: "out_for_delivery" },
-  },
   { value: "delivered", label: "Livrés", params: { status: "delivered" } },
   {
-    value: "delivery_failed",
-    label: "Échecs",
-    params: { status: "delivery_failed" },
+    value: "delivered_paid",
+    label: "Livrés payés",
+    params: { finance_filter: "delivered_paid" },
+  },
+  {
+    value: "delivered_unpaid",
+    label: "Livrés impayés",
+    params: { finance_filter: "delivered_unpaid" },
+  },
+  { value: "cancelled", label: "Annulés", params: { status: "cancelled" } },
+  {
+    value: "commission_received",
+    label: "Commission reçue",
+    params: { finance_filter: "commission_received" },
+  },
+  {
+    value: "commission_debt",
+    label: "Commission dette",
+    params: { finance_filter: "commission_debt" },
+  },
+  {
+    value: "commission_offered",
+    label: "Commission offerte",
+    params: { finance_filter: "commission_offered" },
   },
   { value: "disputed", label: "Litiges", params: { status: "disputed" } },
-  { value: "cancelled", label: "Annulés", params: { status: "cancelled" } },
 ];
 
 const xof = new Intl.NumberFormat("fr-FR");
 
 function filterFromSearchParams(searchParams: URLSearchParams) {
+  const financeFilter = searchParams.get("finance_filter");
+  if (financeFilter) return financeFilter;
   if (searchParams.get("created_today") === "true") return "today";
   if (searchParams.get("payment_blocked") === "true") return "payment_blocked";
   if (searchParams.get("scope") === "active") return "active";
   return searchParams.get("status") ?? "all";
+}
+
+function dateRangeFromSearchParams(searchParams: URLSearchParams): DateRange {
+  const from = searchParams.get("from_date") ?? undefined;
+  const to = searchParams.get("to_date") ?? undefined;
+  return { from, to };
 }
 
 export default function ParcelsPage() {
@@ -112,10 +130,13 @@ export default function ParcelsPage() {
   const [selectedFilter, setSelectedFilter] = React.useState(() =>
     filterFromSearchParams(searchParams)
   );
-  const [dateRange, setDateRange] = React.useState<DateRange>({});
+  const [dateRange, setDateRange] = React.useState<DateRange>(() =>
+    dateRangeFromSearchParams(searchParams)
+  );
 
   React.useEffect(() => {
     setSelectedFilter(filterFromSearchParams(searchParams));
+    setDateRange(dateRangeFromSearchParams(searchParams));
   }, [searchParams]);
 
   const activeFilter =
@@ -189,11 +210,11 @@ export default function ParcelsPage() {
         cell: ({ row }) => (
           <div className="flex flex-col">
             <span className="text-sm">{row.original.recipient_name ?? "—"}</span>
-            {row.original.recipient_phone && (
+            {row.original.recipient_phone ? (
               <span className="text-[11px] text-muted-foreground">
                 {row.original.recipient_phone}
               </span>
-            )}
+            ) : null}
           </div>
         ),
       },
@@ -209,7 +230,9 @@ export default function ParcelsPage() {
             <div className="flex flex-col">
               <span className="font-medium">{xof.format(paid ?? quoted)} XOF</span>
               <span className="text-[11px] text-muted-foreground">
-                {parcel.payment_status ?? "—"}
+                {parcel.payment_override
+                  ? "override admin"
+                  : parcel.payment_status ?? "—"}
               </span>
             </div>
           );
@@ -235,8 +258,7 @@ export default function ParcelsPage() {
         <div>
           <h1 className="text-2xl font-bold">Colis</h1>
           <p className="text-sm text-muted-foreground">
-            Suivre l'ensemble des colis avec des filtres alignés sur les cartes du
-            tableau de bord.
+            Suivre l’ensemble des colis avec des filtres alignés sur les cartes finance.
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
@@ -263,17 +285,19 @@ export default function ParcelsPage() {
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
-      {isLoading && (
+      {isLoading ? (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-      )}
-      {isError && (
+      ) : null}
+
+      {isError ? (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           Erreur de chargement des colis.
         </div>
-      )}
-      {data && (
+      ) : null}
+
+      {data ? (
         <DataTable
           columns={columns}
           data={data.parcels}
@@ -286,7 +310,7 @@ export default function ParcelsPage() {
             (parcel.parcel_id ?? "").toLowerCase().includes(query)
           }
         />
-      )}
+      ) : null}
     </div>
   );
 }

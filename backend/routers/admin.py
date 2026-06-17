@@ -980,6 +980,7 @@ async def dashboard(_admin=Depends(require_admin_dep)):
 async def admin_list_parcels(
     status: str = None,
     scope: str = None,
+    finance_filter: str = None,
     created_today: bool = False,
     payment_blocked: bool = False,
     from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
@@ -1027,6 +1028,74 @@ async def admin_list_parcels(
         query["payment_status"] = {"$ne": "paid"}
         query["payment_override"] = {"$ne": True}
 
+    if finance_filter == "delivered_paid":
+        query["status"] = ParcelStatus.DELIVERED.value
+        query["$or"] = [
+            {"payment_status": "paid"},
+            {"payment_override": True},
+        ]
+    elif finance_filter == "delivered_unpaid":
+        query["status"] = ParcelStatus.DELIVERED.value
+        query["payment_status"] = {"$ne": "paid"}
+        query["payment_override"] = {"$ne": True}
+    elif finance_filter in {
+        "commission_received",
+        "commission_debt",
+        "commission_offered",
+    }:
+        mission_query: dict[str, Any] = {}
+        if finance_filter == "commission_received":
+            mission_query["commission_charge_mode"] = "wallet_hold"
+        elif finance_filter == "commission_debt":
+            mission_query["commission_charge_mode"] = "driver_debt"
+        elif finance_filter == "commission_offered":
+            mission_query["commission_charge_mode"] = "platform_sponsored"
+
+        mission_projection = {
+            "_id": 0,
+            "parcel_id": 1,
+            "mission_id": 1,
+            "commission_charge_mode": 1,
+        }
+        mission_docs = await db.delivery_missions.find(
+            mission_query,
+            mission_projection,
+        ).to_list(length=10000)
+
+        if finance_filter in {"commission_received", "commission_debt"}:
+            reference_prefix = (
+                "commission:"
+                if finance_filter == "commission_received"
+                else "commission_debt:"
+            )
+            tx_docs = await db.wallet_transactions.find(
+                {
+                    "reference": {"$regex": f"^{reference_prefix}"},
+                    "tx_type": TransactionType.DEBIT.value,
+                },
+                {
+                    "_id": 0,
+                    "reference": 1,
+                },
+            ).to_list(length=10000)
+            matched_refs = {
+                str(tx.get("reference") or "")
+                for tx in tx_docs
+                if tx.get("reference")
+            }
+            mission_docs = [
+                mission
+                for mission in mission_docs
+                if f"{reference_prefix}{mission.get('mission_id')}" in matched_refs
+            ]
+
+        finance_parcel_ids = {
+            str(mission.get("parcel_id") or "")
+            for mission in mission_docs
+            if mission.get("parcel_id")
+        }
+        query["parcel_id"] = {"$in": sorted(finance_parcel_ids) or ["__none__"]}
+
     safe_limit = min(max(limit, 1), 1000)
     safe_skip = max(skip, 0)
     cursor = (
@@ -1038,7 +1107,80 @@ async def admin_list_parcels(
     total = await db.parcels.count_documents(query)
     parcels = await cursor.to_list(length=safe_limit)
     await _restore_admin_parcel_phones(parcels)
+
+    parcel_ids = [str(parcel.get("parcel_id") or "") for parcel in parcels if parcel.get("parcel_id")]
+    mission_docs = []
+    mission_charge_mode_by_parcel: dict[str, str] = {}
+    admin_assignment_status_by_parcel: dict[str, str] = {}
+    platform_commission_received_by_parcel: dict[str, bool] = {}
+    platform_commission_debt_by_parcel: dict[str, bool] = {}
+    platform_commission_offered_by_parcel: dict[str, bool] = {}
+
+    if parcel_ids:
+        mission_docs = await db.delivery_missions.find(
+            {"parcel_id": {"$in": parcel_ids}},
+            {
+                "_id": 0,
+                "parcel_id": 1,
+                "mission_id": 1,
+                "created_at": 1,
+                "commission_charge_mode": 1,
+                "admin_assignment_status": 1,
+            },
+        ).sort("created_at", -1).to_list(length=5000)
+
+        related_mission_ids = [
+            str(mission.get("mission_id") or "")
+            for mission in mission_docs
+            if mission.get("mission_id")
+        ]
+        tx_refs = set()
+        if related_mission_ids:
+            tx_docs = await db.wallet_transactions.find(
+                {
+                    "$or": [
+                        {"reference": {"$in": [f"commission:{mission_id}" for mission_id in related_mission_ids]}},
+                        {"reference": {"$in": [f"commission_debt:{mission_id}" for mission_id in related_mission_ids]}},
+                    ],
+                    "tx_type": TransactionType.DEBIT.value,
+                },
+                {
+                    "_id": 0,
+                    "reference": 1,
+                },
+            ).to_list(length=10000)
+            tx_refs = {
+                str(tx.get("reference") or "")
+                for tx in tx_docs
+                if tx.get("reference")
+            }
+
+        seen_parcels: set[str] = set()
+        for mission in mission_docs:
+            parcel_id = str(mission.get("parcel_id") or "")
+            if not parcel_id or parcel_id in seen_parcels:
+                continue
+            seen_parcels.add(parcel_id)
+            mission_id = str(mission.get("mission_id") or "")
+            charge_mode = str(mission.get("commission_charge_mode") or "")
+            mission_charge_mode_by_parcel[parcel_id] = charge_mode
+            admin_assignment_status_by_parcel[parcel_id] = str(
+                mission.get("admin_assignment_status") or ""
+            )
+            platform_commission_received_by_parcel[parcel_id] = (
+                charge_mode == "wallet_hold"
+                and f"commission:{mission_id}" in tx_refs
+            )
+            platform_commission_debt_by_parcel[parcel_id] = (
+                charge_mode == "driver_debt"
+                and f"commission_debt:{mission_id}" in tx_refs
+            )
+            platform_commission_offered_by_parcel[parcel_id] = (
+                charge_mode == "platform_sponsored"
+            )
+
     for parcel in parcels:
+        parcel_id = str(parcel.get("parcel_id") or "")
         breakdown = compute_delivery_commission_breakdown(parcel)
         parcel["platform_commission_xof"] = breakdown["platform_commission_xof"]
         parcel["relay_commission_xof"] = breakdown["relay_commission_xof"]
@@ -1052,6 +1194,11 @@ async def admin_list_parcels(
         parcel["wallet_balance_required_xof"] = breakdown[
             "wallet_balance_required_xof"
         ]
+        parcel["commission_charge_mode"] = mission_charge_mode_by_parcel.get(parcel_id)
+        parcel["admin_assignment_status"] = admin_assignment_status_by_parcel.get(parcel_id)
+        parcel["platform_commission_received"] = platform_commission_received_by_parcel.get(parcel_id, False)
+        parcel["platform_commission_debt"] = platform_commission_debt_by_parcel.get(parcel_id, False)
+        parcel["platform_commission_offered"] = platform_commission_offered_by_parcel.get(parcel_id, False)
     return {"parcels": parcels, "total": total}
 
 
@@ -4528,6 +4675,21 @@ async def get_finance_overview(
         },
     ).to_list(length=10000)
 
+    commission_tx_docs = await db.wallet_transactions.find(
+        {
+            "created_at": date_query,
+            "reference": {
+                "$regex": r"^(commission:|commission_debt:|commission_refund:|commission_reversal:)"
+            },
+        },
+        {
+            "_id": 0,
+            "reference": 1,
+            "tx_type": 1,
+            "amount": 1,
+        },
+    ).to_list(length=10000)
+
     parcel_by_id = {parcel["parcel_id"]: parcel for parcel in parcel_docs}
     relay_credit_refs = {
         str(tx.get("reference") or ""): float(tx.get("amount", 0.0) or 0.0)
@@ -4543,6 +4705,32 @@ async def get_finance_overview(
     sender_pays_parcels = 0
     recipient_pays_parcels = 0
     delivered_waiting_payment_parcels = 0
+    active_parcels = 0
+    active_expected_amount_xof = 0.0
+    cancelled_parcels = 0
+    cancelled_amount_xof = 0.0
+    delivered_amount_xof = 0.0
+    delivered_received_amount_xof = 0.0
+    delivered_waiting_payment_amount_xof = 0.0
+
+    active_statuses = {
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.IN_TRANSIT.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+        ParcelStatus.SUSPENDED.value,
+        ParcelStatus.DISPUTED.value,
+        ParcelStatus.INCIDENT_REPORTED.value,
+        ParcelStatus.RETURNED.value,
+        ParcelStatus.DELIVERY_FAILED.value,
+    }
+    cancelled_statuses = {
+        ParcelStatus.CANCELLED.value,
+        ParcelStatus.EXPIRED.value,
+    }
 
     relay_due_xof = 0.0
     relay_due_origin_xof = 0.0
@@ -4566,12 +4754,25 @@ async def get_finance_overview(
         else:
             sender_pays_parcels += 1
 
+        if parcel_status in cancelled_statuses:
+            cancelled_parcels += 1
+            cancelled_amount_xof += quoted_price
+        elif parcel_status == ParcelStatus.DELIVERED.value:
+            delivered_amount_xof += paid_price or quoted_price
+        elif parcel_status in active_statuses:
+            active_parcels += 1
+            active_expected_amount_xof += quoted_price
+
         if payment_override:
             admin_validated_parcels += 1
             received_amount_xof += paid_price or quoted_price
+            if parcel_status == ParcelStatus.DELIVERED.value:
+                delivered_received_amount_xof += paid_price or quoted_price
         elif payment_status == "paid":
             paid_parcels += 1
             received_amount_xof += paid_price or quoted_price
+            if parcel_status == ParcelStatus.DELIVERED.value:
+                delivered_received_amount_xof += paid_price or quoted_price
         elif parcel_status not in {
             ParcelStatus.CANCELLED.value,
             ParcelStatus.EXPIRED.value,
@@ -4584,6 +4785,7 @@ async def get_finance_overview(
             and not payment_override
         ):
             delivered_waiting_payment_parcels += 1
+            delivered_waiting_payment_amount_xof += quoted_price
 
         if parcel_status == ParcelStatus.DELIVERED.value:
             breakdown = compute_delivery_commission_breakdown(parcel)
@@ -4616,21 +4818,45 @@ async def get_finance_overview(
     waiting_driver_confirmation_count = 0
     debt_amount_xof = 0.0
     offered_amount_xof = 0.0
+    platform_expected_xof = 0.0
+    platform_received_xof = 0.0
+    platform_debt_xof = 0.0
+    platform_offered_xof = 0.0
+
+    wallet_hold_received_refs = {
+        str(tx.get("reference") or "")
+        for tx in commission_tx_docs
+        if tx.get("tx_type") == TransactionType.DEBIT.value
+        and str(tx.get("reference") or "").startswith("commission:")
+    }
+    driver_debt_refs = {
+        str(tx.get("reference") or "")
+        for tx in commission_tx_docs
+        if tx.get("tx_type") == TransactionType.DEBIT.value
+        and str(tx.get("reference") or "").startswith("commission_debt:")
+    }
 
     for mission in mission_docs:
         parcel = parcel_by_id.get(mission.get("parcel_id"))
+        parcel_status = str((parcel or {}).get("status") or "")
+        if parcel_status in cancelled_statuses:
+            continue
+
         breakdown = compute_delivery_commission_breakdown(parcel, mission)
         mission_total_commission = float(breakdown["total_commission_xof"] or 0.0)
-        total_commission_xof += mission_total_commission
-        platform_commission_xof += float(
+        mission_platform_commission = float(
             breakdown["platform_commission_xof"] or 0.0
         )
+        total_commission_xof += mission_total_commission
+        platform_commission_xof += mission_platform_commission
         relay_commission_xof += float(breakdown["relay_commission_xof"] or 0.0)
+        platform_expected_xof += mission_platform_commission
 
         charge_mode = str(mission.get("commission_charge_mode") or "").strip()
         admin_assignment_status = str(
             mission.get("admin_assignment_status") or ""
         ).strip()
+        mission_id = str(mission.get("mission_id") or "")
 
         if admin_assignment_status == "awaiting_driver_response":
             waiting_driver_confirmation_count += 1
@@ -4640,6 +4866,8 @@ async def get_finance_overview(
             debt_amount_xof += float(
                 mission.get("commission_debt_xof") or mission_total_commission or 0.0
             )
+            if f"commission_debt:{mission_id}" in driver_debt_refs:
+                platform_debt_xof += mission_platform_commission
         elif charge_mode == "platform_sponsored":
             offered_by_denkma_count += 1
             offered_amount_xof += float(
@@ -4647,8 +4875,11 @@ async def get_finance_overview(
                 or mission_total_commission
                 or 0.0
             )
+            platform_offered_xof += mission_platform_commission
         elif charge_mode == "wallet_hold":
             charged_to_balance_count += 1
+            if f"commission:{mission_id}" in wallet_hold_received_refs:
+                platform_received_xof += mission_platform_commission
 
     payouts_waiting_count = 0
     payouts_waiting_amount_xof = 0.0
@@ -4738,6 +4969,8 @@ async def get_finance_overview(
         "to": end,
         "payments": {
             "total_parcels": len(parcel_docs),
+            "active_parcels": active_parcels,
+            "cancelled_parcels": cancelled_parcels,
             "delivered_parcels": sum(
                 1
                 for parcel in parcel_docs
@@ -4749,8 +4982,15 @@ async def get_finance_overview(
             "sender_pays_parcels": sender_pays_parcels,
             "recipient_pays_parcels": recipient_pays_parcels,
             "expected_amount_xof": round(expected_amount_xof, 2),
+            "active_expected_amount_xof": round(active_expected_amount_xof, 2),
+            "cancelled_amount_xof": round(cancelled_amount_xof, 2),
+            "delivered_amount_xof": round(delivered_amount_xof, 2),
             "received_amount_xof": round(received_amount_xof, 2),
+            "delivered_received_amount_xof": round(delivered_received_amount_xof, 2),
             "delivered_waiting_payment_parcels": delivered_waiting_payment_parcels,
+            "delivered_waiting_payment_amount_xof": round(
+                delivered_waiting_payment_amount_xof, 2
+            ),
         },
         "commissions": {
             "charged_to_balance_count": charged_to_balance_count,
@@ -4758,6 +4998,10 @@ async def get_finance_overview(
             "offered_by_denkma_count": offered_by_denkma_count,
             "waiting_driver_confirmation_count": waiting_driver_confirmation_count,
             "platform_amount_xof": round(platform_commission_xof, 2),
+            "platform_expected_xof": round(platform_expected_xof, 2),
+            "platform_received_xof": round(platform_received_xof, 2),
+            "platform_debt_xof": round(platform_debt_xof, 2),
+            "platform_offered_xof": round(platform_offered_xof, 2),
             "relay_amount_xof": round(relay_commission_xof, 2),
             "total_amount_xof": round(total_commission_xof, 2),
             "debt_amount_xof": round(debt_amount_xof, 2),

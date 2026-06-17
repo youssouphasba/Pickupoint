@@ -98,6 +98,11 @@ class Parcel {
     this.totalCommissionXof = 0.0,
     this.walletBalanceRequiredXof = 0.0,
     this.expiresAt,
+    this.commissionChargeMode,
+    this.adminAssignmentStatus,
+    this.platformCommissionReceived = false,
+    this.platformCommissionDebt = false,
+    this.platformCommissionOffered = false,
   });
 
   final String id;
@@ -173,6 +178,11 @@ class Parcel {
   final double totalCommissionXof;
   final double walletBalanceRequiredXof;
   final DateTime? expiresAt;
+  final String? commissionChargeMode;
+  final String? adminAssignmentStatus;
+  final bool platformCommissionReceived;
+  final bool platformCommissionDebt;
+  final bool platformCommissionOffered;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -282,6 +292,14 @@ class Parcel {
                       ((json['relay_commission_xof'] as num?)?.toDouble() ??
                           0.0))),
       expiresAt: DateTime.tryParse(json['expires_at']?.toString() ?? ''),
+      commissionChargeMode: json['commission_charge_mode']?.toString(),
+      adminAssignmentStatus: json['admin_assignment_status']?.toString(),
+      platformCommissionReceived:
+          json['platform_commission_received'] as bool? ?? false,
+      platformCommissionDebt:
+          json['platform_commission_debt'] as bool? ?? false,
+      platformCommissionOffered:
+          json['platform_commission_offered'] as bool? ?? false,
     );
   }
 

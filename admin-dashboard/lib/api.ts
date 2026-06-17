@@ -280,14 +280,21 @@ export type AdminParcel = {
   quoted_price?: number;
   paid_price?: number | null;
   payment_status?: string;
+  payment_override?: boolean;
   created_at?: string;
   updated_at?: string;
   parcel_photo_url?: string | null;
+  commission_charge_mode?: string | null;
+  admin_assignment_status?: string | null;
+  platform_commission_received?: boolean;
+  platform_commission_debt?: boolean;
+  platform_commission_offered?: boolean;
 };
 
 export async function fetchParcels(params: {
   status?: string;
   scope?: string;
+  finance_filter?: string;
   created_today?: boolean;
   payment_blocked?: boolean;
   from_date?: string;

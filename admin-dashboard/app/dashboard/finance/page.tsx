@@ -1,20 +1,40 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+
 import {
   fetchFinanceOverview,
   fetchFinanceReconciliation,
 } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
-import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const xof = new Intl.NumberFormat("fr-FR");
 
 function monthValue(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  const labels = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+  ];
+  return `${labels[month - 1] ?? value} ${year}`;
 }
 
 function monthOptions() {
@@ -26,46 +46,58 @@ function monthOptions() {
   });
 }
 
-function monthLabel(value: string) {
-  const [year, month] = value.split("-").map(Number);
-  const labels = [
-    "janvier",
-    "fevrier",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "aout",
-    "septembre",
-    "octobre",
-    "novembre",
-    "decembre",
-  ];
-  return `${labels[month - 1] ?? value} ${year}`;
+function periodBounds(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const start = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDate = new Date(year, month, 0);
+  const end = `${year}-${String(month).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+  return { start, end };
+}
+
+function buildParcelHref(
+  period: string,
+  params: Record<string, string | undefined>
+) {
+  const { start, end } = periodBounds(period);
+  const query = new URLSearchParams({
+    from_date: start,
+    to_date: end,
+  });
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  return `/dashboard/parcels?${query.toString()}`;
 }
 
 function StatCard({
   label,
   value,
   hint,
+  href,
 }: {
   label: string;
   value: React.ReactNode;
   hint?: string;
+  href?: string;
 }) {
-  return (
-    <Card>
+  const content = (
+    <Card className="h-full">
       <CardContent className="p-5">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </div>
         <div className="mt-1 text-xl font-bold">{value}</div>
-        {hint ? (
-          <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
-        ) : null}
+        {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
       </CardContent>
     </Card>
+  );
+
+  if (!href) return content;
+
+  return (
+    <Link href={href} className="block h-full transition-transform hover:-translate-y-0.5">
+      {content}
+    </Link>
   );
 }
 
@@ -79,31 +111,23 @@ function DetailRow({
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border/60 py-3 last:border-b-0">
       <div className="text-sm text-muted-foreground">{label}</div>
-      <div className="text-sm font-medium text-right">{value}</div>
+      <div className="text-right text-sm font-medium">{value}</div>
     </div>
   );
 }
 
-function AlertTone({
-  tone,
-}: {
-  tone?: string;
-}) {
-  if (tone === "danger") {
-    return "danger" as const;
-  }
-  if (tone === "warning") {
-    return "warning" as const;
-  }
+function AlertTone({ tone }: { tone?: string }) {
+  if (tone === "danger") return "danger" as const;
+  if (tone === "warning") return "warning" as const;
   return "info" as const;
 }
 
 const ISSUE_LABELS: Record<string, string> = {
-  wallet_pending_mismatches: "Montants en attente a corriger",
-  negative_wallets: "Soldes negatifs a verifier",
-  payout_ledger_gaps: "Retraits a revoir",
-  mission_parcel_mismatches: "Courses a revoir",
-  delivered_unpaid: "Colis livres non regles",
+  wallet_pending_mismatches: "Montants en attente à corriger",
+  negative_wallets: "Soldes négatifs à vérifier",
+  payout_ledger_gaps: "Retraits à revoir",
+  mission_parcel_mismatches: "Courses à revoir",
+  delivered_unpaid: "Colis livrés non réglés",
 };
 
 export default function FinancePage() {
@@ -121,9 +145,7 @@ export default function FinancePage() {
 
   const loading = overview.isLoading || recon.isLoading;
   const error = overview.isError || recon.isError;
-
   const data = overview.data;
-  const summary = recon.data?.summary;
   const issues = [
     "wallet_pending_mismatches",
     "negative_wallets",
@@ -131,6 +153,19 @@ export default function FinancePage() {
     "mission_parcel_mismatches",
     "delivered_unpaid",
   ];
+
+  const routes = {
+    active: buildParcelHref(period, { scope: "active" }),
+    blockedPayment: buildParcelHref(period, { payment_blocked: "true" }),
+    delivered: buildParcelHref(period, { status: "delivered" }),
+    deliveredPaid: buildParcelHref(period, { finance_filter: "delivered_paid" }),
+    deliveredUnpaid: buildParcelHref(period, { finance_filter: "delivered_unpaid" }),
+    cancelled: buildParcelHref(period, { status: "cancelled" }),
+    commissionReceived: buildParcelHref(period, { finance_filter: "commission_received" }),
+    commissionDebt: buildParcelHref(period, { finance_filter: "commission_debt" }),
+    commissionOffered: buildParcelHref(period, { finance_filter: "commission_offered" }),
+    allParcels: buildParcelHref(period, {}),
+  };
 
   return (
     <div className="space-y-6 p-8">
@@ -170,7 +205,7 @@ export default function FinancePage() {
 
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Impossible de charger les donnees finance pour le moment.
+          Impossible de charger les données finance pour le moment.
         </div>
       ) : null}
 
@@ -179,26 +214,35 @@ export default function FinancePage() {
           <section className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                A surveiller
+                À surveiller
               </h2>
-              {data.alerts.length === 0 ? (
-                <Badge tone="success">Rien d urgent</Badge>
-              ) : null}
+              {data.alerts.length === 0 ? <Badge tone="success">Rien d urgent</Badge> : null}
             </div>
             {data.alerts.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {data.alerts.map((alert: any) => (
-                  <Card key={alert.label}>
-                    <CardContent className="flex items-center justify-between gap-4 p-5">
-                      <div>
-                        <div className="text-sm font-medium">{alert.label}</div>
-                      </div>
-                      <Badge tone={AlertTone({ tone: alert.tone })}>
-                        {alert.value}
-                      </Badge>
-                    </CardContent>
-                  </Card>
-                ))}
+                {data.alerts.map((alert: any) => {
+                  const lowerLabel = `${alert.label ?? ""}`.toLowerCase();
+                  const href = lowerLabel.includes("retrait")
+                    ? "/dashboard/payouts"
+                    : lowerLabel.includes("paiement")
+                      ? routes.blockedPayment
+                      : routes.allParcels;
+
+                  return (
+                    <Link
+                      key={alert.label}
+                      href={href}
+                      className="block transition-transform hover:-translate-y-0.5"
+                    >
+                      <Card>
+                        <CardContent className="flex items-center justify-between gap-4 p-5">
+                          <div className="text-sm font-medium">{alert.label}</div>
+                          <Badge tone={AlertTone({ tone: alert.tone })}>{alert.value}</Badge>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
               </div>
             ) : null}
           </section>
@@ -209,33 +253,37 @@ export default function FinancePage() {
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
-                label="Montant attendu"
-                value={`${xof.format(data.payments.expected_amount_xof ?? 0)} XOF`}
-                hint={`${data.payments.total_parcels ?? 0} colis sur ${monthLabel(period)}`}
+                label="Montant sur colis en cours"
+                value={`${xof.format(data.payments.active_expected_amount_xof ?? 0)} XOF`}
+                hint={`${data.payments.active_parcels ?? 0} colis actifs`}
+                href={routes.active}
               />
               <StatCard
-                label="Montant confirme"
+                label="Montant encaissé"
                 value={`${xof.format(data.payments.received_amount_xof ?? 0)} XOF`}
-                hint={`${data.payments.paid_parcels ?? 0} colis regles`}
+                hint={`${data.payments.paid_parcels ?? 0} colis réglés`}
+                href={routes.deliveredPaid}
               />
               <StatCard
-                label="En attente"
-                value={data.payments.waiting_payment_parcels ?? 0}
-                hint="Colis qui attendent encore un reglement"
+                label="Colis livrés"
+                value={data.payments.delivered_parcels ?? 0}
+                hint={`${xof.format(data.payments.delivered_amount_xof ?? 0)} XOF à la livraison`}
+                href={routes.delivered}
               />
               <StatCard
-                label="Validation admin"
-                value={data.payments.admin_validated_parcels ?? 0}
-                hint="Colis valides sans paiement standard"
+                label="Colis annulés"
+                value={data.payments.cancelled_parcels ?? 0}
+                hint={`${xof.format(data.payments.cancelled_amount_xof ?? 0)} XOF sortis du flux`}
+                href={routes.cancelled}
               />
             </div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Repartition des paiements</CardTitle>
+                <CardTitle className="text-base">Répartition des paiements</CardTitle>
               </CardHeader>
               <CardContent>
                 <DetailRow
-                  label="Expediteur paie"
+                  label="Expéditeur paie"
                   value={`${data.payments.sender_pays_parcels ?? 0} colis`}
                 />
                 <DetailRow
@@ -243,22 +291,28 @@ export default function FinancePage() {
                   value={`${data.payments.recipient_pays_parcels ?? 0} colis`}
                 />
                 <DetailRow
-                  label="Colis livres"
+                  label="Colis livrés"
                   value={`${data.payments.delivered_parcels ?? 0} colis`}
                 />
                 <DetailRow
-                  label="Colis livres en attente de paiement"
+                  label="Colis livrés en attente de paiement"
                   value={
-                    <Badge
-                      tone={
-                        (data.payments.delivered_waiting_payment_parcels ?? 0) > 0
-                          ? "warning"
-                          : "success"
-                      }
-                    >
-                      {data.payments.delivered_waiting_payment_parcels ?? 0}
-                    </Badge>
+                    <Link href={routes.deliveredUnpaid}>
+                      <Badge
+                        tone={
+                          (data.payments.delivered_waiting_payment_parcels ?? 0) > 0
+                            ? "warning"
+                            : "success"
+                        }
+                      >
+                        {data.payments.delivered_waiting_payment_parcels ?? 0}
+                      </Badge>
+                    </Link>
                   }
+                />
+                <DetailRow
+                  label="Montant encore à encaisser sur les livrés"
+                  value={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF`}
                 />
               </CardContent>
             </Card>
@@ -271,21 +325,25 @@ export default function FinancePage() {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard
-                  label="Part Denkma"
-                  value={`${xof.format(data.commissions.platform_amount_xof ?? 0)} XOF`}
+                  label="Commission Denkma attendue"
+                  value={`${xof.format(data.commissions.platform_expected_xof ?? 0)} XOF`}
+                  href={routes.active}
                 />
                 <StatCard
-                  label="Part relais"
-                  value={`${xof.format(data.commissions.relay_amount_xof ?? 0)} XOF`}
+                  label="Commission Denkma reçue"
+                  value={`${xof.format(data.commissions.platform_received_xof ?? 0)} XOF`}
+                  href={routes.commissionReceived}
                 />
                 <StatCard
-                  label="Commission totale"
-                  value={`${xof.format(data.commissions.total_amount_xof ?? 0)} XOF`}
+                  label="Commission en dette"
+                  value={`${xof.format(data.commissions.platform_debt_xof ?? 0)} XOF`}
+                  href={routes.commissionDebt}
                 />
                 <StatCard
                   label="Commission offerte"
-                  value={`${xof.format(data.commissions.offered_amount_xof ?? 0)} XOF`}
+                  value={`${xof.format(data.commissions.platform_offered_xof ?? 0)} XOF`}
                   hint={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
+                  href={routes.commissionOffered}
                 />
               </div>
               <Card>
@@ -294,11 +352,11 @@ export default function FinancePage() {
                 </CardHeader>
                 <CardContent>
                   <DetailRow
-                    label="Prelevee sur le solde du livreur"
+                    label="Prélevée sur le solde du livreur"
                     value={`${data.commissions.charged_to_balance_count ?? 0} courses`}
                   />
                   <DetailRow
-                    label="Mise a la charge du livreur"
+                    label="Mise à la charge du livreur"
                     value={`${data.commissions.charged_as_debt_count ?? 0} courses`}
                   />
                   <DetailRow
@@ -306,11 +364,11 @@ export default function FinancePage() {
                     value={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
                   />
                   <DetailRow
-                    label="Montant encore a recuperer"
+                    label="Montant encore à récupérer"
                     value={`${xof.format(data.commissions.debt_amount_xof ?? 0)} XOF`}
                   />
                   <DetailRow
-                    label="En attente de reponse livreur"
+                    label="En attente de réponse livreur"
                     value={`${data.commissions.waiting_driver_confirmation_count ?? 0} courses`}
                   />
                 </CardContent>
@@ -323,33 +381,37 @@ export default function FinancePage() {
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard
-                  label="Montant a verser"
+                  label="Montant à verser"
                   value={`${xof.format(data.relays.amount_due_xof ?? 0)} XOF`}
+                  href={routes.delivered}
                 />
                 <StatCard
-                  label="Deja envoye"
+                  label="Déjà envoyé"
                   value={`${xof.format(data.relays.amount_already_sent_xof ?? 0)} XOF`}
+                  href="/dashboard/payouts"
                 />
                 <StatCard
-                  label="Reste a verser"
+                  label="Reste à verser"
                   value={`${xof.format(data.relays.amount_remaining_xof ?? 0)} XOF`}
+                  href="/dashboard/payouts"
                 />
                 <StatCard
-                  label="Colis a regulariser"
+                  label="Colis à régulariser"
                   value={data.relays.parcels_waiting_relay_payment ?? 0}
+                  href={routes.deliveredUnpaid}
                 />
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Detail relais</CardTitle>
+                  <CardTitle className="text-base">Détail relais</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <DetailRow
-                    label="Part relais de depart"
+                    label="Part relais de départ"
                     value={`${xof.format(data.relays.origin_amount_due_xof ?? 0)} XOF`}
                   />
                   <DetailRow
-                    label="Part relais d arrivee"
+                    label="Part relais d arrivée"
                     value={`${xof.format(data.relays.destination_amount_due_xof ?? 0)} XOF`}
                   />
                 </CardContent>
@@ -367,37 +429,42 @@ export default function FinancePage() {
                   label="En attente"
                   value={`${data.payouts.waiting_count ?? 0}`}
                   hint={`${xof.format(data.payouts.waiting_amount_xof ?? 0)} XOF`}
+                  href="/dashboard/payouts"
                 />
                 <StatCard
-                  label="Envoyes"
+                  label="Envoyés"
                   value={`${data.payouts.sent_count ?? 0}`}
                   hint={`${xof.format(data.payouts.sent_amount_xof ?? 0)} XOF`}
+                  href="/dashboard/payouts"
                 />
                 <StatCard
-                  label="Refuses"
+                  label="Refusés"
                   value={`${data.payouts.refused_count ?? 0}`}
                   hint={`${xof.format(data.payouts.refused_amount_xof ?? 0)} XOF`}
+                  href="/dashboard/payouts"
                 />
               </div>
-              <Card>
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium">Comptes bloques pour retrait</div>
-                      <div className="text-xs text-muted-foreground">
-                        Comptes qui ne peuvent pas demander un retrait pour le moment
+              <Link href="/dashboard/payouts" className="block transition-transform hover:-translate-y-0.5">
+                <Card>
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-sm font-medium">Comptes bloqués pour retrait</div>
+                        <div className="text-xs text-muted-foreground">
+                          Comptes qui ne peuvent pas demander un retrait pour le moment
+                        </div>
                       </div>
+                      <Badge
+                        tone={
+                          (data.payouts.blocked_wallets ?? 0) > 0 ? "warning" : "success"
+                        }
+                      >
+                        {data.payouts.blocked_wallets ?? 0}
+                      </Badge>
                     </div>
-                    <Badge
-                      tone={
-                        (data.payouts.blocked_wallets ?? 0) > 0 ? "warning" : "success"
-                      }
-                    >
-                      {data.payouts.blocked_wallets ?? 0}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Link>
             </section>
 
             <section className="space-y-3">
@@ -413,22 +480,16 @@ export default function FinancePage() {
                   label="Montant en attente"
                   value={`${xof.format(data.wallets.total_waiting_amount_xof ?? 0)} XOF`}
                 />
-                <StatCard
-                  label="Comptes livreurs"
-                  value={data.wallets.driver_wallets ?? 0}
-                />
-                <StatCard
-                  label="Comptes relais"
-                  value={data.wallets.relay_wallets ?? 0}
-                />
+                <StatCard label="Comptes livreurs" value={data.wallets.driver_wallets ?? 0} />
+                <StatCard label="Comptes relais" value={data.wallets.relay_wallets ?? 0} />
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">A surveiller sur les soldes</CardTitle>
+                  <CardTitle className="text-base">À surveiller sur les soldes</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <DetailRow
-                    label="Soldes negatifs"
+                    label="Soldes négatifs"
                     value={
                       <Badge
                         tone={
@@ -448,28 +509,30 @@ export default function FinancePage() {
             </section>
           </div>
 
-          {summary ? (
+          {recon.data ? (
             <section className="space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Points a verifier
+                Points à vérifier
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 {issues.map((key) => {
                   const count = recon.data?.[key]?.length ?? 0;
-                  if (count === 0) {
-                    return null;
-                  }
+                  if (count === 0) return null;
                   return (
-                    <Card key={key}>
-                      <CardContent className="p-5">
-                        <div className="text-sm font-medium">
-                          {ISSUE_LABELS[key] ?? key}
-                        </div>
-                        <div className="mt-2">
-                          <Badge tone={count > 0 ? "warning" : "success"}>{count}</Badge>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <Link
+                      key={key}
+                      href={routes.allParcels}
+                      className="block transition-transform hover:-translate-y-0.5"
+                    >
+                      <Card>
+                        <CardContent className="p-5">
+                          <div className="text-sm font-medium">{ISSUE_LABELS[key] ?? key}</div>
+                          <div className="mt-2">
+                            <Badge tone="warning">{count}</Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
                   );
                 })}
               </div>

@@ -11,7 +11,14 @@ import '../providers/admin_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class AdminParcelsScreen extends ConsumerStatefulWidget {
-  const AdminParcelsScreen({super.key});
+  const AdminParcelsScreen({
+    super.key,
+    this.initialFilter = 'all',
+    this.initialPeriod,
+  });
+
+  final String initialFilter;
+  final String? initialPeriod;
 
   @override
   ConsumerState<AdminParcelsScreen> createState() => _AdminParcelsScreenState();
@@ -19,7 +26,15 @@ class AdminParcelsScreen extends ConsumerStatefulWidget {
 
 class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'all';
+  late String _statusFilter;
+  String? _periodFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusFilter = _normalizeFilter(widget.initialFilter);
+    _periodFilter = _normalizePeriod(widget.initialPeriod);
+  }
 
   @override
   void dispose() {
@@ -84,6 +99,11 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
                     _buildFilterChip('Litiges', 'disputed'),
                     _buildFilterChip('Livres', 'delivered'),
                     _buildFilterChip('Annules', 'cancelled'),
+                    _buildFilterChip('Livres payes', 'delivered_paid'),
+                    _buildFilterChip('Livres impayes', 'delivered_unpaid'),
+                    _buildFilterChip('Commission recue', 'commission_received'),
+                    _buildFilterChip('Commission dette', 'commission_debt'),
+                    _buildFilterChip('Commission offerte', 'commission_offered'),
                   ],
                 ),
               ),
@@ -130,6 +150,31 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
     );
   }
 
+  static String _normalizeFilter(String value) {
+    const allowed = {
+      'all',
+      'active',
+      'blocked_payment',
+      'disputed',
+      'delivered',
+      'cancelled',
+      'delivered_paid',
+      'delivered_unpaid',
+      'commission_received',
+      'commission_debt',
+      'commission_offered',
+    };
+    return allowed.contains(value) ? value : 'all';
+  }
+
+  static String? _normalizePeriod(String? value) {
+    if (value == null) return null;
+    final trimmed = value.trim();
+    final regex = RegExp(r'^\d{4}-\d{2}$');
+    if (!regex.hasMatch(trimmed)) return null;
+    return trimmed;
+  }
+
   bool _matchesFilters(Parcel parcel) {
     final query = _searchCtrl.text.trim().toLowerCase();
 
@@ -141,11 +186,29 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
           'returned',
         }.contains(parcel.status),
       'blocked_payment' => parcel.deliveryBlockedByPayment,
+      'delivered_paid' =>
+        parcel.status == 'delivered' &&
+        ((parcel.paymentStatus ?? '') == 'paid' || parcel.paymentOverride),
+      'delivered_unpaid' =>
+        parcel.status == 'delivered' &&
+        (parcel.paymentStatus ?? '') != 'paid' &&
+        !parcel.paymentOverride,
+      'commission_received' => parcel.platformCommissionReceived,
+      'commission_debt' => parcel.platformCommissionDebt,
+      'commission_offered' => parcel.platformCommissionOffered,
       _ => parcel.status == _statusFilter,
     };
 
     if (!matchesStatus) {
       return false;
+    }
+
+    if (_periodFilter != null) {
+      final month = parcel.createdAt.month.toString().padLeft(2, '0');
+      final parcelPeriod = '${parcel.createdAt.year}-$month';
+      if (parcelPeriod != _periodFilter) {
+        return false;
+      }
     }
 
     if (query.isEmpty) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -46,7 +47,7 @@ class _AdminFinanceScreenState extends ConsumerState<AdminFinanceScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Vue d ensemble finance',
+                        'Vue d’ensemble finance',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -54,7 +55,7 @@ class _AdminFinanceScreenState extends ConsumerState<AdminFinanceScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Paiements, commissions, relais, retraits et points a surveiller.',
+                        'Paiements, commissions, relais, retraits et points à surveiller.',
                         style: TextStyle(color: Colors.black54),
                       ),
                     ],
@@ -75,6 +76,7 @@ class _AdminFinanceScreenState extends ConsumerState<AdminFinanceScreen> {
               data: (data) => _OverviewBody(
                 data: data,
                 reconciliation: reconciliationAsync.valueOrNull,
+                period: _selectedPeriod,
               ),
               loading: () => const Center(
                 child: Padding(
@@ -98,10 +100,14 @@ class _OverviewBody extends StatelessWidget {
   const _OverviewBody({
     required this.data,
     required this.reconciliation,
+    required this.period,
   });
 
   final Map<String, dynamic> data;
   final Map<String, dynamic>? reconciliation;
+  final String period;
+
+  String _parcelRoute(String filter) => '/admin/parcels?filter=$filter&period=$period';
 
   @override
   Widget build(BuildContext context) {
@@ -123,13 +129,28 @@ class _OverviewBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (alerts.isNotEmpty) ...[
-          const _SectionTitle('A surveiller'),
+          const _SectionTitle('À surveiller'),
           const SizedBox(height: 10),
           ...alerts.map(
-            (alert) => _AlertCard(
-              label: alert['label']?.toString() ?? '-',
-              value: '${alert['value'] ?? 0}',
-              tone: alert['tone']?.toString() ?? 'info',
+            (alert) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _AlertCard(
+                label: alert['label']?.toString() ?? '-',
+                value: '${alert['value'] ?? 0}',
+                tone: alert['tone']?.toString() ?? 'info',
+                onTap: () {
+                  final label = (alert['label']?.toString() ?? '').toLowerCase();
+                  if (label.contains('retrait')) {
+                    context.push('/admin/payouts');
+                    return;
+                  }
+                  if (label.contains('paiement')) {
+                    context.push(_parcelRoute('blocked_payment'));
+                    return;
+                  }
+                  context.push(_parcelRoute('all'));
+                },
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -145,40 +166,48 @@ class _OverviewBody extends StatelessWidget {
           childAspectRatio: 1.22,
           children: [
             _MetricCard(
-              title: 'Montant attendu',
+              title: 'Montant sur colis en cours',
               value: formatXof(
-                (payments['expected_amount_xof'] as num?)?.toDouble() ?? 0,
+                (payments['active_expected_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
-              subtitle: '${payments['total_parcels'] ?? 0} colis',
+              subtitle: '${payments['active_parcels'] ?? 0} colis actifs',
+              onTap: () => context.push(_parcelRoute('active')),
             ),
             _MetricCard(
-              title: 'Montant confirme',
+              title: 'Montant encaissé',
               value: formatXof(
                 (payments['received_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
-              subtitle: '${payments['paid_parcels'] ?? 0} colis regles',
+              subtitle: '${payments['paid_parcels'] ?? 0} colis réglés',
               color: Colors.green,
+              onTap: () => context.push(_parcelRoute('delivered_paid')),
             ),
             _MetricCard(
-              title: 'En attente',
-              value: '${payments['waiting_payment_parcels'] ?? 0}',
-              subtitle: 'Colis a regler',
-              color: Colors.orange,
-            ),
-            _MetricCard(
-              title: 'Validation admin',
-              value: '${payments['admin_validated_parcels'] ?? 0}',
-              subtitle: 'Cas exceptionnels',
+              title: 'Colis livrés',
+              value: '${payments['delivered_parcels'] ?? 0}',
+              subtitle: formatXof(
+                (payments['delivered_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
               color: Colors.blue,
+              onTap: () => context.push(_parcelRoute('delivered')),
+            ),
+            _MetricCard(
+              title: 'Colis annulés',
+              value: '${payments['cancelled_parcels'] ?? 0}',
+              subtitle: formatXof(
+                (payments['cancelled_amount_xof'] as num?)?.toDouble() ?? 0,
+              ),
+              color: Colors.redAccent,
+              onTap: () => context.push(_parcelRoute('cancelled')),
             ),
           ],
         ),
         const SizedBox(height: 12),
         _DetailCard(
-          title: 'Repartition des paiements',
+          title: 'Répartition des paiements',
           rows: [
             _RowData(
-              'Expediteur paie',
+              'Expéditeur paie',
               '${payments['sender_pays_parcels'] ?? 0} colis',
             ),
             _RowData(
@@ -186,15 +215,23 @@ class _OverviewBody extends StatelessWidget {
               '${payments['recipient_pays_parcels'] ?? 0} colis',
             ),
             _RowData(
-              'Colis livres',
+              'Colis livrés',
               '${payments['delivered_parcels'] ?? 0} colis',
             ),
             _RowData(
-              'Colis livres en attente',
+              'Colis livrés en attente',
               '${payments['delivered_waiting_payment_parcels'] ?? 0}',
               highlight: ((payments['delivered_waiting_payment_parcels'] ?? 0)
                       as num) >
                   0,
+            ),
+            _RowData(
+              'Montant encore à encaisser',
+              formatXof(
+                (payments['delivered_waiting_payment_amount_xof'] as num?)
+                        ?.toDouble() ??
+                    0,
+              ),
             ),
           ],
         ),
@@ -210,33 +247,38 @@ class _OverviewBody extends StatelessWidget {
           childAspectRatio: 1.22,
           children: [
             _MetricCard(
-              title: 'Part Denkma',
+              title: 'Commission Denkma attendue',
               value: formatXof(
-                (commissions['platform_amount_xof'] as num?)?.toDouble() ?? 0,
+                (commissions['platform_expected_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.indigo,
+              onTap: () => context.push(_parcelRoute('active')),
             ),
             _MetricCard(
-              title: 'Part relais',
+              title: 'Commission Denkma reçue',
               value: formatXof(
-                (commissions['relay_amount_xof'] as num?)?.toDouble() ?? 0,
+                (commissions['platform_received_xof'] as num?)?.toDouble() ?? 0,
               ),
-              color: Colors.teal,
+              color: Colors.green,
+              onTap: () => context.push(_parcelRoute('commission_received')),
             ),
             _MetricCard(
-              title: 'Commission totale',
+              title: 'Commission en dette',
               value: formatXof(
-                (commissions['total_amount_xof'] as num?)?.toDouble() ?? 0,
+                (commissions['platform_debt_xof'] as num?)?.toDouble() ?? 0,
               ),
+              color: Colors.orange,
+              onTap: () => context.push(_parcelRoute('commission_debt')),
             ),
             _MetricCard(
               title: 'Commission offerte',
               value: formatXof(
-                (commissions['offered_amount_xof'] as num?)?.toDouble() ?? 0,
+                (commissions['platform_offered_xof'] as num?)?.toDouble() ?? 0,
               ),
               subtitle:
                   '${commissions['offered_by_denkma_count'] ?? 0} courses',
               color: Colors.purple,
+              onTap: () => context.push(_parcelRoute('commission_offered')),
             ),
           ],
         ),
@@ -245,11 +287,11 @@ class _OverviewBody extends StatelessWidget {
           title: 'Mode de prise en charge',
           rows: [
             _RowData(
-              'Prelevee sur le solde',
+              'Prélevée sur le solde',
               '${commissions['charged_to_balance_count'] ?? 0} courses',
             ),
             _RowData(
-              'A la charge du livreur',
+              'À la charge du livreur',
               '${commissions['charged_as_debt_count'] ?? 0} courses',
             ),
             _RowData(
@@ -257,13 +299,13 @@ class _OverviewBody extends StatelessWidget {
               '${commissions['offered_by_denkma_count'] ?? 0} courses',
             ),
             _RowData(
-              'Montant a recuperer',
+              'Montant à récupérer',
               formatXof(
                 (commissions['debt_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
             ),
             _RowData(
-              'En attente de reponse livreur',
+              'En attente de réponse livreur',
               '${commissions['waiting_driver_confirmation_count'] ?? 0} courses',
             ),
           ],
@@ -280,45 +322,49 @@ class _OverviewBody extends StatelessWidget {
           childAspectRatio: 1.22,
           children: [
             _MetricCard(
-              title: 'Montant a verser',
+              title: 'Montant à verser',
               value: formatXof(
                 (relays['amount_due_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.blueGrey,
+              onTap: () => context.push(_parcelRoute('delivered')),
             ),
             _MetricCard(
-              title: 'Deja envoye',
+              title: 'Déjà envoyé',
               value: formatXof(
                 (relays['amount_already_sent_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.green,
+              onTap: () => context.push('/admin/payouts'),
             ),
             _MetricCard(
-              title: 'Reste a verser',
+              title: 'Reste à verser',
               value: formatXof(
                 (relays['amount_remaining_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.orange,
+              onTap: () => context.push('/admin/payouts'),
             ),
             _MetricCard(
-              title: 'Colis a regulariser',
+              title: 'Colis à régulariser',
               value: '${relays['parcels_waiting_relay_payment'] ?? 0}',
               color: Colors.redAccent,
+              onTap: () => context.push(_parcelRoute('delivered_unpaid')),
             ),
           ],
         ),
         const SizedBox(height: 12),
         _DetailCard(
-          title: 'Detail relais',
+          title: 'Détail relais',
           rows: [
             _RowData(
-              'Part relais depart',
+              'Part relais départ',
               formatXof(
                 (relays['origin_amount_due_xof'] as num?)?.toDouble() ?? 0,
               ),
             ),
             _RowData(
-              'Part relais arrivee',
+              'Part relais arrivée',
               formatXof(
                 (relays['destination_amount_due_xof'] as num?)?.toDouble() ?? 0,
               ),
@@ -343,27 +389,31 @@ class _OverviewBody extends StatelessWidget {
                 (payouts['waiting_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.orange,
+              onTap: () => context.push('/admin/payouts'),
             ),
             _MetricCard(
-              title: 'Envoyes',
+              title: 'Envoyés',
               value: '${payouts['sent_count'] ?? 0}',
               subtitle: formatXof(
                 (payouts['sent_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.green,
+              onTap: () => context.push('/admin/payouts'),
             ),
             _MetricCard(
-              title: 'Refuses',
+              title: 'Refusés',
               value: '${payouts['refused_count'] ?? 0}',
               subtitle: formatXof(
                 (payouts['refused_amount_xof'] as num?)?.toDouble() ?? 0,
               ),
               color: Colors.redAccent,
+              onTap: () => context.push('/admin/payouts'),
             ),
             _MetricCard(
-              title: 'Comptes bloques',
+              title: 'Comptes bloqués',
               value: '${payouts['blocked_wallets'] ?? 0}',
               color: Colors.blueGrey,
+              onTap: () => context.push('/admin/payouts'),
             ),
           ],
         ),
@@ -404,10 +454,10 @@ class _OverviewBody extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _DetailCard(
-          title: 'A surveiller sur les soldes',
+          title: 'À surveiller sur les soldes',
           rows: [
             _RowData(
-              'Soldes negatifs',
+              'Soldes négatifs',
               '${wallets['negative_wallets'] ?? 0}',
               highlight: ((wallets['negative_wallets'] ?? 0) as num) > 0,
             ),
@@ -419,21 +469,24 @@ class _OverviewBody extends StatelessWidget {
         ),
         if (reconciliation != null) ...[
           const SizedBox(height: 20),
-          const _SectionTitle('Points a verifier'),
+          const _SectionTitle('Points à vérifier'),
           const SizedBox(height: 10),
-          ..._buildIssueCards(reconciliation!),
+          ..._buildIssueCards(context, reconciliation!),
         ],
       ],
     );
   }
 
-  List<Widget> _buildIssueCards(Map<String, dynamic> reconciliation) {
+  List<Widget> _buildIssueCards(
+    BuildContext context,
+    Map<String, dynamic> reconciliation,
+  ) {
     const labels = {
-      'wallet_pending_mismatches': 'Montants en attente a corriger',
-      'negative_wallets': 'Soldes negatifs a verifier',
-      'payout_ledger_gaps': 'Retraits a revoir',
-      'mission_parcel_mismatches': 'Courses a revoir',
-      'delivered_unpaid': 'Colis livres non regles',
+      'wallet_pending_mismatches': 'Montants en attente à corriger',
+      'negative_wallets': 'Soldes négatifs à vérifier',
+      'payout_ledger_gaps': 'Retraits à revoir',
+      'mission_parcel_mismatches': 'Courses à revoir',
+      'delivered_unpaid': 'Colis livrés non réglés',
     };
     final widgets = <Widget>[];
     for (final entry in labels.entries) {
@@ -446,6 +499,7 @@ class _OverviewBody extends StatelessWidget {
             label: entry.value,
             value: '$count',
             tone: 'warning',
+            onTap: () => context.push(_parcelRoute('all')),
           ),
         ),
       );
@@ -498,51 +552,60 @@ class _MetricCard extends StatelessWidget {
     required this.value,
     this.subtitle,
     this.color,
+    this.onTap,
   });
 
   final String title;
   final String value;
   final String? subtitle;
   final Color? color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final tone = color ?? Colors.black87;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: 0.08),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: tone.withValues(alpha: 0.14)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.black54,
-            ),
+        child: Ink(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: tone.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: tone.withValues(alpha: 0.14)),
           ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: tone,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black54,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: tone,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+              ],
+            ],
           ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle!,
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -620,11 +683,13 @@ class _AlertCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.tone,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final String tone;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -635,23 +700,28 @@ class _AlertCard extends StatelessWidget {
     };
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        title: Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: ListTile(
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          title: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              color: color,
+          trailing: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
             ),
           ),
         ),
@@ -722,17 +792,17 @@ String _monthLabel(String value) {
   final month = int.tryParse(parts[1]);
   const labels = [
     'janvier',
-    'fevrier',
+    'février',
     'mars',
     'avril',
     'mai',
     'juin',
     'juillet',
-    'aout',
+    'août',
     'septembre',
     'octobre',
     'novembre',
-    'decembre',
+    'décembre',
   ];
   if (year == null || month == null || month < 1 || month > 12) return value;
   return '${labels[month - 1]} $year';
