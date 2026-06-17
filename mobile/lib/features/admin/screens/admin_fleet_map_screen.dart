@@ -102,7 +102,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                       icon: Icons.route,
                       title: 'Aucune mission active',
                       subtitle:
-                          'Les livreurs hors course restent visibles sur la carte quand leur position est disponible.',
+                          'Les livreurs hors course restent visibles sur la carte quand leur position app est disponible.',
                     )
                   else ...[
                     Text(
@@ -134,6 +134,29 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
                             }
                             context.push('/admin/parcels/$parcelId/audit');
                           },
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (idleDrivers.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      '${idleDrivers.length} livreur(s) hors course',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...idleDrivers.map(
+                      (driver) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _IdleDriverCard(
+                          driver: driver,
+                          onOpen: () => _openDriverSheet(
+                            mission: driver,
+                            isIdle: true,
+                          ),
                         ),
                       ),
                     ),
@@ -281,11 +304,15 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           markerId: MarkerId('idle:${driver['driver_id']}'),
           position: location,
           icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueViolet,
+            (driver['is_stale'] as bool? ?? false)
+                ? BitmapDescriptor.hueOrange
+                : BitmapDescriptor.hueViolet,
           ),
           infoWindow: InfoWindow(
             title: driver['driver_name'] as String? ?? 'Livreur',
-            snippet: 'Hors course',
+            snippet: (driver['is_stale'] as bool? ?? false)
+                ? 'Position ancienne'
+                : 'Hors course',
             onTap: () => _openDriverSheet(mission: driver, isIdle: true),
           ),
         ),
@@ -564,10 +591,10 @@ class _FleetSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('Actives', '${summary['total_active'] ?? 0}', Colors.blue),
-      ('Avec GPS', '${summary['with_live_location'] ?? 0}', Colors.green),
-      ('Signal faible', '${summary['stale_locations'] ?? 0}', Colors.orange),
-      ('Sans position', '${summary['missing_locations'] ?? 0}', Colors.red),
+      ('Missions actives', '${summary['total_active'] ?? 0}', Colors.blue),
+      ('Missions live', '${summary['with_live_location'] ?? 0}', Colors.green),
+      ('Positions anciennes', '${summary['stale_locations'] ?? 0}', Colors.orange),
+      ('Missions sans position', '${summary['missing_locations'] ?? 0}', Colors.red),
       ('Hors course', '${summary['idle_drivers'] ?? 0}', Colors.purple),
     ];
     return Wrap(
@@ -779,6 +806,96 @@ class _MissionCard extends StatelessWidget {
                   onPressed: onAudit,
                   icon: const Icon(Icons.visibility_outlined),
                   label: const Text('Audit'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IdleDriverCard extends StatelessWidget {
+  const _IdleDriverCard({
+    required this.driver,
+    required this.onOpen,
+  });
+
+  final Map<String, dynamic> driver;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final isStale = driver['is_stale'] as bool? ?? false;
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isStale ? Colors.orange.shade50 : Colors.purple.shade50,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isStale ? Colors.orange.shade200 : Colors.purple.shade200,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    driver['driver_name'] as String? ?? 'Livreur',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: (isStale ? Colors.orange : Colors.purple)
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    isStale ? 'Position ancienne' : 'Hors course',
+                    style: TextStyle(
+                      color: isStale ? Colors.orange.shade700 : Colors.purple,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _fleetLocationLabel(driver),
+              style: TextStyle(
+                fontSize: 12,
+                color: isStale ? Colors.orange.shade700 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if ((driver['driver_phone'] as String?)?.isNotEmpty ?? false)
+                  _TinyInfoChip(
+                    icon: Icons.phone,
+                    label: driver['driver_phone'] as String,
+                  ),
+                _TinyInfoChip(
+                  icon: Icons.my_location,
+                  label: driver['is_live'] as bool? ?? false
+                      ? 'Position app recente'
+                      : 'Derniere position app',
                 ),
               ],
             ),
@@ -1023,12 +1140,12 @@ class _DriverDetailsSheet extends StatelessWidget {
     final photoUrl = data['driver_photo_url'] as String?;
 
     final statusLabel = isIdle
-        ? 'Hors course'
+        ? (isStale ? 'Position ancienne' : 'Hors course')
         : isStale
             ? 'Signal perdu'
             : _statusLabel(status);
     final statusColor = isIdle
-        ? Colors.purple
+        ? (isStale ? Colors.orange : Colors.purple)
         : isStale
             ? Colors.orange
             : _statusColor(status);

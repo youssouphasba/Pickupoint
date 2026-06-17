@@ -2619,7 +2619,22 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
 async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
     """Retourne les missions actives avec positions, trajets et durees utiles."""
     now = datetime.now(timezone.utc)
-    stale_cutoff = now - timedelta(minutes=20)
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+
+    def _positive_int_setting(key: str, default: int) -> int:
+        raw_value = settings_doc.get(key, default)
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            return default
+        return value if value > 0 else default
+
+    fresh_window_minutes = _positive_int_setting("fleet_live_fresh_minutes", 5)
+    stale_window_minutes = _positive_int_setting("fleet_location_stale_minutes", 20)
+    idle_visibility_hours = _positive_int_setting("fleet_idle_visibility_hours", 12)
+
+    fresh_cutoff = now - timedelta(minutes=fresh_window_minutes)
+    stale_cutoff = now - timedelta(minutes=stale_window_minutes)
     active_statuses = ["assigned", "in_progress", "incident_reported"]
 
     cursor = db.delivery_missions.find(
@@ -2705,7 +2720,7 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
     relay_lookup = await _load_relay_lookup(relay_ids)
 
     fleet: list[dict[str, Any]] = []
-    with_live_location = 0
+    active_live_locations = 0
     stale_locations = 0
     missing_locations = 0
 
@@ -2732,13 +2747,14 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
             live_location = driver_profile_location
             last_seen_at = driver_profile_seen_at
             location_source = "driver_profile"
-        if live_location:
-            with_live_location += 1
-        else:
+        if not live_location:
             missing_locations += 1
         if last_seen_at and last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
         is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
+        is_live = bool(last_seen_at and last_seen_at >= fresh_cutoff)
+        if live_location and is_live:
+            active_live_locations += 1
         if is_stale:
             stale_locations += 1
 
@@ -2760,6 +2776,7 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
                 "driver_location": live_location,
                 "location_source": location_source if live_location else None,
                 "location_updated_at": last_seen_at,
+                "is_live": is_live,
                 "is_stale": is_stale,
                 "eta_seconds": mission.get("eta_seconds"),
                 "eta_text": mission.get("eta_text"),
@@ -2775,7 +2792,7 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
             }
         )
 
-    idle_cutoff = now - timedelta(minutes=30)
+    idle_cutoff = now - timedelta(hours=idle_visibility_hours)
     busy_driver_ids = {m.get("driver_id") for m in missions if m.get("driver_id")}
     idle_cursor = db.users.find(
         {
@@ -2797,6 +2814,8 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
     )
     idle_drivers_raw = await idle_cursor.to_list(length=500)
     idle_drivers: list[dict[str, Any]] = []
+    idle_live_drivers = 0
+    idle_stale_drivers = 0
     for driver in idle_drivers_raw:
         location = _normalize_geopin(driver.get("last_driver_location"))
         if not location:
@@ -2804,6 +2823,12 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         last_seen_at = driver.get("last_driver_location_at")
         if last_seen_at and last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+        is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
+        is_live = bool(last_seen_at and last_seen_at >= fresh_cutoff)
+        if is_live:
+            idle_live_drivers += 1
+        elif is_stale:
+            idle_stale_drivers += 1
         idle_drivers.append(
             {
                 "driver_id": driver.get("user_id"),
@@ -2812,6 +2837,9 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
                 "driver_photo_url": driver.get("profile_picture_url"),
                 "driver_location": location,
                 "location_updated_at": last_seen_at,
+                "location_source": "driver_profile",
+                "is_live": is_live,
+                "is_stale": is_stale,
             }
         )
 
@@ -2821,9 +2849,15 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         "summary": {
             "total_active": len(fleet),
             "idle_drivers": len(idle_drivers),
-            "with_live_location": with_live_location,
-            "stale_locations": stale_locations,
+            "with_live_location": active_live_locations,
+            "stale_locations": stale_locations + idle_stale_drivers,
             "missing_locations": missing_locations,
+            "idle_live_drivers": idle_live_drivers,
+            "idle_stale_drivers": idle_stale_drivers,
+            "total_visible": len(fleet) + len(idle_drivers),
+            "fresh_window_minutes": fresh_window_minutes,
+            "stale_window_minutes": stale_window_minutes,
+            "idle_visibility_hours": idle_visibility_hours,
             "in_progress": sum(1 for item in fleet if item["status"] == "in_progress"),
             "assigned": sum(1 for item in fleet if item["status"] == "assigned"),
             "incident_reported": sum(1 for item in fleet if item["status"] == "incident_reported"),

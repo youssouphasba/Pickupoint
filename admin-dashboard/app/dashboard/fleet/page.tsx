@@ -62,6 +62,9 @@ type IdleDriver = {
   driver_photo_url?: string;
   driver_location?: GeoPoint | null;
   location_updated_at?: string;
+  location_source?: string | null;
+  is_live?: boolean;
+  is_stale?: boolean;
 };
 
 type SelectedPin =
@@ -70,7 +73,7 @@ type SelectedPin =
   | null;
 
 const FILTERS = [
-  { value: "all", label: "Toutes les missions" },
+  { value: "all", label: "Toute la flotte" },
   { value: "live", label: "Positions live" },
   { value: "signal_lost", label: "Signal perdu" },
   { value: "idle", label: "Hors course" },
@@ -173,6 +176,12 @@ export default function FleetPage() {
   }, [missions, selectedFilter]);
 
   const filteredIdle = useMemo(() => {
+    if (selectedFilter === "live") {
+      return idleDrivers.filter((driver) => Boolean(readLatLng(driver.driver_location)) && !driver.is_stale);
+    }
+    if (selectedFilter === "signal_lost") {
+      return idleDrivers.filter((driver) => driver.is_stale);
+    }
     if (selectedFilter === "idle" || selectedFilter === "all") return idleDrivers;
     return [];
   }, [idleDrivers, selectedFilter]);
@@ -216,11 +225,11 @@ export default function FleetPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <KpiTile label="Actives" value={summary.total_active ?? 0} color="blue" />
-        <KpiTile label="Avec GPS" value={summary.with_live_location ?? 0} color="green" />
-        <KpiTile label="Signal faible" value={summary.stale_locations ?? 0} color="orange" />
-        <KpiTile label="Sans position" value={summary.missing_locations ?? 0} color="red" />
-        <KpiTile label="Hors course" value={summary.idle_drivers ?? 0} color="purple" />
+        <KpiTile label="Missions actives" value={summary.total_active ?? 0} color="blue" />
+        <KpiTile label="Missions live" value={summary.with_live_location ?? 0} color="green" />
+        <KpiTile label="Positions anciennes" value={summary.stale_locations ?? 0} color="orange" />
+        <KpiTile label="Missions sans position" value={summary.missing_locations ?? 0} color="red" />
+        <KpiTile label="Livreurs hors course" value={summary.idle_drivers ?? 0} color="purple" />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -299,7 +308,11 @@ export default function FleetPage() {
                       position={location}
                       onClick={() => setSelectedPin({ kind: "idle", data: driver })}
                     >
-                      <Pin background="#8b5cf6" borderColor="#6d28d9" glyphColor="#fff" />
+                      <Pin
+                        background={driver.is_stale ? "#f59e0b" : "#8b5cf6"}
+                        borderColor={driver.is_stale ? "#b45309" : "#6d28d9"}
+                        glyphColor="#fff"
+                      />
                     </AdvancedMarker>
                   );
                 })}
@@ -508,14 +521,16 @@ function MissionCard({ mission }: { mission: FleetMission }) {
 function IdleDriverCard({ driver }: { driver: IdleDriver }) {
   const location = readLatLng(driver.driver_location);
   return (
-    <Card className="border-purple-200 bg-purple-50/40">
+    <Card className={driver.is_stale ? "border-orange-200 bg-orange-50/40" : "border-purple-200 bg-purple-50/40"}>
       <CardContent className="p-5">
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="font-medium">{driver.driver_name ?? "—"}</div>
             <div className="text-xs text-muted-foreground">{driver.driver_id}</div>
           </div>
-          <Badge tone="default">Hors course</Badge>
+          <Badge tone={driver.is_stale ? "warning" : "default"}>
+            {driver.is_stale ? "Position ancienne" : "Hors course"}
+          </Badge>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -625,8 +640,8 @@ function IdlePopup({ driver }: { driver: IdleDriver }) {
   return (
     <div className="min-w-[220px] space-y-2 p-1 text-sm">
       <div className="font-semibold">{driver.driver_name ?? "Livreur"}</div>
-      <div className="inline-block rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
-        Hors course
+      <div className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${driver.is_stale ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+        {driver.is_stale ? "Position ancienne" : "Hors course"}
       </div>
       {driver.driver_phone && (
         <div className="flex items-center gap-2">
