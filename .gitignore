@@ -91,6 +91,10 @@ mobile/missing_imports.txt
 mobile/android/hs_err_pid*.log
 mobile/android/replay_pid*.log
 mobile/android/key.properties
+flutter_*.log
+ios_distribution_private_key
+ios_distribution_private_key.pub
+upload_certificate_*.pem
 *.jks
 *.keystore
 *.jpg
