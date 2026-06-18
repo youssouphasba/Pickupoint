@@ -28,6 +28,7 @@ class DeliveryMission {
     this.driverPhone,
     this.driverPhotoUrl,
     this.senderName,
+    this.senderPhone,
     this.failureReason,
     this.assignedAt,
     this.completedAt,
@@ -92,6 +93,7 @@ class DeliveryMission {
   final String? driverPhone;
   final String? driverPhotoUrl;
   final String? senderName;
+  final String? senderPhone;
   final String? failureReason;
   final DateTime createdAt;
   final DateTime? assignedAt;
@@ -163,6 +165,7 @@ class DeliveryMission {
       driverPhone: json['driver_phone'] as String?,
       driverPhotoUrl: json['driver_photo_url'] as String?,
       senderName: json['sender_name'] as String?,
+      senderPhone: json['sender_phone'] as String?,
       failureReason: json['failure_reason'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       assignedAt: json['assigned_at'] != null

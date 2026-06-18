@@ -1250,7 +1250,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     title: 'Expéditeur',
                     name: mission.senderName!,
                     photo: mission.senderPhotoUrl,
-                    phone: null,
+                    phone: mission.senderPhone,
+                    onPhoneTap: mission.senderPhone == null
+                        ? null
+                        : () => launchUrl(Uri.parse('tel:${mission.senderPhone}')),
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -1259,9 +1262,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                     title: 'Destinataire',
                     name: mission.recipientName!,
                     photo: mission.recipientPhotoUrl,
-                    phone: mission.recipientPhone == null
+                    phone: mission.recipientPhone,
+                    onPhoneTap: mission.recipientPhone == null
                         ? null
-                        : 'Numéro masqué - appel via Denkma',
+                        : () => launchUrl(Uri.parse('tel:${mission.recipientPhone}')),
                     showCall: true,
                     onCall: _activeWhatsappCallId != null
                         ? _hangUpWhatsappCall
@@ -2439,6 +2443,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     required String name,
     required String? photo,
     required String? phone,
+    VoidCallback? onPhoneTap,
     bool showCall = false,
     VoidCallback? onCall,
     String callLabel = 'Appeler',
@@ -2486,13 +2491,23 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                   ),
                 ),
                 if (phone != null)
-                  Text(
-                    phone,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.blueGrey,
+                  InkWell(
+                    onTap: onPhoneTap,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        phone,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: onPhoneTap != null ? Colors.blue : Colors.blueGrey,
+                          decoration: onPhoneTap != null
+                              ? TextDecoration.underline
+                              : null,
+                        ),
+                      ),
                     ),
                   ),
               ],

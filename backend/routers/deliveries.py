@@ -113,16 +113,30 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
     if parcel_ids:
         cursor = db.parcels.find(
             {"parcel_id": {"$in": list(set(parcel_ids))}},
-            {"_id": 0, "parcel_id": 1, "paid_price": 1, "quoted_price": 1},
+            {
+                "_id": 0,
+                "parcel_id": 1,
+                "paid_price": 1,
+                "quoted_price": 1,
+                "sender_name": 1,
+                "sender_phone": 1,
+                "recipient_name": 1,
+                "recipient_phone": 1,
+            },
         )
         parcels = await cursor.to_list(length=len(set(parcel_ids)))
         parcel_lookup = {p["parcel_id"]: p for p in parcels}
 
     for mission in missions:
+        parcel = parcel_lookup.get(mission.get("parcel_id")) or {}
         breakdown = compute_delivery_commission_breakdown(
-            parcel_lookup.get(mission.get("parcel_id")),
+            parcel,
             mission,
         )
+        mission["sender_name"] = mission.get("sender_name") or parcel.get("sender_name")
+        mission["sender_phone"] = mission.get("sender_phone") or parcel.get("sender_phone")
+        mission["recipient_name"] = mission.get("recipient_name") or parcel.get("recipient_name")
+        mission["recipient_phone"] = mission.get("recipient_phone") or parcel.get("recipient_phone")
         mission["platform_commission_xof"] = mission.get(
             "platform_commission_xof",
             breakdown["platform_commission_xof"],
@@ -150,11 +164,7 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
 
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
-    if current_user.get("role") != UserRole.DRIVER.value:
-        return
-    for mission in missions:
-        if mission.get("recipient_phone"):
-            mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
+    return
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -715,14 +725,6 @@ async def my_missions(
         )
     await _attach_commission_requirements(missions)
     
-    # Masquage numéro destinataire — révélé seulement si :
-    #   - livraison à domicile (*_to_home) ET driver est à proximité (approaching_notified)
-    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    if not is_admin:
-        for m in missions:
-            if m.get("recipient_phone"):
-                m["recipient_phone"] = mask_phone(m["recipient_phone"])
-                
     return {"missions": missions}
 
 
@@ -1029,10 +1031,11 @@ async def get_mission(
     # Sender
     sender = await db.users.find_one(
         {"user_id": mission.get("sender_user_id")},
-        {"name": 1, "profile_picture_url": 1},
+        {"name": 1, "phone": 1, "profile_picture_url": 1},
     )
     if sender:
         mission["sender_name"] = sender.get("name")
+        mission["sender_phone"] = mission.get("sender_phone") or sender.get("phone")
         mission["sender_photo_url"] = sender.get("profile_picture_url")
     
     # Recipient
@@ -1055,13 +1058,6 @@ async def get_mission(
         recipient_user = await db.users.find_one({"user_id": recipient_uid}, {"profile_picture_url": 1})
         if recipient_user:
             mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
-
-    # Masquage numéro destinataire — révélé si livraison domicile + driver à proximité
-    if (
-        current_user["role"] == UserRole.DRIVER.value
-        and mission.get("recipient_phone")
-    ):
-        mission["recipient_phone"] = mask_phone(mission["recipient_phone"])
 
     return mission
 
