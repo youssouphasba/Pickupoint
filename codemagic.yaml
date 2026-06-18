@@ -376,6 +376,30 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          release_version = os.environ["SHOREBIRD_IOS_RELEASE_VERSION"].strip()
+          if "+" not in release_version:
+              raise SystemExit(
+                  "ERROR: SHOREBIRD_IOS_RELEASE_VERSION must look like 1.0.17+35."
+              )
+
+          build_name, build_number = release_version.split("+", 1)
+          pubspec = pathlib.Path("pubspec.yaml")
+          text = pubspec.read_text(encoding="utf-8")
+          updated = re.sub(
+              r"^version:\s*.+$",
+              f"version: {build_name}+{build_number}",
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          pubspec.write_text(updated, encoding="utf-8")
+          print(f"Using iOS patch version override: {build_name}+{build_number}")
+          PY
           flutter pub get
       - name: Install Shorebird CLI
         script: |
