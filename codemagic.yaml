@@ -350,7 +350,7 @@ workflows:
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
-        SHOREBIRD_IOS_RELEASE_VERSION: "1.0.16+33"
+        SHOREBIRD_IOS_RELEASE_VERSION: "1.0.17+35"
     cache:
       cache_paths:
         - $HOME/.pub-cache
