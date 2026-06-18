@@ -36,7 +36,7 @@ class _AdminApplicationsScreenState
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -53,6 +53,7 @@ class _AdminApplicationsScreenState
         bottom: TabBar(
           controller: _tabCtrl,
           tabs: const [
+            Tab(text: 'Toutes'),
             Tab(text: 'En attente'),
             Tab(text: 'Approuvees'),
             Tab(text: 'Rejetees'),
@@ -62,6 +63,7 @@ class _AdminApplicationsScreenState
       body: TabBarView(
         controller: _tabCtrl,
         children: const [
+          _ApplicationsList(status: 'all'),
           _ApplicationsList(status: 'pending'),
           _ApplicationsList(status: 'approved'),
           _ApplicationsList(status: 'rejected'),
@@ -78,7 +80,8 @@ class _ApplicationsList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final appsAsync = ref.watch(_applicationsProvider(status));
+    final effectiveStatus = status == 'all' ? '' : status;
+    final appsAsync = ref.watch(_applicationsProvider(effectiveStatus));
 
     return appsAsync.when(
       data: (apps) {
@@ -97,6 +100,7 @@ class _ApplicationsList extends ConsumerWidget {
                   switch (status) {
                     'approved' => 'Aucune candidature approuvee',
                     'rejected' => 'Aucune candidature rejetee',
+                    'all' => 'Aucune candidature',
                     _ => 'Aucune candidature en attente',
                   },
                   style: TextStyle(color: Colors.grey.shade600),
@@ -108,8 +112,8 @@ class _ApplicationsList extends ConsumerWidget {
 
         return RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(_applicationsProvider(status));
-            await ref.read(_applicationsProvider(status).future);
+            ref.invalidate(_applicationsProvider(effectiveStatus));
+            await ref.read(_applicationsProvider(effectiveStatus).future);
           },
           child: ListView.separated(
             padding: const EdgeInsets.all(12),
@@ -290,10 +294,10 @@ class _ApplicationCard extends ConsumerWidget {
                               context,
                               accessToken,
                               idCardUrl,
-                              title: 'Piece d identite',
+                              title: 'Piece d identite (recto + verso)',
                             ),
                     icon: const Icon(Icons.badge_outlined, size: 16),
-                    label: const Text('Piece ID'),
+                    label: const Text('Piece ID RV'),
                   ),
                 if (licenseUrl.isNotEmpty)
                   OutlinedButton.icon(
@@ -303,10 +307,10 @@ class _ApplicationCard extends ConsumerWidget {
                               context,
                               accessToken,
                               licenseUrl,
-                              title: 'Permis / justificatif',
+                              title: 'Permis (recto + verso)',
                             ),
                     icon: const Icon(Icons.credit_card_outlined, size: 16),
-                    label: const Text('Permis'),
+                    label: const Text('Permis RV'),
                   ),
                 if (status == 'pending')
                   OutlinedButton.icon(

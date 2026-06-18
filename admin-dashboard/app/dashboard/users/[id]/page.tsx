@@ -398,11 +398,11 @@ export default function UserDetailPage() {
   const referralUrl = referral?.referral_url ?? "";
   const kycDocuments = [
     {
-      label: "Piece d'identite",
+      label: "Piece d'identite (recto + verso)",
       url: user.kyc_id_card_url as string | null | undefined,
     },
     {
-      label: "Permis de conduire",
+      label: "Permis de conduire (recto + verso)",
       url: user.kyc_license_url as string | null | undefined,
     },
   ].filter((document) => document.url);

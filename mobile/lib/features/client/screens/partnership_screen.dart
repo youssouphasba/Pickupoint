@@ -679,28 +679,30 @@ class _DriverApplicationFormState
 
     final frontImage = img.bakeOrientation(decodedFront);
     final backImage = img.bakeOrientation(decodedBack);
-    final targetWidth =
-        frontImage.width > backImage.width ? frontImage.width : backImage.width;
-    final normalizedFront = frontImage.width == targetWidth
+    final targetHeight =
+        frontImage.height > backImage.height ? frontImage.height : backImage.height;
+    final normalizedFront = frontImage.height == targetHeight
         ? frontImage
-        : img.copyResize(frontImage, width: targetWidth);
-    final normalizedBack = backImage.width == targetWidth
+        : img.copyResize(frontImage, height: targetHeight);
+    final normalizedBack = backImage.height == targetHeight
         ? backImage
-        : img.copyResize(backImage, width: targetWidth);
+        : img.copyResize(backImage, height: targetHeight);
 
-    const gap = 32;
+    const gap = 24;
+    const padding = 24;
     final canvas = img.Image(
-      width: targetWidth,
-      height: normalizedFront.height + normalizedBack.height + gap,
+      width:
+          normalizedFront.width + normalizedBack.width + gap + (padding * 2),
+      height: targetHeight + (padding * 2),
       numChannels: 3,
     );
     img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(canvas, normalizedFront, dstX: 0, dstY: 0);
+    img.compositeImage(canvas, normalizedFront, dstX: padding, dstY: padding);
     img.compositeImage(
       canvas,
       normalizedBack,
-      dstX: 0,
-      dstY: normalizedFront.height + gap,
+      dstX: padding + normalizedFront.width + gap,
+      dstY: padding,
     );
 
     final directory = await getTemporaryDirectory();

@@ -67,11 +67,11 @@ class AdminUserDetailScreen extends ConsumerWidget {
           );
           final kycDocuments = <Map<String, String>>[
             {
-              'label': "Piece d'identite",
+              'label': "Piece d'identite (recto + verso)",
               'url': _stringOrEmpty(userData['kyc_id_card_url']),
             },
             {
-              'label': 'Permis de conduire',
+              'label': 'Permis de conduire (recto + verso)',
               'url': _stringOrEmpty(userData['kyc_license_url']),
             },
           ].where((document) => document['url']!.isNotEmpty).toList();

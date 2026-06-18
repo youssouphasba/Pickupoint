@@ -71,7 +71,7 @@ function photoStatus(application: AdminApplication) {
 export default function ApplicationsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [status, setStatus] = React.useState("pending");
+  const [status, setStatus] = React.useState("all");
 
   const query = useQuery({
     queryKey: ["applications", status],

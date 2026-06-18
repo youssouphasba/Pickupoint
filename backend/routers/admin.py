@@ -428,6 +428,17 @@ async def reply_whatsapp_support_conversation_voice(
 def _user_identity_snapshot(user: dict | None) -> dict | None:
     if not user:
         return None
+    user_id = user.get("user_id")
+    has_id_card = bool(
+        (user.get("kyc_id_card_url") or "").strip()
+        or user.get("kyc_id_card_path")
+        or user.get("kyc_id_card_file_id")
+    )
+    has_license = bool(
+        (user.get("kyc_license_url") or "").strip()
+        or user.get("kyc_license_path")
+        or user.get("kyc_license_file_id")
+    )
     return {
         "user_id": user.get("user_id"),
         "name": user.get("name"),
@@ -441,8 +452,8 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "is_banned": user.get("is_banned", False),
         "is_available": user.get("is_available", False),
         "kyc_status": user.get("kyc_status", "none"),
-        "kyc_id_card_url": user.get("kyc_id_card_url"),
-        "kyc_license_url": user.get("kyc_license_url"),
+        "kyc_id_card_url": _admin_kyc_document_url(user_id, "id_card") if has_id_card else None,
+        "kyc_license_url": _admin_kyc_document_url(user_id, "license") if has_license else None,
         "relay_point_id": user.get("relay_point_id"),
         "deliveries_completed": user.get("deliveries_completed", 0),
         "average_rating": user.get("average_rating", 0.0),
