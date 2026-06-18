@@ -83,6 +83,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>(() => inferMode(value));
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const [panelAlign, setPanelAlign] = React.useState<"left" | "right">("right");
 
   // États locaux pour chaque mode (évite qu'un switch de mode détruise la saisie).
   const [day, setDay] = React.useState<string>(value.from ?? "");
@@ -91,6 +92,30 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
   );
   const [rangeFrom, setRangeFrom] = React.useState<string>(value.from ?? "");
   const [rangeTo, setRangeTo] = React.useState<string>(value.to ?? "");
+
+  React.useEffect(() => {
+    if (!open) return;
+
+    function updatePanelAlign() {
+      if (!wrapperRef.current) return;
+      const rect = wrapperRef.current.getBoundingClientRect();
+      const panelWidth = 320;
+      const viewportWidth = window.innerWidth;
+      const spaceOnRight = viewportWidth - rect.right;
+      const spaceOnLeft = rect.left;
+
+      if (spaceOnRight >= panelWidth || spaceOnRight >= spaceOnLeft) {
+        setPanelAlign("left");
+        return;
+      }
+
+      setPanelAlign("right");
+    }
+
+    updatePanelAlign();
+    window.addEventListener("resize", updatePanelAlign);
+    return () => window.removeEventListener("resize", updatePanelAlign);
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -186,7 +211,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[320px] rounded-xl border bg-background p-3 shadow-lg">
+        <div className={cn("absolute top-[calc(100%+6px)] z-50 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border bg-background p-3 shadow-lg", panelAlign === "left" ? "left-0" : "right-0")}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {(
               [
@@ -212,7 +237,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
               [
                 { key: "day", label: "Jour" },
                 { key: "month", label: "Mois" },
-                { key: "range", label: "Période" },
+                { key: "range", label: "P?riode" },
               ] as const
             ).map((t) => (
               <button

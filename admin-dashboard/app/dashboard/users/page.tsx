@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { ActionModal } from "@/components/action-modal";
 import { DataTable } from "@/components/data-table";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,13 +73,19 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [role, setRole] = React.useState("all");
+  const [dateRange, setDateRange] = React.useState<DateRange>({});
   const [banTarget, setBanTarget] = React.useState<AdminUser | null>(null);
   const [unbanTarget, setUnbanTarget] = React.useState<AdminUser | null>(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["users", role],
+    queryKey: ["users", role, dateRange.from ?? "", dateRange.to ?? ""],
     queryFn: () =>
-      fetchUsers({ limit: 500, role: role === "all" ? undefined : role }),
+      fetchUsers({
+        limit: 500,
+        role: role === "all" ? undefined : role,
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
+      }),
   });
   const period = React.useMemo(currentPeriod, []);
   const { data: clientStatsData } = useQuery({
@@ -380,8 +387,11 @@ export default function UsersPage() {
             Gérer les rôles, suspensions, KYC et photos de profil des comptes Denkma.
           </p>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {data ? `${data.total} comptes au total` : null}
+        <div className="flex items-center gap-3">
+          <DateRangeFilter value={dateRange} onChange={setDateRange} />
+          <div className="text-sm text-muted-foreground">
+            {data ? `${data.total} comptes au total` : null}
+          </div>
         </div>
       </div>
 

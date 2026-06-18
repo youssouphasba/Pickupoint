@@ -33,7 +33,7 @@ from services.parcel_service import (
 from services.pricing_service import get_pricing_settings
 from services.notification_service import notify_payout_result, send_targeted_notifications
 from services.admin_events_service import AdminEventType, record_admin_event
-from core.date_filters import date_range_query
+from core.date_filters import date_range_query, parse_date_range
 from services.whatsapp_support_service import (
     MAX_WHATSAPP_MEDIA_BYTES,
     ensure_whatsapp_support_media_file,
@@ -1639,6 +1639,8 @@ async def admin_list_users(
     skip: int = 0,
     limit: int = 100,
     role: str = None,
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
     from services.ranking_service import refresh_driver_stats_for_period
@@ -1651,6 +1653,7 @@ async def admin_list_users(
     query = {}
     if role:
         query["role"] = role
+    query.update(date_range_query(from_date, to_date, field="created_at"))
     
     cursor = db.users.find(query, {"_id": 0}).skip(skip).limit(limit).sort("created_at", -1)
     users = await cursor.to_list(length=limit)
@@ -4713,10 +4716,20 @@ async def update_referral_settings(
 
 @router.get("/finance/overview", summary="Vue d'ensemble finance")
 async def get_finance_overview(
-    period: str = Query(..., description="Format YYYY-MM"),
+    period: Optional[str] = Query(None, description="Format YYYY-MM"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
-    start, end = _month_bounds(period)
+    if from_date or to_date:
+        start, end = parse_date_range(from_date, to_date)
+        if start is None or end is None:
+            raise bad_request_exception("Intervalle de dates invalide")
+    elif period:
+        start, end = _month_bounds(period)
+    else:
+        raise bad_request_exception("Fournissez une période mensuelle ou un intervalle de dates")
+
     date_query = {"$gte": start, "$lte": end}
 
     parcel_docs = await db.parcels.find(

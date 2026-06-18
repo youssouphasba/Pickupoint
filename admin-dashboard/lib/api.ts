@@ -114,6 +114,8 @@ export type AdminUser = {
 
 export async function fetchUsers(params: {
   role?: string;
+  from_date?: string;
+  to_date?: string;
   skip?: number;
   limit?: number;
 }) {
@@ -589,9 +591,13 @@ export async function fetchFinanceReconciliation() {
   return data;
 }
 
-export async function fetchFinanceOverview(period: string) {
+export async function fetchFinanceOverview(params: {
+  period?: string;
+  from_date?: string;
+  to_date?: string;
+}) {
   const { data } = await api.get("/api/admin/finance/overview", {
-    params: { period },
+    params,
   });
   return data;
 }

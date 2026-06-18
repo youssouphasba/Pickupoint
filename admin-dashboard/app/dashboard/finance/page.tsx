@@ -9,6 +9,7 @@ import {
   fetchFinanceOverview,
   fetchFinanceReconciliation,
 } from "@/lib/api";
+import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -16,34 +17,6 @@ const xof = new Intl.NumberFormat("fr-FR");
 
 function monthValue(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function monthLabel(value: string) {
-  const [year, month] = value.split("-").map(Number);
-  const labels = [
-    "janvier",
-    "février",
-    "mars",
-    "avril",
-    "mai",
-    "juin",
-    "juillet",
-    "août",
-    "septembre",
-    "octobre",
-    "novembre",
-    "décembre",
-  ];
-  return `${labels[month - 1] ?? value} ${year}`;
-}
-
-function monthOptions() {
-  const now = new Date();
-  return Array.from({ length: 18 }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
-    const value = monthValue(date);
-    return { value, label: monthLabel(value) };
-  });
 }
 
 function periodBounds(period: string) {
@@ -54,15 +27,18 @@ function periodBounds(period: string) {
   return { start, end };
 }
 
+function currentMonthRange(): DateRange {
+  const { start, end } = periodBounds(monthValue(new Date()));
+  return { from: start, to: end };
+}
+
 function buildParcelHref(
-  period: string,
+  range: DateRange,
   params: Record<string, string | undefined>
 ) {
-  const { start, end } = periodBounds(period);
-  const query = new URLSearchParams({
-    from_date: start,
-    to_date: end,
-  });
+  const query = new URLSearchParams();
+  if (range.from) query.set("from_date", range.from);
+  if (range.to) query.set("to_date", range.to);
   Object.entries(params).forEach(([key, value]) => {
     if (value) query.set(key, value);
   });
@@ -148,11 +124,17 @@ const ISSUE_LABELS: Record<string, string> = {
 };
 
 export default function FinancePage() {
-  const [period, setPeriod] = React.useState(() => monthValue(new Date()));
+  const [dateRange, setDateRange] = React.useState<DateRange>(() =>
+    currentMonthRange()
+  );
 
   const overview = useQuery({
-    queryKey: ["finance-overview", period],
-    queryFn: () => fetchFinanceOverview(period),
+    queryKey: ["finance-overview", dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () =>
+      fetchFinanceOverview({
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
+      }),
   });
 
   const recon = useQuery({
@@ -172,15 +154,15 @@ export default function FinancePage() {
   ];
 
   const routes = {
-    active: buildParcelHref(period, { scope: "active" }),
-    blockedPayment: buildParcelHref(period, { payment_blocked: "true" }),
-    delivered: buildParcelHref(period, { status: "delivered" }),
-    deliveredUnpaid: buildParcelHref(period, { finance_filter: "delivered_unpaid" }),
-    cancelled: buildParcelHref(period, { status: "cancelled" }),
-    commissionReceived: buildParcelHref(period, { finance_filter: "commission_received" }),
-    commissionDebt: buildParcelHref(period, { finance_filter: "commission_debt" }),
-    commissionOffered: buildParcelHref(period, { finance_filter: "commission_offered" }),
-    allParcels: buildParcelHref(period, {}),
+    active: buildParcelHref(dateRange, { scope: "active" }),
+    blockedPayment: buildParcelHref(dateRange, { payment_blocked: "true" }),
+    delivered: buildParcelHref(dateRange, { status: "delivered" }),
+    deliveredUnpaid: buildParcelHref(dateRange, { finance_filter: "delivered_unpaid" }),
+    cancelled: buildParcelHref(dateRange, { status: "cancelled" }),
+    commissionReceived: buildParcelHref(dateRange, { finance_filter: "commission_received" }),
+    commissionDebt: buildParcelHref(dateRange, { finance_filter: "commission_debt" }),
+    commissionOffered: buildParcelHref(dateRange, { finance_filter: "commission_offered" }),
+    allParcels: buildParcelHref(dateRange, {}),
   };
 
   return (
@@ -193,17 +175,7 @@ export default function FinancePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            value={period}
-            onChange={(event) => setPeriod(event.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            {monthOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <DateRangeFilter value={dateRange} onChange={setDateRange} />
           <Link
             href="/dashboard/payouts"
             className="inline-flex h-9 items-center rounded-md border border-input px-3 text-sm font-medium hover:bg-accent"
@@ -306,13 +278,13 @@ export default function FinancePage() {
                   label="Expéditeur paie"
                   value={`${data.payments.sender_pays_parcels ?? 0} colis`}
                   hint="Tous statuts confondus sur la période sélectionnée"
-                  href={buildParcelHref(period, { finance_filter: "sender_pays" })}
+                  href={buildParcelHref(dateRange, { finance_filter: "sender_pays" })}
                 />
                 <DetailRow
                   label="Destinataire paie"
                   value={`${data.payments.recipient_pays_parcels ?? 0} colis`}
                   hint="Tous statuts confondus sur la période sélectionnée"
-                  href={buildParcelHref(period, { finance_filter: "recipient_pays" })}
+                  href={buildParcelHref(dateRange, { finance_filter: "recipient_pays" })}
                 />
                 <DetailRow
                   label="Colis livrés"
@@ -384,17 +356,17 @@ export default function FinancePage() {
                   <DetailRow
                     label="Prélevée sur le solde du livreur"
                     value={`${data.commissions.charged_to_balance_count ?? 0} courses`}
-                    href={buildParcelHref(period, { finance_filter: "charge_mode_wallet_hold" })}
+                    href={buildParcelHref(dateRange, { finance_filter: "charge_mode_wallet_hold" })}
                   />
                   <DetailRow
                     label="Mise à la charge du livreur"
                     value={`${data.commissions.charged_as_debt_count ?? 0} courses`}
-                    href={buildParcelHref(period, { finance_filter: "charge_mode_driver_debt" })}
+                    href={buildParcelHref(dateRange, { finance_filter: "charge_mode_driver_debt" })}
                   />
                   <DetailRow
                     label="Offerte par Denkma"
                     value={`${data.commissions.offered_by_denkma_count ?? 0} courses`}
-                    href={buildParcelHref(period, { finance_filter: "charge_mode_platform_sponsored" })}
+                    href={buildParcelHref(dateRange, { finance_filter: "charge_mode_platform_sponsored" })}
                   />
                   <DetailRow
                     label="Montant encore à récupérer"
@@ -404,7 +376,7 @@ export default function FinancePage() {
                   <DetailRow
                     label="En attente de réponse livreur"
                     value={`${data.commissions.waiting_driver_confirmation_count ?? 0} courses`}
-                    href={buildParcelHref(period, { finance_filter: "awaiting_driver_response" })}
+                    href={buildParcelHref(dateRange, { finance_filter: "awaiting_driver_response" })}
                   />
                 </CardContent>
               </Card>
