@@ -239,7 +239,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                     ref.invalidate(adminAnomalyProvider);
                     ref.invalidate(adminDashboardProvider);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Mission reaffectee !')),
+                      const SnackBar(content: Text('Mission r?affect?e !')),
                     );
                   }
                 } catch (e) {

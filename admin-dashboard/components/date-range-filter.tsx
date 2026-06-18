@@ -237,7 +237,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
               [
                 { key: "day", label: "Jour" },
                 { key: "month", label: "Mois" },
-                { key: "range", label: "P?riode" },
+                { key: "range", label: "Période" },
               ] as const
             ).map((t) => (
               <button
