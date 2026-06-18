@@ -676,7 +676,7 @@ export default function ParcelDetailPage() {
               }
             />
             <Row
-              label="Prix payé"
+              label="Montant réglé"
               value={
                 parcel.paid_price ? `${xof.format(parcel.paid_price)} XOF` : "—"
               }

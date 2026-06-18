@@ -144,7 +144,7 @@ const ISSUE_LABELS: Record<string, string> = {
   negative_wallets: "Soldes négatifs à vérifier",
   payout_ledger_gaps: "Retraits à revoir",
   mission_parcel_mismatches: "Courses à revoir",
-  delivered_unpaid: "Colis livrés non réglés",
+  delivered_unpaid: "Colis à régulariser",
 };
 
 export default function FinancePage() {
@@ -175,7 +175,6 @@ export default function FinancePage() {
     active: buildParcelHref(period, { scope: "active" }),
     blockedPayment: buildParcelHref(period, { payment_blocked: "true" }),
     delivered: buildParcelHref(period, { status: "delivered" }),
-    deliveredPaid: buildParcelHref(period, { finance_filter: "delivered_paid" }),
     deliveredUnpaid: buildParcelHref(period, { finance_filter: "delivered_unpaid" }),
     cancelled: buildParcelHref(period, { status: "cancelled" }),
     commissionReceived: buildParcelHref(period, { finance_filter: "commission_received" }),
@@ -280,10 +279,10 @@ export default function FinancePage() {
                 href={routes.active}
               />
               <StatCard
-                label="Valeur des colis livrés payés"
-                value={`${xof.format(data.payments.delivered_received_amount_xof ?? 0)} XOF`}
-                hint={`${data.payments.delivered_received_parcels ?? 0} colis livrés payés`}
-                href={routes.deliveredPaid}
+                label="Colis à régulariser"
+                value={data.payments.delivered_waiting_payment_parcels ?? 0}
+                hint={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF à régulariser`}
+                href={routes.deliveredUnpaid}
               />
               <StatCard
                 label="Colis livrés"
@@ -321,7 +320,7 @@ export default function FinancePage() {
                   href={routes.delivered}
                 />
                 <DetailRow
-                  label="Colis livrés non payés"
+                  label="Colis à régulariser"
                   value={
                     <Link href={routes.deliveredUnpaid}>
                       <Badge
@@ -338,7 +337,7 @@ export default function FinancePage() {
                   href={routes.deliveredUnpaid}
                 />
                 <DetailRow
-                  label="Valeur des colis livrés non payés"
+                  label="Valeur à régulariser"
                   value={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF`}
                   href={routes.deliveredUnpaid}
                 />

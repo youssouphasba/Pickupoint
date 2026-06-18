@@ -80,13 +80,8 @@ const FILTERS: ParcelFilter[] = [
   },
   { value: "delivered", label: "Livrés", params: { status: "delivered" } },
   {
-    value: "delivered_paid",
-    label: "Livrés payés",
-    params: { finance_filter: "delivered_paid" },
-  },
-  {
     value: "delivered_unpaid",
-    label: "Livrés impayés",
+    label: "À régulariser",
     params: { finance_filter: "delivered_unpaid" },
   },
   { value: "cancelled", label: "Annulés", params: { status: "cancelled" } },
@@ -112,6 +107,7 @@ const xof = new Intl.NumberFormat("fr-FR");
 
 function filterFromSearchParams(searchParams: URLSearchParams) {
   const financeFilter = searchParams.get("finance_filter");
+  if (financeFilter === "delivered_paid") return "delivered";
   if (financeFilter) return financeFilter;
   if (searchParams.get("created_today") === "true") return "today";
   if (searchParams.get("payment_blocked") === "true") return "payment_blocked";
