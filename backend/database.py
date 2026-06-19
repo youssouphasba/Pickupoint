@@ -74,7 +74,7 @@ async def create_indexes():
             IndexModel([("expires_at", 1)], expireAfterSeconds=0),
         ],
         "user_sessions": [
-            IndexModel([("refresh_token", 1)], unique=True),
+            IndexModel([("refresh_token_hash", 1)], unique=True, sparse=True),
             IndexModel([("user_id", 1)]),
             IndexModel([("expires_at", 1)], expireAfterSeconds=0),
         ],
@@ -186,6 +186,7 @@ async def create_indexes():
 
     await _repair_ttl_index("otps", "expires_at_1", "expires_at", 0)
     await _repair_ttl_index("user_sessions", "expires_at_1", "expires_at", 0)
+    await _repair_user_session_indexes()
 
     for collection_name, index_models in collections_to_index.items():
         try:
@@ -216,3 +217,20 @@ async def _repair_ttl_index(collection_name: str, index_name: str, field_name: s
             )
     except OperationFailure as e:
         logger.error("Failed to inspect TTL index %s.%s: %s", collection_name, index_name, e)
+
+
+async def _repair_user_session_indexes():
+    collection = _db_instance["user_sessions"]
+    try:
+        indexes = await collection.index_information()
+        legacy_refresh_index = indexes.get("refresh_token_1")
+        if legacy_refresh_index:
+            key = legacy_refresh_index.get("key")
+            is_legacy_key = key == [("refresh_token", 1)] or key == [("refresh_token", ASCENDING)]
+            if is_legacy_key:
+                await collection.drop_index("refresh_token_1")
+                logger.warning(
+                    "Dropped legacy index user_sessions.refresh_token_1 to allow hashed refresh token storage"
+                )
+    except OperationFailure as e:
+        logger.error("Failed to repair user_sessions indexes: %s", e)
