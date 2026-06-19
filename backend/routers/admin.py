@@ -96,6 +96,311 @@ def _month_bounds(period: str) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _humanize_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "Inconnu"
+    return text.replace("_", " ").strip().capitalize()
+
+
+def _timeline_item(
+    *,
+    kind: str,
+    title: str,
+    occurred_at: Any,
+    subtitle: Optional[str] = None,
+    tone: str = "default",
+    parcel_id: Optional[str] = None,
+    mission_id: Optional[str] = None,
+    reference_id: Optional[str] = None,
+) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "title": title,
+        "subtitle": subtitle,
+        "occurred_at": occurred_at,
+        "tone": tone,
+        "parcel_id": parcel_id,
+        "mission_id": mission_id,
+        "reference_id": reference_id,
+    }
+
+
+async def _build_driver_financial_summary(
+    user_id: str,
+    wallet: Optional[dict],
+    current_period: str,
+) -> Optional[dict[str, Any]]:
+    if not wallet or not wallet.get("wallet_id"):
+        return None
+
+    wallet_id = wallet["wallet_id"]
+    period_start, period_end = _month_bounds(current_period)
+
+    tx_rows = await db.wallet_transactions.aggregate([
+        {"$match": {"wallet_id": wallet_id}},
+        {
+            "$group": {
+                "_id": "$tx_type",
+                "count": {"$sum": 1},
+                "amount": {"$sum": {"$ifNull": ["$amount", 0]}},
+            }
+        },
+    ]).to_list(length=20)
+    tx_by_type = {str(row.get("_id") or ""): row for row in tx_rows}
+
+    payout_rows = await db.payout_requests.aggregate([
+        {"$match": {"owner_id": user_id}},
+        {
+            "$group": {
+                "_id": "$status",
+                "count": {"$sum": 1},
+                "amount": {"$sum": {"$ifNull": ["$amount", 0]}},
+            }
+        },
+    ]).to_list(length=10)
+    payout_by_status = {str(row.get("_id") or ""): row for row in payout_rows}
+
+    mission_rows = await db.delivery_missions.aggregate([
+        {
+            "$match": {
+                "driver_id": user_id,
+                "$or": [
+                    {"assigned_at": {"$gte": period_start, "$lte": period_end}},
+                    {"created_at": {"$gte": period_start, "$lte": period_end}},
+                    {"updated_at": {"$gte": period_start, "$lte": period_end}},
+                ],
+            }
+        },
+        {
+            "$group": {
+                "_id": {"$ifNull": ["$commission_charge_mode", "wallet_hold"]},
+                "count": {"$sum": 1},
+                "amount": {"$sum": {"$ifNull": ["$platform_commission_xof", 0]}},
+            }
+        },
+    ]).to_list(length=10)
+    mission_by_mode = {str(row.get("_id") or "wallet_hold"): row for row in mission_rows}
+
+    recent_transactions = await db.wallet_transactions.find(
+        {"wallet_id": wallet_id},
+        {
+            "_id": 0,
+            "tx_id": 1,
+            "tx_type": 1,
+            "amount": 1,
+            "description": 1,
+            "reference": 1,
+            "parcel_id": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", -1).limit(6).to_list(length=6)
+
+    def _tx_total(tx_type: str) -> float:
+        return round(float(tx_by_type.get(tx_type, {}).get("amount", 0) or 0), 2)
+
+    def _tx_count(tx_type: str) -> int:
+        return int(tx_by_type.get(tx_type, {}).get("count", 0) or 0)
+
+    def _payout_amount(status: str) -> float:
+        return round(float(payout_by_status.get(status, {}).get("amount", 0) or 0), 2)
+
+    def _payout_count(status: str) -> int:
+        return int(payout_by_status.get(status, {}).get("count", 0) or 0)
+
+    def _mission_amount(mode: str) -> float:
+        return round(float(mission_by_mode.get(mode, {}).get("amount", 0) or 0), 2)
+
+    def _mission_count(mode: str) -> int:
+        return int(mission_by_mode.get(mode, {}).get("count", 0) or 0)
+
+    return {
+        "period": current_period,
+        "wallet_totals": {
+            "credits_xof": _tx_total(TransactionType.CREDIT.value),
+            "credits_count": _tx_count(TransactionType.CREDIT.value),
+            "debits_xof": _tx_total(TransactionType.DEBIT.value),
+            "debits_count": _tx_count(TransactionType.DEBIT.value),
+            "pending_xof": _tx_total(TransactionType.PENDING.value),
+            "pending_count": _tx_count(TransactionType.PENDING.value),
+            "revenue_xof": _tx_total(TransactionType.REVENUE.value),
+            "revenue_count": _tx_count(TransactionType.REVENUE.value),
+        },
+        "commissions": {
+            "wallet_hold_xof": _mission_amount("wallet_hold"),
+            "wallet_hold_count": _mission_count("wallet_hold"),
+            "driver_debt_xof": _mission_amount("driver_debt"),
+            "driver_debt_count": _mission_count("driver_debt"),
+            "platform_sponsored_xof": _mission_amount("platform_sponsored"),
+            "platform_sponsored_count": _mission_count("platform_sponsored"),
+        },
+        "payouts": {
+            "pending_xof": _payout_amount("pending"),
+            "pending_count": _payout_count("pending"),
+            "approved_xof": _payout_amount("approved"),
+            "approved_count": _payout_count("approved"),
+            "rejected_xof": _payout_amount("rejected"),
+            "rejected_count": _payout_count("rejected"),
+        },
+        "recent_transactions": recent_transactions,
+    }
+
+
+async def _build_user_timeline(user: dict, *, limit: int = 80) -> list[dict[str, Any]]:
+    user_id = user["user_id"]
+    phone = user.get("phone")
+
+    sent_docs = await db.parcels.find(
+        {"sender_user_id": user_id},
+        {"_id": 0, "parcel_id": 1},
+    ).sort("updated_at", -1).limit(40).to_list(length=40)
+    received_docs = await db.parcels.find(
+        {"$or": [{"recipient_phone": phone}, {"recipient_user_id": user_id}]},
+        {"_id": 0, "parcel_id": 1},
+    ).sort("updated_at", -1).limit(40).to_list(length=40)
+    missions = await db.delivery_missions.find(
+        {"driver_id": user_id},
+        {
+            "_id": 0,
+            "mission_id": 1,
+            "parcel_id": 1,
+            "status": 1,
+            "pickup_label": 1,
+            "delivery_label": 1,
+            "assigned_at": 1,
+            "completed_at": 1,
+            "updated_at": 1,
+        },
+    ).sort("updated_at", -1).limit(40).to_list(length=40)
+    applications = await db.applications.find(
+        {"user_id": user_id},
+        {"_id": 0, "application_id": 1, "type": 1, "status": 1, "created_at": 1, "updated_at": 1},
+    ).sort("updated_at", -1).limit(20).to_list(length=20)
+    payouts = await db.payout_requests.find(
+        {"owner_id": user_id},
+        {"_id": 0, "payout_id": 1, "amount": 1, "method": 1, "status": 1, "created_at": 1, "updated_at": 1},
+    ).sort("updated_at", -1).limit(20).to_list(length=20)
+    sessions = await db.user_sessions.find(
+        {"user_id": user_id},
+        {"_id": 0, "created_at": 1, "expires_at": 1},
+    ).sort("created_at", -1).limit(10).to_list(length=10)
+
+    parcel_ids = {
+        parcel_id
+        for parcel_id in [
+            *[doc.get("parcel_id") for doc in sent_docs],
+            *[doc.get("parcel_id") for doc in received_docs],
+            *[doc.get("parcel_id") for doc in missions],
+        ]
+        if parcel_id
+    }
+    event_query: dict[str, Any] = {"actor_id": user_id}
+    if parcel_ids:
+        event_query = {
+            "$or": [
+                {"actor_id": user_id},
+                {"parcel_id": {"$in": list(parcel_ids)}},
+            ]
+        }
+
+    events = await db.parcel_events.find(
+        event_query,
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "mission_id": 1,
+            "event_type": 1,
+            "notes": 1,
+            "tracking_code": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", -1).limit(max(limit * 2, 80)).to_list(length=max(limit * 2, 80))
+
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+
+    for event in events:
+        key = ("event", event.get("event_type"), event.get("parcel_id"), event.get("mission_id"), event.get("created_at"))
+        if key in seen:
+            continue
+        seen.add(key)
+        subtitle_parts = [value for value in [event.get("tracking_code"), event.get("notes")] if str(value or "").strip()]
+        items.append(_timeline_item(
+            kind="event",
+            title=_humanize_token(event.get("event_type")),
+            subtitle=" ? ".join(str(part) for part in subtitle_parts) or None,
+            occurred_at=event.get("created_at"),
+            tone="info",
+            parcel_id=event.get("parcel_id"),
+            mission_id=event.get("mission_id"),
+        ))
+
+    for mission in missions:
+        key = ("mission", mission.get("mission_id"), mission.get("updated_at"), mission.get("status"))
+        if key in seen:
+            continue
+        seen.add(key)
+        subtitle_parts = [value for value in [mission.get("pickup_label"), mission.get("delivery_label")] if str(value or "").strip()]
+        items.append(_timeline_item(
+            kind="mission",
+            title=f"Mission {_humanize_token(mission.get('status'))}",
+            subtitle=" ? ".join(str(part) for part in subtitle_parts) or None,
+            occurred_at=mission.get("completed_at") or mission.get("updated_at") or mission.get("assigned_at"),
+            tone="warning" if mission.get("status") in {"assigned", "in_progress"} else "default",
+            parcel_id=mission.get("parcel_id"),
+            mission_id=mission.get("mission_id"),
+        ))
+
+    for payout in payouts:
+        key = ("payout", payout.get("payout_id"), payout.get("updated_at"), payout.get("status"))
+        if key in seen:
+            continue
+        seen.add(key)
+        amount_label = f"{round(float(payout.get('amount', 0) or 0), 2):,.0f} XOF".replace(",", " ")
+        items.append(_timeline_item(
+            kind="payout",
+            title=f"Retrait {_humanize_token(payout.get('status'))}",
+            subtitle=f"{amount_label} ? {str(payout.get('method') or '').replace('_', ' ')}",
+            occurred_at=payout.get("updated_at") or payout.get("created_at"),
+            tone="success" if payout.get("status") == "approved" else "warning" if payout.get("status") == "pending" else "danger",
+            reference_id=payout.get("payout_id"),
+        ))
+
+    for application in applications:
+        key = ("application", application.get("application_id"), application.get("updated_at"), application.get("status"))
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(_timeline_item(
+            kind="application",
+            title=f"Candidature {_humanize_token(application.get('status'))}",
+            subtitle=_humanize_token(application.get("type")),
+            occurred_at=application.get("updated_at") or application.get("created_at"),
+            tone="warning" if application.get("status") == "pending" else "success" if application.get("status") == "approved" else "danger",
+            reference_id=application.get("application_id"),
+        ))
+
+    for session in sessions:
+        key = ("session", session.get("created_at"))
+        if key in seen:
+            continue
+        seen.add(key)
+        expires_at = session.get("expires_at")
+        items.append(_timeline_item(
+            kind="session",
+            title="Connexion application",
+            subtitle=(f"Session valide jusqu'au {expires_at.isoformat()}" if isinstance(expires_at, datetime) else None),
+            occurred_at=session.get("created_at"),
+            tone="default",
+        ))
+
+    items.sort(
+        key=lambda item: _as_aware_utc(item.get("occurred_at")) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return items[:limit]
+
+
 async def _recent_failed_driver_mission(user_id: str) -> Optional[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     return await db.delivery_missions.find_one(
@@ -602,7 +907,7 @@ def _application_snapshot(
 
 
 def _looks_like_masked_phone(value: Any) -> bool:
-    return isinstance(value, str) and ("•" in value or "*" in value)
+    return isinstance(value, str) and ("" in value or "*" in value)
 
 
 async def _restore_admin_parcel_phones(parcels: list[dict]) -> None:
@@ -1643,7 +1948,7 @@ async def set_user_payout_block(
 
 
 
-# ── Gestion des Utilisateurs & Bannissement ───────────────────────────────────
+# -- Gestion des Utilisateurs & Bannissement -----------------------------------
 
 @router.get("/users", summary="Liste tous les utilisateurs (Admin)")
 async def admin_list_users(
@@ -1914,10 +2219,6 @@ async def admin_user_detail(
         {"_id": 0},
         sort=[("updated_at", -1)],
     )
-    recent_events = await db.parcel_events.find(
-        {"actor_id": user_id},
-        {"_id": 0},
-    ).sort("created_at", -1).limit(10).to_list(length=10)
     applications = await db.applications.find(
         {"user_id": user_id},
         {"_id": 0},
@@ -1997,6 +2298,9 @@ async def admin_user_detail(
                 "total_ratings_count": user.get("total_ratings_count", 0),
             }
 
+    driver_financial_summary = await _build_driver_financial_summary(user_id, wallet, current_period)
+    recent_timeline = await _build_user_timeline(user, limit=12)
+
     relay_performance = None
     if relay_id:
         relay_rules = performance_rewards["relay"]["volume_bonuses"]
@@ -2056,21 +2360,24 @@ async def admin_user_detail(
             "relay": relay_performance,
         },
         "linked_relay": linked_relay,
-        "wallet": _pick_snapshot(
-            wallet,
-            [
-                "wallet_id",
-                "owner_type",
-                "balance",
-                "pending",
-                "currency",
-                "payout_blocked",
-                "payout_block_reason",
-                "payout_blocked_by",
-                "payout_blocked_at",
-                "updated_at",
-            ],
-        ),
+        "wallet": {
+            **_pick_snapshot(
+                wallet,
+                [
+                    "wallet_id",
+                    "owner_type",
+                    "balance",
+                    "pending",
+                    "currency",
+                    "payout_blocked",
+                    "payout_block_reason",
+                    "payout_blocked_by",
+                    "payout_blocked_at",
+                    "updated_at",
+                ],
+            ),
+            "financial_summary": driver_financial_summary,
+        },
         "active_mission": _pick_snapshot(
             active_mission,
             [
@@ -2099,7 +2406,7 @@ async def admin_user_detail(
             ],
         ),
         "last_session": last_session,
-        "recent_events": recent_events,
+        "recent_timeline": recent_timeline,
         "applications": [
             snapshot
             for snapshot in (_application_snapshot(application, user) for application in applications)
@@ -3196,42 +3503,32 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
 
 @router.get("/users/{user_id}/history", summary="Historique complet d'un utilisateur")
 async def get_user_history(user_id: str, _admin=Depends(require_admin_dep)):
-    """
-    Retourne la liste des activités liées à cet utilisateur :
-    - Colis envoyés
-    - Colis dont il est destinataire
-    - Missions de livraison (si livreur)
-    - Événements d'audit liés
-    """
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise not_found_exception("Utilisateur")
 
-    # 1. Colis envoyés
-    parcels_sent = await db.parcels.find({"sender_user_id": user_id}, {"_id": 0}).to_list(length=100)
-    
-    # 2. Colis reçus (basé sur le numéro de téléphone ou user_id si lié)
+    parcels_sent = await db.parcels.find({"sender_user_id": user_id}, {"_id": 0}).sort("updated_at", -1).limit(100).to_list(length=100)
     parcels_received = await db.parcels.find({
         "$or": [
-            {"recipient_phone": user["phone"]},
+            {"recipient_phone": user.get("phone")},
             {"recipient_user_id": user_id}
         ]
-    }, {"_id": 0}).to_list(length=100)
+    }, {"_id": 0}).sort("updated_at", -1).limit(100).to_list(length=100)
 
-    # 3. Missions (si livreur)
     missions = []
     if user.get("role") == UserRole.DRIVER.value:
-        missions = await db.delivery_missions.find({"driver_id": user_id}, {"_id": 0}).to_list(length=100)
+        missions = await db.delivery_missions.find({"driver_id": user_id}, {"_id": 0}).sort("updated_at", -1).limit(100).to_list(length=100)
 
-    # 4. Événements récents où il est l'acteur
-    events = await db.parcel_events.find({"actor_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(length=50)
+    timeline = await _build_user_timeline(user, limit=120)
+    events = [item for item in timeline if item.get("kind") == "event"]
 
     return {
         "user": user,
         "parcels_sent": parcels_sent,
         "parcels_received": parcels_received,
         "missions": missions,
-        "events": events
+        "events": events,
+        "timeline": timeline,
     }
 
 
@@ -3902,7 +4199,7 @@ async def admin_override_status(
     return await override_parcel_status(parcel_id, new_status, notes)
 
 
-# ── Fidélité & Récompenses (Phase 8) ─────────────────────────────────────────
+# -- Fidélité & Récompenses (Phase 8) -----------------------------------------
 
 @router.post("/recompenses/trigger-monthly", summary="Lancer manuellement le calcul mensuel (Admin)")
 async def admin_trigger_monthly(
@@ -4313,7 +4610,7 @@ async def reject_payout(
 
 
 
-# ── App Settings (Express, etc.) ─────────────────────────────────────────────
+# -- App Settings (Express, etc.) ---------------------------------------------
 
 @router.get("/settings", summary="Lire les paramètres globaux de l'app")
 async def get_app_settings(_admin=Depends(require_admin_dep)):
@@ -4399,7 +4696,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     now = datetime.now(timezone.utc)
     last_30_days = now - timedelta(days=30)
 
-    # Aggregation pipeline — no full user scan
+    # Aggregation pipeline  no full user scan
     pipeline = [
         {"$match": {"role": {"$in": REFERRAL_ELIGIBLE_ROLES}}},
         {"$group": {

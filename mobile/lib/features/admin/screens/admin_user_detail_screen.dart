@@ -53,8 +53,14 @@ class AdminUserDetailScreen extends ConsumerWidget {
           final lastSession = Map<String, dynamic>.from(
             data['last_session'] as Map<String, dynamic>? ?? const {},
           );
-          final recentEvents = List<Map<String, dynamic>>.from(
-            data['recent_events'] as List? ?? const [],
+          final recentTimeline = List<Map<String, dynamic>>.from(
+            data['recent_timeline'] as List? ?? const [],
+          );
+          final walletFinancialSummary = Map<String, dynamic>.from(
+            wallet['financial_summary'] as Map? ?? const {},
+          );
+          final recentTransactions = List<Map<String, dynamic>>.from(
+            walletFinancialSummary['recent_transactions'] as List? ?? const [],
           );
           final applications = List<Map<String, dynamic>>.from(
             data['applications'] as List? ?? const [],
@@ -395,6 +401,74 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         ),
                         _InfoRow('Devise', _stringOrDash(wallet['currency'])),
                         _InfoRow('Maj', _formatDateValue(wallet['updated_at'])),
+                      ],
+                    ),
+                  ),
+                ],
+                if (walletFinancialSummary.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _SectionCard(
+                    title: 'Finances livreur',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _InfoRow(
+                          'Commission pr\u00e9lev\u00e9e',
+                          formatXof(
+                            (walletFinancialSummary['commissions']
+                                        as Map?)?['wallet_hold_xof']
+                                    as num? ??
+                                0,
+                          ),
+                        ),
+                        _InfoRow(
+                          'Commission en dette',
+                          formatXof(
+                            (walletFinancialSummary['commissions']
+                                        as Map?)?['driver_debt_xof']
+                                    as num? ??
+                                0,
+                          ),
+                        ),
+                        _InfoRow(
+                          'Commission offerte',
+                          formatXof(
+                            (walletFinancialSummary['commissions']
+                                        as Map?)?['platform_sponsored_xof']
+                                    as num? ??
+                                0,
+                          ),
+                        ),
+                        _InfoRow(
+                          'Retraits en attente',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['pending_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['pending_xof'] as num?) ?? 0)}',
+                        ),
+                        _InfoRow(
+                          'Retraits valid\u00e9s',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['approved_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['approved_xof'] as num?) ?? 0)}',
+                        ),
+                        _InfoRow(
+                          'Retraits refus\u00e9s',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['rejected_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['rejected_xof'] as num?) ?? 0)}',
+                        ),
+                        if (recentTransactions.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Mouvements r\u00e9cents',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final tx in recentTransactions)
+                            _TimelineTile(
+                              item: {
+                                'kind': tx['tx_type'],
+                                'title': tx['description'] ?? tx['tx_type'],
+                                'subtitle': tx['reference'],
+                                'occurred_at': tx['created_at'],
+                                'amount': tx['amount'],
+                              },
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -1575,13 +1649,14 @@ class _ApplicationDocument {
   final String url;
 }
 
-class _EventTile extends StatelessWidget {
-  const _EventTile({required this.event});
+class _TimelineTile extends StatelessWidget {
+  const _TimelineTile({required this.item});
 
-  final Map<String, dynamic> event;
+  final Map<String, dynamic> item;
 
   @override
   Widget build(BuildContext context) {
+    final amount = item['amount'] as num?;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
@@ -1594,14 +1669,15 @@ class _EventTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _stringOrDash(event['event_type']),
+            _stringOrDash(item['title'] ?? item['kind']),
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          Text('Colis: ${_stringOrDash(event['parcel_id'])}'),
-          Text('Date: ${_formatDateValue(event['created_at'])}'),
-          if (_stringOrDash(event['notes']) != '--')
-            Text('Notes: ${_stringOrDash(event['notes'])}'),
+          if (_stringOrDash(item['subtitle']) != '--')
+            Text(_stringOrDash(item['subtitle'])),
+          Text('Type: ${_stringOrDash(item['kind'])}'),
+          Text('Date: ${_formatDateValue(item['occurred_at'])}'),
+          if (amount != null) Text('Montant: ${formatXof(amount)}'),
         ],
       ),
     );

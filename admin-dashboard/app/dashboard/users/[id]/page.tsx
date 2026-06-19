@@ -364,6 +364,9 @@ export default function UserDetailPage() {
   const summary = data.summary;
   const performance = data.performance ?? {};
   const wallet = data.wallet;
+  const walletFinancial = wallet?.financial_summary ?? null;
+  const recentTimeline = Array.isArray(data.recent_timeline) ? data.recent_timeline : [];
+  const historyTimeline = Array.isArray(history.data?.timeline) ? history.data.timeline : [];
   const referral = data.referral;
   const sponsoredReferrals = referral?.sponsored_referrals;
   const sponsoredItems = Array.isArray(sponsoredReferrals?.items)
@@ -921,6 +924,43 @@ export default function UserDetailPage() {
                   </Button>
                 )}
               </div>
+              {walletFinancial && (
+                <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <InfoLine label={"Commission prélevée"} value={`${xof.format(walletFinancial.commissions?.wallet_hold_xof ?? 0)} XOF`} />
+                    <InfoLine label="Commission en dette" value={`${xof.format(walletFinancial.commissions?.driver_debt_xof ?? 0)} XOF`} />
+                    <InfoLine label="Commission offerte" value={`${xof.format(walletFinancial.commissions?.platform_sponsored_xof ?? 0)} XOF`} />
+                    <InfoLine label={"Retraits en attente"} value={`${walletFinancial.payouts?.pending_count ?? 0} - ${xof.format(walletFinancial.payouts?.pending_xof ?? 0)} XOF`} />
+                    <InfoLine label={"Retraits validés"} value={`${walletFinancial.payouts?.approved_count ?? 0} - ${xof.format(walletFinancial.payouts?.approved_xof ?? 0)} XOF`} />
+                    <InfoLine label={"Retraits refusés"} value={`${walletFinancial.payouts?.rejected_count ?? 0} - ${xof.format(walletFinancial.payouts?.rejected_xof ?? 0)} XOF`} />
+                  </div>
+                  {Array.isArray(walletFinancial.recent_transactions) && walletFinancial.recent_transactions.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{"Mouvements récents"}</div>
+                      <div className="space-y-2">
+                        {walletFinancial.recent_transactions.map((tx: any) => (
+                          <div
+                            key={tx.tx_id ?? `${tx.reference}-${tx.created_at}`}
+                            className="flex items-start justify-between rounded-md border bg-background p-2 text-xs"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-medium">{textOrDash(tx.description)}</div>
+                              <div className="text-muted-foreground">
+                                {textOrDash(tx.tx_type)}
+                                {tx.reference ? ` - ${tx.reference}` : ""}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className="font-semibold">{xof.format(tx.amount ?? 0)} XOF</div>
+                              <div className="text-muted-foreground">{formatDate(tx.created_at)}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -1165,29 +1205,27 @@ export default function UserDetailPage() {
         )}
       </div>
 
-      {/* Recent events */}
-      {data.recent_events && data.recent_events.length > 0 && (
+      {recentTimeline.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Événements récents</CardTitle>
+            <CardTitle className="text-base">{"Activité récente"}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {data.recent_events.map((ev: any, i: number) => (
+              {recentTimeline.map((item: any, i: number) => (
                 <div
-                  key={i}
+                  key={`${item.kind}-${item.reference_id ?? item.parcel_id ?? item.mission_id ?? i}`}
                   className="flex items-start justify-between rounded-md border p-3 text-sm"
                 >
-                  <div>
-                    <Badge tone="info">{ev.event_type?.replace(/_/g, " ")}</Badge>
-                    {ev.notes && (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {ev.notes}
-                      </div>
+                  <div className="min-w-0">
+                    <Badge tone={item.tone ?? "default"}>{textOrDash(item.kind)}</Badge>
+                    <div className="mt-1 font-medium">{textOrDash(item.title)}</div>
+                    {item.subtitle && (
+                      <div className="mt-1 text-xs text-muted-foreground">{item.subtitle}</div>
                     )}
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatDate(ev.created_at)}
+                  <span className="shrink-0 pl-3 text-xs text-muted-foreground">
+                    {formatDate(item.occurred_at)}
                   </span>
                 </div>
               ))}
@@ -1197,31 +1235,32 @@ export default function UserDetailPage() {
       )}
 
       {/* User history */}
-      {history.data?.events && history.data.events.length > 0 && (
+      {historyTimeline.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Historique complet</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="max-h-96 space-y-2 overflow-y-auto">
-              {history.data.events.map((ev: any, i: number) => (
+              {historyTimeline.map((item: any, i: number) => (
                 <div
                   key={i}
                   className="flex items-start justify-between rounded-md border p-3 text-sm"
                 >
                   <div className="min-w-0">
-                    <Badge tone="default">{ev.event_type?.replace(/_/g, " ")}</Badge>
-                    {ev.tracking_code && (
-                      <span className="ml-2 font-mono text-xs">{ev.tracking_code}</span>
+                    <Badge tone={item.tone ?? "default"}>{textOrDash(item.kind)}</Badge>
+                    {item.reference_id && (
+                      <span className="ml-2 font-mono text-xs">{item.reference_id}</span>
                     )}
-                    {ev.notes && (
+                    <div className="mt-1 font-medium">{textOrDash(item.title)}</div>
+                    {item.subtitle && (
                       <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {ev.notes}
+                        {item.subtitle}
                       </div>
                     )}
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatDate(ev.created_at)}
+                    {formatDate(item.occurred_at)}
                   </span>
                 </div>
               ))}
