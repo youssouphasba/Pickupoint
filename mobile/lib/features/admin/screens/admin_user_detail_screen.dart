@@ -658,13 +658,13 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'Evenements recents',
-                  child: recentEvents.isEmpty
-                      ? const Text('Aucun événement récent.')
+                  title: 'Activit\u00e9 r\u00e9cente',
+                  child: recentTimeline.isEmpty
+                      ? const Text('Aucune activit\u00e9 r\u00e9cente.')
                       : Column(
                           children: [
-                            for (final event in recentEvents)
-                              _EventTile(event: event),
+                            for (final event in recentTimeline)
+                              _TimelineTile(item: event),
                           ],
                         ),
                 ),
@@ -1677,7 +1677,7 @@ class _TimelineTile extends StatelessWidget {
             Text(_stringOrDash(item['subtitle'])),
           Text('Type: ${_stringOrDash(item['kind'])}'),
           Text('Date: ${_formatDateValue(item['occurred_at'])}'),
-          if (amount != null) Text('Montant: ${formatXof(amount)}'),
+          if (amount != null) Text('Montant: ${formatXof(amount.toDouble())}'),
         ],
       ),
     );
