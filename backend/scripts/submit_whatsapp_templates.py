@@ -156,15 +156,15 @@ TEMPLATES = [
         ],
     },
     {
-        "name": "support_reopen_v2",
+        "name": "support_reopen_v3",
         "language": "fr",
         "category": "UTILITY",
         "components": [
             {
                 "type": "BODY",
                 "text": (
-                    "Bonjour {{1}}, l'équipe Denkma souhaite prendre contact avec vous. "
-                    "Répondez à ce message pour continuer avec notre équipe."
+                    "Bonjour {{1}}, une action est requise sur votre compte Denkma. "
+                    "R?pondez ? ce message pour poursuivre son traitement."
                 ),
                 "example": {
                     "body_text": [
@@ -276,7 +276,7 @@ def main() -> int:
     print("  WHATSAPP_TEMPLATE_RELAY_REDIRECTED=parcel_relay_redirected_v4")
     print("  WHATSAPP_TEMPLATE_CALL_PERMISSION=driver_call_permission_v1")
     print("  WHATSAPP_TEMPLATE_CALL_PERMISSION_VARIABLES=name,driver_name,tracking_code")
-    print("  WHATSAPP_TEMPLATE_SUPPORT_REOPEN=support_reopen_v2")
+    print("  WHATSAPP_TEMPLATE_SUPPORT_REOPEN=support_reopen_v3")
     print("  WHATSAPP_TEMPLATE_SUPPORT_REOPEN_VARIABLES=name")
     print("  WHATSAPP_TEMPLATE_APPLICATION_APPROVED=application_approved_v1")
     print("  WHATSAPP_TEMPLATE_APPLICATION_REJECTED=application_rejected_v1")
