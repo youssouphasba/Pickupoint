@@ -35,6 +35,7 @@ import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
 import '../../features/driver/providers/driver_provider.dart';
+import '../location/fresh_position_helper.dart';
 import '../../features/admin/screens/admin_dashboard.dart';
 import '../../features/admin/screens/admin_parcels_screen.dart';
 import '../../features/admin/screens/admin_relays_screen.dart';
@@ -795,15 +796,49 @@ class DriverShell extends ConsumerStatefulWidget {
   ConsumerState<DriverShell> createState() => _DriverShellState();
 }
 
-class _DriverShellState extends ConsumerState<DriverShell> {
+class _DriverShellState extends ConsumerState<DriverShell>
+    with WidgetsBindingObserver {
   StreamSubscription<Position>? _positionStream;
   DateTime? _lastBackendUpdate;
   String? _trackingMissionId;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncDriverPresence();
+    });
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _positionStream?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncDriverPresence();
+    }
+  }
+
+  Future<void> _syncDriverPresence() async {
+    final auth = ref.read(authProvider).valueOrNull;
+    final user = auth?.user;
+    if (user == null || user.role != 'driver') {
+      return;
+    }
+    try {
+      final position = await FreshPositionHelper.getDriverPresencePosition();
+      await ref.read(apiClientProvider).updateMyDriverLocation({
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'accuracy': position.accuracy,
+      });
+    } catch (_) {}
   }
 
   Future<void> _syncDriverTracking(String? missionId) async {
@@ -893,6 +928,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncDriverTracking(activeMissionId);
+      _syncDriverPresence();
     });
 
     final int idx;
