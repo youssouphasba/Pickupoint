@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     WHATSAPP_API_VERSION: str = "v21.0"
     WHATSAPP_CALL_API_VERSION: str = "v25.0"
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+    WHATSAPP_APP_SECRET: Optional[str] = None
     WHATSAPP_TEMPLATE_PARCEL_CREATED: str = "parcel_created"
     WHATSAPP_TEMPLATE_PARCEL_ASSIGNED: str = "parcel_assigned"
     WHATSAPP_TEMPLATE_PARCEL_DELIVERED: str = "parcel_delivered"
@@ -117,6 +118,9 @@ class Settings(BaseSettings):
             raise ValueError("STRICT_GPS_MAX_ACCURACY_METERS must be > 0")
         if self.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES < 5:
             raise ValueError("ASSIGNED_MISSION_AUTO_RELEASE_MINUTES must be >= 5")
+
+        if is_prod and self.WHATSAPP_ACCESS_TOKEN and not self.WHATSAPP_APP_SECRET:
+            raise ValueError("WHATSAPP_APP_SECRET must be configured in production when WhatsApp webhooks are enabled")
 
         if is_prod and self.FLUTTERWAVE_SECRET_KEY and not self.FLUTTERWAVE_WEBHOOK_SECRET:
             raise ValueError("FLUTTERWAVE_WEBHOOK_SECRET must be configured in production when Flutterwave is enabled")

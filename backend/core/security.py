@@ -54,6 +54,14 @@ def create_refresh_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=ALGORITHM)
 
 
+def fingerprint_token(token: str) -> str:
+    return hmac.new(
+        settings.JWT_SECRET.encode(),
+        token.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def decode_token(token: str) -> dict:
     """Lève JWTError si invalide ou expiré."""
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[ALGORITHM])

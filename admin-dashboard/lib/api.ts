@@ -1,41 +1,18 @@
+
 import axios from "axios";
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL || "https://api.denkma.com";
 
-const TOKEN_KEY = "denkma_admin_token";
-
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 export const api = axios.create({
   baseURL,
   timeout: 20_000,
-});
-
-// Attach token to every request
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+  withCredentials: true,
 });
 
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (typeof window !== "undefined" && err?.response?.status === 401) {
-      clearToken();
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }
@@ -59,16 +36,11 @@ export async function fetchMe(): Promise<AdminMe> {
 
 export async function login(email: string, password: string) {
   const { data } = await api.post("/api/admin/auth/login", { email, password });
-  // Store token from response
-  if (data.token) {
-    setToken(data.token);
-  }
   return data;
 }
 
 export async function logout() {
   await api.post("/api/admin/auth/logout").catch(() => {});
-  clearToken();
 }
 
 // ───────────────────────── Users ─────────────────────────

@@ -484,6 +484,14 @@ async def lifespan(app: FastAPI):
     logger.info("Denkma API stopped")
 
 
+LEGACY_PRIVATE_UPLOAD_PREFIXES = (
+    "/uploads/parcel_photos/",
+    "/uploads/voice/",
+    "/uploads/profiles/",
+    "/uploads/kyc/",
+)
+
+
 app = FastAPI(
     title="Denkma API",
     description="Plateforme de livraison et points relais — Sénégal",
@@ -507,6 +515,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    if any(request.url.path.startswith(prefix) for prefix in LEGACY_PRIVATE_UPLOAD_PREFIXES):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
@@ -529,7 +540,7 @@ async def add_security_headers(request: Request, call_next):
         "img-src 'self' data: https:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
         "connect-src 'self' https:; "
         "media-src 'self' https: data: blob:;",
     )

@@ -18,6 +18,7 @@ from core.security import (
     create_refresh_token,
     create_registration_token,
     verify_refresh_token,
+    fingerprint_token,
 )
 from core.dependencies import get_current_user
 from core.utils import normalize_phone, is_supported_phone, phone_suffix
@@ -35,10 +36,31 @@ from services.user_service import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
 PIN_MAX_FAILED_ATTEMPTS = 5
 PIN_LOCK_MINUTES = 15
 
-# Utilisation du limiter global défini dans core/limiter
+
+def _refresh_session_lookup_query(refresh_token: str) -> dict:
+    token_hash = fingerprint_token(refresh_token)
+    return {
+        "$or": [
+            {"refresh_token_hash": token_hash},
+            {"refresh_token": refresh_token},
+        ]
+    }
+
+
+def _build_refresh_session(user_id: str, refresh_token: str) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "user_id": user_id,
+        "refresh_token_hash": fingerprint_token(refresh_token),
+        "created_at": now,
+        "expires_at": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    }
+
+# Utilisation du limiter global d?fini dans core/limiter
 from core.limiter import limiter
 
 
@@ -171,12 +193,7 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
-    await db.user_sessions.insert_one({
-        "user_id":       user_doc["user_id"],
-        "refresh_token": refresh_token,
-        "created_at":    datetime.now(timezone.utc),
-        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    })
+    await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], refresh_token))
 
     return {
         "is_new_user": False,
@@ -265,12 +282,7 @@ async def login_pin(body: PINLoginRequest, request: Request):
     refresh_token = create_refresh_token(token_data)
 
     # Stocker le refresh token
-    await db.user_sessions.insert_one({
-        "user_id":       user_doc["user_id"],
-        "refresh_token": refresh_token,
-        "created_at":    datetime.now(timezone.utc),
-        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    })
+    await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], refresh_token))
 
     return TokenResponse(
         access_token=access_token,
@@ -410,12 +422,7 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     access_token  = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
-    await db.user_sessions.insert_one({
-        "user_id":       user_doc["user_id"],
-        "refresh_token": refresh_token,
-        "created_at":    datetime.now(timezone.utc),
-        "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    })
+    await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], refresh_token))
 
     return TokenResponse(
         access_token=access_token,
@@ -472,16 +479,22 @@ async def reset_pin_firebase(body: FirebaseResetPinRequest, request: Request):
     return {"message": "Code PIN réinitialisé avec succès."}
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Rafraîchir access token")
+
+@router.post("/refresh", response_model=TokenResponse, summary="Rafra?chir access token")
 async def refresh_token(body: RefreshRequest):
     payload = verify_refresh_token(body.refresh_token)
     if not payload:
-        raise bad_request_exception("Refresh token invalide ou expiré")
+        raise bad_request_exception("Refresh token invalide ou expir?")
 
-    # Vérifier que le token existe en base
-    session = await db.user_sessions.find_one({"refresh_token": body.refresh_token})
+    session_query = _refresh_session_lookup_query(body.refresh_token)
+    session = await db.user_sessions.find_one(session_query)
     if not session:
         raise bad_request_exception("Session invalide")
+
+    expires_at = session.get("expires_at")
+    if expires_at and expires_at <= datetime.now(timezone.utc):
+        await db.user_sessions.delete_many(session_query)
+        raise bad_request_exception("Session expir?e")
 
     user_doc = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
     if not user_doc:
@@ -489,22 +502,14 @@ async def refresh_token(body: RefreshRequest):
 
     if user_doc.get("is_banned"):
         from core.exceptions import forbidden_exception
-        raise forbidden_exception("Session révoquée : compte suspendu.")
+        raise forbidden_exception("Session r?voqu?e : compte suspendu.")
 
-    token_data    = {"sub": user_doc["user_id"], "role": user_doc["role"]}
-    access_token  = create_access_token(token_data)
-    new_refresh   = create_refresh_token(token_data)
+    token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
+    access_token = create_access_token(token_data)
+    new_refresh = create_refresh_token(token_data)
 
-    # Remplacer le refresh token (rotation)
-    await db.user_sessions.replace_one(
-        {"refresh_token": body.refresh_token},
-        {
-            "user_id":       user_doc["user_id"],
-            "refresh_token": new_refresh,
-            "created_at":    datetime.now(timezone.utc),
-            "expires_at":    datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        },
-    )
+    await db.user_sessions.delete_many(session_query)
+    await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], new_refresh))
 
     return TokenResponse(
         access_token=access_token,
@@ -515,8 +520,8 @@ async def refresh_token(body: RefreshRequest):
 
 @router.post("/logout", summary="Invalider refresh token")
 async def logout(body: RefreshRequest):
-    await db.user_sessions.delete_one({"refresh_token": body.refresh_token})
-    return {"message": "Déconnecté avec succès"}
+    await db.user_sessions.delete_many(_refresh_session_lookup_query(body.refresh_token))
+    return {"message": "D?connect? avec succ?s"}
 
 
 @router.get("/me", response_model=User, summary="Profil courant")

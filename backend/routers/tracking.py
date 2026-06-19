@@ -6,55 +6,73 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from config import settings
-
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from core.exceptions import not_found_exception
+from core.limiter import limiter
 from database import db
 from services.parcel_service import get_parcel_timeline
 
 router = APIRouter()
 
-from core.limiter import limiter
+_STATUS_LABELS = {
+    "created": "Cr??",
+    "dropped_at_origin_relay": "D?pos? au relais",
+    "in_transit": "En transit",
+    "at_destination_relay": "Arriv? au relais destination",
+    "available_at_relay": "Pr?t pour retrait",
+    "out_for_delivery": "En cours de livraison",
+    "delivered": "Livr?",
+    "delivery_failed": "Livraison ?chou?e",
+    "redirected_to_relay": "Redirig? vers un relais",
+    "cancelled": "Annul?",
+    "expired": "Expir?",
+    "returned": "Retourn?",
+}
+
+_STATUS_EMOJIS = {
+    "created": "??",
+    "dropped_at_origin_relay": "??",
+    "in_transit": "??",
+    "at_destination_relay": "??",
+    "available_at_relay": "?",
+    "out_for_delivery": "??",
+    "delivered": "??",
+    "delivery_failed": "??",
+    "redirected_to_relay": "??",
+    "cancelled": "?",
+    "expired": "??",
+    "returned": "??",
+}
 
 
 def _serialize_public_event(event: dict) -> dict:
+    to_status = event.get("to_status")
+    event_type = str(event.get("event_type") or "").strip()
+    label = _STATUS_LABELS.get(to_status or "")
+    if not label and event_type:
+        label = event_type.replace("_", " ").strip().capitalize()
     return {
-        key: value
-        for key, value in event.items()
-        if key not in ("actor_id", "metadata")
+        "event_type": event_type or None,
+        "from_status": event.get("from_status"),
+        "to_status": to_status,
+        "created_at": event.get("created_at"),
+        "label": label or "Mise ? jour du colis",
     }
 
 
-def _format_address_label(address: dict | None) -> str | None:
+def _format_public_area_label(address: dict | None) -> str | None:
     if not isinstance(address, dict):
         return None
     parts: list[str] = []
-    rich_keys = (
-        "label",
-        "formatted_address",
-        "address",
-        "address_line",
-        "full_address",
-        "place_name",
-        "display_name",
-        "street",
-        "district",
-        "notes",
-    )
-    for key in rich_keys:
+    for key in ("district", "city", "commune", "region"):
         value = address.get(key)
-        if isinstance(value, str) and value.strip():
-            value = value.strip()
-            if value not in parts:
-                parts.append(value)
-    city = address.get("city")
-    if parts and isinstance(city, str):
-        city = city.strip()
-        if city and city not in parts:
-            parts.append(city)
-    return ", ".join(parts) if parts else None
+        if isinstance(value, str):
+            clean = value.strip()
+            if clean and clean not in parts:
+                parts.append(clean)
+    return ", ".join(parts[:2]) if parts else None
 
 
 def _format_dimensions(dimensions: dict | None) -> str | None:
@@ -70,7 +88,7 @@ def _format_dimensions(dimensions: dict | None) -> str | None:
 
 def _format_dt(value) -> str:
     if not value:
-        return "—"
+        return "?"
     if isinstance(value, datetime):
         return value.strftime("%d/%m/%Y %H:%M")
     return str(value).replace("T", " ")[:16]
@@ -82,71 +100,43 @@ def _delivery_mode_label(mode: str | None) -> str:
         "relay_to_home": "Relais vers domicile",
         "home_to_relay": "Domicile vers relais",
         "home_to_home": "Domicile vers domicile",
-    }.get(mode or "", mode or "Non renseigné")
+    }.get(mode or "", mode or "Non renseign?")
 
 
 def _current_location_label(parcel: dict, timeline: list[dict]) -> str:
     if parcel.get("status") == "created":
-        return "Colis créé, en attente de prise en charge"
+        return "Colis cr??, en attente de prise en charge"
     latest = timeline[-1] if timeline else {}
+    latest_public = _serialize_public_event(latest) if latest else {}
     return (
-        latest.get("notes")
-        or latest.get("to_status")
-        or parcel.get("status")
-        or "Position en cours de mise à jour"
+        latest_public.get("label")
+        or _STATUS_LABELS.get(parcel.get("status") or "")
+        or "Position en cours de mise ? jour"
     )
 
 
 def _app_install_url(parcel: dict) -> str:
-    params = {
-        "tracking": parcel.get("tracking_code") or "",
-        "phone": parcel.get("recipient_phone") or "",
-    }
+    params = {"tracking": parcel.get("tracking_code") or ""}
     return f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app?{urlencode(params)}"
 
 
-def _recipient_access_code(parcel: dict) -> tuple[str | None, str | None, str | None]:
-    mode = parcel.get("delivery_mode") or ""
-    if mode.endswith("_to_relay"):
-        return (
-            parcel.get("relay_pin"),
-            "Code de retrait",
-            "Présentez ce code à l'agent du point relais pour retirer le colis.",
-        )
-    if mode.endswith("_to_home"):
-        return (
-            parcel.get("delivery_code"),
-            "Code de livraison",
-            "Donnez ce code au livreur uniquement au moment de recevoir le colis.",
-        )
-    return None, None, None
-
-
 def _build_public_tracking_payload(parcel: dict, timeline: list[dict]) -> dict:
-    recipient_code, recipient_code_label, recipient_code_help = _recipient_access_code(parcel)
     return {
         "parcel_id": parcel.get("parcel_id"),
         "tracking_code": parcel.get("tracking_code"),
         "status": parcel.get("status"),
         "delivery_mode": parcel.get("delivery_mode"),
         "delivery_mode_label": _delivery_mode_label(parcel.get("delivery_mode")),
-        "sender_name": parcel.get("sender_name"),
-        "sender_phone": parcel.get("sender_phone"),
-        "recipient_name": parcel.get("recipient_name"),
         "description": parcel.get("description"),
         "weight_kg": parcel.get("weight_kg"),
         "dimensions_label": _format_dimensions(parcel.get("dimensions")),
         "is_express": bool(parcel.get("is_express")),
-        "payment_status": parcel.get("payment_status"),
         "app_install_url": _app_install_url(parcel),
-        "origin_label": _format_address_label(parcel.get("origin_location")),
-        "delivery_label": _format_address_label(parcel.get("delivery_address")),
+        "origin_area_label": _format_public_area_label(parcel.get("origin_location")),
+        "delivery_area_label": _format_public_area_label(parcel.get("delivery_address")),
         "current_location_label": _current_location_label(parcel, timeline),
         "pickup_confirmed": bool(parcel.get("pickup_confirmed")),
         "delivery_confirmed": bool(parcel.get("delivery_confirmed")),
-        "recipient_code": recipient_code,
-        "recipient_code_label": recipient_code_label,
-        "recipient_code_help": recipient_code_help,
         "created_at": parcel.get("created_at"),
         "updated_at": parcel.get("updated_at"),
         "events": [_serialize_public_event(evt) for evt in timeline],
@@ -165,7 +155,7 @@ async def track_parcel(tracking_code: str, request: Request):
     return _build_public_tracking_payload(parcel, timeline)
 
 
-@router.get("/{tracking_code}/events", summary="Historique complet du colis")
+@router.get("/{tracking_code}/events", summary="Historique public du colis")
 @limiter.limit("5/minute")
 async def track_parcel_events(tracking_code: str, request: Request):
     parcel = await db.parcels.find_one(
@@ -183,64 +173,32 @@ async def track_parcel_events(tracking_code: str, request: Request):
 @router.get("/view/{tracking_code}", response_class=HTMLResponse, summary="Page de suivi Web (sans app)")
 @limiter.limit("5/minute")
 async def view_parcel_web(tracking_code: str, request: Request):
-    """Affiche une page HTML publique pour le suivi d'un colis."""
     parcel = await track_parcel(tracking_code, request)
 
-    status_map = {
-        "created": ("Créé", "📦"),
-        "dropped_at_origin_relay": ("Déposé au relais", "🏪"),
-        "in_transit": ("En transit", "🚚"),
-        "at_destination_relay": ("Arrivé au relais destination", "📍"),
-        "available_at_relay": ("Prêt pour retrait", "✅"),
-        "out_for_delivery": ("En cours de livraison", "🛵"),
-        "delivered": ("Livré", "🎉"),
-        "delivery_failed": ("Livraison échouée", "⚠️"),
-        "redirected_to_relay": ("Redirigé vers un relais", "🏪"),
-        "cancelled": ("Annulé", "❌"),
-        "expired": ("Expiré", "⏱️"),
-        "returned": ("Retourné", "↩️"),
-    }
-
     current_status = parcel.get("status", "created")
-    status_label, status_emoji = status_map.get(current_status, (current_status, "📦"))
+    status_label = _STATUS_LABELS.get(current_status, current_status)
+    status_emoji = _STATUS_EMOJIS.get(current_status, "??")
     safe_tracking_code = html.escape(str(tracking_code))
     safe_status_label = html.escape(str(status_label))
     safe_status_emoji = html.escape(str(status_emoji))
-    safe_sender_name = html.escape(str(parcel.get("sender_name") or "Non renseigné"))
-    safe_sender_phone = html.escape(str(parcel.get("sender_phone") or "Non renseigné"))
-    safe_recipient_name = html.escape(str(parcel.get("recipient_name") or "Non renseigné"))
-    safe_mode = html.escape(str(parcel.get("delivery_mode_label") or "Non renseigné"))
-    safe_current_location = html.escape(str(parcel.get("current_location_label") or "En attente de mise à jour"))
+    safe_mode = html.escape(str(parcel.get("delivery_mode_label") or "Non renseign?"))
+    safe_current_location = html.escape(str(parcel.get("current_location_label") or "En attente de mise ? jour"))
     safe_description = html.escape(str(parcel.get("description") or "Colis Denkma"))
-    safe_weight = html.escape(str(parcel.get("weight_kg") or "—"))
-    safe_dimensions = html.escape(str(parcel.get("dimensions_label") or "—"))
-    safe_payment = html.escape(str(parcel.get("payment_status") or "—"))
+    safe_weight = html.escape(str(parcel.get("weight_kg") or "?"))
+    safe_dimensions = html.escape(str(parcel.get("dimensions_label") or "?"))
     safe_app_install_url = html.escape(
         str(parcel.get("app_install_url") or f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app"),
         quote=True,
     )
-    safe_origin = html.escape(str(parcel.get("origin_label") or "À confirmer"))
-    safe_delivery = html.escape(str(parcel.get("delivery_label") or "À confirmer"))
+    safe_origin = html.escape(str(parcel.get("origin_area_label") or "Zone non renseign?e"))
+    safe_delivery = html.escape(str(parcel.get("delivery_area_label") or "Zone non renseign?e"))
     safe_created_at = html.escape(_format_dt(parcel.get("created_at")))
     safe_updated_at = html.escape(_format_dt(parcel.get("updated_at")))
-    safe_recipient_code = html.escape(str(parcel.get("recipient_code") or ""))
-    safe_recipient_code_label = html.escape(str(parcel.get("recipient_code_label") or ""))
-    safe_recipient_code_help = html.escape(str(parcel.get("recipient_code_help") or ""))
-
-    code_card_html = ""
-    if safe_recipient_code and safe_recipient_code_label:
-        code_card_html = f"""
-            <section class="card code-card">
-                <div class="label">{safe_recipient_code_label}</div>
-                <div class="secure-code">{safe_recipient_code}</div>
-                <p class="app-note">{safe_recipient_code_help} Ne le partagez pas avant la remise.</p>
-            </section>
-        """
 
     events_html = ""
     for evt in reversed(parcel.get("events", [])):
         event_time = html.escape(_format_dt(evt.get("created_at")))
-        event_title = html.escape(str(evt.get("notes") or evt.get("to_status") or "Mise à jour"))
+        event_title = html.escape(str(evt.get("label") or "Mise ? jour du colis"))
         events_html += f"""
         <div class="event">
             <div class="event-dot"></div>
@@ -251,7 +209,7 @@ async def view_parcel_web(tracking_code: str, request: Request):
         </div>
         """
     if not events_html:
-        events_html = '<div class="empty">Aucun événement public pour le moment.</div>'
+        events_html = '<div class="empty">Aucun ?v?nement public pour le moment.</div>'
 
     page = f"""
     <!DOCTYPE html>
@@ -298,8 +256,6 @@ async def view_parcel_web(tracking_code: str, request: Request):
             .event-title {{ font-weight: 700; }}
             .app-link {{ display: block; text-decoration: none; background: var(--primary); color: white; border-radius: 18px; padding: 16px; font-weight: 800; text-align: center; margin-top: 14px; }}
             .app-note {{ color: var(--muted); line-height: 1.5; margin: 0; }}
-            .code-card {{ border-color: #f1c232; background: linear-gradient(135deg, #fff8df, #ffffff); }}
-            .secure-code {{ font-size: clamp(34px, 10vw, 54px); font-weight: 900; letter-spacing: .18em; color: #7a4f00; margin: 10px 0 8px; text-align: center; }}
             .empty {{ color: var(--muted); }}
             .footer {{ text-align: center; color: var(--muted); font-size: 12px; margin: 28px 0 8px; }}
             @media (max-width: 640px) {{ .grid {{ grid-template-columns: 1fr; }} .card {{ padding: 18px; }} }}
@@ -316,24 +272,18 @@ async def view_parcel_web(tracking_code: str, request: Request):
                 <div class="badge">{safe_tracking_code}</div>
                 <h1>{safe_status_label}</h1>
                 <div class="status"><span>{safe_status_emoji}</span><span>{safe_current_location}</span></div>
-                <div class="current">Dernière mise à jour : {safe_updated_at}</div>
+                <div class="current">Derni?re mise ? jour : {safe_updated_at}</div>
             </section>
-
-            {code_card_html}
 
             <section class="card">
                 <div class="grid">
-                    <div class="info"><div class="label">Expéditeur</div><div class="value">{safe_sender_name}</div></div>
-                    <div class="info"><div class="label">Téléphone expéditeur</div><div class="value">{safe_sender_phone}</div></div>
-                    <div class="info"><div class="label">Destinataire</div><div class="value">{safe_recipient_name}</div></div>
                     <div class="info"><div class="label">Mode</div><div class="value">{safe_mode}</div></div>
-                    <div class="info"><div class="label">Départ</div><div class="value">{safe_origin}</div></div>
-                    <div class="info"><div class="label">Arrivée</div><div class="value">{safe_delivery}</div></div>
+                    <div class="info"><div class="label">Cr?? le</div><div class="value">{safe_created_at}</div></div>
+                    <div class="info"><div class="label">Zone de collecte</div><div class="value">{safe_origin}</div></div>
+                    <div class="info"><div class="label">Zone de livraison</div><div class="value">{safe_delivery}</div></div>
                     <div class="info"><div class="label">Colis</div><div class="value">{safe_description}</div></div>
                     <div class="info"><div class="label">Poids</div><div class="value">{safe_weight} kg</div></div>
                     <div class="info"><div class="label">Dimensions</div><div class="value">{safe_dimensions}</div></div>
-                    <div class="info"><div class="label">Paiement</div><div class="value">{safe_payment}</div></div>
-                    <div class="info"><div class="label">Créé le</div><div class="value">{safe_created_at}</div></div>
                 </div>
             </section>
 
@@ -345,14 +295,13 @@ async def view_parcel_web(tracking_code: str, request: Request):
             <section class="card">
                 <div class="label">Application Denkma</div>
                 <p class="app-note">
-                    Si vous créez un compte avec le numéro du destinataire,
-                    Denkma affichera automatiquement les colis liés à ce numéro,
-                    avec les détails et le suivi en direct quand une mission est active.
+                    Pour voir les d?tails complets et recevoir les mises ? jour li?es ? votre compte,
+                    ouvrez l'application Denkma avec le num?ro concern? par l'envoi.
                 </p>
-                <a class="app-link" href="{safe_app_install_url}">Ouvrir ou télécharger l'application</a>
+                <a class="app-link" href="{safe_app_install_url}">Ouvrir ou t?l?charger l'application</a>
             </section>
 
-            <div class="footer">© 2026 Denkma - Suivi sécurisé</div>
+            <div class="footer">? 2026 Denkma - Suivi s?curis?</div>
         </main>
     </body>
     </html>
