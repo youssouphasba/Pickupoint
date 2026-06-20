@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -109,7 +109,7 @@ class _DashboardBody extends StatelessWidget {
               label: 'Colis en cours',
               value: _intValue(stats['active_parcels']).toString(),
               helper:
-                  '${_intValue(stats['payment_blocked_parcels'])} bloques paiement',
+                  '${_intValue(stats['payment_blocked_parcels'])} bloqués paiement',
               color: Colors.orange,
               icon: Icons.local_shipping,
             ),
@@ -124,14 +124,14 @@ class _DashboardBody extends StatelessWidget {
               label: 'Chiffre d\'affaires',
               value: formatXof(_doubleValue(stats['revenue_xof'])),
               helper:
-                  'Taux de succes ${_doubleValue(stats['success_rate']).toStringAsFixed(1)} %',
+                  'Taux de succès ${_doubleValue(stats['succèss_rate']).toStringAsFixed(1)} %',
               color: Colors.green,
               icon: Icons.trending_up,
             ),
           ]),
           const SizedBox(height: 32),
           const Text(
-            'Priorites',
+            'Priorités',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
@@ -139,7 +139,7 @@ class _DashboardBody extends StatelessWidget {
             const _InfoCard(
               title: 'Rien de critique pour le moment',
               subtitle:
-                  'Aucune alerte urgente n\'est remontee par les donnees temps reel.',
+                  'Aucune alerte urgente n'est remontée par les données temps réel.',
               icon: Icons.verified_outlined,
               color: Colors.green,
             )
@@ -154,14 +154,14 @@ class _DashboardBody extends StatelessWidget {
             ),
           const SizedBox(height: 32),
           const Text(
-            'Reseau live',
+            'Réseau live',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
           _MetricGrid(items: operations),
           const SizedBox(height: 32),
           const Text(
-            'Parametres',
+            'Paramètres',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
@@ -172,7 +172,7 @@ class _DashboardBody extends StatelessWidget {
           const _ReferralSettingsTile(),
           const SizedBox(height: 32),
           const Text(
-            'Acces rapides',
+            'Accès rapides',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
@@ -217,7 +217,7 @@ class _DashboardBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Cockpit operationnel',
+            'Cockpit opérationnel',
             style: TextStyle(
               color: Colors.white,
               fontSize: 22,
@@ -226,7 +226,7 @@ class _DashboardBody extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '$active colis en cours, $liveFleet positions live et $blocked remises bloquees par paiement.',
+            '$active colis en cours, $liveFleet positions live et $blocked remises bloquées par paiement.',
             style: const TextStyle(color: Colors.white70, fontSize: 14),
           ),
           const SizedBox(height: 16),
@@ -266,7 +266,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _PriorityItem(
         title: 'Retraits en attente',
-        subtitle: 'Demandes de décaissement à valider par l\'équipe admin.',
+        subtitle: 'Demandes de retrait à valider par l'équipe admin.',
         count: _intValue(stats['pending_payouts']),
         color: Colors.deepOrange,
         icon: Icons.account_balance_wallet_outlined,
@@ -274,7 +274,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _PriorityItem(
         title: 'Perte de signal GPS',
-        subtitle: 'Livreurs actifs sans position recente.',
+        subtitle: 'Livreurs actifs sans position récente.',
         count: _intValue(stats['signal_lost']),
         color: Colors.red.shade700,
         icon: Icons.gps_off_outlined,
@@ -313,21 +313,21 @@ class _DashboardBody extends StatelessWidget {
       _MetricCardData(
         label: 'Livreurs actifs',
         value: _intValue(stats['active_drivers']).toString(),
-        helper: 'Comptes actifs cote livreurs',
+        helper: 'Comptes actifs côté livreurs',
         color: Colors.teal,
         icon: Icons.two_wheeler_outlined,
       ),
       _MetricCardData(
         label: 'Relais actifs',
         value: _intValue(stats['active_relays']).toString(),
-        helper: 'Points relais operationnels',
+        helper: 'Points relais opérationnels',
         color: Colors.green,
         icon: Icons.storefront_outlined,
       ),
       _MetricCardData(
-        label: 'Livraisons reussies',
+        label: 'Livraisons réussies',
         value: _intValue(stats['delivered']).toString(),
-        helper: '${_intValue(stats['failed'])} echecs enregistrés',
+        helper: '${_intValue(stats['failed'])} échecs enregistrés',
         color: Colors.blueGrey,
         icon: Icons.check_circle_outline,
       ),
@@ -352,14 +352,14 @@ class _DashboardBody extends StatelessWidget {
       ),
       _ShortcutItem(
         title: 'Retraits',
-        subtitle: 'Valider ou rejeter les décaissements',
+        subtitle: 'Valider ou rejeter les retraits',
         route: '/admin/payouts',
         icon: Icons.payments_outlined,
         color: Colors.red,
       ),
       _ShortcutItem(
         title: 'Relais',
-        subtitle: 'Verification et controle reseau',
+        subtitle: 'Verification et contrôle réseau',
         route: '/admin/relays',
         icon: Icons.store_mall_directory_outlined,
         color: Colors.green,
@@ -380,13 +380,13 @@ class _DashboardBody extends StatelessWidget {
       ),
       _ShortcutItem(
         title: 'Audit',
-        subtitle: 'Evenements et traces systeme',
+        subtitle: 'Événements et traces systeme',
         route: '/admin/audit-log',
         icon: Icons.history,
         color: Colors.brown,
       ),
       _ShortcutItem(
-        title: 'Finance COD',
+        title: 'Finance',
         subtitle: 'Suivi du cash et exposition',
         route: '/admin/finance',
         icon: Icons.account_balance_wallet_outlined,
@@ -1087,7 +1087,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
       ref.invalidate(_referralSettingsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Parrainage mis a jour')),
+          const SnackBar(content: Text('Parrainage mis à jour')),
         );
       }
     } catch (e) {
@@ -1164,7 +1164,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 DropdownButtonFormField<String>(
                   initialValue: applyMetric,
                   decoration: const InputDecoration(
-                      labelText: 'Metrique pour appliquer le code'),
+                      labelText: 'Métrique pour appliquer le code'),
                   items: metricOptions
                       .map((o) => DropdownMenuItem<String>(
                             value: o['value']!.toString(),
@@ -1186,7 +1186,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 DropdownButtonFormField<String>(
                   initialValue: rewardMetric,
                   decoration: const InputDecoration(
-                      labelText: 'Metrique pour debloquer la prime'),
+                      labelText: 'Métrique pour débloquer la prime'),
                   items: metricOptions
                       .map((o) => DropdownMenuItem<String>(
                             value: o['value']!.toString(),
@@ -1210,7 +1210,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Max filleuls par parrain',
-                    hintText: '0 = illimite',
+                    hintText: '0 = illimité',
                   ),
                 ),
               ],
@@ -1291,7 +1291,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  anyEnabled ? 'Programme actif' : 'Programme desactive',
+                  anyEnabled ? 'Programme actif' : 'Programme désactivé',
                   style: TextStyle(
                     fontSize: 13,
                     color: anyEnabled ? Colors.green : Colors.grey,
@@ -1457,3 +1457,5 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     );
   }
 }
+
+

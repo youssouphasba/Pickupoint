@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -12,7 +12,6 @@ import {
   Clock,
   ExternalLink,
   FileText,
-  Flame,
   Loader2,
   MessageCircle,
   Package,
@@ -21,6 +20,7 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,22 +60,32 @@ const CATEGORIES: Descriptor[] = [
   { key: "support", label: "Support WhatsApp", Icon: MessageCircle, tone: "info" },
 ];
 
-function urgencyTone(u: ActionUrgency): "danger" | "warning" | "default" {
-  if (u === "critical") return "danger";
-  if (u === "warning") return "warning";
+function urgencyTone(urgency: ActionUrgency): "danger" | "warning" | "default" {
+  if (urgency === "critical") return "danger";
+  if (urgency === "warning") return "warning";
   return "default";
 }
 
-function urgencyLabel(u: ActionUrgency): string {
-  if (u === "critical") return "Urgent";
-  if (u === "warning") return "Attention";
+function urgencyLabel(urgency: ActionUrgency): string {
+  if (urgency === "critical") return "Urgent";
+  if (urgency === "warning") return "Attention";
   return "Normal";
 }
 
 function formatAge(hours: number): string {
-  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
   if (hours < 48) return `${hours.toFixed(1)} h`;
   return `${Math.round(hours / 24)} j`;
+}
+
+function asText(value: unknown, fallback = "-"): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : fallback;
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }
 
 export function ActionCenterSection() {
@@ -114,24 +124,22 @@ export function ActionCenterSection() {
             <CheckCircle2 className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-semibold text-emerald-900">
-              Tout est à jour.
-            </div>
-            <div className="text-sm text-emerald-800/80">
-              Aucune action admin en attente.
-            </div>
+            <div className="font-semibold text-emerald-900">Tout est à jour.</div>
+            <div className="text-sm text-emerald-800/80">Aucune action admin en attente.</div>
           </div>
         </CardContent>
       </Card>
     );
   }
 
-  // Tri : critique d'abord, puis le reste, puis masquer les vides.
-  const visible = CATEGORIES.map((d) => ({ ...d, category: data.categories[d.key] }))
-    .filter((c) => c.category.count > 0)
+  const visible = CATEGORIES.map((descriptor) => ({
+    ...descriptor,
+    category: data.categories[descriptor.key],
+  }))
+    .filter((entry) => entry.category.count > 0)
     .sort((a, b) => {
-      const score = (c: ActionCategory) =>
-        c.urgent_count * 1000 + c.warning_count * 10 + c.count;
+      const score = (category: ActionCategory) =>
+        category.urgent_count * 1000 + category.warning_count * 10 + category.count;
       return score(b.category) - score(a.category);
     });
 
@@ -172,11 +180,11 @@ export function ActionCenterSection() {
       </div>
 
       <div className="grid gap-3">
-        {visible.map((desc) => (
+        {visible.map((entry) => (
           <CategoryBlock
-            key={desc.key}
-            descriptor={desc}
-            category={desc.category}
+            key={entry.key}
+            descriptor={entry}
+            category={entry.category}
             urgentOnly={urgentOnly}
           />
         ))}
@@ -196,7 +204,7 @@ function CategoryBlock({
 }) {
   const [open, setOpen] = React.useState(category.urgent_count > 0);
   const filtered = urgentOnly
-    ? category.items.filter((it) => it.urgency === "critical")
+    ? category.items.filter((item) => item.urgency === "critical")
     : category.items;
 
   if (urgentOnly && filtered.length === 0) return null;
@@ -211,16 +219,12 @@ function CategoryBlock({
   return (
     <Card>
       <button
-        onClick={() => setOpen((v) => !v)}
+        type="button"
+        onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-3 p-5 text-left"
         aria-expanded={open}
       >
-        <div
-          className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-lg",
-            toneBg[descriptor.tone]
-          )}
-        >
+        <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", toneBg[descriptor.tone])}>
           <descriptor.Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
@@ -228,21 +232,16 @@ function CategoryBlock({
             <span className="font-semibold">{descriptor.label}</span>
             {category.urgent_count > 0 && (
               <Badge tone="danger">
-                {category.urgent_count} urgent
-                {category.urgent_count > 1 ? "s" : ""}
+                {category.urgent_count} urgent{category.urgent_count > 1 ? "s" : ""}
               </Badge>
             )}
-            {category.warning_count > 0 && (
-              <Badge tone="warning">{category.warning_count} attention</Badge>
-            )}
+            {category.warning_count > 0 && <Badge tone="warning">{category.warning_count} attention</Badge>}
           </div>
-          <div className="text-sm text-muted-foreground">
-            {category.count} au total
-          </div>
+          <div className="text-sm text-muted-foreground">{category.count} au total</div>
         </div>
         <Link
           href={category.href}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
           className="hidden items-center gap-1 text-xs font-medium text-emerald-700 hover:underline sm:inline-flex"
         >
           Voir tout <ArrowRight className="h-3.5 w-3.5" />
@@ -281,12 +280,8 @@ function ItemRow({
         <RowPrimary categoryKey={categoryKey} item={item} />
       </div>
       <div className="flex items-center gap-2">
-        <Badge tone={urgencyTone(item.urgency)}>
-          {urgencyLabel(item.urgency)}
-        </Badge>
-        <span className="whitespace-nowrap text-xs text-muted-foreground">
-          {formatAge(item.age_hours)}
-        </span>
+        <Badge tone={urgencyTone(item.urgency)}>{urgencyLabel(item.urgency)}</Badge>
+        <span className="whitespace-nowrap text-xs text-muted-foreground">{formatAge(item.age_hours)}</span>
         <RowActions categoryKey={categoryKey} item={item} />
       </div>
     </div>
@@ -305,67 +300,50 @@ function RowPrimary({
       return (
         <div>
           <div className="font-medium">
-            {xof.format((item.amount as number) ?? 0)} XOF —{" "}
-            {(item.owner_name as string) ?? "—"}
+            {xof.format(asNumber(item.amount))} XOF - {asText(item.owner_name, "Utilisateur inconnu")}
           </div>
           <div className="text-xs text-muted-foreground">
-            {(item.method as string) ?? "—"} · {(item.phone as string) ?? "—"}
+            {asText(item.method)} · {asText(item.phone)}
           </div>
         </div>
       );
     case "applications":
       return (
         <div>
-          <div className="font-medium">
-            {(item.full_name as string) ?? "—"}
-          </div>
+          <div className="font-medium">{asText(item.full_name, "Candidat")}</div>
           <div className="text-xs text-muted-foreground">
-            {(item.phone as string) ?? "—"} · KYC{" "}
-            {(item.kyc_status as string) ?? "—"}
+            {asText(item.phone)} · KYC {asText(item.kyc_status, "inconnu")}
           </div>
         </div>
       );
     case "incidents":
       return (
         <div>
-          <div className="font-medium">
-            Colis {(item.tracking_code as string) ?? item.parcel_id}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Livreur {(item.driver_name as string) ?? "—"}
-          </div>
+          <div className="font-medium">Colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))}</div>
+          <div className="text-xs text-muted-foreground">Livreur {asText(item.driver_name, "non assigné")}</div>
         </div>
       );
     case "disputes":
       return (
         <div>
-          <div className="font-medium">
-            Litige colis {(item.tracking_code as string) ?? item.parcel_id}
-          </div>
+          <div className="font-medium">Litige colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))}</div>
         </div>
       );
     case "anomalies":
       return (
         <div>
           <div className="font-medium">
-            {item.type === "signal_lost" ? "Signal GPS perdu" : "Retard critique"}
-            {" · "}
-            {(item.driver_name as string) ?? "—"}
+            {item.type === "signal_lost" ? "Signal GPS perdu" : "Retard critique"} · {asText(item.driver_name, "Livreur")}
           </div>
-          <div className="text-xs text-muted-foreground">
-            Mission {item.mission_id as string}
-          </div>
+          <div className="text-xs text-muted-foreground">Mission {String(item.mission_id ?? "-")}</div>
         </div>
       );
     case "stale_parcels":
       return (
         <div>
-          <div className="font-medium">
-            Colis {(item.tracking_code as string) ?? item.parcel_id}
-          </div>
+          <div className="font-medium">Colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))}</div>
           <div className="text-xs text-muted-foreground">
-            {(item.parcel_status as string) ?? ""} ·{" "}
-            {item.age_days as number} j en relais
+            {asText(item.parcel_status, "Statut inconnu")} · {asNumber(item.age_days)} j en relais
           </div>
         </div>
       );
@@ -373,24 +351,16 @@ function RowPrimary({
       return (
         <div>
           <div className="font-medium">
-            Colis {(item.tracking_code as string) ?? item.parcel_id}
-            {" — "}
-            {xof.format((item.amount as number) ?? 0)} XOF
+            Colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))} - {xof.format(asNumber(item.amount))} XOF
           </div>
-          <div className="text-xs text-muted-foreground">
-            Paiement {(item.payment_status as string) ?? "—"}
-          </div>
+          <div className="text-xs text-muted-foreground">Paiement {asText(item.payment_status, "inconnu")}</div>
         </div>
       );
     case "support":
       return (
         <div>
-          <div className="font-medium">
-            {(item.full_name as string) ?? (item.phone as string) ?? "—"}
-          </div>
-          <div className="line-clamp-1 text-xs text-muted-foreground">
-            {(item.preview as string) ?? "—"}
-          </div>
+          <div className="font-medium">{asText(item.full_name, asText(item.phone, "Conversation"))}</div>
+          <div className="line-clamp-1 text-xs text-muted-foreground">{asText(item.preview)}</div>
         </div>
       );
   }
@@ -403,28 +373,26 @@ function RowActions({
   categoryKey: CategoryKey;
   item: ActionItem;
 }) {
-  const qc = useQueryClient();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["action-center"] });
-    qc.invalidateQueries({ queryKey: ["payouts"], exact: false });
-    qc.invalidateQueries({ queryKey: ["users"], exact: false });
-  };
-
   const [approveOpen, setApproveOpen] = React.useState(false);
   const [rejectOpen, setRejectOpen] = React.useState(false);
   const [promoteLoading, setPromoteLoading] = React.useState<string | null>(null);
 
+  function invalidate() {
+    queryClient.invalidateQueries({ queryKey: ["action-center"] });
+    queryClient.invalidateQueries({ queryKey: ["payouts"], exact: false });
+    queryClient.invalidateQueries({ queryKey: ["users"], exact: false });
+  }
+
   async function promote(role: "driver" | "relay_agent") {
     setPromoteLoading(role);
     try {
-      await changeUserRole(item.user_id as string, role);
+      await changeUserRole(String(item.user_id), role);
       invalidate();
-      toast(
-        role === "driver" ? "Promu en livreur." : "Promu en agent relais."
-      );
-    } catch (e: any) {
-      toast(e?.response?.data?.detail ?? "Erreur lors de la promotion.");
+      toast(role === "driver" ? "Promu en livreur." : "Promu en agent relais.");
+    } catch (error: any) {
+      toast(error?.response?.data?.detail ?? "Erreur lors de la promotion.");
     } finally {
       setPromoteLoading(null);
     }
@@ -433,11 +401,7 @@ function RowActions({
   if (categoryKey === "payouts") {
     return (
       <>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setRejectOpen(true)}
-        >
+        <Button size="sm" variant="outline" onClick={() => setRejectOpen(true)}>
           <XCircle className="h-4 w-4" /> Rejeter
         </Button>
         <Button size="sm" onClick={() => setApproveOpen(true)}>
@@ -446,14 +410,14 @@ function RowActions({
         <ActionModal
           open={approveOpen}
           onOpenChange={setApproveOpen}
-          title={`Valider le retrait de ${xof.format((item.amount as number) ?? 0)} XOF`}
-          description="Note optionnelle (référence de transaction…)"
-          inputLabel="Note (optionnel)"
-          inputPlaceholder="Ex: TX-20260417-001"
+          title={`Valider le retrait de ${xof.format(asNumber(item.amount))} XOF`}
+          description="Note optionnelle (référence de transaction, commentaire...)."
+          inputLabel="Note"
+          inputPlaceholder="Ex: TX-20260620-001"
           confirmLabel="Valider le retrait"
           required={false}
           onConfirm={async (note) => {
-            await approvePayout(item.payout_id as string, note || undefined);
+            await approvePayout(String(item.payout_id), note || undefined);
             invalidate();
             toast("Retrait validé.");
           }}
@@ -461,14 +425,14 @@ function RowActions({
         <ActionModal
           open={rejectOpen}
           onOpenChange={setRejectOpen}
-          title={`Rejeter le retrait de ${xof.format((item.amount as number) ?? 0)} XOF`}
+          title={`Rejeter le retrait de ${xof.format(asNumber(item.amount))} XOF`}
           description="Indiquez le motif. Le solde sera restauré."
           inputLabel="Motif du rejet"
           inputPlaceholder="Ex: numéro invalide"
           confirmLabel="Rejeter"
           confirmVariant="destructive"
           onConfirm={async (reason) => {
-            await rejectPayout(item.payout_id as string, reason);
+            await rejectPayout(String(item.payout_id), reason);
             invalidate();
             toast("Retrait rejeté.");
           }}
@@ -485,12 +449,10 @@ function RowActions({
           variant="outline"
           disabled={promoteLoading !== null}
           onClick={() => {
-            if (confirm("Promouvoir en livreur ?")) promote("driver");
+            if (window.confirm("Promouvoir en livreur ?")) void promote("driver");
           }}
         >
-          {promoteLoading === "driver" && (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          )}
+          {promoteLoading === "driver" && <Loader2 className="h-4 w-4 animate-spin" />}
           Livreur
         </Button>
         <Button
@@ -498,19 +460,17 @@ function RowActions({
           variant="outline"
           disabled={promoteLoading !== null}
           onClick={() => {
-            if (confirm("Promouvoir en agent relais ?")) promote("relay_agent");
+            if (window.confirm("Promouvoir en agent relais ?")) void promote("relay_agent");
           }}
         >
-          {promoteLoading === "relay_agent" && (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          )}
+          {promoteLoading === "relay_agent" && <Loader2 className="h-4 w-4 animate-spin" />}
           Agent relais
         </Button>
       </>
     );
   }
 
-  const href = (item.href as string) ?? "#";
+  const href = typeof item.href === "string" && item.href.trim().length > 0 ? item.href : "#";
   return (
     <Link
       href={href}

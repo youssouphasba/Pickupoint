@@ -1,13 +1,13 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { Calendar, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type DateRange = {
-  /** ISO YYYY-MM-DD — inclus */
+  /** ISO YYYY-MM-DD - inclus */
   from?: string;
-  /** ISO YYYY-MM-DD — inclus */
+  /** ISO YYYY-MM-DD - inclus */
   to?: string;
 };
 
@@ -32,11 +32,9 @@ function firstDayOfMonth(ym: string): string {
 }
 
 function lastDayOfMonth(ym: string): string {
-  // ym = "YYYY-MM"
   const [yStr, mStr] = ym.split("-");
   const y = Number(yStr);
   const m = Number(mStr);
-  // day 0 du mois suivant = dernier jour du mois courant
   const d = new Date(Date.UTC(y, m, 0));
   return d.toISOString().slice(0, 10);
 }
@@ -85,7 +83,6 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
   const [panelAlign, setPanelAlign] = React.useState<"left" | "right">("right");
 
-  // États locaux pour chaque mode (évite qu'un switch de mode détruise la saisie).
   const [day, setDay] = React.useState<string>(value.from ?? "");
   const [month, setMonth] = React.useState<string>(
     value.from ? value.from.slice(0, 7) : ""
@@ -146,10 +143,12 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
     if (!day) return;
     commit({ from: day, to: day });
   }
+
   function applyMonth() {
     if (!month) return;
     commit({ from: firstDayOfMonth(month), to: lastDayOfMonth(month) });
   }
+
   function applyRange() {
     if (!rangeFrom && !rangeTo) {
       commit({});
@@ -157,6 +156,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
     }
     commit({ from: rangeFrom || undefined, to: rangeTo || undefined });
   }
+
   function applyPreset(preset: "today" | "7d" | "30d" | "this_month") {
     const today = new Date();
     const todayStr = todayIso();
@@ -176,7 +176,6 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
       commit({ from: d.toISOString().slice(0, 10), to: todayStr });
       return;
     }
-    // this_month
     const ym = todayStr.slice(0, 7);
     commit({ from: firstDayOfMonth(ym), to: lastDayOfMonth(ym) });
   }

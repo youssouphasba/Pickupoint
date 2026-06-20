@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
@@ -26,7 +26,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                     Icon(Icons.check_circle_outline,
                         size: 64, color: Colors.green),
                     SizedBox(height: 16),
-                    Text('Aucune anomalie dÃ©tectÃ©e.',
+                    Text('Aucune anomalie détectée.',
                         style: TextStyle(color: Colors.grey)),
                   ],
                 ),
@@ -104,7 +104,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                                       context, ref, a['mission_id'].toString())
                                   : null,
                               icon: const Icon(Icons.swap_horiz, size: 18),
-                              label: const Text('RÃ©assigner'),
+                              label: const Text('Réassigner'),
                               style: TextButton.styleFrom(
                                   foregroundColor: Colors.blue),
                             ),
@@ -141,7 +141,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              'RÃ©assignation indisponible aprÃ¨s collecte. Utilise plutÃ´t lâ€™audit colis.',
+                              'Réassignation indisponible après collecte. Utilise plutôt l’audit colis.',
                               style: TextStyle(
                                   color: Colors.grey.shade600, fontSize: 12),
                             ),
@@ -257,3 +257,4 @@ class AdminAnomaliesScreen extends ConsumerWidget {
     );
   }
 }
+
