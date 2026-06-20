@@ -120,7 +120,6 @@ const ISSUE_LABELS: Record<string, string> = {
   negative_wallets: "Soldes négatifs à vérifier",
   payout_ledger_gaps: "Retraits à revoir",
   mission_parcel_mismatches: "Courses à revoir",
-  delivered_unpaid: "Colis à régulariser",
 };
 
 export default function FinancePage() {
@@ -150,14 +149,12 @@ export default function FinancePage() {
     "negative_wallets",
     "payout_ledger_gaps",
     "mission_parcel_mismatches",
-    "delivered_unpaid",
   ];
 
   const routes = {
     active: buildParcelHref(dateRange, { scope: "active" }),
     blockedPayment: buildParcelHref(dateRange, { payment_blocked: "true" }),
     delivered: buildParcelHref(dateRange, { status: "delivered" }),
-    deliveredUnpaid: buildParcelHref(dateRange, { finance_filter: "delivered_unpaid" }),
     cancelled: buildParcelHref(dateRange, { status: "cancelled" }),
     commissionReceived: buildParcelHref(dateRange, { finance_filter: "commission_received" }),
     commissionDebt: buildParcelHref(dateRange, { finance_filter: "commission_debt" }),
@@ -243,18 +240,12 @@ export default function FinancePage() {
               Suivi du règlement des colis sur la période. Denkma n’encaisse pas ce paiement;
               la recette Denkma se trouve dans les commissions.
             </p>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <StatCard
                 label="Valeur des colis en cours"
                 value={`${xof.format(data.payments.active_expected_amount_xof ?? 0)} XOF`}
                 hint={`${data.payments.active_parcels ?? 0} colis actifs`}
                 href={routes.active}
-              />
-              <StatCard
-                label="Colis à régulariser"
-                value={data.payments.delivered_waiting_payment_parcels ?? 0}
-                hint={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF à régulariser`}
-                href={routes.deliveredUnpaid}
               />
               <StatCard
                 label="Colis livrés"
@@ -290,28 +281,6 @@ export default function FinancePage() {
                   label="Colis livrés"
                   value={`${data.payments.delivered_parcels ?? 0} colis`}
                   href={routes.delivered}
-                />
-                <DetailRow
-                  label="Colis à régulariser"
-                  value={
-                    <Link href={routes.deliveredUnpaid}>
-                      <Badge
-                        tone={
-                          (data.payments.delivered_waiting_payment_parcels ?? 0) > 0
-                            ? "warning"
-                            : "success"
-                        }
-                      >
-                        {data.payments.delivered_waiting_payment_parcels ?? 0}
-                      </Badge>
-                    </Link>
-                  }
-                  href={routes.deliveredUnpaid}
-                />
-                <DetailRow
-                  label="Valeur à régulariser"
-                  value={`${xof.format(data.payments.delivered_waiting_payment_amount_xof ?? 0)} XOF`}
-                  href={routes.deliveredUnpaid}
                 />
               </CardContent>
             </Card>
@@ -401,11 +370,6 @@ export default function FinancePage() {
                   label="Reste à verser"
                   value={`${xof.format(data.relays.amount_remaining_xof ?? 0)} XOF`}
                   href="/dashboard/payouts"
-                />
-                <StatCard
-                  label="Colis à régulariser"
-                  value={data.relays.parcels_waiting_relay_payment ?? 0}
-                  href={routes.deliveredUnpaid}
                 />
               </div>
               <Card>

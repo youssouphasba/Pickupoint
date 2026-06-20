@@ -174,17 +174,6 @@ class _OverviewBody extends StatelessWidget {
               onTap: () => context.push(_parcelRoute('active')),
             ),
             _MetricCard(
-              title: 'Colis à régulariser',
-              value: '${payments['delivered_waiting_payment_parcels'] ?? 0}',
-              subtitle: formatXof(
-                (payments['delivered_waiting_payment_amount_xof'] as num?)
-                        ?.toDouble() ??
-                    0,
-              ),
-              color: Colors.orange,
-              onTap: () => context.push(_parcelRoute('delivered_unpaid')),
-            ),
-            _MetricCard(
               title: 'Colis livrés',
               value: '${payments['delivered_parcels'] ?? 0}',
               subtitle: formatXof(
@@ -219,21 +208,6 @@ class _OverviewBody extends StatelessWidget {
             _RowData(
               'Colis livrés',
               '${payments['delivered_parcels'] ?? 0} colis',
-            ),
-            _RowData(
-              'Colis à régulariser',
-              '${payments['delivered_waiting_payment_parcels'] ?? 0}',
-              highlight: ((payments['delivered_waiting_payment_parcels'] ?? 0)
-                      as num) >
-                  0,
-            ),
-            _RowData(
-              'Valeur à régulariser',
-              formatXof(
-                (payments['delivered_waiting_payment_amount_xof'] as num?)
-                        ?.toDouble() ??
-                    0,
-              ),
             ),
           ],
         ),
@@ -346,12 +320,6 @@ class _OverviewBody extends StatelessWidget {
               ),
               color: Colors.orange,
               onTap: () => context.push('/admin/payouts'),
-            ),
-            _MetricCard(
-              title: 'Colis à régulariser',
-              value: '${relays['parcels_waiting_relay_payment'] ?? 0}',
-              color: Colors.redAccent,
-              onTap: () => context.push(_parcelRoute('delivered_unpaid')),
             ),
           ],
         ),
@@ -488,7 +456,6 @@ class _OverviewBody extends StatelessWidget {
       'negative_wallets': 'Soldes négatifs à vérifier',
       'payout_ledger_gaps': 'Retraits à revoir',
       'mission_parcel_mismatches': 'Courses à revoir',
-      'delivered_unpaid': 'Colis à régulariser',
     };
     final widgets = <Widget>[];
     for (final entry in labels.entries) {

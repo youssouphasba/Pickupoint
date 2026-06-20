@@ -1393,6 +1393,7 @@ async def admin_list_parcels(
             "parcel_id": 1,
             "mission_id": 1,
             "commission_charge_mode": 1,
+            "status": 1,
         }
         mission_docs = await db.delivery_missions.find(
             mission_query,
@@ -1407,23 +1408,39 @@ async def admin_list_parcels(
             )
             tx_docs = await db.wallet_transactions.find(
                 {
-                    "reference": {"$regex": f"^{reference_prefix}"},
-                    "tx_type": TransactionType.DEBIT.value,
+                    "reference": {
+                        "$regex": r"^(commission:|commission_debt:|commission_refund:|commission_reversal:)"
+                    },
                 },
                 {
                     "_id": 0,
                     "reference": 1,
+                    "tx_type": 1,
                 },
             ).to_list(length=10000)
             matched_refs = {
                 str(tx.get("reference") or "")
                 for tx in tx_docs
-                if tx.get("reference")
+                if tx.get("tx_type") == TransactionType.DEBIT.value
+                and str(tx.get("reference") or "").startswith(reference_prefix)
+            }
+            reversed_or_refunded_mission_ids = {
+                ref.split(":")[1]
+                for ref in (
+                    str(tx.get("reference") or "")
+                    for tx in tx_docs
+                    if tx.get("reference")
+                )
+                if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
             }
             mission_docs = [
                 mission
                 for mission in mission_docs
-                if f"{reference_prefix}{mission.get('mission_id')}" in matched_refs
+                if (
+                    f"{reference_prefix}{mission.get('mission_id')}" in matched_refs
+                    and str(mission.get("mission_id") or "") not in reversed_or_refunded_mission_ids
+                    and str(mission.get("status") or "") != MissionStatus.PENDING.value
+                )
             ]
 
         finance_parcel_ids = {
@@ -1463,6 +1480,7 @@ async def admin_list_parcels(
                 "created_at": 1,
                 "commission_charge_mode": 1,
                 "admin_assignment_status": 1,
+                "status": 1,
             },
         ).sort("created_at", -1).to_list(length=5000)
 
@@ -1472,24 +1490,37 @@ async def admin_list_parcels(
             if mission.get("mission_id")
         ]
         tx_refs = set()
+        reversed_or_refunded_mission_ids: set[str] = set()
         if related_mission_ids:
             tx_docs = await db.wallet_transactions.find(
                 {
                     "$or": [
                         {"reference": {"$in": [f"commission:{mission_id}" for mission_id in related_mission_ids]}},
                         {"reference": {"$in": [f"commission_debt:{mission_id}" for mission_id in related_mission_ids]}},
+                        {"reference": {"$in": [f"commission_refund:{mission_id}" for mission_id in related_mission_ids]}},
+                        {"reference": {"$regex": r"^commission_reversal:"}},
                     ],
-                    "tx_type": TransactionType.DEBIT.value,
                 },
                 {
                     "_id": 0,
                     "reference": 1,
+                    "tx_type": 1,
                 },
             ).to_list(length=10000)
             tx_refs = {
                 str(tx.get("reference") or "")
                 for tx in tx_docs
-                if tx.get("reference")
+                if tx.get("tx_type") == TransactionType.DEBIT.value
+                and tx.get("reference")
+            }
+            reversed_or_refunded_mission_ids = {
+                ref.split(":")[1]
+                for ref in (
+                    str(tx.get("reference") or "")
+                    for tx in tx_docs
+                    if tx.get("reference")
+                )
+                if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
             }
 
         seen_parcels: set[str] = set()
@@ -1500,6 +1531,7 @@ async def admin_list_parcels(
             seen_parcels.add(parcel_id)
             mission_id = str(mission.get("mission_id") or "")
             charge_mode = str(mission.get("commission_charge_mode") or "")
+            mission_status = str(mission.get("status") or "")
             mission_charge_mode_by_parcel[parcel_id] = charge_mode
             admin_assignment_status_by_parcel[parcel_id] = str(
                 mission.get("admin_assignment_status") or ""
@@ -1507,13 +1539,18 @@ async def admin_list_parcels(
             platform_commission_received_by_parcel[parcel_id] = (
                 charge_mode == "wallet_hold"
                 and f"commission:{mission_id}" in tx_refs
+                and mission_id not in reversed_or_refunded_mission_ids
+                and mission_status != MissionStatus.PENDING.value
             )
             platform_commission_debt_by_parcel[parcel_id] = (
                 charge_mode == "driver_debt"
                 and f"commission_debt:{mission_id}" in tx_refs
+                and mission_id not in reversed_or_refunded_mission_ids
+                and mission_status != MissionStatus.PENDING.value
             )
             platform_commission_offered_by_parcel[parcel_id] = (
                 charge_mode == "platform_sponsored"
+                and mission_status != MissionStatus.PENDING.value
             )
 
     for parcel in parcels:
@@ -5270,6 +5307,15 @@ async def get_finance_overview(
         if tx.get("tx_type") == TransactionType.DEBIT.value
         and str(tx.get("reference") or "").startswith("commission_debt:")
     }
+    reversed_or_refunded_mission_ids = {
+        ref.split(":")[1]
+        for ref in (
+            str(tx.get("reference") or "")
+            for tx in commission_tx_docs
+            if tx.get("reference")
+        )
+        if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
+    }
 
     for mission in mission_docs:
         parcel = parcel_by_id.get(mission.get("parcel_id"))
@@ -5291,29 +5337,36 @@ async def get_finance_overview(
         admin_assignment_status = str(
             mission.get("admin_assignment_status") or ""
         ).strip()
+        mission_status = str(mission.get("status") or "").strip()
         mission_id = str(mission.get("mission_id") or "")
+        commission_is_active = (
+            mission_id not in reversed_or_refunded_mission_ids
+            and mission_status != MissionStatus.PENDING.value
+        )
 
         if admin_assignment_status == "awaiting_driver_response":
             waiting_driver_confirmation_count += 1
 
         if charge_mode == "driver_debt":
-            charged_as_debt_count += 1
-            debt_amount_xof += float(
-                mission.get("commission_debt_xof") or mission_total_commission or 0.0
-            )
-            if f"commission_debt:{mission_id}" in driver_debt_refs:
+            if commission_is_active:
+                charged_as_debt_count += 1
+                debt_amount_xof += float(
+                    mission.get("commission_debt_xof") or mission_total_commission or 0.0
+                )
+            if commission_is_active and f"commission_debt:{mission_id}" in driver_debt_refs:
                 platform_debt_xof += mission_platform_commission
         elif charge_mode == "platform_sponsored":
-            offered_by_denkma_count += 1
-            offered_amount_xof += float(
-                mission.get("sponsored_commission_xof")
-                or mission_total_commission
-                or 0.0
-            )
-            platform_offered_xof += mission_platform_commission
+            if commission_is_active:
+                offered_by_denkma_count += 1
+                offered_amount_xof += float(
+                    mission.get("sponsored_commission_xof")
+                    or mission_total_commission
+                    or 0.0
+                )
+                platform_offered_xof += mission_platform_commission
         elif charge_mode == "wallet_hold":
-            charged_to_balance_count += 1
-            if f"commission:{mission_id}" in wallet_hold_received_refs:
+            if commission_is_active and f"commission:{mission_id}" in wallet_hold_received_refs:
+                charged_to_balance_count += 1
                 platform_received_xof += mission_platform_commission
 
     payouts_waiting_count = 0
