@@ -53,9 +53,6 @@ class AdminUserDetailScreen extends ConsumerWidget {
           final lastSession = Map<String, dynamic>.from(
             data['last_session'] as Map<String, dynamic>? ?? const {},
           );
-          final recentTimeline = List<Map<String, dynamic>>.from(
-            data['recent_timeline'] as List? ?? const [],
-          );
           final walletFinancialSummary = Map<String, dynamic>.from(
             wallet['financial_summary'] as Map? ?? const {},
           );
@@ -655,18 +652,6 @@ class AdminUserDetailScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                _SectionCard(
-                  title: 'Activit\u00e9 r\u00e9cente',
-                  child: recentTimeline.isEmpty
-                      ? const Text('Aucune activit\u00e9 r\u00e9cente.')
-                      : Column(
-                          children: [
-                            for (final event in recentTimeline)
-                              _TimelineTile(item: event),
-                          ],
-                        ),
                 ),
               ],
             ),

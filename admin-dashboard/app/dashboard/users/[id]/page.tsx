@@ -365,7 +365,6 @@ export default function UserDetailPage() {
   const performance = data.performance ?? {};
   const wallet = data.wallet;
   const walletFinancial = wallet?.financial_summary ?? null;
-  const recentTimeline = Array.isArray(data.recent_timeline) ? data.recent_timeline : [];
   const historyTimeline = Array.isArray(history.data?.timeline) ? history.data.timeline : [];
   const referral = data.referral;
   const sponsoredReferrals = referral?.sponsored_referrals;
@@ -1205,36 +1204,7 @@ export default function UserDetailPage() {
         )}
       </div>
 
-      {recentTimeline.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{"Activité récente"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {recentTimeline.map((item: any, i: number) => (
-                <div
-                  key={`${item.kind}-${item.reference_id ?? item.parcel_id ?? item.mission_id ?? i}`}
-                  className="flex items-start justify-between rounded-md border p-3 text-sm"
-                >
-                  <div className="min-w-0">
-                    <Badge tone={item.tone ?? "default"}>{textOrDash(item.kind)}</Badge>
-                    <div className="mt-1 font-medium">{textOrDash(item.title)}</div>
-                    {item.subtitle && (
-                      <div className="mt-1 text-xs text-muted-foreground">{item.subtitle}</div>
-                    )}
-                  </div>
-                  <span className="shrink-0 pl-3 text-xs text-muted-foreground">
-                    {formatDate(item.occurred_at)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* User history */}
+            {/* User history */}
       {historyTimeline.length > 0 && (
         <Card>
           <CardHeader>
