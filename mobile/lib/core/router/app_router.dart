@@ -799,7 +799,9 @@ class DriverShell extends ConsumerStatefulWidget {
 class _DriverShellState extends ConsumerState<DriverShell>
     with WidgetsBindingObserver {
   StreamSubscription<Position>? _positionStream;
+  StreamSubscription<Position>? _presenceStream;
   DateTime? _lastBackendUpdate;
+  DateTime? _lastPresenceBackendUpdate;
   String? _trackingMissionId;
 
   @override
@@ -808,6 +810,7 @@ class _DriverShellState extends ConsumerState<DriverShell>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncDriverPresence();
+      _ensureDriverPresenceTracking();
     });
   }
 
@@ -815,6 +818,7 @@ class _DriverShellState extends ConsumerState<DriverShell>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _positionStream?.cancel();
+    _presenceStream?.cancel();
     super.dispose();
   }
 
@@ -822,6 +826,16 @@ class _DriverShellState extends ConsumerState<DriverShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _syncDriverPresence();
+      _ensureDriverPresenceTracking();
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _presenceStream?.cancel();
+      _presenceStream = null;
+      _lastPresenceBackendUpdate = null;
     }
   }
 
@@ -839,6 +853,72 @@ class _DriverShellState extends ConsumerState<DriverShell>
         'accuracy': position.accuracy,
       });
     } catch (_) {}
+  }
+
+
+  Future<void> _ensureDriverPresenceTracking() async {
+    final auth = ref.read(authProvider).valueOrNull;
+    final user = auth?.user;
+    if (user == null || user.role != 'driver') {
+      await _presenceStream?.cancel();
+      _presenceStream = null;
+      _lastPresenceBackendUpdate = null;
+      return;
+    }
+    if (_presenceStream != null) {
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.whileInUse &&
+        permission != LocationPermission.always) {
+      return;
+    }
+
+    final LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 25,
+        intervalDuration: const Duration(seconds: 45),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 25,
+        activityType: ActivityType.otherNavigation,
+        pauseLocationUpdatesAutomatically: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 25,
+      );
+    }
+
+    _presenceStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((position) async {
+      final now = DateTime.now();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+      if (_lastPresenceBackendUpdate != null &&
+          now.difference(_lastPresenceBackendUpdate!).inSeconds < 45) {
+        return;
+      }
+      _lastPresenceBackendUpdate = now;
+      try {
+        await ref.read(apiClientProvider).updateMyDriverLocation({
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'accuracy': position.accuracy,
+        });
+      } catch (_) {}
+    });
   }
 
   Future<void> _syncDriverTracking(String? missionId) async {
@@ -929,6 +1009,7 @@ class _DriverShellState extends ConsumerState<DriverShell>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncDriverTracking(activeMissionId);
       _syncDriverPresence();
+      _ensureDriverPresenceTracking();
     });
 
     final int idx;
