@@ -412,41 +412,44 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         _InfoRow(
                           'Commission pr\u00e9lev\u00e9e',
                           formatXof(
-                            (walletFinancialSummary['commissions']
-                                        as Map?)?['wallet_hold_xof']
-                                    as num? ??
+                            ((walletFinancialSummary['commissions']
+                                            as Map?)?['wallet_hold_xof']
+                                        as num?)
+                                    ?.toDouble() ??
                                 0,
                           ),
                         ),
                         _InfoRow(
                           'Commission en dette',
                           formatXof(
-                            (walletFinancialSummary['commissions']
-                                        as Map?)?['driver_debt_xof']
-                                    as num? ??
+                            ((walletFinancialSummary['commissions']
+                                            as Map?)?['driver_debt_xof']
+                                        as num?)
+                                    ?.toDouble() ??
                                 0,
                           ),
                         ),
                         _InfoRow(
                           'Commission offerte',
                           formatXof(
-                            (walletFinancialSummary['commissions']
-                                        as Map?)?['platform_sponsored_xof']
-                                    as num? ??
+                            ((walletFinancialSummary['commissions']
+                                            as Map?)?['platform_sponsored_xof']
+                                        as num?)
+                                    ?.toDouble() ??
                                 0,
                           ),
                         ),
                         _InfoRow(
                           'Retraits en attente',
-                          '${(walletFinancialSummary['payouts'] as Map?)?['pending_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['pending_xof'] as num?) ?? 0)}',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['pending_count'] ?? 0} - ${formatXof((((walletFinancialSummary['payouts'] as Map?)?['pending_xof'] as num?)?.toDouble()) ?? 0)}',
                         ),
                         _InfoRow(
                           'Retraits valid\u00e9s',
-                          '${(walletFinancialSummary['payouts'] as Map?)?['approved_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['approved_xof'] as num?) ?? 0)}',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['approved_count'] ?? 0} - ${formatXof((((walletFinancialSummary['payouts'] as Map?)?['approved_xof'] as num?)?.toDouble()) ?? 0)}',
                         ),
                         _InfoRow(
                           'Retraits refus\u00e9s',
-                          '${(walletFinancialSummary['payouts'] as Map?)?['rejected_count'] ?? 0} - ${formatXof(((walletFinancialSummary['payouts'] as Map?)?['rejected_xof'] as num?) ?? 0)}',
+                          '${(walletFinancialSummary['payouts'] as Map?)?['rejected_count'] ?? 0} - ${formatXof((((walletFinancialSummary['payouts'] as Map?)?['rejected_xof'] as num?)?.toDouble()) ?? 0)}',
                         ),
                         if (recentTransactions.isNotEmpty) ...[
                           const SizedBox(height: 8),
