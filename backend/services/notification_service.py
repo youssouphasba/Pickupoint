@@ -694,6 +694,7 @@ async def _store_and_send(
     whatsapp_button_variables: Optional[list[str]] = None,
     skip_whatsapp: bool = False,
     metadata: Optional[dict] = None,
+    store_in_app: bool = True,
 ):
     """Stocke la notification en base et tente l'envoi.
 
@@ -711,15 +712,16 @@ async def _store_and_send(
             "push_reason": "category_disabled",
         }
 
-    await _store_notification(
-        user_id=user_id,
-        channel=NotificationChannel.IN_APP,
-        title=title,
-        body=body,
-        ref_type=ref_type,
-        ref_id=ref_id,
-        metadata=metadata,
-    )
+    if store_in_app:
+        await _store_notification(
+            user_id=user_id,
+            channel=NotificationChannel.IN_APP,
+            title=title,
+            body=body,
+            ref_type=ref_type,
+            ref_id=ref_id,
+            metadata=metadata,
+        )
 
     push_result = await _send_push(
         user_id=user_id,
@@ -743,7 +745,7 @@ async def _store_and_send(
             else:
                 await _send_whatsapp(phone, body)
 
-    return {"stored": True, **push_result}
+    return {"stored": store_in_app, **push_result}
 
 
 async def _store_notification(
@@ -1204,6 +1206,7 @@ async def notify_pending_mission_dispatch_reminder(
         ref_type="mission",
         ref_id=mission.get("mission_id"),
         metadata={"dispatch_radius_km": radius_km, "reminder": True},
+        store_in_app=False,
     )
 
 
@@ -1250,6 +1253,7 @@ async def send_targeted_notifications(
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    store_in_app: bool = True,
 ) -> dict:
     unique_user_ids = []
     seen = set()
@@ -1274,6 +1278,7 @@ async def send_targeted_notifications(
             category=category,
             skip_whatsapp=True,
             metadata=metadata,
+            store_in_app=store_in_app,
         )
         if result.get("stored"):
             stored += 1
@@ -1291,7 +1296,7 @@ async def send_targeted_notifications(
     return {
         "requested": len(user_ids),
         "deduplicated": len(unique_user_ids),
-        "sent": stored,
+        "sent": push_sent if not store_in_app else stored,
         "in_app_sent": stored,
         "push_sent": push_sent,
         "push_failed": push_failed,
