@@ -15,6 +15,7 @@ import { DataTable } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toaster";
 import { driverLevelTitle } from "@/lib/driver-levels";
@@ -64,6 +65,47 @@ function userDisplayName(user: AdminUser) {
   return user.name ?? user.full_name ?? "—";
 }
 
+function StatCard({
+  title,
+  value,
+  hint,
+  tone = "default",
+  onClick,
+}: {
+  title: string;
+  value: string | number;
+  hint?: string;
+  tone?: "default" | "blue" | "green" | "orange" | "purple" | "teal";
+  onClick?: () => void;
+}) {
+  const toneClass = {
+    default: "border-border",
+    blue: "border-blue-200 bg-blue-50/50",
+    green: "border-green-200 bg-green-50/50",
+    orange: "border-orange-200 bg-orange-50/50",
+    purple: "border-purple-200 bg-purple-50/50",
+    teal: "border-teal-200 bg-teal-50/50",
+  }[tone];
+
+  return (
+    <Card
+      className={`rounded-lg ${toneClass} ${onClick ? "cursor-pointer transition hover:shadow-md" : ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-semibold">{value}</div>
+        {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function currentPeriod() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -93,6 +135,18 @@ export default function UsersPage() {
     queryFn: () => fetchClientStats(period),
     enabled: role === "all" || role === "client",
   });
+
+
+  const usersSummary = React.useMemo(() => {
+    const allUsers = data?.users ?? [];
+    return {
+      total: data?.total ?? allUsers.length,
+      clients: allUsers.filter((user) => user.role === "client").length,
+      drivers: allUsers.filter((user) => user.role === "driver").length,
+      relays: allUsers.filter((user) => user.role === "relay_agent").length,
+      admins: allUsers.filter((user) => user.role === "admin" || user.role === "superadmin").length,
+    };
+  }, [data]);
 
   const users = React.useMemo(() => {
     const stats = clientStatsData?.stats ?? [];
@@ -358,7 +412,7 @@ export default function UsersPage() {
                   onClick={() => setUnbanTarget(user)}
                 >
                   <ShieldCheck className="h-3.5 w-3.5" />
-                  Débannir
+                  Debannir
                 </Button>
               ) : (
                 <Button
@@ -393,6 +447,15 @@ export default function UsersPage() {
             {data ? `${data.total} comptes au total` : null}
           </div>
         </div>
+      </div>
+
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard title="Utilisateurs" value={usersSummary.total} hint="Tous les comptes" tone="default" onClick={() => setRole("all")} />
+        <StatCard title="Clients" value={usersSummary.clients} hint="Comptes clients" tone="blue" onClick={() => setRole("client")} />
+        <StatCard title="Livreurs" value={usersSummary.drivers} hint="Comptes livreurs" tone="green" onClick={() => setRole("driver")} />
+        <StatCard title="Relais" value={usersSummary.relays} hint="Agents relais" tone="orange" onClick={() => setRole("relay_agent")} />
+        <StatCard title="Admins" value={usersSummary.admins} hint="Comptes administration" tone="purple" onClick={() => setRole("admin")} />
       </div>
 
       <div className="flex flex-wrap gap-2">

@@ -34,6 +34,13 @@ final adminParcelsProvider = FutureProvider<List<Parcel>>((ref) async {
       .toList();
 });
 
+final adminParcelsOverviewProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminParcelsOverview();
+  return res.data as Map<String, dynamic>;
+});
+
 /// Provider pour tous les points relais.
 final adminRelaysProvider = FutureProvider<List<RelayPoint>>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -59,9 +66,22 @@ final adminUsersProvider = FutureProvider<List<User>>((ref) async {
   final api = ref.watch(apiClientProvider);
   final res = await api.getAdminUsers();
   final data = res.data as Map<String, dynamic>;
-  return (data['users'] as List? ?? [])
+  final users = (data['users'] as List? ?? [])
       .map((e) => User.fromJson(e as Map<String, dynamic>))
       .toList();
+  users.sort((a, b) {
+    final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return bTime.compareTo(aTime);
+  });
+  return users;
+});
+
+final adminUsersOverviewProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminUsersOverview();
+  return res.data as Map<String, dynamic>;
 });
 
 final adminNotificationBroadcastsProvider =

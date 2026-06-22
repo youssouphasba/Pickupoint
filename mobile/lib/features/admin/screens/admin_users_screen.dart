@@ -37,7 +37,9 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(adminUsersProvider),
+            onPressed: () {
+              ref.invalidate(adminUsersProvider);
+            },
           ),
         ],
       ),
@@ -69,7 +71,7 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _UserSummaryRow(users: users),
+                child: _UsersOverviewSection(users: users),
               ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -173,98 +175,56 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
   }
 }
 
-class _UserSummaryRow extends StatelessWidget {
-  const _UserSummaryRow({required this.users});
+class _UsersOverviewSection extends StatelessWidget {
+  const _UsersOverviewSection({required this.users});
 
   final List<User> users;
 
   @override
   Widget build(BuildContext context) {
-    final drivers = users.where((user) => user.isDriver).length;
-    final relayAgents = users.where((user) => user.isRelayAgent).length;
-    final banned = users.where((user) => user.isBanned).length;
-    final kycVerified =
-        users.where((user) => user.kycStatus == 'verified').length;
+    final total = users.length;
+    final clients = users.where((user) => user.role == 'client').length;
+    final drivers = users.where((user) => user.role == 'driver').length;
+    final relays = users.where((user) => user.role == 'relay_agent').length;
+    final admins = users
+        .where((user) => user.role == 'admin' || user.role == 'superadmin')
+        .length;
 
-    return Row(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
       children: [
-        Expanded(
-          child: _SummaryTile(
-            label: 'Livreurs',
-            value: '$drivers',
-            color: Colors.blue,
-            icon: Icons.delivery_dining_outlined,
-          ),
+        _SummaryTile(
+          label: 'Utilisateurs',
+          value: '$total',
+          color: Colors.indigo,
+          icon: Icons.people_alt_outlined,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'Relais',
-            value: '$relayAgents',
-            color: Colors.orange,
-            icon: Icons.storefront,
-          ),
+        _SummaryTile(
+          label: 'Clients',
+          value: '$clients',
+          color: Colors.blueGrey,
+          icon: Icons.person_outline,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'Suspendus',
-            value: '$banned',
-            color: Colors.red,
-            icon: Icons.block_outlined,
-          ),
+        _SummaryTile(
+          label: 'Livreurs',
+          value: '$drivers',
+          color: Colors.blue,
+          icon: Icons.delivery_dining_outlined,
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'KYC ok',
-            value: '$kycVerified',
-            color: Colors.green,
-            icon: Icons.verified_user_outlined,
-          ),
+        _SummaryTile(
+          label: 'Relais',
+          value: '$relays',
+          color: Colors.orange,
+          icon: Icons.storefront_outlined,
         ),
-      ],
-    );
-  }
-}
-
-class _SummaryTile extends StatelessWidget {
-  const _SummaryTile({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ],
-      ),
+        _SummaryTile(
+          label: 'Admins',
+          value: '$admins',
+          color: Colors.purple,
+          icon: Icons.admin_panel_settings_outlined,
+        ),
+      ].map((child) => SizedBox(width: 160, child: child)).toList(),
     );
   }
 }

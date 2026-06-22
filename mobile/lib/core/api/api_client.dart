@@ -373,6 +373,9 @@ class ApiClient {
   Future<Response> getAdminParcels({Map<String, dynamic>? params}) =>
       _dio.get(ApiEndpoints.adminParcels, queryParameters: params);
 
+  Future<Response> getAdminParcelsOverview() =>
+      _dio.get(ApiEndpoints.adminParcelsOverview);
+
   Future<Response> getLiveFleet() async {
     try {
       return await _dio.get(ApiEndpoints.adminFleetLive);
@@ -571,10 +574,13 @@ class ApiClient {
   }
 
   // ─── Admin — Utilisateurs ─────────────────────────────────────────────────
-  Future<Response> getAdminUsers({int skip = 0, int limit = 50}) => _dio.get(
+  Future<Response> getAdminUsers({int skip = 0, int limit = 100}) => _dio.get(
         ApiEndpoints.adminUsers,
         queryParameters: {'skip': skip, 'limit': limit},
       );
+
+  Future<Response> getAdminUsersOverview() =>
+      _dio.get(ApiEndpoints.adminUsersOverview);
 
   Future<Response> changeUserRole(String userId, String role) => _dio.put(
         ApiEndpoints.adminUserRole(userId),

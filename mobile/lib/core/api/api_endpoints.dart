@@ -128,6 +128,7 @@ class ApiEndpoints {
   // ─── Admin ────────────────────────────────────────────────────────────────
   static const dashboard = '$_base/api/admin/dashboard';
   static const adminParcels = '$_base/api/admin/parcels';
+  static const adminParcelsOverview = '$_base/api/admin/parcels/overview';
   static String adminParcelStatus(String id) =>
       '$_base/api/admin/parcels/$id/override';
   static const adminRelays = '$_base/api/admin/relay-points';
@@ -182,7 +183,8 @@ class ApiEndpoints {
   static const myAvailability = '$_base/api/users/me/availability';
 
   // ─── Admin — Utilisateurs ─────────────────────────────────────────────────
-  static const adminUsers = '$_base/api/users';
+  static const adminUsers = '$_base/api/admin/users';
+  static const adminUsersOverview = '$_base/api/admin/users/overview';
   static String adminUserRole(String id) => '$_base/api/users/$id/role';
   static String adminUserRelay(String id) => '$_base/api/users/$id/relay-point';
   static String adminUserHistory(String id) =>

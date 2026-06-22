@@ -45,6 +45,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
   @override
   Widget build(BuildContext context) {
     final parcelsAsync = ref.watch(adminParcelsProvider);
+    final overviewAsync = ref.watch(adminParcelsOverviewProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -52,7 +53,10 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(adminParcelsProvider),
+            onPressed: () {
+              ref.invalidate(adminParcelsProvider);
+              ref.invalidate(adminParcelsOverviewProvider);
+            },
           ),
         ],
       ),
@@ -85,7 +89,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _SummaryRow(parcels: parcels),
+                child: _ParcelsOverviewSection(overviewAsync: overviewAsync),
               ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -375,65 +379,89 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
   }
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.parcels});
+class _ParcelsOverviewSection extends StatelessWidget {
+  const _ParcelsOverviewSection({required this.overviewAsync});
 
-  final List<Parcel> parcels;
+  final AsyncValue<Map<String, dynamic>> overviewAsync;
+
+  static const _modeLabels = {
+    'relay_to_relay': 'Relais vers relais',
+    'relay_to_home': 'Relais vers domicile',
+    'home_to_relay': 'Domicile vers relais',
+    'home_to_home': 'Domicile vers domicile',
+  };
 
   @override
   Widget build(BuildContext context) {
-    final active = parcels
-        .where((parcel) => !const {
-              'delivered',
-              'cancelled',
-              'returned',
-            }.contains(parcel.status))
-        .length;
-    final blocked =
-        parcels.where((parcel) => parcel.deliveryBlockedByPayment).length;
-    final disputed =
-        parcels.where((parcel) => parcel.status == 'disputed').length;
-    final delivered =
-        parcels.where((parcel) => parcel.status == 'delivered').length;
-
-    return Row(
-      children: [
-        Expanded(
-          child: _SummaryTile(
-            label: 'Actifs',
-            value: '$active',
-            color: Colors.blue,
-            icon: Icons.local_shipping_outlined,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'Paiement',
-            value: '$blocked',
-            color: Colors.red,
-            icon: Icons.lock_clock_outlined,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'Litiges',
-            value: '$disputed',
-            color: Colors.orange,
-            icon: Icons.report_problem_outlined,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _SummaryTile(
-            label: 'Livres',
-            value: '$delivered',
-            color: Colors.green,
-            icon: Icons.check_circle_outline,
-          ),
-        ),
-      ],
+    return overviewAsync.when(
+      data: (overview) {
+        final modes = (overview['by_mode'] as Map<String, dynamic>? ??
+            const <String, dynamic>{});
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _SummaryTile(
+                  label: 'Colis',
+                  value: '${(overview['total'] as num?)?.toInt() ?? 0}',
+                  color: Colors.teal,
+                  icon: Icons.inventory_2_outlined,
+                ),
+                _SummaryTile(
+                  label: 'Actifs',
+                  value: '${(overview['active'] as num?)?.toInt() ?? 0}',
+                  color: Colors.blue,
+                  icon: Icons.local_shipping_outlined,
+                ),
+                _SummaryTile(
+                  label: 'Colis livres',
+                  value: '${(overview['delivered'] as num?)?.toInt() ?? 0}',
+                  color: Colors.green,
+                  icon: Icons.check_circle_outline,
+                ),
+                _SummaryTile(
+                  label: 'Colis annules',
+                  value: '${(overview['cancelled'] as num?)?.toInt() ?? 0}',
+                  color: Colors.orange,
+                  icon: Icons.cancel_outlined,
+                ),
+                _SummaryTile(
+                  label: 'Paiement bloque',
+                  value: '${(overview['payment_blocked'] as num?)?.toInt() ?? 0}',
+                  color: Colors.red,
+                  icon: Icons.lock_clock_outlined,
+                ),
+              ].map((child) => SizedBox(width: 160, child: child)).toList(),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: _modeLabels.entries
+                  .map(
+                    (entry) => SizedBox(
+                      width: 160,
+                      child: _SummaryTile(
+                        label: entry.value,
+                        value: '${(modes[entry.key] as num?)?.toInt() ?? 0}',
+                        color: Colors.teal,
+                        icon: Icons.alt_route,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        );
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(minHeight: 3),
+      ),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

@@ -84,6 +84,32 @@ export type AdminUser = {
   client_total_ranked?: number;
 };
 
+export type AdminUsersOverview = {
+  users: {
+    total: number;
+    banned: number;
+    kyc_verified: number;
+    phone_verified: number;
+    by_role: Record<string, number>;
+  };
+  parcels: {
+    total: number;
+    delivered: number;
+    cancelled: number;
+    by_mode: Record<string, number>;
+  };
+};
+
+export async function fetchUsersOverview(params?: {
+  from_date?: string;
+  to_date?: string;
+}) {
+  const { data } = await api.get<AdminUsersOverview>("/api/admin/users/overview", {
+    params,
+  });
+  return data;
+}
+
 export async function fetchUsers(params: {
   role?: string;
   from_date?: string;
@@ -296,6 +322,27 @@ export async function fetchParcels(params: {
 }
 
 // ───────────────────────── Payouts ─────────────────────────
+
+export type AdminParcelsOverview = {
+  total: number;
+  active: number;
+  payment_blocked: number;
+  disputed: number;
+  delivered: number;
+  cancelled: number;
+  by_mode: Record<string, number>;
+};
+
+export async function fetchParcelsOverview(params?: {
+  from_date?: string;
+  to_date?: string;
+}) {
+  const { data } = await api.get<AdminParcelsOverview>(
+    "/api/admin/parcels/overview",
+    { params },
+  );
+  return data;
+}
 
 export type AdminPayout = {
   payout_id: string;

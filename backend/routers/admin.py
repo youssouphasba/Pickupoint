@@ -1576,6 +1576,62 @@ async def admin_list_parcels(
     return {"parcels": parcels, "total": total}
 
 
+@router.get("/parcels/overview", summary="Synthese colis (Admin)")
+async def admin_parcels_overview(
+    from_date: Optional[str] = Query(None, description="Date debut YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    _admin=Depends(require_admin_dep),
+):
+    query = date_range_query(from_date, to_date, field="created_at")
+    active_statuses = [
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.IN_TRANSIT.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+        ParcelStatus.INCIDENT_REPORTED.value,
+    ]
+    payment_blocked_statuses = [
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+    ]
+
+    mode_rows = await db.parcels.aggregate([
+        {"$match": query},
+        {"$group": {"_id": "$delivery_mode", "count": {"$sum": 1}}},
+    ]).to_list(length=20)
+    by_mode = {
+        str(row.get("_id") or "unknown"): int(row.get("count", 0) or 0)
+        for row in mode_rows
+    }
+
+    total = await db.parcels.count_documents(query)
+    active = await db.parcels.count_documents({**query, "status": {"$in": active_statuses}})
+    disputed = await db.parcels.count_documents({**query, "status": ParcelStatus.DISPUTED.value})
+    delivered = await db.parcels.count_documents({**query, "status": ParcelStatus.DELIVERED.value})
+    cancelled = await db.parcels.count_documents({**query, "status": ParcelStatus.CANCELLED.value})
+    payment_blocked = await db.parcels.count_documents({
+        **query,
+        "status": {"$in": payment_blocked_statuses},
+        "payment_status": {"$ne": "paid"},
+        "payment_override": {"$ne": True},
+    })
+
+    return {
+        "total": total,
+        "active": active,
+        "payment_blocked": payment_blocked,
+        "disputed": disputed,
+        "delivered": delivered,
+        "cancelled": cancelled,
+        "by_mode": by_mode,
+    }
+
+
 @router.post("/parcels/{parcel_id}/confirm-payment", summary="Valider manuellement le paiement (Admin)")
 async def admin_confirm_payment(
     parcel_id: str,
@@ -1986,6 +2042,64 @@ async def set_user_payout_block(
 
 
 # -- Gestion des Utilisateurs & Bannissement -----------------------------------
+
+@router.get("/users/overview", summary="Synthese utilisateurs (Admin)")
+async def admin_users_overview(
+    from_date: Optional[str] = Query(None, description="Date debut YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    _admin=Depends(require_admin_dep),
+):
+    user_query = date_range_query(from_date, to_date, field="created_at")
+    parcel_query = date_range_query(from_date, to_date, field="created_at")
+
+    user_rows = await db.users.aggregate([
+        {"$match": user_query},
+        {"$group": {"_id": "$role", "count": {"$sum": 1}}},
+    ]).to_list(length=20)
+    users_by_role = {
+        str(row.get("_id") or "unknown"): int(row.get("count", 0) or 0)
+        for row in user_rows
+    }
+
+    parcel_rows = await db.parcels.aggregate([
+        {"$match": parcel_query},
+        {"$group": {"_id": "$delivery_mode", "count": {"$sum": 1}}},
+    ]).to_list(length=20)
+    parcels_by_mode = {
+        str(row.get("_id") or "unknown"): int(row.get("count", 0) or 0)
+        for row in parcel_rows
+    }
+
+    total_users = await db.users.count_documents(user_query)
+    total_parcels = await db.parcels.count_documents(parcel_query)
+    delivered_parcels = await db.parcels.count_documents({
+        **parcel_query,
+        "status": ParcelStatus.DELIVERED.value,
+    })
+    cancelled_parcels = await db.parcels.count_documents({
+        **parcel_query,
+        "status": ParcelStatus.CANCELLED.value,
+    })
+    banned_users = await db.users.count_documents({**user_query, "is_banned": True})
+    kyc_verified_users = await db.users.count_documents({**user_query, "kyc_status": "verified"})
+    phone_verified_users = await db.users.count_documents({**user_query, "is_phone_verified": True})
+
+    return {
+        "users": {
+            "total": total_users,
+            "banned": banned_users,
+            "kyc_verified": kyc_verified_users,
+            "phone_verified": phone_verified_users,
+            "by_role": users_by_role,
+        },
+        "parcels": {
+            "total": total_parcels,
+            "delivered": delivered_parcels,
+            "cancelled": cancelled_parcels,
+            "by_mode": parcels_by_mode,
+        },
+    }
+
 
 @router.get("/users", summary="Liste tous les utilisateurs (Admin)")
 async def admin_list_users(

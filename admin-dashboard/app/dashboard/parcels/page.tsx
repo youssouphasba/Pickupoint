@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { Loader2 } from "lucide-react";
 
-import { AdminParcel, fetchParcels } from "@/lib/api";
+import { AdminParcel, AdminParcelsOverview, fetchParcels, fetchParcelsOverview } from "@/lib/api";
 import { DataTable } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
@@ -115,6 +115,45 @@ function filterFromSearchParams(searchParams: URLSearchParams) {
   return searchParams.get("status") ?? "all";
 }
 
+function ParcelStatCard({
+  title,
+  value,
+  hint,
+  tone = "default",
+  onClick,
+}: {
+  title: string;
+  value: string | number;
+  hint?: string;
+  tone?: "default" | "blue" | "green" | "orange" | "purple" | "teal";
+  onClick?: () => void;
+}) {
+  const toneClass = {
+    default: "border-border",
+    blue: "border-blue-200 bg-blue-50/50",
+    green: "border-green-200 bg-green-50/50",
+    orange: "border-orange-200 bg-orange-50/50",
+    purple: "border-purple-200 bg-purple-50/50",
+    teal: "border-teal-200 bg-teal-50/50",
+  }[tone];
+
+  return (
+    <div
+      className={`rounded-xl border p-5 shadow-sm ${toneClass} ${onClick ? "cursor-pointer transition hover:shadow-md" : ""}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+    >
+      <div className="text-sm font-medium text-muted-foreground">{title}</div>
+      <div className="mt-2 text-2xl font-semibold">{value}</div>
+      {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
+    </div>
+  );
+}
+
+function modeCount(overview: AdminParcelsOverview | undefined, mode: string) {
+  return overview?.by_mode?.[mode] ?? 0;
+}
+
 function dateRangeFromSearchParams(searchParams: URLSearchParams): DateRange {
   const from = searchParams.get("from_date") ?? undefined;
   const to = searchParams.get("to_date") ?? undefined;
@@ -137,6 +176,15 @@ export default function ParcelsPage() {
 
   const activeFilter =
     FILTERS.find((filter) => filter.value === selectedFilter) ?? FILTERS[0];
+
+  const { data: overviewData } = useQuery({
+    queryKey: ["parcels-overview", dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () =>
+      fetchParcelsOverview({
+        ...(dateRange.from ? { from_date: dateRange.from } : {}),
+        ...(dateRange.to ? { to_date: dateRange.to } : {}),
+      }),
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["parcels", activeFilter.value, dateRange.from ?? "", dateRange.to ?? ""],
@@ -260,6 +308,26 @@ export default function ParcelsPage() {
         <div className="text-sm text-muted-foreground">
           {data ? `${data.total} colis` : null}
         </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <ParcelStatCard title="Colis" value={overviewData?.total ?? 0} hint="Tous les colis" tone="teal" onClick={() => setSelectedFilter("all")} />
+        <ParcelStatCard title="Actifs" value={overviewData?.active ?? 0} hint="Colis en cours" tone="blue" onClick={() => setSelectedFilter("active")} />
+        <ParcelStatCard title="Colis livres" value={overviewData?.delivered ?? 0} hint="Livraisons terminees" tone="green" onClick={() => setSelectedFilter("delivered")} />
+        <ParcelStatCard title="Colis annules" value={overviewData?.cancelled ?? 0} hint="Annules sur la periode" tone="orange" onClick={() => setSelectedFilter("cancelled")} />
+        <ParcelStatCard title="Paiement bloque" value={overviewData?.payment_blocked ?? 0} hint="Blocage paiement" tone="purple" onClick={() => setSelectedFilter("payment_blocked")} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Object.entries(MODE_LABELS).map(([mode, label]) => (
+          <ParcelStatCard
+            key={mode}
+            title={label}
+            value={modeCount(overviewData, mode)}
+            hint="Crees sur la periode"
+            tone="teal"
+          />
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
