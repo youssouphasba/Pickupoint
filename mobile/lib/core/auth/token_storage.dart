@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../models/user.dart';
 
 /// Persiste les tokens JWT dans le keystore sécurisé de l'OS.
 class TokenStorage {
@@ -8,6 +12,7 @@ class TokenStorage {
 
   static const _kAccess = 'access_token';
   static const _kRefresh = 'refresh_token';
+  static const _kUser = 'cached_user';
   static const _kLastPhone = 'last_account_phone';
   static const _kLastName = 'last_account_name';
   static const _kBiometricPhone = 'biometric_account_phone';
@@ -43,6 +48,22 @@ class TokenStorage {
     ]);
   }
 
+  Future<void> saveUser(User user) async {
+    await _storage.write(key: _kUser, value: jsonEncode(user.toJson()));
+  }
+
+  Future<User?> getUser() async {
+    final raw = await _storage.read(key: _kUser);
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return User.fromJson(decoded);
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> clearLastAccount() async {
     await Future.wait([
       _storage.delete(key: _kLastPhone),
@@ -74,6 +95,7 @@ class TokenStorage {
     await Future.wait([
       _storage.delete(key: _kAccess),
       _storage.delete(key: _kRefresh),
+      _storage.delete(key: _kUser),
     ]);
   }
 

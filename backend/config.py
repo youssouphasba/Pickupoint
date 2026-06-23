@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "changeme_minimum_32_chars_here_please"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 365
 
     # Firebase
     FIREBASE_CREDENTIALS_PATH: Optional[str] = "firebase-service-account.json"

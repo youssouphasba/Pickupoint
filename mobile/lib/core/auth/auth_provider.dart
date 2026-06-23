@@ -86,6 +86,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   Future<AuthState> _tryLoadFromStorage() async {
     final accessToken = await _storage.getAccessToken();
     final refreshToken = await _storage.getRefreshToken();
+    final cachedUser = await _storage.getUser();
 
     if (accessToken == null) {
       return const AuthState(status: AuthStatus.unauthenticated);
@@ -95,6 +96,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final client = ApiClient(token: accessToken);
       final res = await client.getMe();
       final user = User.fromJson(res.data as Map<String, dynamic>);
+      await _storage.saveUser(user);
       return AuthState(
         status: AuthStatus.authenticated,
         user: user,
@@ -105,36 +107,20 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       if (e is DioException &&
           e.response?.statusCode == 401 &&
           refreshToken != null) {
-        try {
-          final refreshClient = ApiClient();
-          final refreshRes = await refreshClient.refreshToken(refreshToken);
-          final data = refreshRes.data as Map<String, dynamic>;
-          final newAccessRaw = data['access_token'];
-          final newRefreshRaw = data['refresh_token'];
-          if (newAccessRaw == null) {
-            throw Exception("Jeton d'accès manquant lors du rafraîchissement.");
-          }
-          final newAccess = newAccessRaw.toString();
-          final newRefresh = newRefreshRaw?.toString() ?? refreshToken;
-
-          await _storage.saveTokens(
-            accessToken: newAccess,
-            refreshToken: newRefresh,
-          );
-
-          final meClient = ApiClient(token: newAccess);
-          final meRes = await meClient.getMe();
-          final user = User.fromJson(meRes.data as Map<String, dynamic>);
-          return AuthState(
-            status: AuthStatus.authenticated,
-            user: user,
-            accessToken: newAccess,
-            refreshToken: newRefresh,
-          );
-        } catch (_) {}
+        final refreshed = await _refreshSessionFromToken(
+          refreshToken: refreshToken,
+          fallbackUser: cachedUser,
+          clearOnInvalid: true,
+        );
+        if (refreshed != null) return refreshed;
       }
-      await _storage.clearTokens();
-      return const AuthState(status: AuthStatus.unauthenticated);
+      return AuthState(
+        status: AuthStatus.authenticated,
+        user: cachedUser,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        error: _extractError(e),
+      );
     }
   }
 
@@ -147,6 +133,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final client = ApiClient(token: current.accessToken);
       final res = await client.getMe();
       final user = User.fromJson(res.data as Map<String, dynamic>);
+      await _storage.saveUser(user);
       state = AsyncData(current.copyWith(user: user));
     } catch (e) {
       if (e is DioException && e.response?.statusCode == 401) {
@@ -160,10 +147,14 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
           final retryRes = await retryClient.getMe();
           final retryUser =
               User.fromJson(retryRes.data as Map<String, dynamic>);
+          await _storage.saveUser(retryUser);
           state = AsyncData(refreshed.copyWith(user: retryUser));
-        } catch (_) {
-          await logout();
+        } catch (retryError) {
+          state =
+              AsyncData(refreshed.copyWith(error: _extractError(retryError)));
         }
+      } else {
+        state = AsyncData(current.copyWith(error: _extractError(e)));
       }
     }
   }
@@ -329,6 +320,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       phone: user.phone,
       name: user.fullName,
     );
+    await _storage.saveUser(user);
 
     state = AsyncData(AuthState(
       status: AuthStatus.authenticated,
@@ -396,36 +388,96 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
       final data = res.data as Map<String, dynamic>;
       final newAccessRaw = data['access_token'];
       final newRefreshRaw = data['refresh_token'];
+      final userData = data['user'];
       if (newAccessRaw == null) {
-        throw Exception("Jeton d'accès manquant lors du rafraîchissement.");
+        throw Exception("Access token missing during refresh.");
       }
       final newAccess = newAccessRaw.toString();
       final newRefresh = newRefreshRaw?.toString() ?? current.refreshToken!;
+      final refreshedUser = userData is Map<String, dynamic>
+          ? User.fromJson(userData)
+          : current.user;
 
       await _storage.saveTokens(
         accessToken: newAccess,
         refreshToken: newRefresh,
       );
+      if (refreshedUser != null) {
+        await _storage.saveUser(refreshedUser);
+      }
 
       state = AsyncData(
-        current.copyWith(accessToken: newAccess, refreshToken: newRefresh),
+        current.copyWith(
+          accessToken: newAccess,
+          refreshToken: newRefresh,
+          user: refreshedUser,
+        ),
       );
       completer.complete(newAccess);
       return newAccess;
     } on DioException catch (error) {
-      final statusCode = error.response?.statusCode;
-      if (statusCode == 400 || statusCode == 401 || statusCode == 403) {
+      if (_isConfirmedSessionInvalid(error)) {
         await logout();
       }
       completer.complete(null);
       return null;
     } catch (_) {
-      await logout();
       completer.complete(null);
       return null;
     } finally {
       _refreshInFlight = null;
     }
+  }
+
+  Future<AuthState?> _refreshSessionFromToken({
+    required String refreshToken,
+    required User? fallbackUser,
+    required bool clearOnInvalid,
+  }) async {
+    try {
+      final refreshClient = ApiClient();
+      final refreshRes = await refreshClient.refreshToken(refreshToken);
+      final data = refreshRes.data as Map<String, dynamic>;
+      final newAccessRaw = data['access_token'];
+      final newRefreshRaw = data['refresh_token'];
+      final userData = data['user'];
+      if (newAccessRaw == null) {
+        throw Exception("Access token missing during refresh.");
+      }
+      final newAccess = newAccessRaw.toString();
+      final newRefresh = newRefreshRaw?.toString() ?? refreshToken;
+      final user = userData is Map<String, dynamic>
+          ? User.fromJson(userData)
+          : fallbackUser;
+
+      await _storage.saveTokens(
+        accessToken: newAccess,
+        refreshToken: newRefresh,
+      );
+      if (user != null) {
+        await _storage.saveUser(user);
+      }
+
+      return AuthState(
+        status: AuthStatus.authenticated,
+        user: user,
+        accessToken: newAccess,
+        refreshToken: newRefresh,
+      );
+    } on DioException catch (error) {
+      if (clearOnInvalid && _isConfirmedSessionInvalid(error)) {
+        await _storage.clearTokens();
+        return const AuthState(status: AuthStatus.unauthenticated);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isConfirmedSessionInvalid(DioException error) {
+    final statusCode = error.response?.statusCode;
+    return statusCode == 400 || statusCode == 401 || statusCode == 403;
   }
 
   /// Bascule entre la vue professionnelle et la vue client.
