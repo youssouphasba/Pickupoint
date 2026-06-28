@@ -136,6 +136,7 @@ function buildInitialPayload(settings: any): OperationalSettingsPayload {
   const pricing = settings?.pricing ?? {};
   return {
     express_enabled: Boolean(settings?.express_enabled),
+    delivery_commissions_enabled: Boolean(settings?.delivery_commissions_enabled ?? true),
     assigned_mission_auto_release_minutes: numberValue(
       settings?.assigned_mission_auto_release_minutes,
       30
@@ -578,6 +579,46 @@ export default function ConfigurationPage() {
               <span
                 className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
                   form.express_enabled ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="rounded-lg border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-medium">Commissions Denkma</div>
+                <div className="text-sm text-muted-foreground">
+                  Quand c'est désactivé, aucune commission n'est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
+                </div>
+              </div>
+              <Badge tone={form.delivery_commissions_enabled ? "success" : "default"}>
+                {form.delivery_commissions_enabled ? "Activées" : "Désactivées"}
+              </Badge>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.delivery_commissions_enabled}
+              onClick={() =>
+                setForm((current) =>
+                  current
+                    ? {
+                        ...current,
+                        delivery_commissions_enabled: !current.delivery_commissions_enabled,
+                      }
+                    : current
+                )
+              }
+              className={`mt-4 inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                form.delivery_commissions_enabled
+                  ? "border-emerald-600 bg-emerald-600"
+                  : "border-input bg-muted"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  form.delivery_commissions_enabled ? "translate-x-5" : "translate-x-0.5"
                 }`}
               />
             </button>

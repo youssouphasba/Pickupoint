@@ -1105,10 +1105,6 @@ async def accept_mission(
     now = datetime.now(timezone.utc)
     breakdown = compute_delivery_commission_breakdown(parcel, mission)
     commission_xof = float(breakdown["total_commission_xof"])
-    if commission_xof <= 0:
-        raise bad_request_exception(
-            "Commission mission indisponible. Impossible d'accepter cette course pour le moment."
-        )
     if commission_xof > 0:
         wallet = await db.wallets.find_one(
             {"owner_id": current_user["user_id"]},

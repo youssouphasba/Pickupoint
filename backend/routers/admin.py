@@ -77,6 +77,48 @@ router = APIRouter()
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 
 
+async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
+    pending_missions = await db.delivery_missions.find(
+        {"status": MissionStatus.PENDING.value},
+        {"_id": 0, "mission_id": 1, "parcel_id": 1},
+    ).to_list(length=2000)
+    if not pending_missions:
+        return
+
+    parcel_ids = [mission.get("parcel_id") for mission in pending_missions if mission.get("parcel_id")]
+    parcels = await db.parcels.find(
+        {"parcel_id": {"$in": parcel_ids}},
+        {"_id": 0},
+    ).to_list(length=len(parcel_ids))
+    parcel_lookup = {parcel["parcel_id"]: parcel for parcel in parcels if parcel.get("parcel_id")}
+    now = datetime.now(timezone.utc)
+
+    for mission in pending_missions:
+        parcel = parcel_lookup.get(mission.get("parcel_id"))
+        if not parcel:
+            continue
+        parcel_for_calc = {**parcel, "delivery_commissions_enabled": enabled}
+        mission_for_calc = {**mission, "delivery_commissions_enabled": enabled}
+        breakdown = compute_delivery_commission_breakdown(parcel_for_calc, mission_for_calc)
+        earn_amount = round(breakdown["driver_revenue_xof"]) + round(parcel.get("driver_bonus_xof", 0.0))
+        await db.delivery_missions.update_one(
+            {"mission_id": mission["mission_id"]},
+            {
+                "$set": {
+                    "delivery_commissions_enabled": enabled,
+                    "platform_commission_xof": breakdown["platform_commission_xof"],
+                    "relay_commission_xof": breakdown["relay_commission_xof"],
+                    "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
+                    "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
+                    "total_commission_xof": breakdown["total_commission_xof"],
+                    "wallet_balance_required_xof": breakdown["wallet_balance_required_xof"],
+                    "earn_amount": earn_amount,
+                    "updated_at": now,
+                }
+            },
+        )
+
+
 def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
         return None
@@ -4770,6 +4812,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     delivery_dispatch = await get_delivery_dispatch_settings(settings_doc)
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
+        "delivery_commissions_enabled": bool(settings_doc.get("delivery_commissions_enabled", True)),
         "assigned_mission_auto_release_minutes": await get_assigned_mission_auto_release_minutes(settings_doc),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "support_whatsapp_phone": settings_doc.get("support_whatsapp_phone") or settings.SUPPORT_WHATSAPP_PHONE,
@@ -5100,6 +5143,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         raise bad_request_exception(str(exc))
 
     updates["express_enabled"] = bool(body.get("express_enabled", False))
+    updates["delivery_commissions_enabled"] = bool(body.get("delivery_commissions_enabled", True))
     updates["updated_at"] = datetime.now(timezone.utc)
 
     await db.app_settings.update_one(
@@ -5107,9 +5151,29 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         {"$set": updates},
         upsert=True,
     )
+    await db.parcels.update_many(
+        {
+            "status": {
+                "$in": [
+                    ParcelStatus.CREATED.value,
+                    ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+                    ParcelStatus.AT_DESTINATION_RELAY.value,
+                    ParcelStatus.AVAILABLE_AT_RELAY.value,
+                ]
+            }
+        },
+        {
+            "$set": {
+                "delivery_commissions_enabled": updates["delivery_commissions_enabled"],
+                "updated_at": updates["updated_at"],
+            }
+        },
+    )
+    await _refresh_pending_delivery_commissions(updates["delivery_commissions_enabled"])
     after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     return {
         "express_enabled": after.get("express_enabled", False),
+        "delivery_commissions_enabled": bool(after.get("delivery_commissions_enabled", True)),
         "assigned_mission_auto_release_minutes": int(
             after.get(
                 "assigned_mission_auto_release_minutes",

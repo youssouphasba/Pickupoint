@@ -47,12 +47,15 @@ def _clean_text(value: Optional[object]) -> Optional[str]:
 def build_location_area_label(location: Optional[dict], fallback: Optional[str] = None) -> str:
     district = _clean_text((location or {}).get("district"))
     city = _clean_text((location or {}).get("city"))
+    formatted_address = _clean_text((location or {}).get("formatted_address"))
     if district and city and district.casefold() != city.casefold():
         return f"{district}, {city}"
     if district:
         return district
     if city:
         return city
+    if formatted_address:
+        return formatted_address
     return _clean_text(fallback) or "Zone non précisée"
 
 
@@ -864,6 +867,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     origin_location = data.origin_location.model_dump() if data.origin_location else None
     delivery_address = await _enrich_location_from_geopin(delivery_address)
     origin_location = await _enrich_location_from_geopin(origin_location)
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    delivery_commissions_enabled = bool(settings_doc.get("delivery_commissions_enabled", True))
 
     parcel_doc = {
         "parcel_id":             parcel_id,
@@ -880,6 +885,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "transit_relay_id":      data.transit_relay_id,
         "delivery_address":      delivery_address,
         "origin_location":       origin_location,
+        "delivery_commissions_enabled": delivery_commissions_enabled,
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
@@ -1543,12 +1549,11 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             return
 
     # ── Rémunération livreur selon le taux configuré ──────────────────────────
-    quoted = parcel.get("quoted_price") or parcel.get("paid_price") or 0
     # HOME_TO_HOME : driver reçoit 85 % (pas de relais), sinon 70 %
     driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
                    if mode == "home_to_home" else settings.DRIVER_RATE)
-    earn_amount = round(quoted * driver_rate) + round(parcel.get("driver_bonus_xof", 0.0))
     commission_breakdown = compute_delivery_commission_breakdown(parcel)
+    earn_amount = round(commission_breakdown["driver_revenue_xof"]) + round(parcel.get("driver_bonus_xof", 0.0))
 
     now = datetime.now(timezone.utc)
     mission_doc = {
@@ -1560,6 +1565,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "sender_user_id":   parcel.get("sender_user_id"),
         "sender_name":      parcel.get("sender_name"),
         "recipient_user_id": parcel.get("recipient_user_id"),
+        "delivery_commissions_enabled": bool(parcel.get("delivery_commissions_enabled", True)),
         # Pickup
         "pickup_type":      pickup_type,   # 'relay' | 'gps'
         "pickup_relay_id":  pickup_relay_id,

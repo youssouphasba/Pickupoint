@@ -41,10 +41,26 @@ def _tx_id() -> str:
     return f"wtx_{uuid.uuid4().hex[:12]}"
 
 
+def delivery_commissions_enabled(parcel: dict | None = None, mission: dict | None = None) -> bool:
+    merged: dict = {}
+    if isinstance(parcel, dict):
+        merged.update(parcel)
+    if isinstance(mission, dict):
+        merged.update(mission)
+    raw = merged.get("delivery_commissions_enabled")
+    if raw is None:
+        return True
+    return bool(raw)
+
+
 def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | None = None) -> dict:
     from config import settings
 
-    source = parcel or mission or {}
+    source: dict = {}
+    if isinstance(parcel, dict):
+        source.update(parcel)
+    if isinstance(mission, dict):
+        source.update(mission)
     price = (
         source.get("paid_price")
         or source.get("quoted_price")
@@ -54,11 +70,21 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
     safe_price = max(float(price or 0), 0.0)
     mode = str(source.get("delivery_mode") or source.get("mode") or "").strip()
 
-    platform_rate = float(settings.PLATFORM_RATE or 0)
-    relay_rate = float(settings.RELAY_RATE or 0)
-    driver_rate = float(settings.DRIVER_RATE or 0)
+    commissions_are_enabled = delivery_commissions_enabled(parcel, mission)
+    if commissions_are_enabled:
+        platform_rate = float(settings.PLATFORM_RATE or 0)
+        relay_rate = float(settings.RELAY_RATE or 0)
+        driver_rate = float(settings.DRIVER_RATE or 0)
+    else:
+        platform_rate = 0.0
+        relay_rate = 0.0
+        driver_rate = 1.0
 
-    if mode == "relay_to_relay":
+    if not commissions_are_enabled:
+        origin_share_rate = 0.0
+        destination_share_rate = 0.0
+        driver_share_rate = 1.0
+    elif mode == "relay_to_relay":
         origin_share_rate = relay_rate / 2
         destination_share_rate = relay_rate / 2
         driver_share_rate = driver_rate
