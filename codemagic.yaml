@@ -82,7 +82,11 @@ workflows:
           shorebird_exit="${PIPESTATUS[0]}"
           set -e
           if [ "$shorebird_exit" -ne 0 ]; then
-            if rg -q "existing android release for version|already exists" "$shorebird_log"; then
+            if grep -Eq "existing android release for version|already exists" "$shorebird_log"; then
+              if [ ! -f "build/app/outputs/bundle/release/app-release.aab" ]; then
+                echo "ERROR: Shorebird release already exists, but no generated AAB was found." >&2
+                exit "$shorebird_exit"
+              fi
               echo "Shorebird release already exists for this Android version. Continuing with the generated AAB for Play Store upload."
             else
               exit "$shorebird_exit"
