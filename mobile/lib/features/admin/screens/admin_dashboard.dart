@@ -139,7 +139,7 @@ class _DashboardBody extends StatelessWidget {
             const _InfoCard(
               title: 'Rien de critique pour le moment',
               subtitle:
-                  'Aucune alerte urgente n'est remontée par les données temps réel.',
+                  "Aucune alerte urgente n'est remontée par les données temps réel.",
               icon: Icons.verified_outlined,
               color: Colors.green,
             )
@@ -266,7 +266,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _PriorityItem(
         title: 'Retraits en attente',
-        subtitle: 'Demandes de retrait à valider par l'équipe admin.',
+        subtitle: "Demandes de retrait à valider par l'équipe admin.",
         count: _intValue(stats['pending_payouts']),
         color: Colors.deepOrange,
         icon: Icons.account_balance_wallet_outlined,
