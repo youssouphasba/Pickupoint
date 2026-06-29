@@ -226,8 +226,8 @@ workflows:
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
-        IOS_BUILD_NAME: "1.0.19"
-        IOS_BUILD_NUMBER: "38"
+        IOS_BUILD_NAME: "1.0.20"
+        IOS_BUILD_NUMBER: "39"
     cache:
       cache_paths:
         - $HOME/.pub-cache
