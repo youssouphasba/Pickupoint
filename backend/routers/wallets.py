@@ -8,7 +8,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.dependencies import get_current_user
 from core.exceptions import bad_request_exception, not_found_exception
@@ -30,7 +30,7 @@ def _payout_id() -> str:
 
 
 class StripeTopupRequest(BaseModel):
-    amount: float
+    amount: float = Field(..., ge=500, le=5_000_000)
 
 
 async def _has_active_driver_mission(user_id: str) -> bool:

@@ -16,6 +16,18 @@ const DOC_TYPES = [
   { key: "mentions_legales", label: "Mentions légales" },
 ] as const;
 
+function legalDisplayText(value?: string | null) {
+  return (value ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
 export default function LegalPage() {
   const [activeTab, setActiveTab] = React.useState<string>("privacy_policy");
 
@@ -136,15 +148,10 @@ function LegalDocEditor({ docType }: { docType: string }) {
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Titre</label>
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium">
-                Contenu (texte brut ou HTML)
-              </label>
+              <label className="mb-1.5 block text-sm font-medium">Contenu</label>
               <Textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
@@ -161,7 +168,7 @@ function LegalDocEditor({ docType }: { docType: string }) {
         ) : (
           <div className="prose prose-sm max-w-none">
             {data?.content ? (
-              <div dangerouslySetInnerHTML={{ __html: data.content }} />
+              <div className="whitespace-pre-wrap">{legalDisplayText(data.content)}</div>
             ) : (
               <p className="text-muted-foreground">Aucun contenu.</p>
             )}

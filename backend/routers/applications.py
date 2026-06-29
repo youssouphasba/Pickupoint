@@ -1,13 +1,13 @@
-"""
+﻿"""
 Router applications : candidatures livreur et point relais.
-Workflow : Client soumet → Admin examine (pièces + coordonnées) → Approuve ou Rejette
+Workflow : Client soumet â†’ Admin examine (piÃ¨ces + coordonnÃ©es) â†’ Approuve ou Rejette
 """
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 import re
 
@@ -16,7 +16,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception
 from core.date_filters import date_range_query
 from database import db
-from models.common import UserRole, GeoPin
+from models.common import UserRole, GeoPin, clean_optional_text
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.notification_service import notify_application_result
 
@@ -91,26 +91,34 @@ async def _normalize_admin_application_documents(applications: list[dict]) -> No
         application["data"] = data
 
 
-# ── Modèles ──────────────────────────────────────────────────────────────────
-
 class DriverApplicationCreate(BaseModel):
-    full_name:       str
-    id_card_number:  str                          # numéro CNI
-    license_number:  str                          # numéro permis
+    full_name:       str = Field(..., min_length=2, max_length=120)
+    id_card_number:  str
+    license_number:  str
     vehicle_type:    Literal["moto", "car", "van", "tricycle"] = "moto"
     id_card_url:     Optional[str] = None
     license_url:     Optional[str] = None
-    message:         Optional[str] = None         # message libre au recruteur
+    message:         Optional[str] = None
+
+    @field_validator("full_name", "id_card_number", "license_number", "id_card_url", "license_url", "message")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class RelayApplicationCreate(BaseModel):
-    business_name:   str                          # nom de la boutique / local
-    address_label:   str                          # adresse texte
+    business_name:   str
+    address_label:   str
     city:            str = "Dakar"
-    geopin:          Optional[GeoPin] = None      # position GPS du local
-    business_reg:    Optional[str] = None         # numéro registre commerce
-    opening_hours:   Optional[str] = None         # ex: "Lun-Sam 8h-20h"
+    geopin:          Optional[GeoPin] = None
+    business_reg:    Optional[str] = None
+    opening_hours:   Optional[str] = None
     message:         Optional[str] = None
+
+    @field_validator("business_name", "address_label", "city", "business_reg", "opening_hours", "message")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class PublicDriverLead(BaseModel):
@@ -118,6 +126,11 @@ class PublicDriverLead(BaseModel):
     phone:        str
     vehicle_type: Literal["moto", "car", "van", "tricycle"] = "moto"
     message:      Optional[str] = None
+
+    @field_validator("full_name", "phone", "message")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class PublicRelayLead(BaseModel):
@@ -129,15 +142,17 @@ class PublicRelayLead(BaseModel):
     opening_hours:  Optional[str] = None
     message:        Optional[str] = None
 
+    @field_validator("full_name", "phone", "business_name", "address_label", "city", "opening_hours", "message")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
-# ── Endpoints utilisateur ─────────────────────────────────────────────────────
 
 @router.post("/driver", summary="Soumettre candidature livreur")
 async def apply_driver(
     body: DriverApplicationCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    # Vérifier pas déjà candidat en attente
     profile_photo_url = (current_user.get("profile_picture_url") or "").strip()
     profile_photo_status = current_user.get("profile_picture_status")
     if not profile_photo_url or profile_photo_status == "rejected":
@@ -151,7 +166,7 @@ async def apply_driver(
         "status": "pending",
     })
     if existing:
-        raise bad_request_exception("Vous avez déjà une candidature en attente")
+        raise bad_request_exception("Vous avez dÃ©jÃ  une candidature en attente")
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -160,7 +175,7 @@ async def apply_driver(
         "user_phone":      current_user["phone"],
         "user_name":       current_user.get("name", current_user["phone"]),
         "type":            "driver",
-        "status":          "pending",   # pending | approved | rejected
+        "status":          "pending",
         "data":            body.model_dump(),
         "admin_notes":     None,
         "created_at":      now,
@@ -174,7 +189,7 @@ async def apply_driver(
         href="/dashboard/applications",
         metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "driver"},
     )
-    return {"message": "Candidature soumise. L'équipe Denkma vous contactera.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'Ã©quipe Denkma vous contactera.", "application_id": doc["application_id"]}
 
 
 @router.post("/relay", summary="Soumettre candidature point relais")
@@ -188,7 +203,7 @@ async def apply_relay(
         "status": "pending",
     })
     if existing:
-        raise bad_request_exception("Vous avez déjà une candidature en attente")
+        raise bad_request_exception("Vous avez dÃ©jÃ  une candidature en attente")
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -211,10 +226,9 @@ async def apply_relay(
         href="/dashboard/applications",
         metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "relay"},
     )
-    return {"message": "Candidature soumise. L'équipe Denkma visitera votre point.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'Ã©quipe Denkma visitera votre point.", "application_id": doc["application_id"]}
 
 
-# ── Endpoints publics (landing — pré-candidatures sans auth) ──────────────────
 
 def _normalize_sn_phone(raw: str) -> str:
     cleaned = re.sub(r"[^\d+]", "", raw or "")
@@ -229,27 +243,26 @@ def _normalize_sn_phone(raw: str) -> str:
 
 
 async def _check_lead_rate_limit(phone: str, request: Request) -> None:
-    """Empêche le spam : max 1 lead même téléphone / 10 min, max 5 leads / IP / heure."""
     now = datetime.now(timezone.utc)
     recent_by_phone = await db.application_leads.find_one(
         {"phone": phone, "created_at": {"$gte": now - timedelta(minutes=10)}},
         {"_id": 1},
     )
     if recent_by_phone:
-        raise bad_request_exception("Une candidature récente existe déjà pour ce numéro. Patientez avant de renvoyer.")
+        raise bad_request_exception("Une candidature rÃ©cente existe dÃ©jÃ  pour ce numÃ©ro. Patientez avant de renvoyer.")
     ip = request.client.host if request.client else "unknown"
     count_ip = await db.application_leads.count_documents(
         {"ip": ip, "created_at": {"$gte": now - timedelta(hours=1)}}
     )
     if count_ip >= 5:
-        raise bad_request_exception("Trop de candidatures depuis votre connexion. Réessayez plus tard.")
+        raise bad_request_exception("Trop de candidatures depuis votre connexion. RÃ©essayez plus tard.")
 
 
-@router.post("/public/driver", summary="Pré-candidature livreur (landing, sans auth)")
+@router.post("/public/driver", summary="PrÃ©-candidature livreur (landing, sans auth)")
 async def public_apply_driver(body: PublicDriverLead, request: Request):
     phone = _normalize_sn_phone(body.phone)
     if not phone.startswith("+221") or len(phone) != 13:
-        raise bad_request_exception("Numéro sénégalais invalide")
+        raise bad_request_exception("NumÃ©ro sÃ©nÃ©galais invalide")
     if len(body.full_name.strip()) < 2:
         raise bad_request_exception("Nom complet requis")
     await _check_lead_rate_limit(phone, request)
@@ -271,19 +284,19 @@ async def public_apply_driver(body: PublicDriverLead, request: Request):
     await db.application_leads.insert_one(doc)
     await record_admin_event(
         AdminEventType.APPLICATION_SUBMITTED,
-        title=f"Pré-candidature livreur (landing) : {doc['full_name']}",
+        title=f"PrÃ©-candidature livreur (landing) : {doc['full_name']}",
         message=doc["phone"],
         href="/dashboard/applications",
         metadata={"lead_id": doc["lead_id"], "type": "driver", "source": "landing"},
     )
-    return {"message": "Candidature enregistrée. L'équipe Denkma vous rappellera."}
+    return {"message": "Candidature enregistrÃ©e. L'Ã©quipe Denkma vous rappellera."}
 
 
-@router.post("/public/relay", summary="Pré-candidature point relais (landing, sans auth)")
+@router.post("/public/relay", summary="PrÃ©-candidature point relais (landing, sans auth)")
 async def public_apply_relay(body: PublicRelayLead, request: Request):
     phone = _normalize_sn_phone(body.phone)
     if not phone.startswith("+221") or len(phone) != 13:
-        raise bad_request_exception("Numéro sénégalais invalide")
+        raise bad_request_exception("NumÃ©ro sÃ©nÃ©galais invalide")
     if len(body.full_name.strip()) < 2:
         raise bad_request_exception("Nom complet requis")
     if len(body.business_name.strip()) < 2:
@@ -312,12 +325,12 @@ async def public_apply_relay(body: PublicRelayLead, request: Request):
     await db.application_leads.insert_one(doc)
     await record_admin_event(
         AdminEventType.APPLICATION_SUBMITTED,
-        title=f"Pré-candidature relais (landing) : {doc['business_name']}",
-        message=f"{doc['full_name']} — {doc['phone']}",
+        title=f"PrÃ©-candidature relais (landing) : {doc['business_name']}",
+        message=f"{doc['full_name']} â€” {doc['phone']}",
         href="/dashboard/applications",
         metadata={"lead_id": doc["lead_id"], "type": "relay", "source": "landing"},
     )
-    return {"message": "Candidature enregistrée. L'équipe Denkma visitera votre point."}
+    return {"message": "Candidature enregistrÃ©e. L'Ã©quipe Denkma visitera votre point."}
 
 
 @router.get("/my", summary="Mes candidatures")
@@ -329,7 +342,6 @@ async def my_applications(current_user: dict = Depends(get_current_user)):
     return {"applications": await cursor.to_list(length=20)}
 
 
-# ── Endpoints admin ───────────────────────────────────────────────────────────
 
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 
@@ -365,14 +377,14 @@ async def approve_application(
 ):
     """
     Approuver :
-    - Driver → role = driver
-    - Relay  → role = relay_agent + création du point relais + relay_point_id sur l'utilisateur
+    - Driver â†’ role = driver
+    - Relay  â†’ role = relay_agent + crÃ©ation du point relais + relay_point_id sur l'utilisateur
     """
     app = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
     if not app:
         raise not_found_exception("Candidature")
     if app["status"] != "pending":
-        raise bad_request_exception("Candidature déjà traitée")
+        raise bad_request_exception("Candidature dÃ©jÃ  traitÃ©e")
 
     now = datetime.now(timezone.utc)
     user_id = app["user_id"]
@@ -383,7 +395,7 @@ async def approve_application(
         if not user or not (user.get("profile_picture_url") or "").strip():
             raise bad_request_exception("Le livreur doit ajouter une photo de profil avant validation")
         if user.get("profile_picture_status") != "approved":
-            raise bad_request_exception("La photo de profil du livreur doit être approuvée avant validation")
+            raise bad_request_exception("La photo de profil du livreur doit Ãªtre approuvÃ©e avant validation")
 
         await db.users.update_one(
             {"user_id": user_id},
@@ -417,7 +429,7 @@ async def approve_application(
             "zone_ids":          [],
             "coverage_radius_km": 5.0,
             "is_active":         True,
-            "is_verified":       True,   # déjà vérifié par l'admin avant d'approuver
+            "is_verified":       True,
             "score":             5.0,
             "store_id":          None,
             "external_ref":      None,
@@ -434,7 +446,6 @@ async def approve_application(
             }},
         )
 
-    # Marquer la candidature comme approuvée
     await db.applications.update_one(
         {"application_id": application_id},
         {"$set": {"status": "approved", "admin_notes": admin_notes, "updated_at": now}},
@@ -446,7 +457,7 @@ async def approve_application(
         approved=True,
         admin_notes=admin_notes,
     )
-    return {"message": "Candidature approuvée", "application_id": application_id}
+    return {"message": "Candidature approuvÃ©e", "application_id": application_id}
 
 
 @router.put("/{application_id}/reject", summary="Rejeter candidature")
@@ -459,7 +470,7 @@ async def reject_application(
     if not app:
         raise not_found_exception("Candidature")
     if app["status"] != "pending":
-        raise bad_request_exception("Candidature déjà traitée")
+        raise bad_request_exception("Candidature dÃ©jÃ  traitÃ©e")
 
     await db.applications.update_one(
         {"application_id": application_id},
@@ -476,4 +487,4 @@ async def reject_application(
         approved=False,
         admin_notes=admin_notes,
     )
-    return {"message": "Candidature rejetée"}
+    return {"message": "Candidature rejetÃ©e"}

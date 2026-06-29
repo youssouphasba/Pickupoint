@@ -1,52 +1,60 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field
 from uuid import uuid4
+
+from pydantic import BaseModel, Field, field_validator
+
+from models.common import clean_optional_text
 
 
 class PromoType(str, Enum):
-    PERCENTAGE      = "percentage"       # ex: -20%
-    FIXED_AMOUNT    = "fixed_amount"     # ex: -500 XOF
-    FREE_DELIVERY   = "free_delivery"    # 0 XOF
-    EXPRESS_UPGRADE = "express_upgrade"  # express offert (pas de ×1.40)
+    PERCENTAGE = "percentage"
+    FIXED_AMOUNT = "fixed_amount"
+    FREE_DELIVERY = "free_delivery"
+    EXPRESS_UPGRADE = "express_upgrade"
 
 
 class PromoTarget(str, Enum):
-    ALL            = "all"              # tous les clients
-    FIRST_DELIVERY = "first_delivery"   # 1ère livraison seulement
-    TIER_SILVER    = "tier_silver"      # clients Argent+
-    TIER_GOLD      = "tier_gold"        # clients Or seulement
-    DELIVERY_MODE  = "delivery_mode"    # mode spécifique (ex: relay_to_relay)
+    ALL = "all"
+    FIRST_DELIVERY = "first_delivery"
+    TIER_SILVER = "tier_silver"
+    TIER_GOLD = "tier_gold"
+    DELIVERY_MODE = "delivery_mode"
 
 
 class PromotionCreate(BaseModel):
-    title:              str
-    description:        str = ""
-    promo_type:         PromoType
-    value:              float = 0.0        # % (20.0 pour -20%) ou XOF (500)
-    target:             PromoTarget = PromoTarget.ALL
-    delivery_mode:      Optional[str] = None  # si target=DELIVERY_MODE
-    target_user_ids:    Optional[List[str]] = None  # ciblage utilisateurs spécifiques
-    min_amount:         Optional[float] = None
-    max_uses_total:     Optional[int]   = None  # None = illimité
-    max_uses_per_user:  int = 1
-    promo_code:         Optional[str]   = None  # None = automatique
-    start_date:         datetime
-    end_date:           datetime
-    is_active:          bool = True
+    title: str = Field(..., min_length=2, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    promo_type: PromoType
+    value: float = Field(default=0.0, ge=0, le=1_000_000)
+    target: PromoTarget = PromoTarget.ALL
+    delivery_mode: Optional[str] = Field(default=None, max_length=80)
+    target_user_ids: Optional[List[str]] = Field(default=None, max_length=1000)
+    min_amount: Optional[float] = Field(default=None, ge=0)
+    max_uses_total: Optional[int] = Field(default=None, ge=1)
+    max_uses_per_user: int = Field(default=1, ge=1, le=100000)
+    promo_code: Optional[str] = Field(default=None, max_length=40)
+    start_date: datetime
+    end_date: datetime
+    is_active: bool = True
+
+    @field_validator("title", "description", "delivery_mode", "promo_code")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class Promotion(PromotionCreate):
-    promo_id:    str = Field(default_factory=lambda: f"promo_{uuid4().hex[:12]}")
-    uses_count:  int = 0
-    created_by:  str = ""
-    created_at:  datetime = Field(default_factory=lambda: datetime.now(__import__('datetime').timezone.utc))
+    promo_id: str = Field(default_factory=lambda: f"promo_{uuid4().hex[:12]}")
+    uses_count: int = 0
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class PromoUse(BaseModel):
-    use_id:     str
-    promo_id:   str
-    user_id:    str
-    parcel_id:  str
+    use_id: str
+    promo_id: str
+    user_id: str
+    parcel_id: str
     created_at: datetime

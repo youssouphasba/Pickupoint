@@ -844,13 +844,13 @@ async def mission_preview(
     }
 
 class ConfirmPickupRequest(BaseModel):
-    code: str
+    code: str = Field(..., min_length=4, max_length=12)
     lat: Optional[float] = Field(None, ge=-90, le=90)
     lng: Optional[float] = Field(None, ge=-180, le=180)
 
 
 class WhatsAppCallConnectRequest(BaseModel):
-    sdp_offer: str = Field(..., min_length=20, description="Offre SDP WebRTC générée par l'app livreur")
+    sdp_offer: str = Field(..., min_length=20, max_length=20000, description="Offre SDP WebRTC générée par l'app livreur")
 
 @router.post("/{mission_id}/confirm-pickup", summary="Confirmer collecte avec code")
 @limiter.limit("10/minute")

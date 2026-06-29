@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from config import settings
 from core.exceptions import bad_request_exception, not_found_exception
@@ -23,6 +23,7 @@ from core.security import (
 from core.dependencies import get_current_user
 from core.utils import normalize_phone, is_supported_phone, phone_suffix
 from database import db
+from models.common import clean_optional_text
 from models.user import OTPRequest, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.parcel_service import _record_event
 from services.referral_service import upsert_referral_record
@@ -60,7 +61,6 @@ def _build_refresh_session(user_id: str, refresh_token: str) -> dict:
         "expires_at": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     }
 
-# Utilisation du limiter global d?fini dans core/limiter
 from core.limiter import limiter
 
 
@@ -120,7 +120,6 @@ async def _ensure_mobile_admin_user(phone: str, role: str) -> dict:
     await db.users.insert_one(user_doc)
     return user_doc
 
-# ── Firebase Admin SDK init ──────────────────────────────────────────────────
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 
@@ -128,7 +127,6 @@ if not firebase_admin._apps:
     import os, json
     firebase_creds_env = os.environ.get("FIREBASE_CREDENTIALS")
     if firebase_creds_env:
-        # Railway: JSON complet dans la variable d'env
         cred = credentials.Certificate(json.loads(firebase_creds_env))
     elif settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
         cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
@@ -139,10 +137,8 @@ if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
 
 
-# ── Firebase Auth endpoint ───────────────────────────────────────────────────
-
 class FirebaseAuthRequest(BaseModel):
-    id_token: str
+    id_token: str = Field(..., min_length=20, max_length=8192)
 
 @router.post("/firebase", summary="Authentification via Firebase Phone Auth")
 @limiter.limit("10/minute")
@@ -169,7 +165,6 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
     else:
         user_doc = await db.users.find_one({"phone": phone}, {"_id": 0})
 
-    # Nouvel utilisateur → renvoyer un registration_token
     if not user_doc:
         temp_token = create_registration_token(
             phone,
@@ -177,12 +172,10 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
         )
         return {"is_new_user": True, "registration_token": temp_token}
 
-    # Utilisateur banni
     if user_doc.get("is_banned"):
         from core.exceptions import forbidden_exception
         raise forbidden_exception("Votre compte a été suspendu par l'administration.")
 
-    # Marquer le téléphone comme vérifié
     await db.users.update_one(
         {"phone": phone},
         {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
@@ -224,8 +217,16 @@ async def check_phone(body: OTPRequest, request: Request):
 
 
 class PINLoginRequest(BaseModel):
-    phone: str
-    pin: str
+    phone: str = Field(..., min_length=8, max_length=32)
+    pin: str = Field(..., min_length=4, max_length=12)
+
+    @field_validator("phone", "pin")
+    @classmethod
+    def normalize_text_fields(cls, value: str) -> str:
+        cleaned = clean_optional_text(value)
+        if not cleaned:
+            raise ValueError("Champ requis")
+        return cleaned
 
 @router.post("/login-pin", response_model=TokenResponse, summary="Connexion par PIN")
 @limiter.limit("10/minute")
@@ -281,7 +282,6 @@ async def login_pin(body: PINLoginRequest, request: Request):
     access_token  = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
-    # Stocker le refresh token
     await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], refresh_token))
 
     return TokenResponse(
@@ -292,11 +292,16 @@ async def login_pin(body: PINLoginRequest, request: Request):
 
 
 class CompleteRegistrationRequest(BaseModel):
-    registration_token: str
-    name: str
-    pin: str
+    registration_token: str = Field(..., min_length=20, max_length=4096)
+    name: str = Field(..., min_length=2, max_length=120)
+    pin: str = Field(..., min_length=4, max_length=12)
     accepted_legal: bool
-    referral_code: Optional[str] = None
+    referral_code: Optional[str] = Field(default=None, max_length=40)
+
+    @field_validator("name", "pin", "referral_code")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 @router.post("/complete-registration", response_model=TokenResponse, summary="Finaliser l'inscription avec Nom et PIN")
 @limiter.limit("5/minute")
@@ -319,7 +324,6 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     except Exception:
         raise bad_request_exception("Token d'inscription expiré ou invalide.")
 
-    # Vérifier que le numéro n'est pas déjà inscrit complètement
     existing_user = await db.users.find_one({"phone": phone}, {"_id": 0})
     if existing_user:
         raise bad_request_exception("Cet utilisateur existe déjà.")
@@ -432,8 +436,16 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
 
 
 class FirebaseResetPinRequest(BaseModel):
-    id_token: str
-    new_pin: str
+    id_token: str = Field(..., min_length=20, max_length=8192)
+    new_pin: str = Field(..., min_length=4, max_length=12)
+
+    @field_validator("new_pin")
+    @classmethod
+    def normalize_pin(cls, value: str) -> str:
+        cleaned = clean_optional_text(value)
+        if not cleaned:
+            raise ValueError("Champ requis")
+        return cleaned
 
 
 @router.post("/reset-pin-firebase", summary="Réinitialiser le PIN via Firebase")

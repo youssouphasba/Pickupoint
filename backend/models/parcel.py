@@ -1,94 +1,105 @@
 from datetime import datetime
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, model_validator
-from models.common import DeliveryMode, ParcelStatus, GeoPin, Address
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from models.common import Address, DeliveryMode, GeoPin, ParcelStatus, clean_optional_text
+
+
+def clean_required_text(value: str) -> str:
+    cleaned = clean_optional_text(value)
+    if not cleaned:
+        raise ValueError("Champ requis")
+    return cleaned
 
 
 class Parcel(BaseModel):
-    parcel_id:      str
-    tracking_code:  str        # "PKP-XXX-YYYY"
-    # Acteurs
-    sender_user_id:  str
+    parcel_id: str
+    tracking_code: str
+    sender_user_id: str
     recipient_phone: str
-    recipient_name:  str
-    # Mode et relais
-    delivery_mode:         DeliveryMode
-    origin_relay_id:       Optional[str] = None
-    destination_relay_id:  Optional[str] = None
-    # Adresse domicile (si mode inclut livraison domicile)
-    delivery_address:      Optional[Address] = None
-    # Colis physique
-    weight_kg:             float = 0.5
-    dimensions:            Optional[Dict[str, float]] = None  # {"l": 30, "w": 20, "h": 10}
-    declared_value:        Optional[float] = None              # XOF
-    description:           Optional[str] = None
-    parcel_photo_url:      Optional[str] = None
-    parcel_photo_path:     Optional[str] = None
-    parcel_photo_file_id:  Optional[str] = None
+    recipient_name: str
+    delivery_mode: DeliveryMode
+    origin_relay_id: Optional[str] = None
+    destination_relay_id: Optional[str] = None
+    delivery_address: Optional[Address] = None
+    weight_kg: float = 0.5
+    dimensions: Optional[Dict[str, float]] = None
+    declared_value: Optional[float] = None
+    description: Optional[str] = None
+    parcel_photo_url: Optional[str] = None
+    parcel_photo_path: Optional[str] = None
+    parcel_photo_file_id: Optional[str] = None
     parcel_photo_filename: Optional[str] = None
-    parcel_photo_storage:  Optional[str] = None
+    parcel_photo_storage: Optional[str] = None
     parcel_photo_content_type: Optional[str] = None
     parcel_photo_uploaded_at: Optional[datetime] = None
-    is_express:            bool  = False
-    who_pays:              str   = "sender"    # "sender" | "recipient"
-    # Prix et paiement
-    quoted_price:          float                               # XOF
-    paid_price:            Optional[float] = None
-    payment_status:        str   = "pending"                   # "pending", "paid", "refunded"
-    payment_method:        Optional[str] = None                # "wave", "orange_money", ...
-    payment_ref:           Optional[str] = None
-    promo_id:              Optional[str] = None  # Promotion appliquée
-    # Codes de validation Sécurité (Phase 3)
-    pickup_code:           str   = ""                          # 6 chiffres — expéditeur/relais -> livreur
-    delivery_code:         str   = ""                          # 6 chiffres — destinataire -> livreur
-    return_code:           Optional[str] = None                 # 6 chiffres — expéditeur -> livreur en cas de retour
-    # Statut machine d'états
-    status:                ParcelStatus = ParcelStatus.CREATED
-    # Driver assigné
-    assigned_driver_id:    Optional[str] = None
-    # Redirection et Transit
-    redirect_relay_id:     Optional[str] = None
-    transit_relay_id:      Optional[str] = None
-    # Notation & Pourboires (Phase 6)
-    rating:                Optional[int]   = None  # 1-5
-    rating_comment:        Optional[str]   = None
-    driver_tip:            float           = 0.0   # XOF
-    # Connexion projet_stock
-    external_ref:          Optional[str] = None
-    # Timestamps
-    created_at:            datetime
-    updated_at:            datetime
-    expires_at:            Optional[datetime] = None
+    is_express: bool = False
+    who_pays: str = "sender"
+    quoted_price: float
+    paid_price: Optional[float] = None
+    payment_status: str = "pending"
+    payment_method: Optional[str] = None
+    payment_ref: Optional[str] = None
+    promo_id: Optional[str] = None
+    pickup_code: str = ""
+    delivery_code: str = ""
+    return_code: Optional[str] = None
+    status: ParcelStatus = ParcelStatus.CREATED
+    assigned_driver_id: Optional[str] = None
+    redirect_relay_id: Optional[str] = None
+    transit_relay_id: Optional[str] = None
+    rating: Optional[int] = None
+    rating_comment: Optional[str] = None
+    driver_tip: float = 0.0
+    external_ref: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    expires_at: Optional[datetime] = None
 
 
 class ParcelCreate(BaseModel):
-    recipient_phone:       str
-    recipient_name:        str
-    delivery_mode:         DeliveryMode
-    origin_relay_id:       Optional[str] = None
-    destination_relay_id:  Optional[str] = None
-    delivery_address:      Optional[Address] = None
-    transit_relay_id:      Optional[str] = None
-    origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur capturé dans l'app
-    weight_kg:             float = 0.5
-    dimensions:            Optional[Dict[str, float]] = None
-    declared_value:        Optional[float] = None
-    description:           Optional[str] = None
-    external_ref:          Optional[str] = None
-    is_express:            bool = False
-    who_pays:              str  = "sender"    # "sender" | "recipient"
-    promo_id:              Optional[str] = None
-    # GPS expéditeur (HOME_TO_* : capturé dans l'app)
-    initiated_by:          str = "sender"    # "sender" | "recipient"
-    sender_phone:          Optional[str] = None  # flux inverse : expéditeur non-app
-    pickup_voice_note:     Optional[str] = None  # instruction vocale pour le livreur (collecte)
-    delivery_voice_note:   Optional[str] = None  # instruction vocale pour le livreur (livraison)
+    recipient_phone: str = Field(..., min_length=8, max_length=32)
+    recipient_name: str = Field(..., min_length=2, max_length=120)
+    delivery_mode: DeliveryMode
+    origin_relay_id: Optional[str] = Field(default=None, max_length=80)
+    destination_relay_id: Optional[str] = Field(default=None, max_length=80)
+    delivery_address: Optional[Address] = None
+    transit_relay_id: Optional[str] = Field(default=None, max_length=80)
+    origin_location: Optional[Address] = None
+    weight_kg: float = Field(default=0.5, gt=0, le=1000)
+    dimensions: Optional[Dict[str, float]] = None
+    declared_value: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    external_ref: Optional[str] = Field(default=None, max_length=120)
+    is_express: bool = False
+    who_pays: str = Field(default="sender", pattern="^(sender|recipient)$")
+    promo_id: Optional[str] = Field(default=None, max_length=80)
+    initiated_by: str = Field(default="sender", pattern="^(sender|recipient)$")
+    sender_phone: Optional[str] = Field(default=None, max_length=32)
+    pickup_voice_note: Optional[str] = None
+    delivery_voice_note: Optional[str] = None
+
+    @field_validator("recipient_phone", "recipient_name")
+    @classmethod
+    def normalize_required_text_fields(cls, value: str) -> str:
+        return clean_required_text(value)
+
+    @field_validator(
+        "origin_relay_id",
+        "destination_relay_id",
+        "transit_relay_id",
+        "description",
+        "external_ref",
+        "promo_id",
+        "sender_phone",
+    )
+    @classmethod
+    def normalize_optional_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
     @model_validator(mode="after")
     def validate_delivery_mode_requirements(self):
-        if self.who_pays not in {"sender", "recipient"}:
-            raise ValueError("who_pays must be either 'sender' or 'recipient'")
-
         has_origin_gps = bool(self.origin_location and self.origin_location.geopin)
         has_delivery_address = self.delivery_address is not None
 
@@ -115,36 +126,43 @@ class ParcelCreate(BaseModel):
 
 
 class ParcelEvent(BaseModel):
-    event_id:    str
-    parcel_id:   str
-    event_type:  str            # "STATUS_CHANGED", "PAYMENT_RECEIVED", "REDIRECTED", ...
+    event_id: str
+    parcel_id: str
+    event_type: str
     from_status: Optional[ParcelStatus] = None
-    to_status:   Optional[ParcelStatus] = None
-    actor_id:    Optional[str] = None
-    actor_role:  Optional[str] = None
-    location:    Optional[GeoPin] = None
-    notes:       Optional[str] = None
-    metadata:    Dict[str, Any] = {}
-    created_at:  datetime
+    to_status: Optional[ParcelStatus] = None
+    actor_id: Optional[str] = None
+    actor_role: Optional[str] = None
+    location: Optional[GeoPin] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class ParcelQuote(BaseModel):
-    delivery_mode:         DeliveryMode
-    origin_relay_id:       Optional[str] = None
-    destination_relay_id:  Optional[str] = None
-    origin_location:       Optional[Address] = None   # HOME_TO_* : GPS expéditeur
-    delivery_address:      Optional[Address] = None
-    weight_kg:             float = 0.5
-    declared_value:        Optional[float] = None
-    is_express:            bool  = False
-    who_pays:              str   = "sender"    # "sender" | "recipient"
-    promo_code:            Optional[str] = None
+    delivery_mode: DeliveryMode
+    origin_relay_id: Optional[str] = Field(default=None, max_length=80)
+    destination_relay_id: Optional[str] = Field(default=None, max_length=80)
+    origin_location: Optional[Address] = None
+    delivery_address: Optional[Address] = None
+    weight_kg: float = Field(default=0.5, gt=0, le=1000)
+    declared_value: Optional[float] = Field(default=None, ge=0, le=1_000_000_000)
+    is_express: bool = False
+    who_pays: str = Field(default="sender", pattern="^(sender|recipient)$")
+    promo_code: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("origin_relay_id", "destination_relay_id", "promo_code")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
     @model_validator(mode="after")
     def validate_quote_requirements(self):
-        if self.who_pays not in {"sender", "recipient"}:
-            raise ValueError("who_pays must be either 'sender' or 'recipient'")
-
         has_origin_gps = bool(self.origin_location and self.origin_location.geopin)
         has_delivery_address = self.delivery_address is not None
 
@@ -171,50 +189,85 @@ class ParcelQuote(BaseModel):
 
 
 class QuoteResponse(BaseModel):
-    price:          Optional[float] = None
-    currency:       str = "XOF"
-    breakdown:      Dict[str, Any] = {}
-    original_price: Optional[float] = None  # Si une promo est appliquée
-    discount_xof:   float = 0.0
-    promo_applied:  Optional[Dict[str, Any]] = None
+    price: Optional[float] = None
+    currency: str = "XOF"
+    breakdown: Dict[str, Any] = Field(default_factory=dict)
+    original_price: Optional[float] = None
+    discount_xof: float = 0.0
+    promo_applied: Optional[Dict[str, Any]] = None
 
 
 class FailDeliveryRequest(BaseModel):
-    failure_reason: str   # "absent", "address_not_found", "refused"
-    notes:          Optional[str] = None
+    failure_reason: str = Field(..., min_length=2, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("failure_reason")
+    @classmethod
+    def normalize_failure_reason(cls, value: str) -> str:
+        return clean_required_text(value)
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class RedirectRelayRequest(BaseModel):
-    redirect_relay_id: str
-    notes:             Optional[str] = None
+    redirect_relay_id: str = Field(..., min_length=3, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("redirect_relay_id")
+    @classmethod
+    def normalize_redirect_relay_id(cls, value: str) -> str:
+        return clean_required_text(value)
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class ParcelRatingRequest(BaseModel):
-    rating:         int   # 1-5
-    comment:        Optional[str] = None
-    tip:            float = 0.0   # XOF pour le livreur
+    rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=1000)
+    tip: float = Field(default=0.0, ge=0, le=1_000_000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class LocationConfirmPayload(BaseModel):
-    lat:       float = Field(..., ge=-90, le=90)
-    lng:       float = Field(..., ge=-180, le=180)
-    accuracy:  Optional[float] = Field(None, ge=0)
-    voice_note: Optional[str]  = None
-    label: Optional[str] = None
-    district: Optional[str] = None
-    city: Optional[str] = None
-    notes: Optional[str] = None
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0, le=10000)
+    voice_note: Optional[str] = None
+    label: Optional[str] = Field(default=None, max_length=240)
+    district: Optional[str] = Field(default=None, max_length=120)
+    city: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("label", "district", "city", "notes")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class AddressChangePreviewRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lng: float = Field(..., ge=-180, le=180)
-    accuracy: Optional[float] = Field(None, ge=0)
+    accuracy: Optional[float] = Field(None, ge=0, le=10000)
     voice_note: Optional[str] = None
-    label: Optional[str] = None
-    district: Optional[str] = None
-    city: Optional[str] = None
-    notes: Optional[str] = None
+    label: Optional[str] = Field(default=None, max_length=240)
+    district: Optional[str] = Field(default=None, max_length=120)
+    city: Optional[str] = Field(default=None, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("label", "district", "city", "notes")
+    @classmethod
+    def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return clean_optional_text(value)
 
 
 class AddressChangeApplyRequest(AddressChangePreviewRequest):
