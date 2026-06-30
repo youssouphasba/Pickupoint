@@ -1,7 +1,9 @@
 import hashlib
 import hmac
 import unittest
+from datetime import datetime, timezone
 
+from core.datetime_utils import as_aware_utc
 from routers.tracking import _build_public_tracking_payload, _serialize_public_event
 from routers.webhooks import _verify_whatsapp_signature
 from core.security import fingerprint_token
@@ -62,6 +64,12 @@ class SecurityRegressionTests(unittest.TestCase):
             hashlib.sha256,
         ).hexdigest()
         self.assertEqual(fingerprint_token(token), expected)
+
+    def test_naive_session_expiry_is_normalized_to_utc(self):
+        value = datetime(2026, 6, 29, 23, 35, 38)
+        normalized = as_aware_utc(value)
+        self.assertEqual(normalized.tzinfo, timezone.utc)
+        self.assertEqual(normalized.hour, 23)
 
     def test_whatsapp_signature_validation(self):
         payload = b'{"entry":[]}'

@@ -21,6 +21,7 @@ from core.security import (
     fingerprint_token,
 )
 from core.dependencies import get_current_user
+from core.datetime_utils import as_aware_utc
 from core.utils import normalize_phone, is_supported_phone, phone_suffix
 from database import db
 from models.common import clean_optional_text
@@ -60,6 +61,7 @@ def _build_refresh_session(user_id: str, refresh_token: str) -> dict:
         "created_at": now,
         "expires_at": now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     }
+
 
 from core.limiter import limiter
 
@@ -492,21 +494,21 @@ async def reset_pin_firebase(body: FirebaseResetPinRequest, request: Request):
 
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Rafra?chir access token")
+@router.post("/refresh", response_model=TokenResponse, summary="Rafraîchir access token")
 async def refresh_token(body: RefreshRequest):
     payload = verify_refresh_token(body.refresh_token)
     if not payload:
-        raise bad_request_exception("Refresh token invalide ou expir?")
+        raise bad_request_exception("Refresh token invalide ou expiré")
 
     session_query = _refresh_session_lookup_query(body.refresh_token)
     session = await db.user_sessions.find_one(session_query)
     if not session:
         raise bad_request_exception("Session invalide")
 
-    expires_at = session.get("expires_at")
+    expires_at = as_aware_utc(session.get("expires_at"))
     if expires_at and expires_at <= datetime.now(timezone.utc):
         await db.user_sessions.delete_many(session_query)
-        raise bad_request_exception("Session expir?e")
+        raise bad_request_exception("Session expirée")
 
     user_doc = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
     if not user_doc:
@@ -514,7 +516,7 @@ async def refresh_token(body: RefreshRequest):
 
     if user_doc.get("is_banned"):
         from core.exceptions import forbidden_exception
-        raise forbidden_exception("Session r?voqu?e : compte suspendu.")
+        raise forbidden_exception("Session révoquée : compte suspendu.")
 
     token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token = create_access_token(token_data)
@@ -533,7 +535,7 @@ async def refresh_token(body: RefreshRequest):
 @router.post("/logout", summary="Invalider refresh token")
 async def logout(body: RefreshRequest):
     await db.user_sessions.delete_many(_refresh_session_lookup_query(body.refresh_token))
-    return {"message": "D?connect? avec succ?s"}
+    return {"message": "Déconnecté avec succès"}
 
 
 @router.get("/me", response_model=User, summary="Profil courant")

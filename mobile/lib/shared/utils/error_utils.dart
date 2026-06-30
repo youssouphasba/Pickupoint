@@ -1,11 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 
-/// Extrait un message d'erreur court et lisible à afficher à l'utilisateur.
 String friendlyError(Object e) {
-  // ── Dio (réponse API backend) ──
   if (e is DioException) {
-    // Le backend renvoie { "detail": "..." } — on l'utilise directement
     final data = e.response?.data;
     if (data is Map) {
       final detail = data['detail'];
@@ -13,7 +10,7 @@ String friendlyError(Object e) {
       final message = data['message'];
       if (message != null) return message.toString();
     }
-    // Erreurs réseau sans réponse
+
     switch (e.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
@@ -25,6 +22,9 @@ String friendlyError(Object e) {
         return 'Requête annulée.';
       default:
         final code = e.response?.statusCode;
+        if (code == 401) {
+          return 'Votre session doit être actualisée. Réessayez dans un instant.';
+        }
         if (code != null) {
           return 'Erreur serveur ($code). Réessayez.';
         }
@@ -32,15 +32,12 @@ String friendlyError(Object e) {
     }
   }
 
-  // ── Firebase Auth ──
   if (e is fb.FirebaseAuthException) {
     return _firebaseMessage(e.code, e.message);
   }
 
-  // ── Exception générique ──
-  final s = e.toString();
-  // Retire les préfixes techniques courants
-  return s
+  return e
+      .toString()
       .replaceFirst(RegExp(r'^Exception:\s*'), '')
       .replaceFirst(RegExp(r'^FormatException:\s*'), '')
       .replaceFirst(RegExp(r'^\[[\w/\-]+\]\s*'), '');
