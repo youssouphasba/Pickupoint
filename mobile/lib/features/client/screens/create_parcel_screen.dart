@@ -519,36 +519,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           const Divider(),
           const SizedBox(height: 20),
 
-          // ── Destination ───────────────────────────
-          _sectionTitle(Icons.where_to_vote,
-              isReverse ? 'Vous recevez le colis…' : 'Le colis est livré…'),
-          const SizedBox(height: 12),
-          _choiceCard(
-            selected: _destMode == _DestMode.home,
-            icon: Icons.home,
-            color: Theme.of(context).primaryColor,
-            title: 'À domicile',
-            desc: isReverse
-                ? 'Le livreur vous livre directement chez vous. En cas d\'absence, redirection vers le relais le plus proche.'
-                : 'Le livreur livre directement chez le destinataire. En cas d\'absence, redirection vers le relais le plus proche.',
-            onTap: () => setState(() => _destMode = _DestMode.home),
-          ),
-          const SizedBox(height: 10),
-          _choiceCard(
-            selected: _destMode == _DestMode.relay,
-            icon: Icons.store,
-            color: Theme.of(context).primaryColor,
-            title: 'En point relais',
-            desc: isReverse
-                ? 'Vous récupérez le colis au point relais de votre choix.'
-                : 'Le destinataire récupère le colis au point relais que vous choisissez pour lui.',
-            onTap: () => setState(() => _destMode = _DestMode.relay),
-          ),
-
-          const SizedBox(height: 28),
-          const Divider(),
-          const SizedBox(height: 20),
-
           // ── Origine ───────────────────────────────
           _sectionTitle(
               Icons.place,
@@ -641,6 +611,36 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                     ]),
                   ),
           ],
+          const SizedBox(height: 28),
+          const Divider(),
+          const SizedBox(height: 20),
+
+          // ── Destination ───────────────────────────
+          _sectionTitle(Icons.where_to_vote,
+              isReverse ? 'Vous recevez le colis…' : 'Le colis est livré…'),
+          const SizedBox(height: 12),
+          _choiceCard(
+            selected: _destMode == _DestMode.home,
+            icon: Icons.home,
+            color: Theme.of(context).primaryColor,
+            title: 'À domicile',
+            desc: isReverse
+                ? 'Le livreur vous livre directement chez vous. En cas d\'absence, redirection vers le relais le plus proche.'
+                : 'Le livreur livre directement chez le destinataire. En cas d\'absence, redirection vers le relais le plus proche.',
+            onTap: () => setState(() => _destMode = _DestMode.home),
+          ),
+          const SizedBox(height: 10),
+          _choiceCard(
+            selected: _destMode == _DestMode.relay,
+            icon: Icons.store,
+            color: Theme.of(context).primaryColor,
+            title: 'En point relais',
+            desc: isReverse
+                ? 'Vous récupérez le colis au point relais de votre choix.'
+                : 'Le destinataire récupère le colis au point relais que vous choisissez pour lui.',
+            onTap: () => setState(() => _destMode = _DestMode.relay),
+          ),
+
           const SizedBox(height: 80),
         ],
       ),
