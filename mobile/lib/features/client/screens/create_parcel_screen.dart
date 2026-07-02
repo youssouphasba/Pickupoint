@@ -554,7 +554,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               Icons.place,
               isReverse
                   ? 'L\'expéditeur dépose le colis…'
-                  : 'Vous déposez le colis…'),
+                  : 'Le livreur récupère le colis…'),
           const SizedBox(height: 12),
           _choiceCard(
             selected: _originMode == _OriginMode.relay,
@@ -576,7 +576,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             color: Theme.of(context).primaryColor,
             title: isReverse
                 ? 'Le livreur va chez l\'expéditeur'
-                : 'Le livreur vient chez vous',
+                : 'À domicile',
             desc: isReverse
                 ? 'Un livreur ira récupérer le colis à la position de l\'expéditeur.'
                 : 'Un livreur vient récupérer le colis à votre position.',
