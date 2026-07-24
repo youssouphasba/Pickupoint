@@ -254,6 +254,10 @@ def _can_driver_preview_pending_mission(
     if mission.get("status") != MissionStatus.PENDING.value:
         return False
 
+    requested_driver_id = mission.get("admin_requested_driver_id")
+    if requested_driver_id:
+        return requested_driver_id == driver_user_id
+
     if mission.get("is_broadcast"):
         return True
 
@@ -610,21 +614,7 @@ async def available_missions(
                 if parcel_statuses.get(mission.get("parcel_id")) not in hidden_statuses
             ]
 
-    filtered_missions = []
-    
-    for m in raw_missions:
-        # Filtrage pour le livreur actuel
-        if m.get("is_broadcast"):
-            filtered_missions.append(m)
-        else:
-            candidates = m.get("candidate_drivers") or []
-            ping_idx = m.get("ping_index", 0)
-            if ping_idx < len(candidates) and candidates[ping_idx] == user_id:
-                filtered_missions.append(m)
-            elif not candidates: # Sécurité : si pas de candidats calculés mais pas is_broadcast
-                filtered_missions.append(m)
-
-    missions = filtered_missions
+    missions = raw_missions
 
     if current_user["role"] != UserRole.DRIVER.value:
         missions = raw_missions
@@ -632,21 +622,23 @@ async def available_missions(
         missions = [
             mission
             for mission in raw_missions
-            if mission.get("is_broadcast")
-            or user_id in (mission.get("dispatch_notified_driver_ids") or [])
-            or user_id in (mission.get("candidate_drivers") or [])
+            if _can_driver_preview_pending_mission(
+                mission,
+                user_id,
+                None,
+                None,
+            )
         ]
     else:
         visible_missions = []
         for mission in raw_missions:
-            if current_user["role"] == UserRole.DRIVER.value and not mission.get("is_broadcast"):
-                candidates = mission.get("candidate_drivers") or []
-                ping_idx = mission.get("ping_index", 0)
-                requested_driver_id = mission.get("admin_requested_driver_id")
-                is_targeted_driver = requested_driver_id == user_id
-                is_current_candidate = ping_idx < len(candidates) and candidates[ping_idx] == user_id
-                if not is_targeted_driver and not is_current_candidate:
-                    continue
+            if not _can_driver_preview_pending_mission(
+                mission,
+                user_id,
+                lat,
+                lng,
+            ):
+                continue
             pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
             dispatch_radius_km = mission.get("dispatch_radius_km")
             if dispatch_radius_km is None:
@@ -764,6 +756,7 @@ async def mission_preview(
     pickup_distance_text: Optional[str] = None
     pickup_eta_seconds: Optional[int] = None
     pickup_eta_text: Optional[str] = None
+    pickup_encoded_polyline: Optional[str] = None
 
     if lat is not None and lng is not None and pickup_geopin is not None:
         pickup_distance_km = round(
@@ -778,14 +771,19 @@ async def mission_preview(
             pickup_geopin["lng"],
         )
         if pickup_route:
+            route_distance_meters = pickup_route.get("distance_meters")
+            if isinstance(route_distance_meters, (int, float)):
+                pickup_distance_km = round(route_distance_meters / 1000, 2)
             pickup_distance_text = pickup_route.get("distance_text") or pickup_distance_text
             pickup_eta_seconds = pickup_route.get("duration_seconds")
             pickup_eta_text = pickup_route.get("duration_text")
+            pickup_encoded_polyline = pickup_route.get("encoded_polyline")
 
     delivery_distance_km: Optional[float] = None
     delivery_distance_text: Optional[str] = None
     delivery_eta_seconds: Optional[int] = None
     delivery_eta_text: Optional[str] = None
+    delivery_encoded_polyline: Optional[str] = None
 
     if pickup_geopin is not None and delivery_geopin is not None:
         delivery_distance_km = round(
@@ -805,9 +803,13 @@ async def mission_preview(
             delivery_geopin["lng"],
         )
         if delivery_route:
+            route_distance_meters = delivery_route.get("distance_meters")
+            if isinstance(route_distance_meters, (int, float)):
+                delivery_distance_km = round(route_distance_meters / 1000, 2)
             delivery_distance_text = delivery_route.get("distance_text") or delivery_distance_text
             delivery_eta_seconds = delivery_route.get("duration_seconds")
             delivery_eta_text = delivery_route.get("duration_text")
+            delivery_encoded_polyline = delivery_route.get("encoded_polyline")
 
     total_distance_km: Optional[float] = None
     total_eta_seconds: Optional[int] = None
@@ -832,10 +834,12 @@ async def mission_preview(
             "pickup_distance_text": pickup_distance_text,
             "pickup_eta_seconds": pickup_eta_seconds,
             "pickup_eta_text": pickup_eta_text,
+            "pickup_encoded_polyline": pickup_encoded_polyline,
             "delivery_distance_km": delivery_distance_km,
             "delivery_distance_text": delivery_distance_text,
             "delivery_eta_seconds": delivery_eta_seconds,
             "delivery_eta_text": delivery_eta_text,
+            "delivery_encoded_polyline": delivery_encoded_polyline,
             "total_distance_km": total_distance_km,
             "total_distance_text": _format_distance_text(total_distance_meters),
             "total_eta_seconds": total_eta_seconds,
@@ -1325,6 +1329,19 @@ async def update_my_driver_location_legacy(
     )
 
 
+@router.put("/driver-presence/location", summary="Mettre a jour la position de presence du livreur connecte")
+async def update_my_driver_location(
+    body: LocationUpdate,
+    current_user: dict = Depends(require_role(
+        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
+    )),
+):
+    return await _update_driver_presence_location(
+        body=body,
+        current_user=current_user,
+    )
+
+
 @router.put("/{mission_id}/location", summary="Mettre à jour position GPS")
 async def update_location(
     mission_id: str,
@@ -1412,19 +1429,6 @@ async def update_location(
     )
 
     return {"message": "Position mise à jour"}
-
-
-@router.put("/driver-presence/location", summary="Mettre a jour la position de presence du livreur connecte")
-async def update_my_driver_location(
-    body: LocationUpdate,
-    current_user: dict = Depends(require_role(
-        UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
-    )),
-):
-    return await _update_driver_presence_location(
-        body=body,
-        current_user=current_user,
-    )
 
 
 @router.post("/{mission_id}/contact-recipient", summary="Contacter le destinataire via Denkma")

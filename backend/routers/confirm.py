@@ -44,6 +44,23 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _apply_reverse_geocode_location(location: dict, reverse_address: Optional[dict]) -> dict:
+    if not reverse_address:
+        return location
+
+    enriched = dict(location)
+    for key in ("formatted_address", "city", "district", "country", "place_id"):
+        value = reverse_address.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+        if value:
+            enriched[key] = value
+    source = reverse_address.get("source")
+    if isinstance(source, str) and source.strip():
+        enriched["reverse_geocode_source"] = source.strip()
+    return enriched
+
+
 async def _save_confirmation_voice_note(
     parcel: dict,
     token: str,
@@ -613,12 +630,7 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
         "source":    "gps_recipient" if is_recipient else "gps_sender",
         "confirmed": True,
     }
-    if reverse_address:
-        for key in ("formatted_address", "city", "district", "country", "place_id"):
-            value = _clean_text(reverse_address.get(key))
-            if value and not location.get(key):
-                location[key] = value
-        location["reverse_geocode_source"] = reverse_address.get("source")
+    location = _apply_reverse_geocode_location(location, reverse_address)
 
     updates = {
         f"{field_prefix}_location":  location,

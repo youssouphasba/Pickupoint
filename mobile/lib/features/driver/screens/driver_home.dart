@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../providers/driver_provider.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -18,6 +19,7 @@ import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/location/location_tracking_service.dart';
+import '../../../core/notifications/notification_service.dart';
 
 class _MissionPreview {
   const _MissionPreview({
@@ -27,6 +29,8 @@ class _MissionPreview {
     this.deliveryEtaText,
     this.totalDistanceText,
     this.totalEtaText,
+    this.pickupEncodedPolyline,
+    this.deliveryEncodedPolyline,
   });
 
   final String? pickupDistanceText;
@@ -35,6 +39,8 @@ class _MissionPreview {
   final String? deliveryEtaText;
   final String? totalDistanceText;
   final String? totalEtaText;
+  final String? pickupEncodedPolyline;
+  final String? deliveryEncodedPolyline;
 
   factory _MissionPreview.fromJson(Map<String, dynamic> json) {
     return _MissionPreview(
@@ -44,6 +50,8 @@ class _MissionPreview {
       deliveryEtaText: json['delivery_eta_text']?.toString(),
       totalDistanceText: json['total_distance_text']?.toString(),
       totalEtaText: json['total_eta_text']?.toString(),
+      pickupEncodedPolyline: json['pickup_encoded_polyline']?.toString(),
+      deliveryEncodedPolyline: json['delivery_encoded_polyline']?.toString(),
     );
   }
 }
@@ -55,7 +63,8 @@ class DriverHome extends ConsumerStatefulWidget {
   ConsumerState<DriverHome> createState() => _DriverHomeState();
 }
 
-class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObserver {
+class _DriverHomeState extends ConsumerState<DriverHome>
+    with WidgetsBindingObserver {
   double? _driverLat;
   double? _driverLng;
   bool _gpsLoading = true;
@@ -80,6 +89,8 @@ class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      ref.invalidate(availableMissionsProvider);
+      ref.invalidate(myMissionsProvider);
       _fetchDriverLocation();
     }
   }
@@ -192,6 +203,10 @@ class _DriverHomeState extends ConsumerState<DriverHome> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(foregroundMissionNotificationProvider, (_, __) {
+      ref.invalidate(availableMissionsProvider);
+      ref.invalidate(myMissionsProvider);
+    });
     final isAvailable =
         ref.watch(authProvider).value?.user?.isAvailable ?? false;
     final availableAsync = ref.watch(availableMissionsProvider(_driverLoc));
@@ -463,7 +478,6 @@ class _MissionsList extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                 ],
-
                 if (completed.isNotEmpty) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -497,11 +511,14 @@ class _MissionsList extends ConsumerWidget {
             padding: const EdgeInsets.all(12),
             itemCount: missions.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (_, i) => _MissionCard(
-              mission: missions[i],
-              isAvailable: true,
-              driverLoc: driverLoc,
-              ensureGpsReady: ensureGpsReady,
+            itemBuilder: (_, i) => _MissionEntrance(
+              index: i,
+              child: _MissionCard(
+                mission: missions[i],
+                isAvailable: true,
+                driverLoc: driverLoc,
+                ensureGpsReady: ensureGpsReady,
+              ),
             ),
           );
         },
@@ -594,6 +611,34 @@ class _CompactTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MissionEntrance extends StatelessWidget {
+  const _MissionEntrance({
+    required this.index,
+    required this.child,
+  });
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final delay = index.clamp(0, 5).toInt() * 35;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 260 + delay),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, animatedChild) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, 18 * (1 - value)),
+          child: animatedChild,
+        ),
+      ),
+      child: child,
     );
   }
 }
@@ -698,7 +743,7 @@ class _MissionCard extends ConsumerWidget {
                 ? 'Récupérer au relais'
                 : 'Récupérer chez l\'expéditeur',
             address: mission.pickupLabel,
-            city: mission.pickupCity,
+            city: _pickupZoneLabel(),
           ),
           Padding(
             padding: const EdgeInsets.only(left: 10),
@@ -711,7 +756,7 @@ class _MissionCard extends ConsumerWidget {
             color: Colors.red,
             label: 'Livrer à',
             address: mission.deliveryLabel,
-            city: mission.deliveryCity,
+            city: _deliveryZoneLabel(),
           ),
           // Destinataire
           if (mission.recipientName != null) ...[
@@ -780,6 +825,7 @@ class _MissionCard extends ConsumerWidget {
     final previewJson = data['preview'] as Map<String, dynamic>? ?? const {};
     return _MissionPreview.fromJson(previewJson);
   }
+
   Future<void> _showPreviewSheet(BuildContext context, WidgetRef ref) async {
     final parentContext = context;
     await showModalBottomSheet<void>(
@@ -800,7 +846,8 @@ class _MissionCard extends ConsumerWidget {
                 future: _loadPreview(ref),
                 builder: (builderContext, snapshot) {
                   final preview = snapshot.data;
-                  final isLoading = snapshot.connectionState == ConnectionState.waiting;
+                  final isLoading =
+                      snapshot.connectionState == ConnectionState.waiting;
                   final loadError = snapshot.hasError;
                   return Column(
                     children: [
@@ -820,7 +867,7 @@ class _MissionCard extends ConsumerWidget {
                           children: [
                             const Expanded(
                               child: Text(
-                                'Apercu de la course',
+                                'Aperçu de la course',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w800,
@@ -844,7 +891,7 @@ class _MissionCard extends ConsumerWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildPreviewMap(),
+                              _buildPreviewMap(preview),
                               const SizedBox(height: 12),
                               Wrap(
                                 spacing: 8,
@@ -861,7 +908,7 @@ class _MissionCard extends ConsumerWidget {
                                         ? Icons.storefront_outlined
                                         : Icons.my_location_outlined,
                                     label: mission.pickupIsRelay
-                                        ? 'Relais de depart'
+                                        ? 'Relais de départ'
                                         : 'Collecte',
                                   ),
                                   _MapLegendChip(
@@ -870,7 +917,7 @@ class _MissionCard extends ConsumerWidget {
                                         ? Icons.inventory_2_outlined
                                         : Icons.flag_outlined,
                                     label: mission.deliveryIsRelay
-                                        ? "Relais d'arrivee"
+                                        ? "Relais d'arrivée"
                                         : 'Livraison',
                                   ),
                                 ],
@@ -880,7 +927,7 @@ class _MissionCard extends ConsumerWidget {
                                 children: [
                                   Expanded(
                                     child: _PreviewMetricCard(
-                                      label: 'Gain estime',
+                                      label: 'Gain estimé',
                                       value: formatXof(mission.earnAmount),
                                       icon: Icons.payments_outlined,
                                     ),
@@ -890,7 +937,8 @@ class _MissionCard extends ConsumerWidget {
                                     child: _PreviewMetricCard(
                                       label: 'Solde requis',
                                       value: formatXof(_requiredBalance()),
-                                      icon: Icons.account_balance_wallet_outlined,
+                                      icon:
+                                          Icons.account_balance_wallet_outlined,
                                     ),
                                   ),
                                 ],
@@ -906,9 +954,11 @@ class _MissionCard extends ConsumerWidget {
                                       },
                                       style: OutlinedButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
-                                        side: BorderSide(color: Colors.grey.shade900),
+                                        side: BorderSide(
+                                            color: Colors.grey.shade900),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(18),
+                                          borderRadius:
+                                              BorderRadius.circular(18),
                                         ),
                                       ),
                                       child: const Text(
@@ -930,10 +980,12 @@ class _MissionCard extends ConsumerWidget {
                                       },
                                       style: FilledButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
-                                        backgroundColor: const Color(0xFFF4FF5A),
+                                        backgroundColor:
+                                            const Color(0xFFF4FF5A),
                                         foregroundColor: Colors.black87,
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(18),
+                                          borderRadius:
+                                              BorderRadius.circular(18),
                                         ),
                                       ),
                                       child: const Text(
@@ -953,22 +1005,25 @@ class _MissionCard extends ConsumerWidget {
                                 children: [
                                   _PreviewLine(
                                     icon: Icons.near_me_outlined,
-                                    label: "Vers l'expediteur",
-                                    value: preview?.pickupDistanceText ?? _fallbackPickupDistance(),
+                                    label: "Vers l'expéditeur",
+                                    value: preview?.pickupDistanceText ??
+                                        _fallbackPickupDistance(),
                                     trailing: preview?.pickupEtaText,
                                     loading: isLoading,
                                   ),
                                   _PreviewLine(
                                     icon: Icons.route_outlined,
                                     label: 'Course',
-                                    value: preview?.deliveryDistanceText ?? 'Non disponible',
+                                    value: preview?.deliveryDistanceText ??
+                                        'Non disponible',
                                     trailing: preview?.deliveryEtaText,
                                     loading: isLoading,
                                   ),
                                   _PreviewLine(
                                     icon: Icons.alt_route_outlined,
                                     label: 'Total pour vous',
-                                    value: preview?.totalDistanceText ?? _fallbackTotalDistance(preview),
+                                    value: preview?.totalDistanceText ??
+                                        _fallbackTotalDistance(preview),
                                     trailing: preview?.totalEtaText,
                                     loading: isLoading,
                                   ),
@@ -990,10 +1045,12 @@ class _MissionCard extends ConsumerWidget {
                                     label: 'Zone de collecte',
                                     value: _pickupZoneLabel(),
                                   ),
-                                  if ((mission.senderName ?? '').trim().isNotEmpty)
+                                  if ((mission.senderName ?? '')
+                                      .trim()
+                                      .isNotEmpty)
                                     _PreviewLine(
                                       icon: Icons.person_outline,
-                                      label: 'Nom expediteur',
+                                      label: 'Nom expéditeur',
                                       value: mission.senderName!.trim(),
                                     ),
                                   _PreviewLine(
@@ -1003,7 +1060,9 @@ class _MissionCard extends ConsumerWidget {
                                     label: 'Zone de livraison',
                                     value: _deliveryZoneLabel(),
                                   ),
-                                  if ((mission.recipientName ?? '').trim().isNotEmpty)
+                                  if ((mission.recipientName ?? '')
+                                      .trim()
+                                      .isNotEmpty)
                                     _PreviewLine(
                                       icon: Icons.person_outline,
                                       label: 'Nom destinataire',
@@ -1019,7 +1078,8 @@ class _MissionCard extends ConsumerWidget {
                               if (loadError) ...[
                                 const SizedBox(height: 14),
                                 Text(
-                                  friendlyError(snapshot.error ?? Exception('Erreur')),
+                                  friendlyError(
+                                      snapshot.error ?? Exception('Erreur')),
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.red,
@@ -1041,7 +1101,7 @@ class _MissionCard extends ConsumerWidget {
     );
   }
 
-  Widget _buildPreviewMap() {
+  Widget _buildPreviewMap(_MissionPreview? preview) {
     final driverPoint = _driverPoint();
     final pickupPoint = _pickupPoint();
     final deliveryPoint = _deliveryPoint();
@@ -1068,37 +1128,43 @@ class _MissionCard extends ConsumerWidget {
         Marker(
           markerId: const MarkerId('driver'),
           position: driverPoint,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
           infoWindow: const InfoWindow(title: 'Vous'),
         ),
       if (pickupPoint != null)
         Marker(
           markerId: const MarkerId('pickup'),
           position: pickupPoint,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-          infoWindow: InfoWindow(title: 'Expediteur', snippet: _pickupZoneLabel()),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow:
+              InfoWindow(title: 'Expediteur', snippet: _pickupZoneLabel()),
         ),
       if (deliveryPoint != null)
         Marker(
           markerId: const MarkerId('delivery'),
           position: deliveryPoint,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          infoWindow: InfoWindow(title: 'Destinataire', snippet: _deliveryZoneLabel()),
+          infoWindow:
+              InfoWindow(title: 'Destinataire', snippet: _deliveryZoneLabel()),
         ),
     };
 
+    final pickupRoute = _decodeRoute(preview?.pickupEncodedPolyline);
+    final deliveryRoute = _decodeRoute(preview?.deliveryEncodedPolyline);
     final polylines = <Polyline>{
-      if (driverPoint != null && pickupPoint != null)
+      if (pickupRoute.isNotEmpty)
         Polyline(
           polylineId: const PolylineId('driver_to_pickup'),
-          points: [driverPoint, pickupPoint],
+          points: pickupRoute,
           color: Colors.blue.shade600,
           width: 5,
         ),
-      if (pickupPoint != null && deliveryPoint != null)
+      if (deliveryRoute.isNotEmpty)
         Polyline(
           polylineId: const PolylineId('pickup_to_delivery'),
-          points: [pickupPoint, deliveryPoint],
+          points: deliveryRoute,
           color: Colors.green.shade600,
           width: 5,
         ),
@@ -1142,7 +1208,8 @@ class _MissionCard extends ConsumerWidget {
                 bottom: 10,
                 left: 10,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.96),
                     borderRadius: BorderRadius.circular(14),
@@ -1157,7 +1224,8 @@ class _MissionCard extends ConsumerWidget {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.navigation_outlined, size: 14, color: Colors.blue),
+                      Icon(Icons.navigation_outlined,
+                          size: 14, color: Colors.blue),
                       SizedBox(width: 5),
                       Text(
                         'Vous',
@@ -1191,6 +1259,16 @@ class _MissionCard extends ConsumerWidget {
   LatLng? _deliveryPoint() {
     if (mission.deliveryLat == null || mission.deliveryLng == null) return null;
     return LatLng(mission.deliveryLat!, mission.deliveryLng!);
+  }
+
+  List<LatLng> _decodeRoute(String? encodedPolyline) {
+    if (encodedPolyline == null || encodedPolyline.trim().isEmpty) {
+      return const [];
+    }
+    return PolylinePoints()
+        .decodePolyline(encodedPolyline)
+        .map((point) => LatLng(point.latitude, point.longitude))
+        .toList();
   }
 
   LatLngBounds? _boundsFromPoints(List<LatLng> points) {
@@ -1263,9 +1341,9 @@ class _MissionCard extends ConsumerWidget {
 
   String _payerLabel() {
     if (mission.whoPays == 'recipient') {
-      return 'Paye par le destinataire';
+      return 'Payé par le destinataire';
     }
-    return "Paye par l'expediteur";
+    return "Payé par l'expéditeur";
   }
 
   Color _distanceColor(double km) {
@@ -1346,10 +1424,9 @@ class _MissionCard extends ConsumerWidget {
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Course acceptée ! Bonne livraison'),
-          backgroundColor: Colors.green,
-        ));
+        await _showMissionAccepted(context);
+      }
+      if (context.mounted) {
         context.push('/driver/mission/${mission.id}');
       }
     } catch (e) {
@@ -1368,6 +1445,77 @@ class _MissionCard extends ConsumerWidget {
         );
       }
     }
+  }
+
+  Future<void> _showMissionAccepted(BuildContext context) async {
+    final closed = showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black45,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (_, __, ___) => PopScope(
+        canPop: false,
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              width: 176,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 28,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x24000000),
+                    blurRadius: 24,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.check_circle,
+                    size: 58,
+                    color: Colors.green,
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'Course acceptée',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      transitionBuilder: (_, animation, __, child) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.82, end: 1).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutBack,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    await closed;
   }
 
   Future<void> _decline(BuildContext context, WidgetRef ref) async {

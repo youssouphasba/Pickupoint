@@ -1645,12 +1645,6 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
             mission_doc["candidate_drivers"] = candidates
             mission_doc["dispatch_notified_driver_ids"] = candidates
             mission_doc["ping_expires_at"] = dispatch_state["next_escalation_at"]
-            from services.notification_service import notify_new_mission_dispatch_wave
-            await notify_new_mission_dispatch_wave(
-                user_ids=candidates,
-                mission=mission_doc,
-                radius_km=dispatch_state["radius_km"],
-            )
         else:
             mission_doc["is_broadcast"] = True # Aucun livreur proche → broadcast immédiat
     else:
@@ -1663,7 +1657,20 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         mission_doc["dispatch_next_escalation_at"] = None
 
     await db.delivery_missions.insert_one(mission_doc)
-    logger.info("Mission créée: %s pour colis %s (Cascade: %s)", 
+    if candidates:
+        try:
+            from services.notification_service import notify_new_mission_dispatch_wave
+            await notify_new_mission_dispatch_wave(
+                user_ids=candidates,
+                mission=mission_doc,
+                radius_km=dispatch_state["radius_km"],
+            )
+        except Exception:
+            logger.exception(
+                "Echec de notification des livreurs pour la mission %s",
+                mission_doc["mission_id"],
+            )
+    logger.info("Mission créée: %s pour colis %s (Cascade: %s)",
                 mission_doc["mission_id"], parcel["parcel_id"], not mission_doc["is_broadcast"])
 
 

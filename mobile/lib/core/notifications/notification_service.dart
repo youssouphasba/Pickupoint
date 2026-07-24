@@ -10,11 +10,12 @@ import '../router/app_router.dart';
 import 'notification_navigation.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
+final foregroundMissionNotificationProvider = StateProvider<int>((ref) => 0);
 
 final notificationSettingsProvider =
     FutureProvider<NotificationSettings>((ref) async {
-      return FirebaseMessaging.instance.getNotificationSettings();
-    });
+  return FirebaseMessaging.instance.getNotificationSettings();
+});
 
 class NotificationService {
   NotificationService(this._ref);
@@ -51,10 +52,9 @@ class NotificationService {
         await _tryUploadCurrentToken();
       }
 
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        _showLocalNotification(message);
-      });
-      FirebaseMessaging.onMessageOpenedApp.listen(_handleRemoteMessageNavigation);
+      FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+      FirebaseMessaging.onMessageOpenedApp
+          .listen(_handleRemoteMessageNavigation);
       await _handleInitialMessage();
       return;
     }
@@ -95,9 +95,7 @@ class NotificationService {
 
     await _initializeLocalNotifications();
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      _showLocalNotification(message);
-    });
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_handleRemoteMessageNavigation);
     await _handleInitialMessage();
   }
@@ -164,6 +162,15 @@ class NotificationService {
         payload: jsonEncode(message.data),
       );
     }
+  }
+
+  void _handleForegroundMessage(RemoteMessage message) {
+    if (message.data['ref_type']?.toString() == 'mission') {
+      final notifier =
+          _ref.read(foregroundMissionNotificationProvider.notifier);
+      notifier.state = notifier.state + 1;
+    }
+    _showLocalNotification(message);
   }
 
   Future<void> _handleInitialMessage() async {

@@ -43,7 +43,13 @@ if (mapsApiKey.trim().isEmpty()) {
 }
 
 def androidCompileSdk = (System.getenv("ANDROID_COMPILE_SDK") ?: "36").toInteger()
-def androidTargetSdk = (System.getenv("ANDROID_TARGET_SDK") ?: "35").toInteger()
+def androidTargetSdk = (System.getenv("ANDROID_TARGET_SDK") ?: "36").toInteger()
+if (androidTargetSdk < 36) {
+    throw new GradleException("ANDROID_TARGET_SDK must be at least 36 for Google Play.")
+}
+if (androidCompileSdk < androidTargetSdk) {
+    throw new GradleException("ANDROID_COMPILE_SDK must be greater than or equal to ANDROID_TARGET_SDK.")
+}
 
 android {
     namespace "com.denkma.app"

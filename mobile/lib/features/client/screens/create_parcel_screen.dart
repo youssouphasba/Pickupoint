@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -54,11 +55,12 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   final _recipientNameController = TextEditingController();
   final _recipientPhoneController = TextEditingController(text: '+221');
   final _senderPhoneController = TextEditingController(text: '+221');
+  bool _contactsLoading = false;
 
   // ── Adresse domicile destination (relay_to_home / home_to_home) ──────────────
   final _addressLabelController = TextEditingController();
   final _addressDistrictController = TextEditingController();
-  String? _addressCity;
+  final _addressCityController = TextEditingController();
 
   // ── Étape 3 ──────────────────────────────────────────────────────────────────
   final _weightController = TextEditingController(text: '1.0');
@@ -118,7 +120,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     }
     final addressCity = (prefill.deliveryAddressCity ?? '').trim();
     if (addressCity.isNotEmpty) {
-      _addressCity = addressCity;
+      _addressCityController.text = addressCity;
       _destMode = _DestMode.home;
     }
     if (prefill.declaredValue != null && prefill.declaredValue! > 0) {
@@ -152,6 +154,81 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     return value;
   }
 
+  Future<void> _pickRecipientFromContacts() async {
+    if (_contactsLoading) return;
+    setState(() => _contactsLoading = true);
+
+    try {
+      final permission = await FlutterContacts.permissions.request(
+        PermissionType.read,
+      );
+      final isGranted = permission == PermissionStatus.granted ||
+          permission == PermissionStatus.limited;
+
+      if (!isGranted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Autorisez l’accès aux contacts pour choisir un destinataire.',
+            ),
+            action: SnackBarAction(
+              label: 'Réglages',
+              onPressed: FlutterContacts.permissions.openSettings,
+            ),
+          ),
+        );
+        return;
+      }
+
+      final contacts = await FlutterContacts.getAll(
+        properties: {ContactProperty.phone},
+      );
+      contacts.sort(
+        (a, b) => (a.displayName ?? '').toLowerCase().compareTo(
+              (b.displayName ?? '').toLowerCase(),
+            ),
+      );
+
+      if (!mounted) return;
+      setState(() => _contactsLoading = false);
+
+      final selection = await showModalBottomSheet<_ContactSelection>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => _ContactPickerSheet(contacts: contacts),
+      );
+      if (selection == null || !mounted) return;
+
+      setState(() {
+        if (selection.name.isNotEmpty) {
+          _recipientNameController.text = selection.name;
+        }
+        _recipientPhoneController.text = _cleanContactPhone(selection.phone);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Impossible d’ouvrir les contacts pour le moment.'),
+        ),
+      );
+    } finally {
+      if (mounted && _contactsLoading) {
+        setState(() => _contactsLoading = false);
+      }
+    }
+  }
+
+  String _cleanContactPhone(String phone) {
+    final cleaned = phone.trim().replaceAll(RegExp(r'[^\d+]'), '');
+    if (cleaned.startsWith('00')) {
+      return '+${cleaned.substring(2)}';
+    }
+    return cleaned;
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -160,6 +237,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     _senderPhoneController.dispose();
     _addressLabelController.dispose();
     _addressDistrictController.dispose();
+    _addressCityController.dispose();
     _weightController.dispose();
     _declaredValueController.dispose();
     _pickupNoteController.dispose();
@@ -279,8 +357,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           'district': _addressDistrictController.text.trim().isEmpty
               ? null
               : _addressDistrictController.text.trim(),
-          if (_addressCity != null && _addressCity!.trim().isNotEmpty)
-            'city': _addressCity!.trim(),
+          if (_addressCityController.text.trim().isNotEmpty)
+            'city': _addressCityController.text.trim(),
         };
       }
 
@@ -357,7 +435,25 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       'Détails du colis'
     ];
     return Scaffold(
-      appBar: AppBar(title: Text(titles[_currentStep])),
+      appBar: AppBar(
+        title: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.08, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          ),
+          child: Text(
+            titles[_currentStep],
+            key: ValueKey(_currentStep),
+          ),
+        ),
+      ),
       body: Column(
         children: [
           _buildStepIndicator(),
@@ -430,19 +526,42 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           final isCurrent = i == _currentStep;
           return Expanded(
             child: Row(children: [
-              CircleAvatar(
-                radius: 14,
-                backgroundColor: isDone || isCurrent
-                    ? Theme.of(context).primaryColor
-                    : Colors.grey.shade300,
-                child: isDone
-                    ? const Icon(Icons.check, size: 16, color: Colors.white)
-                    : Text('${i + 1}',
-                        style: TextStyle(
-                          color: isCurrent ? Colors.white : Colors.grey,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        )),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isDone || isCurrent
+                      ? Theme.of(context).primaryColor
+                      : Colors.grey.shade300,
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  transitionBuilder: (child, animation) => ScaleTransition(
+                    scale: animation,
+                    child: child,
+                  ),
+                  child: isDone
+                      ? const Icon(
+                          Icons.check,
+                          key: ValueKey('done'),
+                          size: 16,
+                          color: Colors.white,
+                        )
+                      : Text(
+                          '${i + 1}',
+                          key: ValueKey('step-$i-$isCurrent'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: isCurrent ? Colors.white : Colors.grey,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
               ),
               if (i < 2)
                 Expanded(
@@ -527,6 +646,18 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                   : 'Le livreur récupère le colis…'),
           const SizedBox(height: 12),
           _choiceCard(
+            selected: _originMode == _OriginMode.gps,
+            icon: Icons.location_on,
+            color: Theme.of(context).primaryColor,
+            title:
+                isReverse ? 'Le livreur va chez l\'expéditeur' : 'À domicile',
+            desc: isReverse
+                ? 'Un livreur ira récupérer le colis à la position de l\'expéditeur.'
+                : 'Un livreur vient récupérer le colis à votre position.',
+            onTap: () => setState(() => _originMode = _OriginMode.gps),
+          ),
+          const SizedBox(height: 10),
+          _choiceCard(
             selected: _originMode == _OriginMode.relay,
             icon: Icons.store_mall_directory,
             color: Theme.of(context).primaryColor,
@@ -539,77 +670,78 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               _originLat = null;
             }),
           ),
-          const SizedBox(height: 10),
-          _choiceCard(
-            selected: _originMode == _OriginMode.gps,
-            icon: Icons.location_on,
-            color: Theme.of(context).primaryColor,
-            title: isReverse
-                ? 'Le livreur va chez l\'expéditeur'
-                : 'À domicile',
-            desc: isReverse
-                ? 'Un livreur ira récupérer le colis à la position de l\'expéditeur.'
-                : 'Un livreur vient récupérer le colis à votre position.',
-            onTap: () => setState(() => _originMode = _OriginMode.gps),
-          ),
 
           // Bouton GPS si mode sélectionné
           if (_originMode == _OriginMode.gps) ...[
             const SizedBox(height: 16),
-            _originLat == null
-                ? SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _gpsLoading ? null : _captureOriginGPS,
-                      icon: _gpsLoading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.my_location),
-                      label: Text(_gpsLoading
-                          ? 'Localisation…'
-                          : 'Confirmer ma position'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutBack,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.96, end: 1).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: _originLat == null
+                  ? SizedBox(
+                      key: const ValueKey('capture-position'),
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _gpsLoading ? null : _captureOriginGPS,
+                        icon: _gpsLoading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.my_location),
+                        label: Text(_gpsLoading
+                            ? 'Localisation…'
+                            : 'Confirmer ma position'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
+                    )
+                  : Container(
+                      key: const ValueKey('position-captured'),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.green.shade300),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.check_circle, color: Colors.green),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Position capturée',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green)),
+                                Text(
+                                  '${_originLat!.toStringAsFixed(5)}, ${_originLng!.toStringAsFixed(5)}'
+                                  '${_originAccuracy != null ? ' (±${_originAccuracy!.toStringAsFixed(0)} m)' : ''}',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.grey),
+                                ),
+                              ]),
+                        ),
+                        TextButton(
+                          onPressed: _captureOriginGPS,
+                          child: const Text('Recapturer'),
+                        ),
+                      ]),
                     ),
-                  )
-                : Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.green.shade300),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.check_circle, color: Colors.green),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Position capturée ✅',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.green)),
-                              Text(
-                                '${_originLat!.toStringAsFixed(5)}, ${_originLng!.toStringAsFixed(5)}'
-                                '${_originAccuracy != null ? ' (±${_originAccuracy!.toStringAsFixed(0)} m)' : ''}',
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.grey),
-                              ),
-                            ]),
-                      ),
-                      TextButton(
-                        onPressed: _captureOriginGPS,
-                        child: const Text('Recapturer'),
-                      ),
-                    ]),
-                  ),
+            ),
           ],
           const SizedBox(height: 28),
           const Divider(),
@@ -640,7 +772,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                 : 'Le destinataire récupère le colis au point relais que vous choisissez pour lui.',
             onTap: () => setState(() => _destMode = _DestMode.relay),
           ),
-
           const SizedBox(height: 80),
         ],
       ),
@@ -775,18 +906,14 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: _addressCity,
+            TextField(
+              controller: _addressCityController,
               decoration: const InputDecoration(
-                labelText: 'Ville',
-                hintText: 'Sélectionner une ville',
+                labelText: 'Ville (optionnel)',
+                hintText: 'Ex: Paris, Lille, Dakar',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.location_city),
               ),
-              items: ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack']
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                  .toList(),
-              onChanged: (v) => setState(() => _addressCity = v),
             ),
             const SizedBox(height: 24),
           ],
@@ -802,6 +929,28 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                 : 'Informations du destinataire',
           ),
           const SizedBox(height: 12),
+
+          if (!isReverse && _destMode == _DestMode.home) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _contactsLoading ? null : _pickRecipientFromContacts,
+                icon: _contactsLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.contacts_outlined),
+                label: Text(
+                  _contactsLoading
+                      ? 'Chargement des contacts…'
+                      : 'Choisir dans les contacts',
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           TextField(
             controller: _recipientNameController,
@@ -1187,7 +1336,9 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           border: Border.all(
@@ -1196,7 +1347,16 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           color: selected ? color.withValues(alpha: 0.05) : null,
         ),
         child: Row(children: [
-          Icon(icon, size: 30, color: selected ? color : Colors.grey),
+          AnimatedScale(
+            scale: selected ? 1.08 : 1,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutBack,
+            child: Icon(
+              icon,
+              size: 30,
+              color: selected ? color : Colors.grey,
+            ),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child:
@@ -1209,7 +1369,28 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                   style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ]),
           ),
-          if (selected) Icon(Icons.check_circle, color: color),
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: child,
+              ),
+              child: selected
+                  ? Icon(
+                      Icons.check_circle,
+                      key: const ValueKey('selected'),
+                      color: color,
+                    )
+                  : const SizedBox(
+                      key: ValueKey('unselected'),
+                      width: 24,
+                      height: 24,
+                    ),
+            ),
+          ),
         ]),
       ),
     );
@@ -1269,6 +1450,135 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             Icon(Icons.check_circle, size: 16, color: color),
           ],
         ]),
+      ),
+    );
+  }
+}
+
+class _ContactSelection {
+  const _ContactSelection({required this.name, required this.phone});
+
+  final String name;
+  final String phone;
+}
+
+class _ContactPickerSheet extends StatefulWidget {
+  const _ContactPickerSheet({required this.contacts});
+
+  final List<Contact> contacts;
+
+  @override
+  State<_ContactPickerSheet> createState() => _ContactPickerSheetState();
+}
+
+class _ContactPickerSheetState extends State<_ContactPickerSheet> {
+  final _searchController = TextEditingController();
+  late final List<_ContactSelection> _entries;
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _entries = [
+      for (final contact in widget.contacts)
+        for (final phone in contact.phones)
+          if (phone.number.trim().isNotEmpty)
+            _ContactSelection(
+              name: (contact.displayName ?? '').trim(),
+              phone: phone.number.trim(),
+            ),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.toLowerCase();
+    final filtered = query.isEmpty
+        ? _entries
+        : _entries.where((entry) {
+            final searchablePhone =
+                entry.phone.replaceAll(RegExp(r'[^\d+]'), '');
+            final searchableQuery = query.replaceAll(RegExp(r'[^\d+]'), '');
+            return entry.name.toLowerCase().contains(query) ||
+                (searchableQuery.isNotEmpty &&
+                    searchablePhone.contains(searchableQuery));
+          }).toList();
+
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.78,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Choisir un destinataire',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Fermer',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              onChanged: (value) => setState(() => _query = value.trim()),
+              decoration: const InputDecoration(
+                hintText: 'Rechercher un nom ou un numéro',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Aucun contact avec un numéro de téléphone.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    itemCount: filtered.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final entry = filtered[index];
+                      final initial = entry.name.isEmpty
+                          ? '#'
+                          : entry.name.characters.first.toUpperCase();
+                      return ListTile(
+                        leading: CircleAvatar(child: Text(initial)),
+                        title: Text(
+                          entry.name.isEmpty ? 'Contact sans nom' : entry.name,
+                        ),
+                        subtitle: Text(entry.phone),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.pop(context, entry),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
