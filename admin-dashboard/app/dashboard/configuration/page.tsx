@@ -484,6 +484,53 @@ export default function ConfigurationPage() {
             </button>
           </div>
 
+          <div className="rounded-lg border p-4">
+            <div className="mb-3">
+              <div className="font-medium">Notifier une nouvelle version</div>
+              <div className="text-sm text-muted-foreground">
+                Envoyez la notification lorsque la version est disponible sur le store concerné.
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => confirmAppUpdateNotification("android")}
+                disabled={
+                  appUpdateNotificationMutation.isPending ||
+                  !appUpdateForm.android_latest_version.trim() ||
+                  !appUpdateForm.android_store_url.trim()
+                }
+              >
+                {appUpdateNotificationMutation.isPending &&
+                appUpdateNotificationMutation.variables === "android" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <BellRing className="h-4 w-4" />
+                )}
+                Notifier les utilisateurs Android
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => confirmAppUpdateNotification("ios")}
+                disabled={
+                  appUpdateNotificationMutation.isPending ||
+                  !appUpdateForm.ios_latest_version.trim() ||
+                  !appUpdateForm.ios_store_url.trim()
+                }
+              >
+                {appUpdateNotificationMutation.isPending &&
+                appUpdateNotificationMutation.variables === "ios" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <BellRing className="h-4 w-4" />
+                )}
+                Notifier les utilisateurs iOS
+              </Button>
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <TextField
               label="Message"
@@ -568,54 +615,6 @@ export default function ConfigurationPage() {
             </Button>
           </div>
 
-          <div className="grid gap-3 border-t pt-5 md:grid-cols-2">
-            <div className="space-y-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => confirmAppUpdateNotification("android")}
-                disabled={
-                  appUpdateNotificationMutation.isPending ||
-                  !appUpdateForm.android_latest_version.trim() ||
-                  !appUpdateForm.android_store_url.trim()
-                }
-              >
-                {appUpdateNotificationMutation.isPending &&
-                appUpdateNotificationMutation.variables === "android" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <BellRing className="h-4 w-4" />
-                )}
-                Notifier les utilisateurs Android
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                À utiliser lorsque la version est disponible sur le Play Store.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => confirmAppUpdateNotification("ios")}
-                disabled={
-                  appUpdateNotificationMutation.isPending ||
-                  !appUpdateForm.ios_latest_version.trim() ||
-                  !appUpdateForm.ios_store_url.trim()
-                }
-              >
-                {appUpdateNotificationMutation.isPending &&
-                appUpdateNotificationMutation.variables === "ios" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <BellRing className="h-4 w-4" />
-                )}
-                Notifier les utilisateurs iOS
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                À utiliser lorsque la version est disponible sur l’App Store.
-              </p>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
