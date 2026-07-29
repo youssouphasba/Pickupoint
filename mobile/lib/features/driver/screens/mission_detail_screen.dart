@@ -1339,7 +1339,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
                 _buildContactCard(
                   title: 'Collecte',
-                  name: mission.pickupLabel,
+                  name: _pickupAreaLabel(mission),
                   photo: mission.senderPhotoUrl,
                   phone: null,
                   showCall: false,
@@ -1349,7 +1349,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
                 _buildContactCard(
                   title: 'Livraison',
-                  name: mission.deliveryLabel,
+                  name: _deliveryAreaLabel(mission),
                   photo: mission.recipientPhotoUrl,
                   phone: null,
                   showCall: false,
@@ -1413,6 +1413,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     );
   }
 
+  String _pickupAreaLabel(DeliveryMission mission) {
+    final area = mission.pickupAreaLabel.trim();
+    return area.isNotEmpty ? area : mission.pickupLabel;
+  }
+
+  String _deliveryAreaLabel(DeliveryMission mission) {
+    final area = mission.deliveryAreaLabel.trim();
+    return area.isNotEmpty ? area : mission.deliveryLabel;
+  }
+
   Widget _buildRouteMap(DeliveryMission mission) {
     final hasPickup = mission.pickupLat != null;
     final hasDelivery = mission.deliveryLat != null;
@@ -1431,7 +1441,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ? mission.deliveryLng!
         : (hasPickup ? mission.pickupLng! : mission.deliveryLng!);
     final navLabel =
-        navToDelivery ? mission.deliveryLabel : mission.pickupLabel;
+        navToDelivery ? _deliveryAreaLabel(mission) : _pickupAreaLabel(mission);
 
     final Set<Marker> markers = {};
     if (hasPickup) {
@@ -1549,7 +1559,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  mission.pickupLabel,
+                  _pickupAreaLabel(mission),
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1562,7 +1572,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               const SizedBox(width: 4),
               Flexible(
                 child: Text(
-                  mission.deliveryLabel,
+                  _deliveryAreaLabel(mission),
                   style: const TextStyle(fontSize: 11, color: Colors.grey),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1783,7 +1793,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 child: _buildDistanceCard(
                   title: 'Vers expéditeur',
                   value: _formatDistanceMeters(pickupDistance),
-                  subtitle: mission.pickupLabel,
+                  subtitle: _pickupAreaLabel(mission),
                   color: Colors.orange,
                   icon: Icons.storefront_rounded,
                 ),
@@ -1793,7 +1803,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 child: _buildDistanceCard(
                   title: 'Vers destinataire',
                   value: _formatDistanceMeters(deliveryDistance),
-                  subtitle: mission.deliveryLabel,
+                  subtitle: _deliveryAreaLabel(mission),
                   color: Colors.red,
                   icon: Icons.location_on_rounded,
                 ),

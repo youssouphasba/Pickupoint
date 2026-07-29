@@ -170,6 +170,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               children: [
                 _buildHeader(context, parcel, isRecipient: isRecipient),
                 const SizedBox(height: 16),
+                _buildPriceCard(parcel),
+                const SizedBox(height: 16),
                 if (parcel.parcelPhotoUrl != null &&
                     parcel.parcelPhotoUrl!.trim().isNotEmpty) ...[
                   _buildParcelPhotoCard(parcel.parcelPhotoUrl!),
@@ -1123,6 +1125,75 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           _buildDriverInfo(parcel),
         ],
       ],
+    );
+  }
+
+  Widget _buildPriceCard(Parcel parcel) {
+    final payerLabel = parcel.whoPays == 'recipient'
+        ? 'Payé au livreur par le destinataire'
+        : 'Payé au livreur par l’expéditeur';
+    final hasPrice = parcel.totalPrice != null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.green.shade100,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.payments_outlined,
+              color: Colors.green.shade800,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Prix de la livraison',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black54,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  hasPrice
+                      ? formatXof(parcel.totalPrice!)
+                      : 'En cours de calcul',
+                  style: TextStyle(
+                    fontSize: hasPrice ? 22 : 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green.shade900,
+                  ),
+                ),
+                if (hasPrice) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    payerLabel,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

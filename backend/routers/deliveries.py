@@ -21,8 +21,11 @@ from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
 from services.parcel_service import (
+    _current_delivery_location,
+    _enrich_location_from_geopin,
     _record_event,
     _find_candidate_drivers_within_radius,
+    build_location_area_label,
     get_assigned_mission_auto_release_minutes,
     get_delivery_dispatch_settings,
     resolve_delivery_dispatch_state,
@@ -169,6 +172,79 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
     return
+
+
+def _is_generic_location_label(value: object) -> bool:
+    normalized = str(value or "").strip().casefold()
+    return not normalized or any(
+        marker in normalized
+        for marker in (
+            "position exp",
+            "position dest",
+            "adresse dest",
+            "zone non",
+        )
+    )
+
+
+async def _hydrate_mission_area_labels(
+    mission: dict,
+    parcel: Optional[dict] = None,
+) -> None:
+    if parcel is None:
+        parcel = await db.parcels.find_one(
+            {"parcel_id": mission.get("parcel_id")},
+            {
+                "_id": 0,
+                "origin_location": 1,
+                "delivery_location": 1,
+                "delivery_address": 1,
+            },
+        )
+    parcel = parcel or {}
+    updates: dict[str, str] = {}
+
+    if _is_generic_location_label(mission.get("pickup_area_label")):
+        if mission.get("pickup_type") == "relay" and mission.get("pickup_relay_id"):
+            relay = await db.relay_points.find_one(
+                {"relay_id": mission["pickup_relay_id"]},
+                {"_id": 0, "address": 1},
+            )
+            pickup_source = (relay or {}).get("address") or {}
+        else:
+            pickup_source = parcel.get("origin_location") or {}
+        pickup_source = await _enrich_location_from_geopin(pickup_source) or {}
+        pickup_area_label = build_location_area_label(
+            pickup_source,
+            fallback=mission.get("pickup_label"),
+        )
+        if not _is_generic_location_label(pickup_area_label):
+            mission["pickup_area_label"] = pickup_area_label
+            updates["pickup_area_label"] = pickup_area_label
+
+    if _is_generic_location_label(mission.get("delivery_area_label")):
+        if mission.get("delivery_type") == "relay" and mission.get("delivery_relay_id"):
+            relay = await db.relay_points.find_one(
+                {"relay_id": mission["delivery_relay_id"]},
+                {"_id": 0, "address": 1},
+            )
+            delivery_source = (relay or {}).get("address") or {}
+        else:
+            delivery_source = _current_delivery_location(parcel)
+        delivery_source = await _enrich_location_from_geopin(delivery_source) or {}
+        delivery_area_label = build_location_area_label(
+            delivery_source,
+            fallback=mission.get("delivery_label"),
+        )
+        if not _is_generic_location_label(delivery_area_label):
+            mission["delivery_area_label"] = delivery_area_label
+            updates["delivery_area_label"] = delivery_area_label
+
+    if updates and mission.get("mission_id"):
+        await db.delivery_missions.update_one(
+            {"mission_id": mission["mission_id"]},
+            {"$set": updates},
+        )
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -773,6 +849,7 @@ async def mission_preview(
             raise forbidden_exception("Cette course n'est plus disponible pour vous.")
 
     await _attach_commission_requirements([mission])
+    await _hydrate_mission_area_labels(mission)
     _mask_recipient_phone_for_driver([mission], current_user)
 
     pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
@@ -1003,6 +1080,9 @@ async def get_mission(
             "driver_bonus_xof": 1,
             "paid_price": 1,
             "quoted_price": 1,
+            "origin_location": 1,
+            "delivery_location": 1,
+            "delivery_address": 1,
         },
     )
     if parcel:
@@ -1042,6 +1122,8 @@ async def get_mission(
         mission["quoted_price"] = parcel.get("quoted_price")
         mission["paid_price"] = parcel.get("paid_price")
         mission["delivery_blocked_by_payment"] = False
+
+    await _hydrate_mission_area_labels(mission, parcel)
 
     _attach_pickup_confirmation_window(
         mission,
