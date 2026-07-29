@@ -109,10 +109,15 @@ class ApiClient {
   Future<Response> updatePin(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.updatePin, data: body);
 
-  Future<Response> updateFcmToken(String token) =>
+  Future<Response> updateFcmToken(
+    String token, {
+    String? appVersion,
+  }) =>
       _dio.put(ApiEndpoints.updateFcm, data: {
         'fcm_token': token,
         'platform': Platform.operatingSystem,
+        if (appVersion != null && appVersion.isNotEmpty)
+          'app_version': appVersion,
       });
 
   Future<Response> deleteFcmToken(String token) => _dio

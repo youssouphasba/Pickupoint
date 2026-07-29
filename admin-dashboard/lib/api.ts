@@ -740,6 +740,21 @@ export async function updateAppUpdateSettings(body: AppUpdateSettingsPayload) {
   return data;
 }
 
+export async function notifyAppUpdate(platform: "android" | "ios") {
+  const { data } = await api.post("/api/admin/settings/app-update/notify", {
+    platform,
+  });
+  return data as {
+    ok: boolean;
+    platform: "android" | "ios";
+    version: string;
+    matched: number;
+    push_sent: number;
+    push_failed: number;
+    push_skipped: number;
+  };
+}
+
 export async function updatePerformanceRewardsSettings(
   body: PerformanceRewardsPayload,
 ) {

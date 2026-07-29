@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save } from "lucide-react";
+import { BellRing, Loader2, Save } from "lucide-react";
 import {
   updateDeliveryDispatchSettings,
   fetchSettings,
+  notifyAppUpdate,
   updateAppUpdateSettings,
   updateOperationalSettings,
   updatePerformanceRewardsSettings,
@@ -283,6 +284,27 @@ export default function ConfigurationPage() {
     },
   });
 
+  const appUpdateNotificationMutation = useMutation({
+    mutationFn: async (platform: "android" | "ios") => {
+      await updateAppUpdateSettings(appUpdateForm!);
+      return notifyAppUpdate(platform);
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      const notDelivered = result.push_failed + result.push_skipped;
+      toast(
+        `${result.push_sent} notification${result.push_sent > 1 ? "s" : ""} envoyée${result.push_sent > 1 ? "s" : ""} pour la version ${result.version}${notDelivered > 0 ? `, ${notDelivered} non remise${notDelivered > 1 ? "s" : ""}` : ""}.`
+      );
+    },
+    onError: (error: any) => {
+      toast(
+        error?.response?.data?.detail ??
+          "La notification de mise à jour n'a pas pu être envoyée.",
+        "error"
+      );
+    },
+  });
+
   const deliveryDispatchMutation = useMutation({
     mutationFn: () =>
       updateDeliveryDispatchSettings({ stages: deliveryDispatchStages! }),
@@ -308,6 +330,21 @@ export default function ConfigurationPage() {
 
   function setField(key: keyof OperationalSettingsPayload, value: number) {
     setForm((current) => (current ? { ...current, [key]: value } : current));
+  }
+
+  function confirmAppUpdateNotification(platform: "android" | "ios") {
+    const version =
+      platform === "android"
+        ? appUpdateForm?.android_latest_version
+        : appUpdateForm?.ios_latest_version;
+    const store = platform === "android" ? "Play Store" : "App Store";
+    if (
+      window.confirm(
+        `Confirmer l'envoi vers les appareils ${platform === "android" ? "Android" : "iOS"} pour la version ${version} disponible sur le ${store} ?`
+      )
+    ) {
+      appUpdateNotificationMutation.mutate(platform);
+    }
   }
 
   function updateDriverSuccessBonus(
@@ -529,6 +566,55 @@ export default function ConfigurationPage() {
               )}
               Sauvegarder les mises à jour
             </Button>
+          </div>
+
+          <div className="grid gap-3 border-t pt-5 md:grid-cols-2">
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => confirmAppUpdateNotification("android")}
+                disabled={
+                  appUpdateNotificationMutation.isPending ||
+                  !appUpdateForm.android_latest_version.trim() ||
+                  !appUpdateForm.android_store_url.trim()
+                }
+              >
+                {appUpdateNotificationMutation.isPending &&
+                appUpdateNotificationMutation.variables === "android" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <BellRing className="h-4 w-4" />
+                )}
+                Notifier les utilisateurs Android
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                À utiliser lorsque la version est disponible sur le Play Store.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => confirmAppUpdateNotification("ios")}
+                disabled={
+                  appUpdateNotificationMutation.isPending ||
+                  !appUpdateForm.ios_latest_version.trim() ||
+                  !appUpdateForm.ios_store_url.trim()
+                }
+              >
+                {appUpdateNotificationMutation.isPending &&
+                appUpdateNotificationMutation.variables === "ios" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <BellRing className="h-4 w-4" />
+                )}
+                Notifier les utilisateurs iOS
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                À utiliser lorsque la version est disponible sur l’App Store.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

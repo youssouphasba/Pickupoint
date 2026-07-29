@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../router/app_router.dart';
@@ -27,6 +29,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialMessageHandled = false;
+  String? _appVersion;
 
   bool get _hasAuthenticatedSession {
     final authState = _ref.read(authProvider).valueOrNull;
@@ -139,7 +142,11 @@ class NotificationService {
     }
 
     try {
-      await _ref.read(apiClientProvider).updateFcmToken(token);
+      _appVersion ??= (await PackageInfo.fromPlatform()).version;
+      await _ref.read(apiClientProvider).updateFcmToken(
+            token,
+            appVersion: _appVersion,
+          );
     } catch (_) {}
   }
 
@@ -220,6 +227,20 @@ class NotificationService {
     final eventType = data['event_type']?.toString();
     if (eventType == 'mission_unavailable') {
       await _localNotifs.cancel(notificationPlatformId(data));
+    }
+
+    final externalUrl = notificationExternalUrl(
+      eventType: eventType,
+      storeUrl: data['store_url']?.toString(),
+      currentPlatform: Platform.operatingSystem,
+      targetPlatform: data['platform']?.toString(),
+    );
+    if (externalUrl != null) {
+      await launchUrl(
+        Uri.parse(externalUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      return;
     }
 
     final authState = await _ref.read(authProvider.future);

@@ -67,6 +67,27 @@ String? notificationRouteFor({
   };
 }
 
+String? notificationExternalUrl({
+  required String? eventType,
+  required String? storeUrl,
+  required String currentPlatform,
+  String? targetPlatform,
+}) {
+  if ((eventType ?? '').trim().toLowerCase() != 'app_update') {
+    return null;
+  }
+  final expectedPlatform = (targetPlatform ?? '').trim().toLowerCase();
+  if (expectedPlatform.isNotEmpty &&
+      expectedPlatform != currentPlatform.trim().toLowerCase()) {
+    return null;
+  }
+  final uri = Uri.tryParse((storeUrl ?? '').trim());
+  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+    return null;
+  }
+  return uri.toString();
+}
+
 int notificationPlatformId(Map<String, dynamic> data) {
   final dedupeKey = data['dedupe_key']?.toString().trim() ?? '';
   final key = dedupeKey.isNotEmpty

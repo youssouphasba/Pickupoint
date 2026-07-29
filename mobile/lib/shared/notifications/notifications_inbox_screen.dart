@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/auth/auth_provider.dart';
@@ -97,6 +100,23 @@ class _NotificationsInboxScreenState
       } catch (_) {}
     }
     if (!mounted) return;
+    final metadata = notif['metadata'] is Map
+        ? Map<String, dynamic>.from(notif['metadata'] as Map)
+        : const <String, dynamic>{};
+    final externalUrl = notificationExternalUrl(
+      eventType: notif['event_type']?.toString(),
+      storeUrl: metadata['store_url']?.toString(),
+      currentPlatform: Platform.operatingSystem,
+      targetPlatform: metadata['platform']?.toString(),
+    );
+    if (externalUrl != null) {
+      await launchUrl(
+        Uri.parse(externalUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      await _refresh();
+      return;
+    }
     _activateTargetView(notif);
     final href = _hrefFor(notif);
     if (href != null) {

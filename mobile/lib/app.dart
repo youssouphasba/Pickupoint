@@ -6,6 +6,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/location/driver_presence_service.dart';
 import 'shared/widgets/app_update_gate.dart';
+import 'shared/widgets/app_launch_reveal.dart';
 
 class DenkmaApp extends ConsumerStatefulWidget {
   const DenkmaApp({super.key});
@@ -17,6 +18,7 @@ class DenkmaApp extends ConsumerStatefulWidget {
 class _DenkmaAppState extends ConsumerState<DenkmaApp>
     with WidgetsBindingObserver {
   bool _refreshingSession = false;
+  bool _launchComplete = false;
 
   @override
   void initState() {
@@ -61,8 +63,17 @@ class _DenkmaAppState extends ConsumerState<DenkmaApp>
       title: 'Denkma',
       theme: AppTheme.light,
       routerConfig: router,
-      builder: (context, child) => AppUpdateGate(
-        child: child ?? const SizedBox.shrink(),
+      builder: (context, child) => AppLaunchReveal(
+        onFinished: () {
+          if (mounted && !_launchComplete) {
+            setState(() => _launchComplete = true);
+          }
+        },
+        child: _launchComplete
+            ? AppUpdateGate(
+                child: child ?? const SizedBox.shrink(),
+              )
+            : child ?? const SizedBox.shrink(),
       ),
       debugShowCheckedModeBanner: false,
     );

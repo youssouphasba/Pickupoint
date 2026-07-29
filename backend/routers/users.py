@@ -462,9 +462,11 @@ async def update_fcm_token(
 
     now = datetime.now(timezone.utc)
     platform = (token_body.get("platform") or "").strip() or None
+    app_version = (token_body.get("app_version") or "").strip()[:32] or None
     token_doc = {
         "token": token,
         "platform": platform,
+        "app_version": app_version,
         "updated_at": now,
         "is_active": True,
     }
@@ -501,6 +503,7 @@ async def update_fcm_token(
                 "$set": {
                     "fcm_token": token,
                     "fcm_tokens.$.platform": platform,
+                    "fcm_tokens.$.app_version": app_version,
                     "fcm_tokens.$.updated_at": now,
                     "fcm_tokens.$.is_active": True,
                     "updated_at": now,

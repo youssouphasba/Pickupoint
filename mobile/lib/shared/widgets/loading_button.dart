@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_motion.dart';
+import 'pressable_scale.dart';
+
 class LoadingButton extends StatelessWidget {
   const LoadingButton({
     super.key,
@@ -23,36 +26,44 @@ class LoadingButton extends StatelessWidget {
             ? colorScheme.primary
             : Colors.white;
 
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: isLoading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: foregroundColor,
-          disabledBackgroundColor: color?.withValues(alpha: 0.85),
-          disabledForegroundColor: foregroundColor?.withValues(alpha: 0.55),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    return PressableScale(
+      enabled: !isLoading && onPressed != null,
+      child: SizedBox(
+        width: double.infinity,
+        height: 50,
+        child: ElevatedButton(
+          onPressed: isLoading ? null : onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: color,
+            foregroundColor: foregroundColor,
+            disabledBackgroundColor: color?.withValues(alpha: 0.85),
+            disabledForegroundColor: foregroundColor?.withValues(alpha: 0.55),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: AnimatedSwitcher(
+            duration: AppMotion.fast,
+            child: isLoading
+                ? const SizedBox(
+                    key: ValueKey('loading'),
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : Text(
+                    label,
+                    key: const ValueKey('label'),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
           ),
         ),
-        child: isLoading
-            ? const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
       ),
     );
   }

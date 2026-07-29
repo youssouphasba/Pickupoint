@@ -102,4 +102,40 @@ void main() {
     });
     expect(first, second);
   });
+
+  group('notificationExternalUrl', () {
+    test('opens the matching store for an app update', () {
+      expect(
+        notificationExternalUrl(
+          eventType: 'app_update',
+          storeUrl:
+              'https://play.google.com/store/apps/details?id=com.denkma.app',
+          currentPlatform: 'android',
+          targetPlatform: 'android',
+        ),
+        'https://play.google.com/store/apps/details?id=com.denkma.app',
+      );
+    });
+
+    test('rejects another platform and unsafe links', () {
+      expect(
+        notificationExternalUrl(
+          eventType: 'app_update',
+          storeUrl: 'https://apps.apple.com/app/denkma/id123',
+          currentPlatform: 'android',
+          targetPlatform: 'ios',
+        ),
+        isNull,
+      );
+      expect(
+        notificationExternalUrl(
+          eventType: 'app_update',
+          storeUrl: 'javascript:alert(1)',
+          currentPlatform: 'android',
+          targetPlatform: 'android',
+        ),
+        isNull,
+      );
+    });
+  });
 }

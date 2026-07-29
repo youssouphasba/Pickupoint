@@ -562,6 +562,11 @@ class TargetedNotificationRequest(BaseModel):
     ref_id: Optional[str] = Field(default=None, max_length=128)
 
 
+class AppUpdateNotificationRequest(BaseModel):
+    platform: str = Field(..., pattern="^(android|ios)$")
+    force: bool = False
+
+
 WHATSAPP_MEDIA_DIR = Path(__file__).resolve().parents[1] / "private_uploads" / "whatsapp"
 
 
@@ -4881,6 +4886,141 @@ async def update_app_update_settings(body: dict, _admin=Depends(require_admin_de
         upsert=True,
     )
     return {"app_update": app_update}
+
+
+@router.post(
+    "/settings/app-update/notify",
+    summary="Notifier les utilisateurs d'une nouvelle version mobile",
+)
+async def notify_app_update(
+    body: AppUpdateNotificationRequest,
+    admin_user=Depends(require_admin_dep),
+):
+    platform = body.platform
+    settings_doc = await db.app_settings.find_one(
+        {"key": "global"},
+        {"_id": 0, "app_update": 1, "app_update_notifications": 1},
+    ) or {}
+    app_update = settings_doc.get("app_update") or {}
+    version = str(app_update.get(f"{platform}_latest_version") or "").strip()
+    store_url = str(app_update.get(f"{platform}_store_url") or "").strip()
+
+    if not version:
+        raise bad_request_exception(
+            "Renseignez et sauvegardez la dernière version avant l'envoi."
+        )
+    if not store_url.startswith("https://"):
+        raise bad_request_exception(
+            "Renseignez une adresse HTTPS valide vers la boutique avant l'envoi."
+        )
+
+    notification_state = settings_doc.get("app_update_notifications") or {}
+    last_version = str(
+        (notification_state.get(platform) or {}).get("version") or ""
+    ).strip()
+    if last_version == version and not body.force:
+        raise bad_request_exception(
+            f"La notification pour la version {version} a déjà été envoyée."
+        )
+
+    users = await db.users.find(
+        {
+            "is_active": True,
+            "is_banned": {"$ne": True},
+            "fcm_tokens": {
+                "$elemMatch": {
+                    "platform": platform,
+                    "app_version": {"$ne": version},
+                    "is_active": {"$ne": False},
+                    "token": {"$nin": [None, ""]},
+                }
+            },
+        },
+        {"_id": 0, "user_id": 1},
+    ).to_list(length=10000)
+    user_ids = [user["user_id"] for user in users if user.get("user_id")]
+    platform_label = "Android" if platform == "android" else "iOS"
+    configured_message = str(
+        app_update.get("message")
+        or "Une nouvelle version de Denkma est disponible."
+    ).strip()
+    result = await send_targeted_notifications(
+        user_ids=user_ids,
+        title=f"Nouvelle version Denkma {version}",
+        body=configured_message,
+        category="admin",
+        ref_type="app_update",
+        ref_id=version,
+        metadata={
+            "store_url": store_url,
+            "platform": platform,
+            "version": version,
+        },
+        store_in_app=False,
+        event_type="app_update",
+        dedupe_key=f"app_update:{platform}:{version}",
+        push_platform=platform,
+    )
+
+    now = datetime.now(timezone.utc)
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {
+            "$set": {
+                f"app_update_notifications.{platform}": {
+                    "version": version,
+                    "platform": platform,
+                    "sent_at": now,
+                    "sent_by": admin_user.get("user_id"),
+                    "matched_count": len(user_ids),
+                    "push_sent_count": result.get("push_sent", 0),
+                    "push_failed_count": result.get("push_failed", 0),
+                    "push_skipped_count": result.get("push_skipped", 0),
+                },
+                "updated_at": now,
+            }
+        },
+        upsert=True,
+    )
+
+    broadcast_id = f"ntfb_{uuid.uuid4().hex[:12]}"
+    await db.notification_broadcasts.insert_one(
+        {
+            "broadcast_id": broadcast_id,
+            "title": f"Nouvelle version Denkma {version}",
+            "body": configured_message,
+            "category": "admin",
+            "target_platform": platform,
+            "matched_count": len(user_ids),
+            "sent_count": result.get("push_sent", 0),
+            "in_app_sent_count": 0,
+            "push_sent_count": result.get("push_sent", 0),
+            "push_failed_count": result.get("push_failed", 0),
+            "push_skipped_count": result.get("push_skipped", 0),
+            "push_reasons": result.get("push_reasons", {}),
+            "created_by": admin_user.get("user_id"),
+            "created_by_name": admin_user.get("name") or admin_user.get("email"),
+            "created_at": now,
+            "ref_type": "app_update",
+            "ref_id": version,
+            "metadata": {
+                "store_url": store_url,
+                "platform": platform,
+                "version": version,
+            },
+        }
+    )
+    return {
+        "ok": True,
+        "platform": platform,
+        "platform_label": platform_label,
+        "version": version,
+        "matched": len(user_ids),
+        "push_sent": result.get("push_sent", 0),
+        "push_failed": result.get("push_failed", 0),
+        "push_skipped": result.get("push_skipped", 0),
+        "push_reasons": result.get("push_reasons", {}),
+    }
 
 
 @router.get("/settings/referral/stats", summary="Statistiques du programme de parrainage")

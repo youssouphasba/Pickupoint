@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_motion.dart';
+
 class AppColors {
   AppColors._();
 
@@ -19,8 +21,79 @@ class AppColors {
 class AppTheme {
   AppTheme._();
 
+  static WidgetStateProperty<Color?> _overlay(Color color) {
+    return WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.pressed)) {
+        return color.withValues(alpha: 0.2);
+      }
+      if (states.contains(WidgetState.hovered) ||
+          states.contains(WidgetState.focused)) {
+        return color.withValues(alpha: 0.1);
+      }
+      return null;
+    });
+  }
+
+  static final _elevatedButtonStyle = ElevatedButton.styleFrom(
+    backgroundColor: AppColors.primary,
+    foregroundColor: Colors.white,
+    minimumSize: const Size(double.infinity, 48),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    textStyle: const TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+    ),
+  ).copyWith(
+    animationDuration: AppMotion.fast,
+    overlayColor: _overlay(Colors.white),
+    elevation: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.disabled)) return 0;
+      if (states.contains(WidgetState.pressed)) return 0;
+      return 2;
+    }),
+  );
+
+  static final _filledButtonStyle = FilledButton.styleFrom(
+    minimumSize: const Size(48, 48),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    textStyle: const TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.w600,
+    ),
+  ).copyWith(
+    animationDuration: AppMotion.fast,
+    overlayColor: _overlay(Colors.white),
+  );
+
+  static final _outlinedButtonStyle = OutlinedButton.styleFrom(
+    foregroundColor: AppColors.primary,
+    minimumSize: const Size(double.infinity, 48),
+    side: const BorderSide(color: AppColors.primary),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+  ).copyWith(
+    animationDuration: AppMotion.fast,
+    overlayColor: _overlay(AppColors.primary),
+  );
+
+  static final _textButtonStyle = TextButton.styleFrom(
+    foregroundColor: AppColors.primary,
+    minimumSize: const Size(44, 44),
+  ).copyWith(
+    animationDuration: AppMotion.fast,
+    overlayColor: _overlay(AppColors.primary),
+  );
+
   static ThemeData get light => ThemeData(
         useMaterial3: true,
+        splashFactory: InkRipple.splashFactory,
+        splashColor: AppColors.primary.withValues(alpha: 0.14),
+        highlightColor: AppColors.primary.withValues(alpha: 0.08),
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.primary,
           brightness: Brightness.light,
@@ -41,28 +114,26 @@ class AppTheme {
             fontWeight: FontWeight.w600,
           ),
         ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.primary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            textStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: DenkmaPageTransitionsBuilder(),
+            TargetPlatform.iOS: DenkmaPageTransitionsBuilder(),
+            TargetPlatform.macOS: DenkmaPageTransitionsBuilder(),
+            TargetPlatform.windows: DenkmaPageTransitionsBuilder(),
+            TargetPlatform.linux: DenkmaPageTransitionsBuilder(),
+          },
         ),
+        elevatedButtonTheme:
+            ElevatedButtonThemeData(style: _elevatedButtonStyle),
+        filledButtonTheme: FilledButtonThemeData(style: _filledButtonStyle),
         outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            minimumSize: const Size(double.infinity, 48),
-            side: const BorderSide(color: AppColors.primary),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+          style: _outlinedButtonStyle,
+        ),
+        textButtonTheme: TextButtonThemeData(style: _textButtonStyle),
+        iconButtonTheme: IconButtonThemeData(
+          style: ButtonStyle(
+            animationDuration: AppMotion.fast,
+            overlayColor: _overlay(AppColors.primary),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(

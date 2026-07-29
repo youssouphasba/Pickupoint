@@ -52,21 +52,29 @@ def _ensure_firebase():
         logger.warning(f"Firebase Admin non initialisé (push désactivé) : {e}")
 
 
-def _push_tokens_from_user(user: dict | None) -> list[str]:
+def _push_tokens_from_user(
+    user: dict | None,
+    platform: str | None = None,
+) -> list[str]:
     if not user:
         return []
+    normalized_platform = (platform or "").strip().lower()
     tokens: list[str] = []
     for item in user.get("fcm_tokens") or []:
         if not isinstance(item, dict):
             continue
         if item.get("is_active") is False:
             continue
+        token_platform = (item.get("platform") or "").strip().lower()
+        if normalized_platform and token_platform != normalized_platform:
+            continue
         token = (item.get("token") or "").strip()
         if token and token not in tokens:
             tokens.append(token)
-    legacy_token = (user.get("fcm_token") or "").strip()
-    if legacy_token and legacy_token not in tokens:
-        tokens.append(legacy_token)
+    if not normalized_platform:
+        legacy_token = (user.get("fcm_token") or "").strip()
+        if legacy_token and legacy_token not in tokens:
+            tokens.append(legacy_token)
     return tokens[:10]
 
 
@@ -717,6 +725,7 @@ async def _store_and_send(
     event_type: Optional[str] = None,
     target_view: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    push_platform: Optional[str] = None,
 ):
     """Stocke la notification en base et tente l'envoi.
 
@@ -786,6 +795,7 @@ async def _store_and_send(
             target_view=target_view,
             dedupe_key=dedupe_key,
             metadata=metadata,
+            push_platform=push_platform,
         )
 
     if not skip_whatsapp and _should_send_whatsapp_tracking(user, category):
@@ -885,12 +895,13 @@ async def _send_push(
     target_view: Optional[str] = None,
     dedupe_key: Optional[str] = None,
     metadata: Optional[dict] = None,
+    push_platform: Optional[str] = None,
 ):
     user = await db.users.find_one(
         {"user_id": user_id},
         {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1},
     )
-    fcm_tokens = _push_tokens_from_user(user)
+    fcm_tokens = _push_tokens_from_user(user, push_platform)
     push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
 
     if not user:
@@ -920,7 +931,13 @@ async def _send_push(
             "target_view": target_view or "",
             "dedupe_key": dedupe_key or "",
         }
-        for key in ("message_id", "parcel_id"):
+        for key in (
+            "message_id",
+            "parcel_id",
+            "store_url",
+            "platform",
+            "version",
+        ):
             value = (metadata or {}).get(key)
             if value is not None:
                 data[key] = str(value)
@@ -1602,6 +1619,7 @@ async def send_targeted_notifications(
     event_type: Optional[str] = None,
     target_view: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    push_platform: Optional[str] = None,
 ) -> dict:
     unique_user_ids = []
     seen = set()
@@ -1630,6 +1648,7 @@ async def send_targeted_notifications(
             event_type=event_type,
             target_view=target_view,
             dedupe_key=dedupe_key,
+            push_platform=push_platform,
         )
         if result.get("stored"):
             stored += 1
