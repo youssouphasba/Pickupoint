@@ -139,7 +139,7 @@ export default function RelayDetailPage() {
   const wallet = data.wallet;
 
   return (
-    <div className="space-y-6 p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="flex items-start gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.back()}>

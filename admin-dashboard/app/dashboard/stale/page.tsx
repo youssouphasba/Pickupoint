@@ -104,7 +104,7 @@ export default function StaleParcelsPage() {
   );
 
   return (
-    <div className="space-y-5 p-8">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-2xl font-bold">Colis stagnants</h1>
         <p className="text-sm text-muted-foreground">

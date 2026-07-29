@@ -214,8 +214,8 @@ export default function FleetPage() {
   const selectedDelivery = readLatLng(selectedMission?.delivery?.geopin);
 
   return (
-    <div className="space-y-5 p-8">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Flotte live</h1>
           <p className="text-sm text-muted-foreground">

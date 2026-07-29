@@ -379,8 +379,8 @@ export default function DriversPage() {
   );
 
   return (
-    <div className="space-y-5 p-8">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Livreurs</h1>
           <p className="text-sm text-muted-foreground">
@@ -388,7 +388,7 @@ export default function DriversPage() {
             {activeOnly ? " Filtre actif : livreurs actifs uniquement." : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">
             {filteredDrivers.length} / {drivers.length} livreur
             {drivers.length > 1 ? "s" : ""}

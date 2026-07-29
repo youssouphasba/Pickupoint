@@ -172,7 +172,7 @@ export function NotificationBell() {
       {open && (
         <div
           ref={panelRef}
-          className="absolute right-0 top-[calc(100%+8px)] z-50 w-[380px] overflow-hidden rounded-xl border bg-background shadow-lg"
+          className="fixed left-3 right-3 top-14 z-50 overflow-hidden rounded-xl border bg-background shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+8px)] sm:w-[380px]"
         >
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>

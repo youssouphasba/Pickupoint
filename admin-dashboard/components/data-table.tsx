@@ -58,9 +58,9 @@ export function DataTable<TData>({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {globalFilterFn && (
-          <div className="relative w-full max-w-xs">
+          <div className="relative w-full sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
@@ -70,8 +70,8 @@ export function DataTable<TData>({
             />
           </div>
         )}
-        <div className="flex-1">{toolbar}</div>
-        <div className="text-xs text-muted-foreground">
+        <div className="w-full min-w-0 sm:flex-1">{toolbar}</div>
+        <div className="self-end text-xs text-muted-foreground sm:self-auto">
           {filtered.length} résultat{filtered.length > 1 ? "s" : ""}
         </div>
       </div>
@@ -157,7 +157,7 @@ export function DataTable<TData>({
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <div>
           Page {table.getState().pagination.pageIndex + 1} /{" "}
           {Math.max(1, table.getPageCount())}

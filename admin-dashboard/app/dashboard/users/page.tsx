@@ -433,15 +433,15 @@ export default function UsersPage() {
   );
 
   return (
-    <div className="space-y-5 p-8">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Utilisateurs</h1>
           <p className="text-sm text-muted-foreground">
             Gérer les rôles, suspensions, KYC et photos de profil des comptes Denkma.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <DateRangeFilter value={dateRange} onChange={setDateRange} />
           <div className="text-sm text-muted-foreground">
             {data ? `${data.total} comptes au total` : null}

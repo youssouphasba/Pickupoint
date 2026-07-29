@@ -266,7 +266,7 @@ export default function PerformancesPage() {
     (scope === "relays" && relaysQuery.isError);
 
   return (
-    <div className="space-y-5 p-8">
+    <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Performances</h1>
