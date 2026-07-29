@@ -1152,7 +1152,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              Icons.payments_outlined,
+              Icons.account_balance_wallet,
               color: Colors.green.shade800,
             ),
           ),
