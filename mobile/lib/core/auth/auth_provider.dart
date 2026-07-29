@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:async';
 import '../api/api_client.dart';
 import '../models/user.dart';
@@ -68,6 +69,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   final auth = ref.watch(authProvider).valueOrNull;
   return ApiClient(
     token: auth?.accessToken,
+    currentToken: () => ref.read(authProvider).valueOrNull?.accessToken,
     refreshToken: () =>
         ref.read(authProvider.notifier).refreshAndGetAccessToken(),
   );
@@ -88,8 +90,21 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     final refreshToken = await _storage.getRefreshToken();
     final cachedUser = await _storage.getUser();
 
-    if (accessToken == null) {
+    if (accessToken == null && refreshToken == null) {
       return const AuthState(status: AuthStatus.unauthenticated);
+    }
+    if (accessToken == null && refreshToken != null) {
+      final refreshed = await _refreshSessionFromToken(
+        refreshToken: refreshToken,
+        fallbackUser: cachedUser,
+        clearOnInvalid: true,
+      );
+      return refreshed ??
+          AuthState(
+            status: AuthStatus.authenticated,
+            user: cachedUser,
+            refreshToken: refreshToken,
+          );
     }
 
     try {
@@ -512,6 +527,18 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    final current = state.valueOrNull;
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null && current?.accessToken != null) {
+        await ApiClient(token: current!.accessToken).deleteFcmToken(fcmToken);
+      }
+    } catch (_) {}
+    try {
+      if (current?.refreshToken != null) {
+        await ApiClient().logout(current!.refreshToken!);
+      }
+    } catch (_) {}
     try {
       await fb.FirebaseAuth.instance.signOut();
     } catch (_) {}

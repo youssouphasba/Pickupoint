@@ -2,6 +2,7 @@
 Router deliveries : missions de livraison pour les drivers.
 """
 import math
+import logging
 import random
 import re
 import uuid
@@ -32,6 +33,8 @@ from services.google_maps_service import get_directions_eta
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.ranking_service import refresh_driver_stats_for_period
 from services.notification_service import (
+    expire_mission_availability_for_user,
+    expire_mission_availability_notifications,
     notify_approaching_driver,
     notify_new_mission_dispatch_wave,
     notify_pending_mission_dispatch_reminder,
@@ -53,6 +56,7 @@ from core.limiter import limiter
 from core.utils import check_code_lockout, record_failed_attempt, clear_code_attempts, mask_phone, phone_suffix
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _DISPATCH_HIDDEN_PARCEL_STATUSES = {
     ParcelStatus.CANCELLED.value,
@@ -253,6 +257,8 @@ def _can_driver_preview_pending_mission(
 ) -> bool:
     if mission.get("status") != MissionStatus.PENDING.value:
         return False
+    if driver_user_id in (mission.get("declined_driver_ids") or []):
+        return False
 
     requested_driver_id = mission.get("admin_requested_driver_id")
     if requested_driver_id:
@@ -337,6 +343,22 @@ async def _filter_dispatchable_pending_missions(
                 }
             },
         )
+        stale_by_id = {
+            mission.get("mission_id"): mission
+            for mission in missions
+            if mission.get("mission_id") in stale_mission_ids
+        }
+        for mission_id in stale_mission_ids:
+            mission = stale_by_id.get(mission_id)
+            if mission:
+                try:
+                    await expire_mission_availability_notifications(mission)
+                except Exception as exc:
+                    logger.warning(
+                        "Impossible d'invalider les notifications de la mission %s: %s",
+                        mission_id,
+                        exc,
+                    )
 
     return [
         mission
@@ -355,11 +377,13 @@ async def _eligible_driver_ids_for_dispatch_stage(
         return [requested_driver_id]
     if not pickup_geopin:
         return []
-    return await _find_candidate_drivers_within_radius(
+    eligible = await _find_candidate_drivers_within_radius(
         pickup_geopin["lat"],
         pickup_geopin["lng"],
         dispatch_state["radius_km"],
     )
+    declined_driver_ids = set(mission.get("declined_driver_ids") or [])
+    return [driver_id for driver_id in eligible if driver_id not in declined_driver_ids]
 
 
 async def _notify_driver_when_entering_dispatch_radius(
@@ -381,6 +405,8 @@ async def _notify_driver_when_entering_dispatch_radius(
     notified_count = 0
 
     for mission in pending_missions:
+        if driver_user_id in (mission.get("declined_driver_ids") or []):
+            continue
         requested_driver_id = mission.get("admin_requested_driver_id")
         if requested_driver_id and requested_driver_id != driver_user_id:
             continue
@@ -1013,6 +1039,8 @@ async def get_mission(
         mission["pickup_voice_note"] = mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         mission["delivery_voice_note"] = mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
         mission["driver_bonus_xof"] = float(parcel.get("driver_bonus_xof", 0.0))
+        mission["quoted_price"] = parcel.get("quoted_price")
+        mission["paid_price"] = parcel.get("paid_price")
         mission["delivery_blocked_by_payment"] = False
 
     _attach_pickup_confirmation_window(
@@ -1207,6 +1235,17 @@ async def accept_mission(
             "updated_at": now,
         }},
     )
+    try:
+        await expire_mission_availability_notifications(
+            mission,
+            current_user["user_id"],
+        )
+    except Exception as exc:
+        logger.warning(
+            "Impossible d'invalider les notifications de la mission %s: %s",
+            mission_id,
+            exc,
+        )
     if body is not None:
         await db.users.update_one(
             {"user_id": current_user["user_id"]},
@@ -1271,8 +1310,20 @@ async def decline_mission(
 
     await db.delivery_missions.update_one(
         {"mission_id": mission_id},
-        {"$set": update_doc},
+        {
+            "$set": update_doc,
+            "$addToSet": {"declined_driver_ids": user_id},
+        },
     )
+    try:
+        await expire_mission_availability_for_user(mission_id, user_id)
+    except Exception as exc:
+        logger.warning(
+            "Impossible d'invalider la notification de la mission %s pour %s: %s",
+            mission_id,
+            user_id,
+            exc,
+        )
     await _record_event(
         parcel_id=mission["parcel_id"],
         event_type="MISSION_DECLINED",

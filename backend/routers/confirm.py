@@ -20,7 +20,7 @@ from typing import Optional
 
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
-from config import UPLOADS_DIR
+from config import UPLOADS_DIR, settings
 from database import db
 from models.parcel import ParcelQuote
 from services.parcel_service import _record_event, ensure_live_location_accuracy
@@ -250,11 +250,53 @@ class RelayChoicePayload(BaseModel):
     relay_id: str = Field(..., min_length=1)
 
 
-def _html_page(token: str, role: str, recipient_name: str = "") -> str:
+def _confirmation_response(
+    content: str,
+    *,
+    status_code: int = 200,
+    script_nonce: Optional[str] = None,
+) -> HTMLResponse:
+    script_source = (
+        f"'nonce-{script_nonce}'"
+        if script_nonce
+        else "'none'"
+    )
+    return HTMLResponse(
+        content,
+        status_code=status_code,
+        headers={
+            "Content-Security-Policy": (
+                "default-src 'none'; "
+                "base-uri 'none'; "
+                "frame-ancestors 'none'; "
+                "img-src 'self' data:; "
+                "style-src 'unsafe-inline'; "
+                f"script-src {script_source}; "
+                "connect-src 'self'; "
+                "media-src 'self' data: blob:;"
+            ),
+            "Permissions-Policy": (
+                "camera=(), microphone=(self), geolocation=(self)"
+            ),
+        },
+    )
+
+
+def _html_page(
+    token: str,
+    role: str,
+    recipient_name: str = "",
+    script_nonce: str = "",
+) -> str:
     """Page HTML minimaliste — 1 grand bouton, aucun texte obligatoire à lire."""
     role_label = "livraison" if role == "recipient" else "enlèvement"
     safe_name = html.escape(recipient_name)
     safe_role_label = html.escape(role_label)
+    safe_script_nonce = html.escape(script_nonce, quote=True)
+    safe_app_install_url = html.escape(
+        f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app",
+        quote=True,
+    )
     greeting   = f"Bonjour {safe_name} ! " if safe_name else ""
     token_json = json.dumps(token)
     return f"""<!DOCTYPE html>
@@ -298,6 +340,17 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
     .success h2 {{ color: #2E7D32; font-size: 22px; margin-bottom: 8px; }}
     #voice-section {{ display: none; margin-top: 24px; width: 100%; max-width: 360px; }}
     #voice-status  {{ font-size: 14px; color: #757575; margin-top: 8px; }}
+    #location-status {{
+      min-height: 22px; max-width: 360px; margin: 0 auto 16px;
+      color: #B3261E; font-size: 14px; line-height: 1.4;
+    }}
+    .app-download {{
+      width: 100%; max-width: 360px; margin-top: 24px;
+      padding: 16px; border: 1px solid #1A73E8; border-radius: 8px;
+      color: #1557B0; background: #FFFFFF;
+      font-size: 16px; font-weight: bold; text-decoration: none;
+    }}
+    .app-download:active {{ background: #EAF2FD; }}
   </style>
 </head>
 <body>
@@ -305,12 +358,13 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
   <h1>{greeting}Votre colis Denkma</h1>
   <p>Appuyez sur le bouton pour indiquer<br>votre position de <strong>{safe_role_label}</strong></p>
 
-  <button class="btn" id="btn-locate" onclick="getLocation()">
+  <button class="btn" id="btn-locate" type="button">
     📍 Confirmer ma position
   </button>
+  <div id="location-status" role="status" aria-live="polite"></div>
 
   <div id="voice-section">
-    <button class="btn btn-voice" id="btn-voice" onclick="toggleRecording()">
+    <button class="btn btn-voice" id="btn-voice" type="button">
       🎤 Laisser un message vocal au livreur
     </button>
     <div id="voice-status"></div>
@@ -321,36 +375,64 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
     <p>Votre livreur vous trouvera.<br>Merci !</p>
   </div>
 
-  <script>
+  <a class="app-download" href="{safe_app_install_url}">
+    Télécharger l'application Denkma
+  </a>
+
+  <script nonce="{safe_script_nonce}">
     const TOKEN = {token_json};
     let mediaRecorder, audioChunks = [], isRecording = false, voiceBase64 = null;
 
     async function getLocation() {{
       const btn = document.getElementById('btn-locate');
+      const status = document.getElementById('location-status');
+      status.textContent = "";
+      if (!window.isSecureContext || !navigator.geolocation) {{
+        status.textContent = "La localisation n'est pas disponible dans ce navigateur. Ouvrez ce lien dans Chrome ou Safari.";
+        return;
+      }}
       btn.textContent = "⏳ Localisation...";
       btn.disabled = true;
       try {{
         const pos = await new Promise((res, rej) =>
           navigator.geolocation.getCurrentPosition(res, rej, {{
-            enableHighAccuracy: true, timeout: 10000
+            enableHighAccuracy: true, timeout: 20000, maximumAge: 0
           }})
         );
         await sendLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
         btn.style.display = 'none';
+        status.textContent = "";
+        document.getElementById('success').style.display = 'block';
         document.getElementById('voice-section').style.display = 'block';
       }} catch(e) {{
         btn.textContent = "📍 Confirmer ma position";
         btn.disabled = false;
-        alert("Impossible d'accéder au GPS. Vérifiez les permissions.");
+        if (e && e.code === 1) {{
+          status.textContent = "Autorisez la localisation, puis réessayez.";
+        }} else if (e && e.code === 3) {{
+          status.textContent = "La localisation prend trop de temps. Placez-vous dans une zone dégagée puis réessayez.";
+        }} else {{
+          status.textContent = e && e.message
+            ? e.message
+            : "Position indisponible. Vérifiez votre GPS puis réessayez.";
+        }}
       }}
     }}
 
     async function sendLocation(lat, lng, accuracy) {{
-      await fetch('/confirm/' + TOKEN + '/locate', {{
+      const response = await fetch('/confirm/' + encodeURIComponent(TOKEN) + '/locate', {{
         method: 'POST',
         headers: {{'Content-Type': 'application/json'}},
         body: JSON.stringify({{ lat, lng, accuracy, voice_note: voiceBase64 }})
       }});
+      if (!response.ok) {{
+        let message = "Impossible d'enregistrer la position.";
+        try {{
+          const payload = await response.json();
+          message = payload.detail || message;
+        }} catch (_) {{}}
+        throw new Error(message);
+      }}
     }}
 
     async function toggleRecording() {{
@@ -366,11 +448,14 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
           const reader = new FileReader();
           reader.onloadend = async () => {{
             voiceBase64 = reader.result;
-            await fetch('/confirm/' + TOKEN + '/voice', {{
+            const response = await fetch('/confirm/' + encodeURIComponent(TOKEN) + '/voice', {{
               method: 'POST',
               headers: {{'Content-Type': 'application/json'}},
               body: JSON.stringify({{ voice_note: voiceBase64 }})
             }});
+            if (!response.ok) {{
+              throw new Error("Impossible d'envoyer le message vocal.");
+            }}
             document.getElementById('success').style.display = 'block';
             btn.style.display = 'none';
             stat.textContent = "✅ Message envoyé au livreur";
@@ -388,6 +473,8 @@ def _html_page(token: str, role: str, recipient_name: str = "") -> str:
         btn.style.display = 'none';
       }}
     }}
+    document.getElementById('btn-locate').addEventListener('click', getLocation);
+    document.getElementById('btn-voice').addEventListener('click', toggleRecording);
   </script>
 </body>
 </html>"""
@@ -401,6 +488,7 @@ def _relay_picker_page(
     current_relay_id: str,
     is_locked: bool,
     current_relay_name: str,
+    script_nonce: str,
 ) -> str:
     """Page HTML de choix / modification du point relais de retrait."""
     safe_name = html.escape(recipient_name or "")
@@ -408,6 +496,7 @@ def _relay_picker_page(
     safe_current_name = html.escape(current_relay_name or "")
     greeting = f"Bonjour {safe_name} ! " if safe_name else ""
     token_json = json.dumps(token)
+    safe_script_nonce = html.escape(script_nonce, quote=True)
 
     if is_locked:
         body_html = f"""
@@ -496,7 +585,7 @@ def _relay_picker_page(
     <div class=\"tracking\">Colis {safe_tracking}</div>
     {body_html}
   </div>
-  <script>
+  <script nonce="{safe_script_nonce}">
     const TOKEN = {token_json};
     const form = document.getElementById('picker');
     const btn = document.getElementById('submit');
@@ -546,14 +635,18 @@ async def confirmation_page(token: str, request: Request):
         ]
     })
     if not parcel:
-        return HTMLResponse("<h2>Lien invalide ou expiré.</h2>", status_code=404)
+        return _confirmation_response(
+            "<h2>Lien invalide ou expiré.</h2>",
+            status_code=404,
+        )
 
     if _is_confirm_token_expired(parcel):
-        return HTMLResponse(
+        return _confirmation_response(
             "<h2>Lien expiré — la livraison est déjà terminée.</h2>",
             status_code=410,
         )
 
+    script_nonce = secrets.token_urlsafe(18)
     role = "recipient" if parcel.get("recipient_confirm_token") == token else "sender"
     mode = parcel.get("delivery_mode", "") or ""
     status = (parcel.get("status") or "").lower()
@@ -570,7 +663,7 @@ async def confirmation_page(token: str, request: Request):
                 cur = await db.relay_points.find_one({"relay_id": current_relay_id}, {"_id": 0})
             current_relay_name = (cur or {}).get("name", "")
         is_locked = status not in RELAY_CHANGE_ALLOWED_STATUSES
-        return HTMLResponse(
+        return _confirmation_response(
             _relay_picker_page(
                 token=token,
                 recipient_name=parcel.get("recipient_name", ""),
@@ -579,11 +672,16 @@ async def confirmation_page(token: str, request: Request):
                 current_relay_id=current_relay_id,
                 is_locked=is_locked,
                 current_relay_name=current_relay_name,
-            )
+                script_nonce=script_nonce,
+            ),
+            script_nonce=script_nonce,
         )
 
     name = parcel.get("recipient_name", "") if role == "recipient" else ""
-    return HTMLResponse(_html_page(token, role, name))
+    return _confirmation_response(
+        _html_page(token, role, name, script_nonce),
+        script_nonce=script_nonce,
+    )
 
 
 @router.post("/{token}/locate")
@@ -602,6 +700,10 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     if _is_confirm_token_expired(parcel):
         raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
 
+    ensure_live_location_accuracy(
+        payload.accuracy,
+        context="la confirmation de position",
+    )
     is_recipient = parcel.get("recipient_confirm_token") == token
     field_prefix = "delivery" if is_recipient else "pickup"
     reminder_role = "recipient" if is_recipient else "sender"
@@ -783,10 +885,6 @@ async def save_voice_note(token: str, payload: dict, request: Request):
     if _is_confirm_token_expired(parcel):
         raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
 
-    ensure_live_location_accuracy(
-        payload.accuracy,
-        context="la confirmation de position",
-    )
     is_recipient = parcel.get("recipient_confirm_token") == token
     field = "delivery_voice_note" if is_recipient else "pickup_voice_note"
     message_field = "delivery_voice_message_id" if is_recipient else "pickup_voice_message_id"

@@ -24,8 +24,13 @@ import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
-  const ParcelDetailScreen({super.key, required this.id});
+  const ParcelDetailScreen({
+    super.key,
+    required this.id,
+    this.initialMessageId,
+  });
   final String id;
+  final String? initialMessageId;
 
   @override
   ConsumerState<ParcelDetailScreen> createState() => _ParcelDetailScreenState();
@@ -47,11 +52,42 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   String? _liveDistanceText;
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
   final GlobalKey _chatKey = GlobalKey();
+  bool _messageRevealScheduled = false;
 
   @override
   void initState() {
     super.initState();
     _startPolling();
+  }
+
+  @override
+  void didUpdateWidget(covariant ParcelDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMessageId != widget.initialMessageId) {
+      _messageRevealScheduled = false;
+    }
+  }
+
+  void _revealRequestedMessage() {
+    if (_messageRevealScheduled ||
+        (widget.initialMessageId?.trim().isEmpty ?? true)) {
+      return;
+    }
+    _messageRevealScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final chatContext = _chatKey.currentContext;
+      if (!mounted) return;
+      if (chatContext == null) {
+        _messageRevealScheduled = false;
+        return;
+      }
+      Scrollable.ensureVisible(
+        chatContext,
+        alignment: 0.08,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   @override
@@ -125,6 +161,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       appBar: AppBar(title: const Text('Détail du colis')),
       body: parcelAsync.when(
         data: (parcel) {
+          _revealRequestedMessage();
           final isRecipient = parcel.isRecipientView ?? false;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -200,6 +237,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 ParcelChatWidget(
                   key: _chatKey,
                   parcelId: parcel.id,
+                  initialMessageId: widget.initialMessageId,
                   isClosed: [
                     'delivered',
                     'cancelled',

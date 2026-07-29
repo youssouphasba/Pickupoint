@@ -11,6 +11,7 @@ import 'notification_navigation.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
 final foregroundMissionNotificationProvider = StateProvider<int>((ref) => 0);
+final foregroundNotificationRefreshProvider = StateProvider<int>((ref) => 0);
 
 final notificationSettingsProvider =
     FutureProvider<NotificationSettings>((ref) async {
@@ -148,7 +149,7 @@ class NotificationService {
 
     if (notification != null && android != null) {
       _localNotifs.show(
-        notification.hashCode,
+        notificationPlatformId(message.data),
         notification.title,
         notification.body,
         const NotificationDetails(
@@ -164,11 +165,19 @@ class NotificationService {
     }
   }
 
-  void _handleForegroundMessage(RemoteMessage message) {
+  Future<void> _handleForegroundMessage(RemoteMessage message) async {
+    final eventType = message.data['event_type']?.toString();
+    final refreshNotifier =
+        _ref.read(foregroundNotificationRefreshProvider.notifier);
+    refreshNotifier.state = refreshNotifier.state + 1;
     if (message.data['ref_type']?.toString() == 'mission') {
       final notifier =
           _ref.read(foregroundMissionNotificationProvider.notifier);
       notifier.state = notifier.state + 1;
+    }
+    if (eventType == 'mission_unavailable') {
+      await _localNotifs.cancel(notificationPlatformId(message.data));
+      return;
     }
     _showLocalNotification(message);
   }
@@ -208,15 +217,46 @@ class NotificationService {
   }
 
   Future<void> _navigateFromData(Map<String, dynamic> data) async {
-    final authState = _ref.read(authProvider).valueOrNull;
-    final role = authState?.effectiveRole ?? 'client';
+    final eventType = data['event_type']?.toString();
+    if (eventType == 'mission_unavailable') {
+      await _localNotifs.cancel(notificationPlatformId(data));
+    }
+
+    final authState = await _ref.read(authProvider.future);
+    if (!authState.isAuthenticated) {
+      return;
+    }
+    final targetView = data['target_view']?.toString().trim();
+    if (targetView != null &&
+        targetView.isNotEmpty &&
+        targetView != authState.effectiveRole) {
+      final realRole = authState.user?.role;
+      final canOpenTarget = targetView == 'client' ||
+          targetView == realRole ||
+          (targetView == 'admin' && realRole == 'superadmin');
+      if (canOpenTarget) {
+        _ref.read(authProvider.notifier).switchView(targetView);
+      }
+    }
+
+    final currentAuth = _ref.read(authProvider).valueOrNull ?? authState;
     final route = notificationRouteFor(
       refType: data['ref_type']?.toString(),
       refId: data['ref_id']?.toString(),
-      role: role,
+      role: currentAuth.effectiveRole,
+      eventType: eventType,
+      targetView: targetView,
+      messageId: data['message_id']?.toString(),
     );
     if (route == null || route.isEmpty) {
       return;
+    }
+
+    final notifId = data['notif_id']?.toString().trim();
+    if (notifId != null && notifId.isNotEmpty) {
+      try {
+        await _ref.read(apiClientProvider).markNotificationRead(notifId);
+      } catch (_) {}
     }
     final router = _ref.read(appRouterProvider);
     router.go(route);

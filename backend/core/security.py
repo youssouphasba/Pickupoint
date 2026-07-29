@@ -1,4 +1,5 @@
 import random
+import secrets
 import string
 import hashlib
 import hmac
@@ -96,7 +97,7 @@ def generate_otp(length: int = 6) -> str:
 def generate_tracking_code() -> str:
     """Génère un code lisible humain : PKP-ABC-1234"""
     chars = string.ascii_uppercase + string.digits
-    code = "".join(random.choices(chars, k=7))
+    code = "".join(secrets.choice(chars) for _ in range(7))
     return f"PKP-{code[:3]}-{code[3:]}"
 
 

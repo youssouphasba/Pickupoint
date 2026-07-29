@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
@@ -239,7 +239,7 @@ class AdminAnomaliesScreen extends ConsumerWidget {
                     ref.invalidate(adminAnomalyProvider);
                     ref.invalidate(adminDashboardProvider);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Mission r?affect?e !')),
+                      const SnackBar(content: Text('Mission réaffectée !')),
                     );
                   }
                 } catch (e) {
@@ -257,4 +257,3 @@ class AdminAnomaliesScreen extends ConsumerWidget {
     );
   }
 }
-

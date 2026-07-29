@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/auth/auth_provider.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/location/driver_presence_service.dart';
 import 'shared/widgets/app_update_gate.dart';
 
 class DenkmaApp extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class _DenkmaAppState extends ConsumerState<DenkmaApp>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshSessionIfNeeded();
+      ref.read(driverPresenceServiceProvider).start();
     });
   }
 
@@ -34,6 +36,7 @@ class _DenkmaAppState extends ConsumerState<DenkmaApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(driverPresenceServiceProvider).handleLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       _refreshSessionIfNeeded();
     }

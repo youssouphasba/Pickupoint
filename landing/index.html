@@ -681,6 +681,39 @@ h1.hero-title .accent::after{
 .store .s-lg{font-size:16px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
 .store .soon{font-size:10px;background:var(--accent);color:var(--ink);padding:2px 6px;border-radius:4px;font-weight:700;letter-spacing:.04em}
 
+.download-modal{
+  position:fixed;inset:0;z-index:500;
+  display:grid;place-items:center;
+  padding:20px;background:rgba(15,27,23,.62);
+  opacity:0;visibility:hidden;
+  transition:opacity .22s var(--ease),visibility .22s var(--ease);
+}
+.download-modal.open{opacity:1;visibility:visible}
+.download-dialog{
+  position:relative;width:min(100%,460px);
+  background:#fff;border:1px solid var(--line);border-radius:8px;
+  box-shadow:var(--shadow-lg);padding:34px;
+  transform:translateY(14px);
+  transition:transform .22s var(--ease);
+}
+.download-modal.open .download-dialog{transform:translateY(0)}
+.download-close{
+  position:absolute;top:12px;right:12px;
+  width:40px;height:40px;display:grid;place-items:center;
+  border-radius:50%;color:var(--muted);font-size:26px;line-height:1;
+}
+.download-close:hover,.download-close:focus-visible{background:var(--primary-soft);color:var(--primary-dark)}
+.download-logo{width:64px;height:64px;margin:0 auto 20px}
+.download-dialog h2{text-align:center;font-size:30px;margin-bottom:12px}
+.download-dialog p{text-align:center;margin-bottom:24px}
+.download-action{display:flex;justify-content:center}
+.download-action .btn{justify-content:center;width:100%}
+body.modal-open{overflow:hidden}
+@media (max-width:520px){
+  .download-dialog{padding:30px 22px 24px}
+  .download-dialog h2{font-size:26px}
+}
+
 /* ---------- FOOTER ---------- */
 footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font-size:14px}
 .foot-grid{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:40px;margin-bottom:40px}
@@ -1879,6 +1912,84 @@ footer{background:var(--ink);color:rgba(255,255,255,.7);padding:60px 0 30px;font
     </div>
   </div>
 </section>
+
+<div class="download-modal" id="downloadModal" aria-hidden="true">
+  <div class="download-dialog" role="dialog" aria-modal="true" aria-labelledby="downloadModalTitle">
+    <button class="download-close" id="downloadModalClose" type="button" aria-label="Fermer">×</button>
+    <img class="download-logo" src="/assets/logo.png" alt="" />
+    <h2 id="downloadModalTitle">Denkma est disponible</h2>
+    <p>Téléchargez l’application pour envoyer, recevoir et suivre vos colis.</p>
+    <div class="download-action">
+      <a class="btn btn-primary" href="/app">Télécharger l’application</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var modal = document.getElementById('downloadModal');
+  var closeButton = document.getElementById('downloadModalClose');
+  var storageKey = 'denkma-download-prompt-seen';
+  var previousFocus = null;
+
+  function hasBeenShown() {
+    try {
+      return window.sessionStorage.getItem(storageKey) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function rememberShown() {
+    try {
+      window.sessionStorage.setItem(storageKey, '1');
+    } catch (_) {}
+  }
+
+  function openModal() {
+    if (!modal || hasBeenShown()) return;
+    previousFocus = document.activeElement;
+    rememberShown();
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    closeButton.focus();
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+    if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+  }
+
+  closeButton.addEventListener('click', closeModal);
+  modal.addEventListener('click', function(event) {
+    if (event.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && modal.classList.contains('open')) closeModal();
+    if (event.key !== 'Tab' || !modal.classList.contains('open')) return;
+    var focusable = modal.querySelectorAll('button, a[href]');
+    if (!focusable.length) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', openModal, {once:true});
+  } else {
+    openModal();
+  }
+})();
+</script>
 
 <!-- =========== FOOTER =========== -->
 <footer>

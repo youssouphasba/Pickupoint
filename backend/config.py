@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     REDIRECT_RELAY_MAX_DISTANCE_KM: float = 1.0  # relais de repli proche du destinataire uniquement
     STRICT_GPS_MAX_ACCURACY_METERS: float = 60.0
     ASSIGNED_MISSION_AUTO_RELEASE_MINUTES: int = 30
+    PUBLIC_TRACKING_RETENTION_DAYS: int = 30
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15
@@ -118,6 +119,8 @@ class Settings(BaseSettings):
             raise ValueError("STRICT_GPS_MAX_ACCURACY_METERS must be > 0")
         if self.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES < 5:
             raise ValueError("ASSIGNED_MISSION_AUTO_RELEASE_MINUTES must be >= 5")
+        if self.PUBLIC_TRACKING_RETENTION_DAYS < 1:
+            raise ValueError("PUBLIC_TRACKING_RETENTION_DAYS must be >= 1")
 
         if is_prod and self.WHATSAPP_ACCESS_TOKEN and not self.WHATSAPP_APP_SECRET:
             raise ValueError("WHATSAPP_APP_SECRET must be configured in production when WhatsApp webhooks are enabled")

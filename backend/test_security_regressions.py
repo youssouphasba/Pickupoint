@@ -1,10 +1,14 @@
 import hashlib
 import hmac
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from core.datetime_utils import as_aware_utc
-from routers.tracking import _build_public_tracking_payload, _serialize_public_event
+from routers.tracking import (
+    _build_public_tracking_payload,
+    _public_tracking_has_expired,
+    _serialize_public_event,
+)
 from routers.webhooks import _verify_whatsapp_signature
 from core.security import fingerprint_token
 from config import settings
@@ -29,6 +33,7 @@ class SecurityRegressionTests(unittest.TestCase):
         }
         payload = _build_public_tracking_payload(parcel, [])
         for forbidden_key in (
+            "parcel_id",
             "sender_name",
             "sender_phone",
             "recipient_name",
@@ -39,10 +44,61 @@ class SecurityRegressionTests(unittest.TestCase):
             "origin_label",
             "delivery_label",
             "payment_status",
+            "description",
+            "weight_kg",
+            "dimensions_label",
+            "pickup_confirmed",
+            "delivery_confirmed",
         ):
             self.assertNotIn(forbidden_key, payload)
         self.assertEqual(payload["origin_area_label"], "Mermoz, Dakar")
         self.assertEqual(payload["delivery_area_label"], "Almadies, Dakar")
+
+    def test_public_tracking_expires_after_terminal_retention(self):
+        closed_at = datetime(2026, 6, 1, 12, tzinfo=timezone.utc)
+        parcel = {
+            "status": "delivered",
+            "created_at": closed_at - timedelta(days=2),
+            "updated_at": closed_at,
+        }
+        timeline = [
+            {
+                "to_status": "delivered",
+                "created_at": closed_at,
+            }
+        ]
+
+        self.assertFalse(
+            _public_tracking_has_expired(
+                parcel,
+                timeline,
+                now=closed_at
+                + timedelta(days=settings.PUBLIC_TRACKING_RETENTION_DAYS - 1),
+            )
+        )
+        self.assertTrue(
+            _public_tracking_has_expired(
+                parcel,
+                timeline,
+                now=closed_at
+                + timedelta(days=settings.PUBLIC_TRACKING_RETENTION_DAYS),
+            )
+        )
+
+    def test_active_public_tracking_does_not_expire(self):
+        parcel = {
+            "status": "in_transit",
+            "created_at": datetime(2025, 1, 1, tzinfo=timezone.utc),
+            "updated_at": datetime(2025, 1, 2, tzinfo=timezone.utc),
+        }
+
+        self.assertFalse(
+            _public_tracking_has_expired(
+                parcel,
+                [],
+                now=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            )
+        )
 
     def test_public_event_drops_sensitive_notes(self):
         event = {

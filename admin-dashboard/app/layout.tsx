@@ -3,8 +3,8 @@ import "./globals.css";
 import { Providers } from "@/lib/providers";
 
 export const metadata: Metadata = {
-  title: "Denkma Admin",
-  description: "Console d'administration Denkma",
+  title: "Péncmi - Tout trouver au Sénégal",
+  description: "Portail sénégalais pour logement, hôtels, voitures et voyages interurbains.",
 };
 
 export default function RootLayout({

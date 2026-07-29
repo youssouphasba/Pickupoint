@@ -35,7 +35,8 @@ import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
 import '../../features/driver/providers/driver_provider.dart';
-import '../location/fresh_position_helper.dart';
+import '../location/driver_location_consent.dart';
+import '../location/driver_presence_service.dart';
 import '../../features/admin/screens/admin_dashboard.dart';
 import '../../features/admin/screens/admin_parcels_screen.dart';
 import '../../features/admin/screens/admin_relays_screen.dart';
@@ -560,8 +561,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               }),
           GoRoute(
               path: '/client/parcel/:id',
-              builder: (_, s) =>
-                  ParcelDetailScreen(id: s.pathParameters['id']!)),
+              builder: (_, s) => ParcelDetailScreen(
+                    id: s.pathParameters['id']!,
+                    initialMessageId: s.uri.queryParameters['message'],
+                  )),
           GoRoute(
               path: '/track/:code',
               builder: (_, s) =>
@@ -623,11 +626,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (_, __, child) => DriverShell(child: child),
         routes: [
-          GoRoute(path: '/driver', builder: (_, __) => const DriverHome()),
+          GoRoute(
+            path: '/driver',
+            builder: (_, state) => DriverHome(
+              initialPreviewMissionId: state.uri.queryParameters['preview'],
+              unavailableMissionId: state.uri.queryParameters['unavailable'],
+            ),
+          ),
           GoRoute(
               path: '/driver/mission/:id',
-              builder: (_, s) =>
-                  MissionDetailScreen(id: s.pathParameters['id']!)),
+              builder: (_, s) => MissionDetailScreen(
+                    id: s.pathParameters['id']!,
+                    initialMessageId: s.uri.queryParameters['message'],
+                  )),
           GoRoute(
               path: '/driver/wallet',
               builder: (_, __) => const DriverWalletScreen()),
@@ -653,8 +664,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/admin/parcels',
               builder: (_, state) => AdminParcelsScreen(
-                    initialFilter:
-                        state.uri.queryParameters['filter'] ?? 'all',
+                    initialFilter: state.uri.queryParameters['filter'] ?? 'all',
                     initialPeriod: state.uri.queryParameters['period'],
                   )),
           GoRoute(
@@ -796,129 +806,16 @@ class DriverShell extends ConsumerStatefulWidget {
   ConsumerState<DriverShell> createState() => _DriverShellState();
 }
 
-class _DriverShellState extends ConsumerState<DriverShell>
-    with WidgetsBindingObserver {
+class _DriverShellState extends ConsumerState<DriverShell> {
   StreamSubscription<Position>? _positionStream;
-  StreamSubscription<Position>? _presenceStream;
   DateTime? _lastBackendUpdate;
-  DateTime? _lastPresenceBackendUpdate;
   String? _trackingMissionId;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncDriverPresence();
-      _ensureDriverPresenceTracking();
-    });
-  }
+  bool _locationConsentPrepared = false;
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _positionStream?.cancel();
-    _presenceStream?.cancel();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _syncDriverPresence();
-      _ensureDriverPresenceTracking();
-      return;
-    }
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _presenceStream?.cancel();
-      _presenceStream = null;
-      _lastPresenceBackendUpdate = null;
-    }
-  }
-
-  Future<void> _syncDriverPresence() async {
-    final auth = ref.read(authProvider).valueOrNull;
-    final user = auth?.user;
-    if (user == null || user.role != 'driver') {
-      return;
-    }
-    try {
-      final position = await FreshPositionHelper.getDriverPresencePosition();
-      await ref.read(apiClientProvider).updateMyDriverLocation({
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'accuracy': position.accuracy,
-      });
-    } catch (_) {}
-  }
-
-
-  Future<void> _ensureDriverPresenceTracking() async {
-    final auth = ref.read(authProvider).valueOrNull;
-    final user = auth?.user;
-    if (user == null || user.role != 'driver') {
-      await _presenceStream?.cancel();
-      _presenceStream = null;
-      _lastPresenceBackendUpdate = null;
-      return;
-    }
-    if (_presenceStream != null) {
-      return;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission != LocationPermission.whileInUse &&
-        permission != LocationPermission.always) {
-      return;
-    }
-
-    final LocationSettings locationSettings;
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 25,
-        intervalDuration: const Duration(seconds: 45),
-      );
-    } else if (defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS) {
-      locationSettings = AppleSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 25,
-        activityType: ActivityType.otherNavigation,
-        pauseLocationUpdatesAutomatically: true,
-      );
-    } else {
-      locationSettings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 25,
-      );
-    }
-
-    _presenceStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen((position) async {
-      final now = DateTime.now();
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-      if (_lastPresenceBackendUpdate != null &&
-          now.difference(_lastPresenceBackendUpdate!).inSeconds < 45) {
-        return;
-      }
-      _lastPresenceBackendUpdate = now;
-      try {
-        await ref.read(apiClientProvider).updateMyDriverLocation({
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'accuracy': position.accuracy,
-        });
-      } catch (_) {}
-    });
   }
 
   Future<void> _syncDriverTracking(String? missionId) async {
@@ -927,21 +824,20 @@ class _DriverShellState extends ConsumerState<DriverShell>
 
     await _positionStream?.cancel();
     _positionStream = null;
-    _trackingMissionId = missionId;
+    _trackingMissionId = null;
     _lastBackendUpdate = null;
 
     if (missionId == null || missionId.isEmpty) {
       return;
     }
 
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
+    if (!await DriverLocationConsent.hasAccepted()) return;
+    final permission = await Geolocator.checkPermission();
     if (permission != LocationPermission.whileInUse &&
         permission != LocationPermission.always) {
       return;
     }
+    _trackingMissionId = missionId;
 
     final LocationSettings locationSettings;
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -994,10 +890,26 @@ class _DriverShellState extends ConsumerState<DriverShell>
     });
   }
 
+  Future<void> _prepareLocationConsent() async {
+    final allowed = await DriverLocationConsent.ensure(context);
+    if (!allowed || !mounted) return;
+    await ref.read(driverPresenceServiceProvider).reconcile(
+          ref.read(authProvider).valueOrNull,
+          forceUpload: true,
+        );
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
     final myMissions = ref.watch(myMissionsProvider).valueOrNull ?? const [];
+    final hasTrackableMission = myMissions.any(
+      (mission) =>
+          mission.status == 'assigned' ||
+          mission.status == 'in_progress' ||
+          mission.status == 'incident_reported',
+    );
     String? activeMissionId;
     for (final mission in myMissions) {
       if (mission.status == 'in_progress' ||
@@ -1006,10 +918,16 @@ class _DriverShellState extends ConsumerState<DriverShell>
         break;
       }
     }
+    final isAvailable =
+        ref.watch(authProvider).valueOrNull?.user?.isAvailable ?? false;
+    if (!_locationConsentPrepared && (isAvailable || hasTrackableMission)) {
+      _locationConsentPrepared = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _prepareLocationConsent();
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncDriverTracking(activeMissionId);
-      _syncDriverPresence();
-      _ensureDriverPresenceTracking();
     });
 
     final int idx;

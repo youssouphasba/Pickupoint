@@ -1610,6 +1610,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "dispatch_started_at": now,
         "dispatch_next_escalation_at": None,
         "dispatch_notified_driver_ids": [],
+        "declined_driver_ids": [],
         "dispatch_last_reminder_at": now,
         # Tracking livreur
         "driver_location":     None,

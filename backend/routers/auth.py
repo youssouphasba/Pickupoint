@@ -520,14 +520,14 @@ async def refresh_token(body: RefreshRequest):
 
     token_data = {"sub": user_doc["user_id"], "role": user_doc["role"]}
     access_token = create_access_token(token_data)
-    new_refresh = create_refresh_token(token_data)
-
-    await db.user_sessions.delete_many(session_query)
-    await db.user_sessions.insert_one(_build_refresh_session(user_doc["user_id"], new_refresh))
+    await db.user_sessions.update_one(
+        session_query,
+        {"$set": {"last_used_at": datetime.now(timezone.utc)}},
+    )
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh,
+        refresh_token=body.refresh_token,
         user=User(**user_doc),
     )
 

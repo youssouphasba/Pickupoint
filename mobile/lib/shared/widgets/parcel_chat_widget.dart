@@ -23,10 +23,15 @@ final parcelMessagesProvider =
 // ── Widget principal ───────────────────────────────────────────────────────
 
 class ParcelChatWidget extends ConsumerStatefulWidget {
-  const ParcelChatWidget(
-      {super.key, required this.parcelId, required this.isClosed});
+  const ParcelChatWidget({
+    super.key,
+    required this.parcelId,
+    required this.isClosed,
+    this.initialMessageId,
+  });
   final String parcelId;
-  final bool isClosed; // true si statut terminal → messagerie en lecture seule
+  final bool isClosed;
+  final String? initialMessageId;
 
   @override
   ConsumerState<ParcelChatWidget> createState() => _ParcelChatWidgetState();
@@ -40,6 +45,11 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
   bool _isRecording = false;
   String? _recordingPath;
   Timer? _pollTimer;
+  Timer? _highlightTimer;
+  final GlobalKey _targetMessageKey = GlobalKey();
+  String? _handledMessageId;
+  String? _highlightedMessageId;
+  int _lastMessageCount = 0;
 
   @override
   void initState() {
@@ -58,7 +68,17 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
     _scrollController.dispose();
     _recorder.dispose();
     _pollTimer?.cancel();
+    _highlightTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ParcelChatWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMessageId != widget.initialMessageId) {
+      _handledMessageId = null;
+      _highlightedMessageId = null;
+    }
   }
 
   void _scrollToBottom() {
@@ -71,6 +91,38 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
         );
       }
     });
+  }
+
+  void _positionMessageList(List<Map<String, dynamic>> messages) {
+    final requestedId = widget.initialMessageId?.trim() ?? '';
+    final hasRequestedMessage = requestedId.isNotEmpty &&
+        messages.any(
+          (message) => message['message_id']?.toString() == requestedId,
+        );
+
+    if (hasRequestedMessage && _handledMessageId != requestedId) {
+      _handledMessageId = requestedId;
+      _highlightedMessageId = requestedId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final targetContext = _targetMessageKey.currentContext;
+        if (!mounted || targetContext == null) return;
+        Scrollable.ensureVisible(
+          targetContext,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
+        );
+        _highlightTimer?.cancel();
+        _highlightTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted) {
+            setState(() => _highlightedMessageId = null);
+          }
+        });
+      });
+    } else if (messages.length > _lastMessageCount) {
+      _scrollToBottom();
+    }
+    _lastMessageCount = messages.length;
   }
 
   Future<void> _sendText() async {
@@ -86,7 +138,8 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -127,8 +180,7 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(friendlyError(e)),
-              backgroundColor: Colors.red),
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -200,16 +252,40 @@ class _ParcelChatWidgetState extends ConsumerState<ParcelChatWidget> {
                         ),
                       );
                     }
-                    _scrollToBottom();
-                    return ListView.builder(
+                    _positionMessageList(messages);
+                    return ListView(
                       controller: _scrollController,
                       padding: const EdgeInsets.all(12),
-                      itemCount: messages.length,
-                      itemBuilder: (context, i) => _MessageBubble(
-                        parcelId: widget.parcelId,
-                        message: messages[i],
-                        isMe: messages[i]['sender_id'] == me?.id,
-                      ),
+                      children: messages.map((message) {
+                        final messageId =
+                            message['message_id']?.toString() ?? '';
+                        final isHighlighted =
+                            messageId == _highlightedMessageId;
+                        return AnimatedContainer(
+                          key: messageId == _handledMessageId
+                              ? _targetMessageKey
+                              : null,
+                          duration: const Duration(milliseconds: 300),
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: isHighlighted
+                                ? Colors.lightBlue.withValues(alpha: 0.12)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isHighlighted
+                                  ? Colors.lightBlue
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          child: _MessageBubble(
+                            parcelId: widget.parcelId,
+                            message: message,
+                            isMe: message['sender_id'] == me?.id,
+                          ),
+                        );
+                      }).toList(),
                     );
                   },
                 ),

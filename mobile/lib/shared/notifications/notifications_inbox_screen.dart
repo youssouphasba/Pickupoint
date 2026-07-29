@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/notifications/notification_navigation.dart';
+import '../../core/notifications/notification_service.dart';
 import '../utils/error_utils.dart';
 
 final unreadNotificationsCountProvider = StreamProvider.autoDispose<int>((
@@ -96,24 +97,55 @@ class _NotificationsInboxScreenState
       } catch (_) {}
     }
     if (!mounted) return;
+    _activateTargetView(notif);
     final href = _hrefFor(notif);
     if (href != null) {
-      context.push(href);
+      context.go(href);
     }
     await _refresh();
   }
 
   String? _hrefFor(Map<String, dynamic> notif) {
     final auth = ref.read(authProvider).valueOrNull;
+    final metadata = notif['metadata'] is Map
+        ? Map<String, dynamic>.from(notif['metadata'] as Map)
+        : const <String, dynamic>{};
+    var eventType = notif['event_type'] as String?;
+    final title = (notif['title'] ?? '').toString().toLowerCase();
+    if ((eventType ?? '').isEmpty &&
+        notif['ref_type'] == 'mission' &&
+        (title.contains('course') || title.contains('proposée'))) {
+      eventType = 'mission_available';
+    }
     return notificationRouteFor(
       refType: notif['ref_type'] as String?,
       refId: notif['ref_id'] as String?,
       role: auth?.effectiveRole ?? 'client',
+      eventType: eventType,
+      targetView: notif['target_view'] as String?,
+      messageId: metadata['message_id']?.toString(),
     );
+  }
+
+  void _activateTargetView(Map<String, dynamic> notif) {
+    final targetView = notif['target_view']?.toString().trim();
+    if (targetView == null || targetView.isEmpty) return;
+    final auth = ref.read(authProvider).valueOrNull;
+    final realRole = auth?.user?.role;
+    final canOpenTarget = targetView == 'client' ||
+        targetView == realRole ||
+        (targetView == 'admin' && realRole == 'superadmin');
+    if (canOpenTarget && targetView != auth?.effectiveRole) {
+      ref.read(authProvider.notifier).switchView(targetView);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(foregroundNotificationRefreshProvider, (_, __) {
+      ref.invalidate(notificationsListProvider(_unreadOnly));
+      ref.invalidate(unreadNotificationsCountProvider);
+    });
     final asyncList = ref.watch(notificationsListProvider(_unreadOnly));
     return Scaffold(
       appBar: AppBar(

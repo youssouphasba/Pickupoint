@@ -456,14 +456,24 @@ async def _notify_driver_parcel_change(parcel: dict, new_status: ParcelStatus) -
     title, body_template = _DRIVER_STATUS_MESSAGES[new_status]
     tracking_code = parcel.get("tracking_code") or parcel.get("parcel_id") or ""
     body = body_template.format(tracking_code=tracking_code)
+    mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel.get("parcel_id"), "driver_id": driver_id},
+        {"_id": 0, "mission_id": 1},
+        sort=[("updated_at", -1)],
+    )
+    mission_id = (mission or {}).get("mission_id")
+    is_unavailable = new_status in {ParcelStatus.CANCELLED, ParcelStatus.RETURNED}
     await _store_and_send(
         user_id=driver_id,
         title=title,
         body=body,
-        ref_type="parcel",
-        ref_id=parcel.get("parcel_id"),
+        ref_type="mission" if mission_id else "parcel",
+        ref_id=mission_id or parcel.get("parcel_id"),
         category="parcel_updates",
         skip_whatsapp=True,
+        event_type="mission_unavailable" if is_unavailable else "mission_detail",
+        target_view="driver",
+        dedupe_key=f"driver_parcel_status:{parcel.get('parcel_id')}:{new_status.value}",
     )
 
 
@@ -477,14 +487,23 @@ async def notify_driver_mission_resumed(parcel: dict, new_status: ParcelStatus) 
         f"La suspension du colis {tracking_code} est levée. "
         "Vous pouvez reprendre la mission depuis votre app."
     )
+    mission = await db.delivery_missions.find_one(
+        {"parcel_id": parcel.get("parcel_id"), "driver_id": driver_id},
+        {"_id": 0, "mission_id": 1},
+        sort=[("updated_at", -1)],
+    )
+    mission_id = (mission or {}).get("mission_id")
     await _store_and_send(
         user_id=driver_id,
         title="Mission reprise",
         body=body,
-        ref_type="parcel",
-        ref_id=parcel.get("parcel_id"),
+        ref_type="mission" if mission_id else "parcel",
+        ref_id=mission_id or parcel.get("parcel_id"),
         category="parcel_updates",
         skip_whatsapp=True,
+        event_type="mission_detail",
+        target_view="driver",
+        dedupe_key=f"mission_resumed:{mission_id or parcel.get('parcel_id')}",
     )
 
 
@@ -695,6 +714,9 @@ async def _store_and_send(
     skip_whatsapp: bool = False,
     metadata: Optional[dict] = None,
     store_in_app: bool = True,
+    event_type: Optional[str] = None,
+    target_view: Optional[str] = None,
+    dedupe_key: Optional[str] = None,
 ):
     """Stocke la notification en base et tente l'envoi.
 
@@ -703,7 +725,7 @@ async def _store_and_send(
     """
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"notification_prefs": 1, "phone": 1, "fcm_token": 1},
+        {"notification_prefs": 1, "phone": 1, "fcm_token": 1, "role": 1},
     )
     if not _notification_category_enabled(user, category):
         return {
@@ -712,8 +734,28 @@ async def _store_and_send(
             "push_reason": "category_disabled",
         }
 
+    if not event_type:
+        if ref_type == "parcel":
+            event_type = "parcel_detail"
+            target_view = target_view or (
+                "admin"
+                if (user or {}).get("role") in {"admin", "superadmin"}
+                else "client"
+            )
+        elif ref_type == "mission":
+            event_type = "mission_detail"
+            target_view = target_view or "driver"
+        elif ref_type == "payout":
+            event_type = "wallet"
+            target_view = target_view or (user or {}).get("role")
+        elif ref_type == "application":
+            event_type = "application_status"
+            target_view = target_view or "client"
+
+    notif_id = None
+    notification_created = False
     if store_in_app:
-        await _store_notification(
+        notif_id, notification_created = await _store_notification(
             user_id=user_id,
             channel=NotificationChannel.IN_APP,
             title=title,
@@ -721,16 +763,30 @@ async def _store_and_send(
             ref_type=ref_type,
             ref_id=ref_id,
             metadata=metadata,
+            event_type=event_type,
+            target_view=target_view,
+            dedupe_key=dedupe_key,
         )
 
-    push_result = await _send_push(
-        user_id=user_id,
-        title=title,
-        body=body,
-        ref_type=ref_type,
-        ref_id=ref_id,
-        category=category,
-    )
+    if store_in_app and dedupe_key and not notification_created:
+        push_result = {
+            "push_status": "skipped",
+            "push_reason": "duplicate_event",
+        }
+    else:
+        push_result = await _send_push(
+            user_id=user_id,
+            title=title,
+            body=body,
+            ref_type=ref_type,
+            ref_id=ref_id,
+            category=category,
+            notif_id=notif_id,
+            event_type=event_type,
+            target_view=target_view,
+            dedupe_key=dedupe_key,
+            metadata=metadata,
+        )
 
     if not skip_whatsapp and _should_send_whatsapp_tracking(user, category):
         phone = (user or {}).get("phone")
@@ -745,7 +801,7 @@ async def _store_and_send(
             else:
                 await _send_whatsapp(phone, body)
 
-    return {"stored": store_in_app, **push_result}
+    return {"stored": store_in_app, "notif_id": notif_id, **push_result}
 
 
 async def _store_notification(
@@ -757,10 +813,14 @@ async def _store_notification(
     ref_id: Optional[str] = None,
     metadata: Optional[dict] = None,
     status: NotificationStatus = NotificationStatus.SENT,
+    event_type: Optional[str] = None,
+    target_view: Optional[str] = None,
+    dedupe_key: Optional[str] = None,
 ):
     now = datetime.now(timezone.utc)
+    notif_id = _notif_id()
     notif = {
-        "notif_id": _notif_id(),
+        "notif_id": notif_id,
         "user_id": user_id,
         "channel": channel.value,
         "title": title,
@@ -769,11 +829,48 @@ async def _store_notification(
         "metadata": metadata or {},
         "ref_type": ref_type,
         "ref_id": ref_id,
+        "event_type": event_type,
+        "target_view": target_view,
+        "dedupe_key": dedupe_key,
         "created_at": now,
         "sent_at": now if status == NotificationStatus.SENT else None,
         "read_at": None,
     }
-    await db.notifications.insert_one(notif)
+    if not dedupe_key:
+        await db.notifications.insert_one(notif)
+        return notif_id, True
+
+    result = await db.notifications.update_one(
+        {"user_id": user_id, "dedupe_key": dedupe_key},
+        {
+            "$set": {
+                "title": title,
+                "body": body,
+                "status": status.value,
+                "metadata": metadata or {},
+                "ref_type": ref_type,
+                "ref_id": ref_id,
+                "event_type": event_type,
+                "target_view": target_view,
+                "sent_at": now if status == NotificationStatus.SENT else None,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "notif_id": notif_id,
+                "user_id": user_id,
+                "channel": channel.value,
+                "dedupe_key": dedupe_key,
+                "created_at": now,
+                "read_at": None,
+            },
+        },
+        upsert=True,
+    )
+    stored = await db.notifications.find_one(
+        {"user_id": user_id, "dedupe_key": dedupe_key},
+        {"_id": 0, "notif_id": 1},
+    )
+    return (stored or {}).get("notif_id") or notif_id, result.upserted_id is not None
 
 
 async def _send_push(
@@ -783,6 +880,11 @@ async def _send_push(
     ref_type: Optional[str] = None,
     ref_id: Optional[str] = None,
     category: Optional[str] = None,
+    notif_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    target_view: Optional[str] = None,
+    dedupe_key: Optional[str] = None,
+    metadata: Optional[dict] = None,
 ):
     user = await db.users.find_one(
         {"user_id": user_id},
@@ -810,10 +912,34 @@ async def _send_push(
         sent_count = 0
         invalid_tokens: list[str] = []
         failed_reasons: list[str] = []
+        data = {
+            "ref_type": ref_type or "",
+            "ref_id": ref_id or "",
+            "notif_id": notif_id or "",
+            "event_type": event_type or "",
+            "target_view": target_view or "",
+            "dedupe_key": dedupe_key or "",
+        }
+        for key in ("message_id", "parcel_id"):
+            value = (metadata or {}).get(key)
+            if value is not None:
+                data[key] = str(value)
+        collapse_id = (dedupe_key or event_type or ref_id or "").strip()[:64]
         for token in fcm_tokens:
             message = _messaging.Message(
                 notification=_messaging.Notification(title=title, body=body),
-                data={"ref_type": ref_type or "", "ref_id": ref_id or ""},
+                data=data,
+                android=_messaging.AndroidConfig(
+                    collapse_key=collapse_id or None,
+                    priority="high",
+                    notification=_messaging.AndroidNotification(
+                        channel_id="high_importance_channel",
+                        tag=collapse_id or None,
+                    ),
+                ),
+                apns=_messaging.APNSConfig(
+                    headers={"apns-collapse-id": collapse_id} if collapse_id else {},
+                ),
                 token=token,
             )
             try:
@@ -851,6 +977,176 @@ async def _send_push(
     except Exception as e:
         logger.warning("Échec envoi Push FCM à %s: %s", user_id, e)
         return {"push_status": "failed", "push_reason": str(e)[:240]}
+
+
+async def _send_data_push(user_id: str, data: dict[str, str]) -> None:
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1},
+    )
+    if not user or not ((user.get("notification_prefs") or {}).get("push", True)):
+        return
+    tokens = _push_tokens_from_user(user)
+    if not tokens:
+        return
+
+    _ensure_firebase()
+    if not _firebase_initialized:
+        return
+
+    import firebase_admin.messaging as _messaging
+
+    collapse_id = (data.get("dedupe_key") or data.get("ref_id") or "")[:64]
+    for token in tokens:
+        try:
+            _messaging.send(
+                _messaging.Message(
+                    data={key: str(value) for key, value in data.items()},
+                    android=_messaging.AndroidConfig(
+                        collapse_key=collapse_id or None,
+                        priority="high",
+                    ),
+                    apns=_messaging.APNSConfig(
+                        headers={
+                            **({"apns-collapse-id": collapse_id} if collapse_id else {}),
+                            "apns-priority": "5",
+                        },
+                        payload=_messaging.APNSPayload(
+                            aps=_messaging.Aps(content_available=True),
+                        ),
+                    ),
+                    token=token,
+                )
+            )
+        except Exception as exc:
+            if _is_invalid_fcm_token_error(exc):
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$pull": {"fcm_tokens": {"token": token}}},
+                )
+
+
+async def expire_mission_availability_notifications(
+    mission: dict,
+    accepted_by_user_id: Optional[str] = None,
+) -> None:
+    mission_id = mission.get("mission_id")
+    if not mission_id:
+        return
+
+    now = datetime.now(timezone.utc)
+    dedupe_key = f"mission_available:{mission_id}"
+    user_ids = list(
+        {
+            *list(mission.get("candidate_drivers") or []),
+            *list(mission.get("dispatch_notified_driver_ids") or []),
+        }
+    )
+    await db.notifications.update_many(
+        {
+            "user_id": {"$in": user_ids},
+            "$or": [
+                {"dedupe_key": dedupe_key},
+                {
+                    "ref_type": "mission",
+                    "ref_id": mission_id,
+                    "event_type": "mission_available",
+                },
+                {
+                    "ref_type": "mission",
+                    "ref_id": mission_id,
+                    "title": {
+                        "$in": [
+                            "Nouvelle course près de vous",
+                            "Course toujours disponible",
+                            "Nouvelle Mission Disponible (Exclusivité 30s)",
+                            "Nouvelle mission proposée",
+                        ]
+                    },
+                },
+            ],
+        },
+        {
+            "$set": {
+                "status": "cancelled",
+                "read_at": now,
+                "expired_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    if accepted_by_user_id:
+        await db.notifications.update_many(
+            {
+                "ref_type": "mission",
+                "ref_id": mission_id,
+            },
+            {
+                "$set": {
+                    "metadata.accepted_by_user_id": accepted_by_user_id,
+                }
+            },
+        )
+
+    data = {
+        "event_type": "mission_unavailable",
+        "target_view": "driver",
+        "ref_type": "mission",
+        "ref_id": mission_id,
+        "dedupe_key": dedupe_key,
+    }
+    for user_id in user_ids:
+        if user_id and user_id != accepted_by_user_id:
+            await _send_data_push(user_id, data)
+
+
+async def expire_mission_availability_for_user(
+    mission_id: str,
+    user_id: str,
+) -> None:
+    if not mission_id or not user_id:
+        return
+    now = datetime.now(timezone.utc)
+    dedupe_key = f"mission_available:{mission_id}"
+    await db.notifications.update_many(
+        {
+            "user_id": user_id,
+            "ref_type": "mission",
+            "ref_id": mission_id,
+            "$or": [
+                {"dedupe_key": dedupe_key},
+                {"event_type": "mission_available"},
+                {
+                    "title": {
+                        "$in": [
+                            "Nouvelle course près de vous",
+                            "Course toujours disponible",
+                            "Nouvelle Mission Disponible (Exclusivité 30s)",
+                            "Nouvelle mission proposée",
+                        ]
+                    }
+                },
+            ],
+        },
+        {
+            "$set": {
+                "status": "cancelled",
+                "read_at": now,
+                "expired_at": now,
+                "updated_at": now,
+            }
+        },
+    )
+    await _send_data_push(
+        user_id,
+        {
+            "event_type": "mission_unavailable",
+            "target_view": "driver",
+            "ref_type": "mission",
+            "ref_id": mission_id,
+            "dedupe_key": dedupe_key,
+        },
+    )
 
 
 async def _whatsapp_post(payload: dict, phone: str) -> bool:
@@ -1089,6 +1385,9 @@ async def notify_new_mission_ping(user_id: str, mission: dict):
         body=f"Une mission pour le colis {tracking_code} vous est proposée. Répondez vite !",
         ref_type="mission",
         ref_id=mission.get("mission_id"),
+        event_type="mission_available",
+        target_view="driver",
+        dedupe_key=f"mission_available:{mission.get('mission_id')}",
     )
 
 
@@ -1119,6 +1418,17 @@ async def notify_driver_admin_assignment(user_id: str, mission: dict, assignment
         body=body,
         ref_type="mission",
         ref_id=mission.get("mission_id"),
+        event_type=(
+            "mission_available"
+            if assignment_mode not in {"driver_debt", "platform_sponsored"}
+            else "mission_detail"
+        ),
+        target_view="driver",
+        dedupe_key=(
+            f"mission_available:{mission.get('mission_id')}"
+            if assignment_mode not in {"driver_debt", "platform_sponsored"}
+            else f"mission_assigned:{mission.get('mission_id')}"
+        ),
     )
 
 
@@ -1141,6 +1451,9 @@ async def notify_driver_pickup_confirmation_reminder(
         ref_id=mission.get("mission_id"),
         category="parcel_updates",
         skip_whatsapp=True,
+        event_type="mission_detail",
+        target_view="driver",
+        dedupe_key=f"mission_pickup_reminder:{mission.get('mission_id')}",
     )
 
 
@@ -1162,6 +1475,9 @@ async def notify_driver_mission_auto_released(
         ref_id=mission.get("mission_id"),
         category="parcel_updates",
         skip_whatsapp=True,
+        event_type="mission_unavailable",
+        target_view="driver",
+        dedupe_key=f"mission_released:{mission.get('mission_id')}",
     )
 
 
@@ -1184,6 +1500,9 @@ async def notify_new_mission_dispatch_wave(
         ref_type="mission",
         ref_id=mission.get("mission_id"),
         metadata={"dispatch_radius_km": radius_km},
+        event_type="mission_available",
+        target_view="driver",
+        dedupe_key=f"mission_available:{mission.get('mission_id')}",
     )
 
 
@@ -1207,10 +1526,19 @@ async def notify_pending_mission_dispatch_reminder(
         ref_id=mission.get("mission_id"),
         metadata={"dispatch_radius_km": radius_km, "reminder": True},
         store_in_app=False,
+        event_type="mission_available",
+        target_view="driver",
+        dedupe_key=f"mission_available:{mission.get('mission_id')}",
     )
 
 
-async def notify_new_parcel_message(parcel: dict, sender_id: str, sender_name: str, message_text: str):
+async def notify_new_parcel_message(
+    parcel: dict,
+    sender_id: str,
+    sender_name: str,
+    message_text: str,
+    message_id: str,
+):
     """Notifie les autres participants du colis (sender, recipient, driver) qu'un nouveau message est arrivé.
 
     Push + in-app uniquement (pas de WhatsApp pour éviter le spam — la conversation reste dans l'app).
@@ -1231,16 +1559,33 @@ async def notify_new_parcel_message(parcel: dict, sender_id: str, sender_name: s
         preview = preview[:117] + "…"
     name = (sender_name or "").strip() or "Quelqu'un"
     body = f"{name} : {preview}" if preview else f"{name} vous a envoyé un message."
+    driver_id = parcel.get("assigned_driver_id")
+    mission = None
+    if driver_id:
+        mission = await db.delivery_missions.find_one(
+            {"parcel_id": parcel_id, "driver_id": driver_id},
+            {"_id": 0, "mission_id": 1},
+            sort=[("updated_at", -1)],
+        )
+    mission_id = (mission or {}).get("mission_id")
 
     for uid in participants:
+        is_driver = uid == driver_id and mission_id
         await _store_and_send(
             user_id=uid,
             title=title,
             body=body,
-            ref_type="parcel",
-            ref_id=parcel_id,
+            ref_type="mission" if is_driver else "parcel",
+            ref_id=mission_id if is_driver else parcel_id,
             category="messages",
             skip_whatsapp=True,
+            metadata={
+                "message_id": message_id,
+                "parcel_id": parcel_id,
+            },
+            event_type="parcel_message",
+            target_view="driver" if is_driver else "client",
+            dedupe_key=f"parcel_message:{message_id}",
         )
 
 
@@ -1254,6 +1599,9 @@ async def send_targeted_notifications(
     ref_id: Optional[str] = None,
     metadata: Optional[dict] = None,
     store_in_app: bool = True,
+    event_type: Optional[str] = None,
+    target_view: Optional[str] = None,
+    dedupe_key: Optional[str] = None,
 ) -> dict:
     unique_user_ids = []
     seen = set()
@@ -1279,6 +1627,9 @@ async def send_targeted_notifications(
             skip_whatsapp=True,
             metadata=metadata,
             store_in_app=store_in_app,
+            event_type=event_type,
+            target_view=target_view,
+            dedupe_key=dedupe_key,
         )
         if result.get("stored"):
             stored += 1
@@ -1362,6 +1713,9 @@ async def notify_relay_agent_parcel_arrived(relay_id: str, parcel: dict):
         body=f"Le colis {tracking_code} est arrivé dans votre relais. Veuillez le réceptionner.",
         ref_type="parcel",
         ref_id=parcel_id,
+        event_type="relay_scan_in",
+        target_view="relay_agent",
+        dedupe_key=f"relay_arrival:{parcel_id}",
     )
 
 
@@ -1379,6 +1733,8 @@ async def notify_payout_result(user_id: str, amount: float, approved: bool):
         title=title,
         body=body,
         ref_type="payout",
+        event_type="wallet",
+        dedupe_key=f"payout_result:{user_id}:{int(amount)}:{approved}",
     )
 
 
@@ -1408,6 +1764,9 @@ async def notify_application_result(
         ref_id=application_id,
         category="admin",
         skip_whatsapp=True,
+        event_type="application_status",
+        target_view="client",
+        dedupe_key=f"application_result:{application_id}",
         metadata={
             "application_id": application_id,
             "application_type": application_type,

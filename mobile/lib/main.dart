@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'core/notifications/notification_service.dart';
+import 'core/notifications/notification_navigation.dart';
 import 'app.dart';
 
 /// Handler pour les messages FCM reçus en arrière-plan / app fermée.
@@ -11,6 +13,16 @@ import 'app.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  if (message.data['event_type']?.toString() == 'mission_unavailable') {
+    final notifications = FlutterLocalNotificationsPlugin();
+    await notifications.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      ),
+    );
+    await notifications.cancel(notificationPlatformId(message.data));
+  }
   debugPrint('FCM background message: ${message.messageId}');
 }
 

@@ -28,6 +28,7 @@ class ApiEndpoints {
   static const resetPinFirebase = '$_base/api/auth/reset-pin-firebase';
   static const firebaseAuth = '$_base/api/auth/firebase';
   static const refresh = '$_base/api/auth/refresh';
+  static const logout = '$_base/api/auth/logout';
   static const me = '$_base/api/auth/me';
   static const profile = '$_base/api/auth/profile';
   static const updateFcm = '$_base/api/users/me/fcm-token';

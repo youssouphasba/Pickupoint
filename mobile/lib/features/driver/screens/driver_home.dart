@@ -17,6 +17,8 @@ import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
+import '../../../core/location/driver_location_consent.dart';
+import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/location/location_tracking_service.dart';
 import '../../../core/notifications/notification_service.dart';
@@ -57,7 +59,14 @@ class _MissionPreview {
 }
 
 class DriverHome extends ConsumerStatefulWidget {
-  const DriverHome({super.key});
+  const DriverHome({
+    super.key,
+    this.initialPreviewMissionId,
+    this.unavailableMissionId,
+  });
+
+  final String? initialPreviewMissionId;
+  final String? unavailableMissionId;
 
   @override
   ConsumerState<DriverHome> createState() => _DriverHomeState();
@@ -69,14 +78,14 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   double? _driverLng;
   bool _gpsLoading = true;
   bool _toggling = false;
+  bool _notificationActionHandled = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _fetchDriverLocation();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(locationTrackingServiceProvider);
+      _prepareLocationAccess();
     });
   }
 
@@ -91,8 +100,27 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     if (state == AppLifecycleState.resumed) {
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
-      _fetchDriverLocation();
+      _prepareLocationAccess();
     }
+  }
+
+  Future<bool> _prepareLocationAccess({bool userInitiated = false}) async {
+    final allowed = await DriverLocationConsent.ensure(
+      context,
+      userInitiated: userInitiated,
+    );
+    if (!mounted) return false;
+    if (!allowed) {
+      setState(() => _gpsLoading = false);
+      return false;
+    }
+    await _fetchDriverLocation();
+    ref.read(locationTrackingServiceProvider);
+    await ref.read(driverPresenceServiceProvider).reconcile(
+          ref.read(authProvider).valueOrNull,
+          forceUpload: true,
+        );
+    return true;
   }
 
   Future<void> _syncDriverPresenceLocation(Position pos) async {
@@ -143,12 +171,24 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   Future<void> _toggleAvailability() async {
     if (_toggling) return;
+    final currentlyAvailable =
+        ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
+    if (!currentlyAvailable &&
+        !await _prepareLocationAccess(userInitiated: true)) {
+      return;
+    }
     setState(() => _toggling = true);
     try {
       final api = ref.read(apiClientProvider);
       final res = await api.toggleAvailability();
       final newVal = res.data['is_available'] as bool? ?? false;
       ref.read(authProvider.notifier).updateUserAvailability(newVal);
+      if (newVal) {
+        await ref.read(driverPresenceServiceProvider).reconcile(
+              ref.read(authProvider).valueOrNull,
+              forceUpload: true,
+            );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -201,6 +241,63 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   DriverLocation get _driverLoc => (lat: _driverLat, lng: _driverLng);
 
+  void _handleNotificationAction(
+    AsyncValue<List<DeliveryMission>> availableAsync,
+  ) {
+    if (_notificationActionHandled) return;
+
+    if ((widget.unavailableMissionId ?? '').isNotEmpty) {
+      _notificationActionHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Cette course a déjà été acceptée par un autre livreur.'),
+          ),
+        );
+      });
+      return;
+    }
+
+    final missionId = widget.initialPreviewMissionId;
+    final missions = availableAsync.valueOrNull;
+    if (missionId == null ||
+        missionId.isEmpty ||
+        missions == null ||
+        _gpsLoading) {
+      return;
+    }
+
+    _notificationActionHandled = true;
+    DeliveryMission? mission;
+    for (final item in missions) {
+      if (item.id == missionId) {
+        mission = item;
+        break;
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (mission == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Cette course a déjà été acceptée ou n’est plus disponible.'),
+          ),
+        );
+        return;
+      }
+      final card = _MissionCard(
+        mission: mission,
+        isAvailable: true,
+        driverLoc: _driverLoc,
+        ensureGpsReady: _ensureGpsReady,
+      );
+      await card._showPreviewSheet(context, ref);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<int>(foregroundMissionNotificationProvider, (_, __) {
@@ -214,6 +311,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final myMissions = myMissionsAsync.valueOrNull ?? const <DeliveryMission>[];
     final hasLockedMission = hasActiveDriverMission(myMissions);
     final hasGps = _driverLat != null;
+    _handleNotificationAction(availableAsync);
 
     return DefaultTabController(
       length: 2,

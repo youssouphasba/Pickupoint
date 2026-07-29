@@ -12,7 +12,7 @@ from urllib.parse import quote_plus
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from gridfs.errors import NoFile
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
@@ -469,6 +469,21 @@ async def update_fcm_token(
         "is_active": True,
     }
 
+    await db.users.update_many(
+        {
+            "user_id": {"$ne": current_user["user_id"]},
+            "fcm_tokens.token": token,
+        },
+        {"$pull": {"fcm_tokens": {"token": token}}},
+    )
+    await db.users.update_many(
+        {
+            "user_id": {"$ne": current_user["user_id"]},
+            "fcm_token": token,
+        },
+        {"$unset": {"fcm_token": ""}},
+    )
+
     existing = await db.users.find_one(
         {"user_id": current_user["user_id"]},
         {"fcm_tokens": 1},
@@ -510,6 +525,39 @@ async def update_fcm_token(
         {"$pull": {"fcm_tokens": {"token": {"$in": [None, ""]}}}},
     )
     return {"message": "Token FCM mis a jour"}
+
+
+@router.delete("/me/fcm-token", summary="Retirer le token FCM de cet appareil")
+async def delete_fcm_token(
+    fcm_token: str = Query(..., min_length=1),
+    current_user: dict = Depends(get_current_user),
+):
+    token = fcm_token.strip()
+    await db.users.update_one(
+        {"user_id": current_user["user_id"]},
+        {
+            "$pull": {"fcm_tokens": {"token": token}},
+            "$unset": {"fcm_token": ""},
+        },
+    )
+    remaining = await db.users.find_one(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0, "fcm_tokens": 1},
+    )
+    latest = next(
+        (
+            item.get("token")
+            for item in reversed((remaining or {}).get("fcm_tokens") or [])
+            if isinstance(item, dict) and item.get("token")
+        ),
+        None,
+    )
+    if latest:
+        await db.users.update_one(
+            {"user_id": current_user["user_id"]},
+            {"$set": {"fcm_token": latest}},
+        )
+    return {"message": "Token FCM retire"}
 
 
 @router.delete("/me", summary="Supprimer son compte")

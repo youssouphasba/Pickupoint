@@ -1760,7 +1760,7 @@ async def get_parcel_codes(
     is_admin = role in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     allowed, _, is_recipient, _ = _can_access_parcel(parcel, current_user)
     if not allowed:
-        raise forbidden_exception("AccÃ¨s refusÃ© Ã  ce colis")
+        raise forbidden_exception("Accès refusé à ce colis")
 
     # L'expéditeur ou le relais origine voient le pickup_code
     active_mission = await db.delivery_missions.find_one(
@@ -1947,7 +1947,13 @@ async def send_parcel_message(
     }
     await db.parcel_messages.insert_one(msg)
     try:
-        await notify_new_parcel_message(parcel, uid, current_user.get("name", ""), text)
+        await notify_new_parcel_message(
+            parcel,
+            uid,
+            current_user.get("name", ""),
+            text,
+            msg["message_id"],
+        )
     except Exception:
         pass
     return _serialize_parcel_message(msg)
@@ -2031,7 +2037,13 @@ async def send_parcel_voice(
     }
     await db.parcel_messages.insert_one(msg)
     try:
-        await notify_new_parcel_message(parcel, uid, current_user.get("name", ""), "🎤 Note vocale")
+        await notify_new_parcel_message(
+            parcel,
+            uid,
+            current_user.get("name", ""),
+            "🎤 Note vocale",
+            msg["message_id"],
+        )
     except Exception:
         pass
     return _serialize_parcel_message(msg)

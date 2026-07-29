@@ -9,6 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/location/driver_location_consent.dart';
+import '../../../core/location/driver_presence_service.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
@@ -106,13 +108,25 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
 
   Future<void> _toggleAvailability() async {
     if (_busyAvailability) return;
+    final currentlyAvailable =
+        ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
+    if (!currentlyAvailable &&
+        !await DriverLocationConsent.ensure(context, userInitiated: true)) {
+      return;
+    }
     setState(() => _busyAvailability = true);
     try {
       final res = await ref.read(apiClientProvider).toggleAvailability();
       final newValue = res.data['is_available'] as bool? ?? false;
       ref.read(authProvider.notifier).updateUserAvailability(newValue);
+      if (newValue) {
+        await ref.read(driverPresenceServiceProvider).reconcile(
+              ref.read(authProvider).valueOrNull,
+              forceUpload: true,
+            );
+      }
     } catch (e) {
-      _snack('Impossible de changer la disponibilite: $e', error: true);
+      _snack('Impossible de changer la disponibilité : $e', error: true);
     } finally {
       if (mounted) setState(() => _busyAvailability = false);
     }
@@ -396,25 +410,25 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
               key: _performanceKey,
               child: Row(
                 children: [
-                Expanded(
-                  child: _statCard(
-                    icon: Icons.local_shipping_outlined,
-                    label: 'Livraisons',
-                    value: '${user.deliveriesCompleted}',
-                    footer: 'terminées',
-                    color: Colors.blue,
+                  Expanded(
+                    child: _statCard(
+                      icon: Icons.local_shipping_outlined,
+                      label: 'Livraisons',
+                      value: '${user.deliveriesCompleted}',
+                      footer: 'terminées',
+                      color: Colors.blue,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _statCard(
-                    icon: Icons.star_outline,
-                    label: 'Note',
-                    value: user.averageRating.toStringAsFixed(1),
-                    footer: '${user.totalRatingsCount} avis',
-                    color: Colors.amber.shade700,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _statCard(
+                      icon: Icons.star_outline,
+                      label: 'Note',
+                      value: user.averageRating.toStringAsFixed(1),
+                      footer: '${user.totalRatingsCount} avis',
+                      color: Colors.amber.shade700,
+                    ),
                   ),
-                ),
                 ],
               ),
             ),
@@ -422,121 +436,125 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             Container(
               key: _identityKey,
               child: _section(
-              title: 'Identité',
-              subtitle: 'Informations de référence du compte livreur.',
-              trailing: IconButton(
-                onPressed: () => _editProfile(user),
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              child: Column(
-                children: [
-                  _infoRow(
-                    Icons.badge_outlined,
-                    'Nom',
-                    user.fullName ?? '-',
-                    helper: 'Non modifiable pour des raisons de sécurité.',
-                  ),
-                  _infoRow(
-                    Icons.phone_outlined,
-                    'Téléphone',
-                    user.phone,
-                    helper: user.isPhoneVerified
-                        ? 'Numéro vérifié'
-                        : 'Numéro non vérifié',
-                  ),
-                  _infoRow(
-                    Icons.alternate_email,
-                    'E-mail',
-                    (user.email ?? '').isEmpty ? 'Non renseigné' : user.email!,
-                  ),
-                  _infoRow(
-                    Icons.fingerprint,
-                    'ID livreur',
-                    user.id,
-                    actionLabel: 'Copier',
-                    onAction: () => _copy(user.id),
-                  ),
-                  _infoRow(
-                    Icons.calendar_today_outlined,
-                    'Membre depuis',
-                    _formatDate(user.createdAt),
-                  ),
-                  _infoRow(
-                    Icons.language_outlined,
-                    'Langue / devise',
-                    '${user.language.toUpperCase()} - ${user.currency}',
-                  ),
-                ],
-              ),
+                title: 'Identité',
+                subtitle: 'Informations de référence du compte livreur.',
+                trailing: IconButton(
+                  onPressed: () => _editProfile(user),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                child: Column(
+                  children: [
+                    _infoRow(
+                      Icons.badge_outlined,
+                      'Nom',
+                      user.fullName ?? '-',
+                      helper: 'Non modifiable pour des raisons de sécurité.',
+                    ),
+                    _infoRow(
+                      Icons.phone_outlined,
+                      'Téléphone',
+                      user.phone,
+                      helper: user.isPhoneVerified
+                          ? 'Numéro vérifié'
+                          : 'Numéro non vérifié',
+                    ),
+                    _infoRow(
+                      Icons.alternate_email,
+                      'E-mail',
+                      (user.email ?? '').isEmpty
+                          ? 'Non renseigné'
+                          : user.email!,
+                    ),
+                    _infoRow(
+                      Icons.fingerprint,
+                      'ID livreur',
+                      user.id,
+                      actionLabel: 'Copier',
+                      onAction: () => _copy(user.id),
+                    ),
+                    _infoRow(
+                      Icons.calendar_today_outlined,
+                      'Membre depuis',
+                      _formatDate(user.createdAt),
+                    ),
+                    _infoRow(
+                      Icons.language_outlined,
+                      'Langue / devise',
+                      '${user.language.toUpperCase()} - ${user.currency}',
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
             Container(
               key: _walletKey,
               child: _section(
-              title: 'Activité',
-              subtitle: 'Contrôle terrain et accès rapides.',
-              child: Column(
-                children: [
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Disponibilité'),
-                    subtitle: Text(
-                      user.isAvailable
-                          ? 'Vous apparaissez dans les missions disponibles.'
-                          : 'Vous êtes hors ligne pour les nouvelles missions.',
-                    ),
-                    value: user.isAvailable,
-                    onChanged:
-                        _busyAvailability ? null : (_) => _toggleAvailability(),
-                  ),
-                  const Divider(height: 24),
-                  walletAsync.when(
-                    data: (wallet) => ListTile(
+                title: 'Activité',
+                subtitle: 'Contrôle terrain et accès rapides.',
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.account_balance_wallet_outlined),
-                      ),
-                      title: Text(formatXof(wallet.balance)),
+                      title: const Text('Disponibilité'),
                       subtitle: Text(
-                        'En attente: ${formatXof(wallet.pendingBalance)}',
+                        user.isAvailable
+                            ? 'Vous apparaissez dans les missions disponibles.'
+                            : 'Vous êtes hors ligne pour les nouvelles missions.',
                       ),
-                      trailing: TextButton(
-                        onPressed: () => context.go('/driver/wallet'),
-                        child: const Text('Voir'),
-                      ),
+                      value: user.isAvailable,
+                      onChanged: _busyAvailability
+                          ? null
+                          : (_) => _toggleAvailability(),
                     ),
-                    loading: () => const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text('Chargement du wallet...'),
-                    ),
-                    error: (_, __) => const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text('Wallet indisponible'),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => context.push('/driver/performance'),
-                          icon: const Icon(Icons.insights_outlined),
-                          label: const Text('Performance'),
+                    const Divider(height: 24),
+                    walletAsync.when(
+                      data: (wallet) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.account_balance_wallet_outlined),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
+                        title: Text(formatXof(wallet.balance)),
+                        subtitle: Text(
+                          'En attente: ${formatXof(wallet.pendingBalance)}',
+                        ),
+                        trailing: TextButton(
                           onPressed: () => context.go('/driver/wallet'),
-                          icon: const Icon(Icons.payments_outlined),
-                          label: const Text('Solde'),
+                          child: const Text('Voir'),
                         ),
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                      loading: () => const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('Chargement du wallet...'),
+                      ),
+                      error: (_, __) => const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('Wallet indisponible'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                context.push('/driver/performance'),
+                            icon: const Icon(Icons.insights_outlined),
+                            label: const Text('Performance'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => context.go('/driver/wallet'),
+                            icon: const Icon(Icons.payments_outlined),
+                            label: const Text('Solde'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -548,152 +566,154 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             Container(
               key: _kycKey,
               child: _section(
-              title: 'Conformite',
-              subtitle:
-                  'Documents utiles pour la vérification et le contrôle admin.',
-              child: Column(
-                children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: _kycColor(
-                        user.kycStatus,
-                      ).withValues(alpha: 0.12),
-                      child: Icon(
-                        Icons.verified_user_outlined,
-                        color: _kycColor(user.kycStatus),
+                title: 'Conformite',
+                subtitle:
+                    'Documents utiles pour la vérification et le contrôle admin.',
+                child: Column(
+                  children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: _kycColor(
+                          user.kycStatus,
+                        ).withValues(alpha: 0.12),
+                        child: Icon(
+                          Icons.verified_user_outlined,
+                          color: _kycColor(user.kycStatus),
+                        ),
+                      ),
+                      title: Text(_kycLabel(user.kycStatus)),
+                      subtitle: const Text(
+                        'Gardez vos pièces à jour pour fluidifier les opérations.',
                       ),
                     ),
-                    title: Text(_kycLabel(user.kycStatus)),
-                    subtitle: const Text(
-                      'Gardez vos pièces à jour pour fluidifier les opérations.',
+                    const Divider(height: 24),
+                    _docTile(
+                      icon: Icons.credit_card_outlined,
+                      title: "Pièce d'identité",
+                      subtitle: (user.kycIdCardUrl ?? '').isNotEmpty
+                          ? 'Document déjà envoyé'
+                          : 'Envoyer votre pièce officielle',
+                      isLoading: _busyDocType == 'id_card',
+                      onPressed: () => _pickKyc('id_card', "Pièce d'identité"),
                     ),
-                  ),
-                  const Divider(height: 24),
-                  _docTile(
-                    icon: Icons.credit_card_outlined,
-                    title: "Pièce d'identité",
-                    subtitle: (user.kycIdCardUrl ?? '').isNotEmpty
-                        ? 'Document déjà envoyé'
-                        : 'Envoyer votre pièce officielle',
-                    isLoading: _busyDocType == 'id_card',
-                    onPressed: () => _pickKyc('id_card', "Pièce d'identité"),
-                  ),
-                  const SizedBox(height: 12),
-                  _docTile(
-                    icon: Icons.two_wheeler_outlined,
-                    title: 'Permis ou justificatif livreur',
-                    subtitle: (user.kycLicenseUrl ?? '').isNotEmpty
-                        ? 'Document déjà envoyé'
-                        : 'Envoyer votre permis ou justificatif',
-                    isLoading: _busyDocType == 'license',
-                    onPressed: () =>
-                        _pickKyc('license', 'Justificatif livreur'),
-                  ),
-                ],
-              ),
+                    const SizedBox(height: 12),
+                    _docTile(
+                      icon: Icons.two_wheeler_outlined,
+                      title: 'Permis ou justificatif livreur',
+                      subtitle: (user.kycLicenseUrl ?? '').isNotEmpty
+                          ? 'Document déjà envoyé'
+                          : 'Envoyer votre permis ou justificatif',
+                      isLoading: _busyDocType == 'license',
+                      onPressed: () =>
+                          _pickKyc('license', 'Justificatif livreur'),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
             Container(
               key: _notificationsKey,
               child: _section(
-              title: 'Notifications',
-              subtitle: 'Canaux et alertes que vous souhaitez recevoir.',
-              child: Column(
-                children: [
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Push'),
-                    subtitle: const Text('Alertes dans l application.'),
-                    value: user.notificationPrefs.pushEnabled,
-                    onChanged: (value) => _updatePrefs('push', value, user),
-                  ),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('WhatsApp'),
-                    subtitle: const Text('Suivi et alertes complémentaires.'),
-                    value: user.notificationPrefs.whatsappEnabled,
-                    onChanged: (value) => _updatePrefs('whatsapp', value, user),
-                  ),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Mises à jour colis'),
-                    subtitle: const Text('Infos sur vos missions et remises.'),
-                    value: user.notificationPrefs.parcelUpdatesEnabled,
-                    onChanged: (value) =>
-                        _updatePrefs('parcel_updates', value, user),
-                  ),
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Promotions'),
-                    subtitle: const Text('Bonus et campagnes Denkma.'),
-                    value: user.notificationPrefs.promotionsEnabled,
-                    onChanged: (value) =>
-                        _updatePrefs('promotions', value, user),
-                  ),
-                ],
-              ),
+                title: 'Notifications',
+                subtitle: 'Canaux et alertes que vous souhaitez recevoir.',
+                child: Column(
+                  children: [
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Push'),
+                      subtitle: const Text('Alertes dans l application.'),
+                      value: user.notificationPrefs.pushEnabled,
+                      onChanged: (value) => _updatePrefs('push', value, user),
+                    ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('WhatsApp'),
+                      subtitle: const Text('Suivi et alertes complémentaires.'),
+                      value: user.notificationPrefs.whatsappEnabled,
+                      onChanged: (value) =>
+                          _updatePrefs('whatsapp', value, user),
+                    ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Mises à jour colis'),
+                      subtitle:
+                          const Text('Infos sur vos missions et remises.'),
+                      value: user.notificationPrefs.parcelUpdatesEnabled,
+                      onChanged: (value) =>
+                          _updatePrefs('parcel_updates', value, user),
+                    ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Promotions'),
+                      subtitle: const Text('Bonus et campagnes Denkma.'),
+                      value: user.notificationPrefs.promotionsEnabled,
+                      onChanged: (value) =>
+                          _updatePrefs('promotions', value, user),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
             Container(
               key: _supportKey,
               child: _section(
-              title: 'Sécurité et liens utiles',
-              subtitle:
-                  'Repère rapide pour le compte, les documents légaux et la navigation.',
-              child: Column(
-                children: [
-                  _infoRow(
-                    Icons.verified_user,
-                    'État du compte',
-                    user.isBanned ? 'Suspendu' : 'Actif',
-                  ),
-                  _infoRow(
-                    Icons.gavel_outlined,
-                    'Acceptation légale',
-                    user.acceptedLegal ? 'Acceptée' : 'Non acceptée',
-                    helper: user.acceptedLegalAt != null
-                        ? 'Le ${_formatDate(user.acceptedLegalAt)}'
-                        : null,
-                  ),
-                  _infoRow(
-                    Icons.schedule_outlined,
-                    'Dernière mise à jour',
-                    _formatDate(user.updatedAt),
-                  ),
-                  const ChangePinTile(contentPadding: EdgeInsets.zero),
-                  const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.privacy_tip_outlined),
-                    title: const Text('Politique de confidentialité'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/legal/privacy'),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.gavel_outlined),
-                    title: const Text('Conditions générales'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => context.push('/legal/cgu'),
-                  ),
-                  if (authState?.canSwitchToClient ?? false)
+                title: 'Sécurité et liens utiles',
+                subtitle:
+                    'Repère rapide pour le compte, les documents légaux et la navigation.',
+                child: Column(
+                  children: [
+                    _infoRow(
+                      Icons.verified_user,
+                      'État du compte',
+                      user.isBanned ? 'Suspendu' : 'Actif',
+                    ),
+                    _infoRow(
+                      Icons.gavel_outlined,
+                      'Acceptation légale',
+                      user.acceptedLegal ? 'Acceptée' : 'Non acceptée',
+                      helper: user.acceptedLegalAt != null
+                          ? 'Le ${_formatDate(user.acceptedLegalAt)}'
+                          : null,
+                    ),
+                    _infoRow(
+                      Icons.schedule_outlined,
+                      'Dernière mise à jour',
+                      _formatDate(user.updatedAt),
+                    ),
+                    const ChangePinTile(contentPadding: EdgeInsets.zero),
+                    const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.swap_horiz),
-                      title: const Text('Passer a la vue client'),
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: const Text('Politique de confidentialité'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () async {
-                        if (!await _canLeaveAccount()) return;
-                        if (!context.mounted) return;
-                        ref.read(authProvider.notifier).switchView('client');
-                        context.go('/client');
-                      },
+                      onTap: () => context.push('/legal/privacy'),
                     ),
-                ],
-              ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.gavel_outlined),
+                      title: const Text('Conditions générales'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/legal/cgu'),
+                    ),
+                    if (authState?.canSwitchToClient ?? false)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.swap_horiz),
+                        title: const Text('Passer a la vue client'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          if (!await _canLeaveAccount()) return;
+                          if (!context.mounted) return;
+                          ref.read(authProvider.notifier).switchView('client');
+                          context.go('/client');
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),

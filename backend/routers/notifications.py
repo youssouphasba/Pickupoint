@@ -36,6 +36,7 @@ async def list_notifications(
     query: dict = {
         "user_id": current_user["user_id"],
         "channel": NotificationChannel.IN_APP.value,
+        "status": {"$ne": "cancelled"},
     }
     if unread_only:
         query["read_at"] = None
@@ -57,6 +58,7 @@ async def unread_count(current_user: dict = Depends(get_current_user)):
         {
             "user_id": current_user["user_id"],
             "channel": NotificationChannel.IN_APP.value,
+            "status": {"$ne": "cancelled"},
             "read_at": None,
         }
     )

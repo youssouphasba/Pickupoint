@@ -135,6 +135,11 @@ async def create_indexes():
         "notifications": [
             IndexModel([("user_id", 1)]),
             IndexModel([("created_at", 1)]),
+            IndexModel(
+                [("user_id", 1), ("dedupe_key", 1)],
+                unique=True,
+                partialFilterExpression={"dedupe_key": {"$type": "string"}},
+            ),
         ],
         "notification_broadcasts": [
             IndexModel([("broadcast_id", 1)], unique=True),

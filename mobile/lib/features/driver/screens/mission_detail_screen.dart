@@ -21,8 +21,13 @@ import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
-  const MissionDetailScreen({super.key, required this.id});
+  const MissionDetailScreen({
+    super.key,
+    required this.id,
+    this.initialMessageId,
+  });
   final String id;
+  final String? initialMessageId;
 
   @override
   ConsumerState<MissionDetailScreen> createState() =>
@@ -42,6 +47,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   String? _activeWhatsappCallId;
   String? _whatsappCallStatus;
   Color _whatsappCallStatusColor = Colors.blueGrey;
+  final GlobalKey _chatKey = GlobalKey();
+  bool _messageRevealScheduled = false;
 
   @override
   void initState() {
@@ -61,6 +68,36 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     _callPeerConnection?.close();
     _callLocalStream?.getTracks().forEach((track) => track.stop());
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant MissionDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialMessageId != widget.initialMessageId) {
+      _messageRevealScheduled = false;
+    }
+  }
+
+  void _revealRequestedMessage() {
+    if (_messageRevealScheduled ||
+        (widget.initialMessageId?.trim().isEmpty ?? true)) {
+      return;
+    }
+    _messageRevealScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final chatContext = _chatKey.currentContext;
+      if (!mounted) return;
+      if (chatContext == null) {
+        _messageRevealScheduled = false;
+        return;
+      }
+      Scrollable.ensureVisible(
+        chatContext,
+        alignment: 0.08,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Future<void> _refreshDriverPosition({bool silent = false}) async {
@@ -147,7 +184,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     }
     return true;
   }
-
 
   // ── Scan QR ou saisie manuelle → retourne le code saisi ──────────────────
   Future<String?> _showCodeDialog({
@@ -566,8 +602,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   // ── Valider la livraison (delivery_code + géofence) ───────────────────────
   Future<void> _confirmDelivery(String parcelId) async {
     final gpsReady = await _ensureGpsReady(
-      disabledMessage:
-          'Activez le GPS avant de valider la livraison du colis.',
+      disabledMessage: 'Activez le GPS avant de valider la livraison du colis.',
     );
     if (!gpsReady) {
       return;
@@ -823,7 +858,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     final missionId = widget.id;
     if (callId != null) {
       try {
-        await ref.read(apiClientProvider).terminateMissionCall(missionId, callId);
+        await ref
+            .read(apiClientProvider)
+            .terminateMissionCall(missionId, callId);
       } catch (_) {
         // L'erreur réseau ne doit pas bloquer la fermeture locale.
       }
@@ -1152,186 +1189,227 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Ma mission')),
       body: missionAsync.when(
-        data: (mission) => SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_whatsappCallStatus != null) ...[
-                _buildWhatsappCallBanner(),
-                const SizedBox(height: 12),
-              ],
-              // ── Gain ──────────────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'VOTRE GAIN',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.blueGrey,
-                          ),
-                        ),
-                        Text(
-                          formatXof(mission.earnAmount),
-                          style: const TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue,
-                          ),
-                        ),
-                        if (mission.driverBonusXof > 0)
-                          Text(
-                            'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.green,
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (mission.etaText != null)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+        data: (mission) {
+          _revealRequestedMessage();
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_whatsappCallStatus != null) ...[
+                  _buildWhatsappCallBanner(),
+                  const SizedBox(height: 12),
+                ],
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            mission.etaText!.toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold,
+                          Expanded(
+                            child: _buildAmountSummary(
+                              label: 'PRIX DE LA COURSE',
+                              amount: mission.coursePrice,
+                              color: Colors.black87,
                             ),
                           ),
-                          Text(
-                            mission.distanceText ?? '',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Colors.blueGrey,
+                          Container(
+                            width: 1,
+                            height: 48,
+                            color: Colors.blue.shade100,
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: _buildAmountSummary(
+                              label: 'VOTRE GAIN',
+                              amount: mission.earnAmount,
+                              color: Colors.blue,
                             ),
                           ),
                         ],
                       ),
-                    if (mission.etaText == null)
-                      const Icon(
-                        Icons.local_shipping,
-                        size: 40,
-                        color: Colors.blue,
-                      ),
-                  ],
+                      if (mission.driverBonusXof > 0) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                      if (mission.etaText != null) ...[
+                        const SizedBox(height: 12),
+                        Divider(color: Colors.blue.shade100, height: 1),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.route,
+                              size: 18,
+                              color: Colors.green,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                [
+                                  mission.etaText,
+                                  mission.distanceText,
+                                ].whereType<String>().join(' · '),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.blueGrey,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-              // ── Carte itinéraire ───────────────────────────────────────
-              _buildRouteMap(mission),
-              const SizedBox(height: 20),
+                // ── Carte itinéraire ───────────────────────────────────────
+                _buildRouteMap(mission),
+                const SizedBox(height: 20),
 
-              // ── Statut du paiement ─────────────────────────────────────
-              _buildPaymentStatus(mission),
-              const SizedBox(height: 20),
-              if ((mission.senderName?.isNotEmpty ?? false) ||
-                  (mission.recipientName?.isNotEmpty ?? false)) ...[
+                // ── Statut du paiement ─────────────────────────────────────
+                _buildPaymentStatus(mission),
+                const SizedBox(height: 20),
+                if ((mission.senderName?.isNotEmpty ?? false) ||
+                    (mission.recipientName?.isNotEmpty ?? false)) ...[
+                  const Text(
+                    'Personnes du colis',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  if (mission.senderName?.isNotEmpty ?? false) ...[
+                    _buildContactCard(
+                      title: 'Expéditeur',
+                      name: mission.senderName!,
+                      photo: mission.senderPhotoUrl,
+                      phone: mission.senderPhone,
+                      onPhoneTap: mission.senderPhone == null
+                          ? null
+                          : () => launchUrl(
+                              Uri.parse('tel:${mission.senderPhone}')),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (mission.recipientName?.isNotEmpty ?? false) ...[
+                    _buildContactCard(
+                      title: 'Destinataire',
+                      name: mission.recipientName!,
+                      photo: mission.recipientPhotoUrl,
+                      phone: mission.recipientPhone,
+                      onPhoneTap: mission.recipientPhone == null
+                          ? null
+                          : () => launchUrl(
+                              Uri.parse('tel:${mission.recipientPhone}')),
+                      showCall: true,
+                      onCall: _activeWhatsappCallId != null
+                          ? _hangUpWhatsappCall
+                          : () => _callRecipientViaDenkma(mission.id),
+                      callLabel: _activeWhatsappCallId != null
+                          ? 'Raccrocher'
+                          : 'Appeler via Denkma',
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ],
+                if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
+                    (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
+                  _buildInstructionCards(mission),
+                  const SizedBox(height: 20),
+                ],
+
+                // ── Points de passage ───────────────────────
                 const Text(
-                  'Personnes du colis',
+                  'Points de passage',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
-                if (mission.senderName?.isNotEmpty ?? false) ...[
-                  _buildContactCard(
-                    title: 'Expéditeur',
-                    name: mission.senderName!,
-                    photo: mission.senderPhotoUrl,
-                    phone: mission.senderPhone,
-                    onPhoneTap: mission.senderPhone == null
-                        ? null
-                        : () => launchUrl(Uri.parse('tel:${mission.senderPhone}')),
-                  ),
-                  const SizedBox(height: 12),
+
+                _buildContactCard(
+                  title: 'Collecte',
+                  name: mission.pickupLabel,
+                  photo: mission.senderPhotoUrl,
+                  phone: null,
+                  showCall: false,
+                ),
+
+                const SizedBox(height: 12),
+
+                _buildContactCard(
+                  title: 'Livraison',
+                  name: mission.deliveryLabel,
+                  photo: mission.recipientPhotoUrl,
+                  phone: null,
+                  showCall: false,
+                ),
+
+                const SizedBox(height: 20),
+
+                // ── Code de suivi (visible livreur pour montrer au relais) ─
+                if (mission.trackingCode != null) ...[
+                  _buildTrackingCodeCard(mission),
+                  const SizedBox(height: 20),
                 ],
-                if (mission.recipientName?.isNotEmpty ?? false) ...[
-                  _buildContactCard(
-                    title: 'Destinataire',
-                    name: mission.recipientName!,
-                    photo: mission.recipientPhotoUrl,
-                    phone: mission.recipientPhone,
-                    onPhoneTap: mission.recipientPhone == null
-                        ? null
-                        : () => launchUrl(Uri.parse('tel:${mission.recipientPhone}')),
-                    showCall: true,
-                    onCall: _activeWhatsappCallId != null
-                        ? _hangUpWhatsappCall
-                        : () => _callRecipientViaDenkma(mission.id),
-                    callLabel: _activeWhatsappCallId != null
-                        ? 'Raccrocher'
-                        : 'Appeler via Denkma',
+
+                // ── Messagerie colis ──────────────────────────────────────
+                if (mission.status == 'assigned' ||
+                    mission.status == 'in_progress') ...[
+                  ParcelChatWidget(
+                    key: _chatKey,
+                    parcelId: mission.parcelId,
+                    initialMessageId: widget.initialMessageId,
+                    isClosed: false,
                   ),
                   const SizedBox(height: 20),
                 ],
+
+                // ── Boutons action selon statut ───────────────────────────
+                _buildActionButtons(mission),
+                const SizedBox(height: 40),
               ],
-              if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
-                  (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
-                _buildInstructionCards(mission),
-                const SizedBox(height: 20),
-              ],
-
-              // ── Points de passage ───────────────────────
-              const Text(
-                'Points de passage',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-
-              _buildContactCard(
-                title: 'Collecte',
-                name: mission.pickupLabel,
-                photo: mission.senderPhotoUrl,
-                phone: null,
-                showCall: false,
-              ),
-
-              const SizedBox(height: 12),
-
-              _buildContactCard(
-                title: 'Livraison',
-                name: mission.deliveryLabel,
-                photo: mission.recipientPhotoUrl,
-                phone: null,
-                showCall: false,
-              ),
-
-              const SizedBox(height: 20),
-
-              // ── Code de suivi (visible livreur pour montrer au relais) ─
-              if (mission.trackingCode != null) ...[
-                _buildTrackingCodeCard(mission),
-                const SizedBox(height: 20),
-              ],
-
-              // ── Messagerie colis ──────────────────────────────────────
-              if (mission.status == 'assigned' ||
-                  mission.status == 'in_progress') ...[
-                ParcelChatWidget(parcelId: mission.parcelId, isClosed: false),
-                const SizedBox(height: 20),
-              ],
-
-              // ── Boutons action selon statut ───────────────────────────
-              _buildActionButtons(mission),
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, __) => Center(child: Text(friendlyError(e))),
       ),
+    );
+  }
+
+  Widget _buildAmountSummary({
+    required String label,
+    required double? amount,
+    required Color color,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          amount == null ? 'Non renseigné' : formatXof(amount),
+          style: TextStyle(
+            fontSize: amount == null ? 14 : 22,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1590,7 +1668,8 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     final hasPickup = mission.pickupLat != null && mission.pickupLng != null;
     final hasDelivery =
         mission.deliveryLat != null && mission.deliveryLng != null;
-    final driverLatLng = LatLng(driverPosition.latitude, driverPosition.longitude);
+    final driverLatLng =
+        LatLng(driverPosition.latitude, driverPosition.longitude);
     final pickupLatLng =
         hasPickup ? LatLng(mission.pickupLat!, mission.pickupLng!) : null;
     final deliveryLatLng =
@@ -2502,7 +2581,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13,
-                          color: onPhoneTap != null ? Colors.blue : Colors.blueGrey,
+                          color: onPhoneTap != null
+                              ? Colors.blue
+                              : Colors.blueGrey,
                           decoration: onPhoneTap != null
                               ? TextDecoration.underline
                               : null,

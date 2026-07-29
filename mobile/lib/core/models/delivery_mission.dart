@@ -11,6 +11,8 @@ class DeliveryMission {
     required this.deliveryAreaLabel,
     required this.earnAmount,
     required this.createdAt,
+    this.quotedPrice,
+    this.paidPrice,
     this.distanceKm,
     this.trackingCode,
     this.pickupType, // 'relay' | 'gps'
@@ -87,6 +89,8 @@ class DeliveryMission {
 
   // ── Business ─────────────────────────────────────────────────────────────
   final double earnAmount;
+  final double? quotedPrice;
+  final double? paidPrice;
   final double? distanceKm; // distance livreur → pickup (null si GPS inconnu)
   final String? driverId;
   final String? driverName;
@@ -159,6 +163,8 @@ class DeliveryMission {
       recipientName: json['recipient_name'] as String?,
       recipientPhone: json['recipient_phone'] as String?,
       earnAmount: (json['earn_amount'] as num? ?? 0).toDouble(),
+      quotedPrice: (json['quoted_price'] as num?)?.toDouble(),
+      paidPrice: (json['paid_price'] as num?)?.toDouble(),
       distanceKm: (json['distance_km'] as num?)?.toDouble(),
       driverId: json['driver_id'] as String?,
       driverName: json['driver_name'] as String?,
@@ -200,10 +206,9 @@ class DeliveryMission {
           (json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0,
       relayCommissionXof:
           (json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
-      totalCommissionXof:
-          (json['total_commission_xof'] as num?)?.toDouble() ??
-              ((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
-                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0),
+      totalCommissionXof: (json['total_commission_xof'] as num?)?.toDouble() ??
+          ((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
+              ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0),
       walletBalanceRequiredXof:
           (json['wallet_balance_required_xof'] as num?)?.toDouble() ??
               (json['total_commission_xof'] as num?)?.toDouble() ??
@@ -222,6 +227,7 @@ class DeliveryMission {
   bool get isFailed => status == 'failed';
 
   bool get isPaid => paymentStatus == 'paid';
+  double? get coursePrice => paidPrice ?? quotedPrice;
   bool get paymentBlocksDelivery =>
       deliveryBlockedByPayment && !paymentOverride;
 

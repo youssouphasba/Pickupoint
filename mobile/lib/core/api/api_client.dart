@@ -6,7 +6,11 @@ import 'api_endpoints.dart';
 /// Client HTTP Dio avec intercepteur auth.
 /// Instancié par le provider [apiClientProvider] — ne pas instancier directement.
 class ApiClient {
-  ApiClient({String? token, Future<String?> Function()? refreshToken}) {
+  ApiClient({
+    String? token,
+    String? Function()? currentToken,
+    Future<String?> Function()? refreshToken,
+  }) {
     _dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 10),
@@ -18,14 +22,16 @@ class ApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (token != null) {
-            options.headers['Authorization'] = 'Bearer $token';
+          final requestToken = currentToken?.call() ?? token;
+          if (requestToken != null && requestToken.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $requestToken';
           }
           return handler.next(options);
         },
         onError: (DioException error, handler) async {
+          final requestToken = currentToken?.call() ?? token;
           if (error.response?.statusCode == 401 &&
-              token != null &&
+              requestToken != null &&
               refreshToken != null &&
               error.requestOptions.extra['authRetry'] != true) {
             final newToken = await refreshToken();
@@ -92,6 +98,9 @@ class ApiClient {
   Future<Response> refreshToken(String refreshToken) =>
       _dio.post(ApiEndpoints.refresh, data: {'refresh_token': refreshToken});
 
+  Future<Response> logout(String refreshToken) =>
+      _dio.post(ApiEndpoints.logout, data: {'refresh_token': refreshToken});
+
   Future<Response> getMe() => _dio.get(ApiEndpoints.me);
 
   Future<Response> updateProfile(Map<String, dynamic> body) =>
@@ -105,6 +114,9 @@ class ApiClient {
         'fcm_token': token,
         'platform': Platform.operatingSystem,
       });
+
+  Future<Response> deleteFcmToken(String token) => _dio
+      .delete(ApiEndpoints.updateFcm, queryParameters: {'fcm_token': token});
 
   Future<Response> deleteAccount() => _dio.delete(ApiEndpoints.deleteAccount);
 
