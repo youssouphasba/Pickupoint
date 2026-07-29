@@ -1,6 +1,6 @@
-﻿"""
+"""
 Router applications : candidatures livreur et point relais.
-Workflow : Client soumet â†’ Admin examine (piÃ¨ces + coordonnÃ©es) â†’ Approuve ou Rejette
+Workflow : le client soumet → l’administrateur examine les pièces et coordonnées → approuve ou rejette.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -166,7 +166,7 @@ async def apply_driver(
         "status": "pending",
     })
     if existing:
-        raise bad_request_exception("Vous avez dÃ©jÃ  une candidature en attente")
+        raise bad_request_exception("Vous avez déjà une candidature en attente")
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -189,7 +189,7 @@ async def apply_driver(
         href="/dashboard/applications",
         metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "driver"},
     )
-    return {"message": "Candidature soumise. L'Ã©quipe Denkma vous contactera.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'équipe Denkma vous contactera.", "application_id": doc["application_id"]}
 
 
 @router.post("/relay", summary="Soumettre candidature point relais")
@@ -203,7 +203,7 @@ async def apply_relay(
         "status": "pending",
     })
     if existing:
-        raise bad_request_exception("Vous avez dÃ©jÃ  une candidature en attente")
+        raise bad_request_exception("Vous avez déjà une candidature en attente")
 
     now = datetime.now(timezone.utc)
     doc = {
@@ -226,7 +226,7 @@ async def apply_relay(
         href="/dashboard/applications",
         metadata={"application_id": doc["application_id"], "user_id": doc["user_id"], "type": "relay"},
     )
-    return {"message": "Candidature soumise. L'Ã©quipe Denkma visitera votre point.", "application_id": doc["application_id"]}
+    return {"message": "Candidature soumise. L'équipe Denkma visitera votre point.", "application_id": doc["application_id"]}
 
 
 
@@ -249,20 +249,20 @@ async def _check_lead_rate_limit(phone: str, request: Request) -> None:
         {"_id": 1},
     )
     if recent_by_phone:
-        raise bad_request_exception("Une candidature rÃ©cente existe dÃ©jÃ  pour ce numÃ©ro. Patientez avant de renvoyer.")
+        raise bad_request_exception("Une candidature récente existe déjà pour ce numéro. Patientez avant de renvoyer.")
     ip = request.client.host if request.client else "unknown"
     count_ip = await db.application_leads.count_documents(
         {"ip": ip, "created_at": {"$gte": now - timedelta(hours=1)}}
     )
     if count_ip >= 5:
-        raise bad_request_exception("Trop de candidatures depuis votre connexion. RÃ©essayez plus tard.")
+        raise bad_request_exception("Trop de candidatures depuis votre connexion. Réessayez plus tard.")
 
 
-@router.post("/public/driver", summary="PrÃ©-candidature livreur (landing, sans auth)")
+@router.post("/public/driver", summary="Pré-candidature livreur (landing, sans auth)")
 async def public_apply_driver(body: PublicDriverLead, request: Request):
     phone = _normalize_sn_phone(body.phone)
     if not phone.startswith("+221") or len(phone) != 13:
-        raise bad_request_exception("NumÃ©ro sÃ©nÃ©galais invalide")
+        raise bad_request_exception("Numéro sénégalais invalide")
     if len(body.full_name.strip()) < 2:
         raise bad_request_exception("Nom complet requis")
     await _check_lead_rate_limit(phone, request)
@@ -284,19 +284,19 @@ async def public_apply_driver(body: PublicDriverLead, request: Request):
     await db.application_leads.insert_one(doc)
     await record_admin_event(
         AdminEventType.APPLICATION_SUBMITTED,
-        title=f"PrÃ©-candidature livreur (landing) : {doc['full_name']}",
+        title=f"Pré-candidature livreur (landing) : {doc['full_name']}",
         message=doc["phone"],
         href="/dashboard/applications",
         metadata={"lead_id": doc["lead_id"], "type": "driver", "source": "landing"},
     )
-    return {"message": "Candidature enregistrÃ©e. L'Ã©quipe Denkma vous rappellera."}
+    return {"message": "Candidature enregistrée. L'équipe Denkma vous rappellera."}
 
 
-@router.post("/public/relay", summary="PrÃ©-candidature point relais (landing, sans auth)")
+@router.post("/public/relay", summary="Pré-candidature point relais (landing, sans auth)")
 async def public_apply_relay(body: PublicRelayLead, request: Request):
     phone = _normalize_sn_phone(body.phone)
     if not phone.startswith("+221") or len(phone) != 13:
-        raise bad_request_exception("NumÃ©ro sÃ©nÃ©galais invalide")
+        raise bad_request_exception("Numéro sénégalais invalide")
     if len(body.full_name.strip()) < 2:
         raise bad_request_exception("Nom complet requis")
     if len(body.business_name.strip()) < 2:
@@ -325,12 +325,12 @@ async def public_apply_relay(body: PublicRelayLead, request: Request):
     await db.application_leads.insert_one(doc)
     await record_admin_event(
         AdminEventType.APPLICATION_SUBMITTED,
-        title=f"PrÃ©-candidature relais (landing) : {doc['business_name']}",
-        message=f"{doc['full_name']} â€” {doc['phone']}",
+        title=f"Pré-candidature relais (landing) : {doc['business_name']}",
+        message=f"{doc['full_name']} — {doc['phone']}",
         href="/dashboard/applications",
         metadata={"lead_id": doc["lead_id"], "type": "relay", "source": "landing"},
     )
-    return {"message": "Candidature enregistrÃ©e. L'Ã©quipe Denkma visitera votre point."}
+    return {"message": "Candidature enregistrée. L'équipe Denkma visitera votre point."}
 
 
 @router.get("/my", summary="Mes candidatures")
@@ -377,14 +377,14 @@ async def approve_application(
 ):
     """
     Approuver :
-    - Driver â†’ role = driver
-    - Relay  â†’ role = relay_agent + crÃ©ation du point relais + relay_point_id sur l'utilisateur
+    - Driver → role = driver
+    - Relay  → role = relay_agent + création du point relais + relay_point_id sur l'utilisateur
     """
     app = await db.applications.find_one({"application_id": application_id}, {"_id": 0})
     if not app:
         raise not_found_exception("Candidature")
     if app["status"] != "pending":
-        raise bad_request_exception("Candidature dÃ©jÃ  traitÃ©e")
+        raise bad_request_exception("Candidature déjà traitée")
 
     now = datetime.now(timezone.utc)
     user_id = app["user_id"]
@@ -395,7 +395,7 @@ async def approve_application(
         if not user or not (user.get("profile_picture_url") or "").strip():
             raise bad_request_exception("Le livreur doit ajouter une photo de profil avant validation")
         if user.get("profile_picture_status") != "approved":
-            raise bad_request_exception("La photo de profil du livreur doit Ãªtre approuvÃ©e avant validation")
+            raise bad_request_exception("La photo de profil du livreur doit être approuvée avant validation")
 
         await db.users.update_one(
             {"user_id": user_id},
@@ -457,7 +457,7 @@ async def approve_application(
         approved=True,
         admin_notes=admin_notes,
     )
-    return {"message": "Candidature approuvÃ©e", "application_id": application_id}
+    return {"message": "Candidature approuvée", "application_id": application_id}
 
 
 @router.put("/{application_id}/reject", summary="Rejeter candidature")
@@ -470,7 +470,7 @@ async def reject_application(
     if not app:
         raise not_found_exception("Candidature")
     if app["status"] != "pending":
-        raise bad_request_exception("Candidature dÃ©jÃ  traitÃ©e")
+        raise bad_request_exception("Candidature déjà traitée")
 
     await db.applications.update_one(
         {"application_id": application_id},
@@ -487,4 +487,4 @@ async def reject_application(
         approved=False,
         admin_notes=admin_notes,
     )
-    return {"message": "Candidature rejetÃ©e"}
+    return {"message": "Candidature rejetée"}

@@ -566,7 +566,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
             Container(
               key: _kycKey,
               child: _section(
-                title: 'Conformite',
+                title: 'Conformité',
                 subtitle:
                     'Documents utiles pour la vérification et le contrôle admin.',
                 child: Column(
@@ -703,7 +703,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.swap_horiz),
-                        title: const Text('Passer a la vue client'),
+                        title: const Text('Passer à la vue client'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () async {
                           if (!await _canLeaveAccount()) return;
@@ -745,7 +745,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
         (referralCheckFailed ||
             (referralData['can_apply_now'] as bool? ?? false));
     final applyRule = referralData['apply_rule']?.toString() ??
-        'Les conditions seront verifiees au moment de la saisie.';
+        'Les conditions seront vérifiées au moment de la saisie.';
 
     return _section(
       title: 'Parrainage',
@@ -1093,7 +1093,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     final target = item['reward_count'] ?? 1;
     final name = item['referred_name']?.toString() ?? 'Utilisateur Denkma';
     final statusLabel = switch (status) {
-      'rewarded' => 'Paye',
+      'rewarded' => 'Payé',
       'qualified' => 'Qualifie',
       _ => 'En cours',
     };
@@ -1471,11 +1471,11 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
   String _kycLabel(String status) {
     switch (status) {
       case 'verified':
-        return 'KYC verifie';
+        return 'KYC vérifié';
       case 'pending':
         return 'KYC en attente';
       case 'rejected':
-        return 'KYC a corriger';
+        return 'KYC à corriger';
       default:
         return 'KYC non complété';
     }

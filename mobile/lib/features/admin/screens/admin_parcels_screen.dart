@@ -72,7 +72,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     hintText:
-                        'Code, expediteur, destinataire ou livreur en charge',
+                        'Code, expéditeur, destinataire ou livreur en charge',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchCtrl.text.isEmpty
                         ? null
@@ -101,12 +101,13 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
                     _buildFilterChip('Actifs', 'active'),
                     _buildFilterChip('Bloques paiement', 'blocked_payment'),
                     _buildFilterChip('Litiges', 'disputed'),
-                    _buildFilterChip('Livres', 'delivered'),
-                    _buildFilterChip('Annules', 'cancelled'),
-                    _buildFilterChip('A regulariser', 'delivered_unpaid'),
-                    _buildFilterChip('Commission recue', 'commission_received'),
+                    _buildFilterChip('Livrés', 'delivered'),
+                    _buildFilterChip('Annulés', 'cancelled'),
+                    _buildFilterChip('À régulariser', 'delivered_unpaid'),
+                    _buildFilterChip('Commission reçue', 'commission_received'),
                     _buildFilterChip('Commission dette', 'commission_debt'),
-                    _buildFilterChip('Commission offerte', 'commission_offered'),
+                    _buildFilterChip(
+                        'Commission offerte', 'commission_offered'),
                   ],
                 ),
               ),
@@ -189,13 +190,11 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
           'returned',
         }.contains(parcel.status),
       'blocked_payment' => parcel.deliveryBlockedByPayment,
-      'delivered_paid' =>
-        parcel.status == 'delivered' &&
-        ((parcel.paymentStatus ?? '') == 'paid' || parcel.paymentOverride),
-      'delivered_unpaid' =>
-        parcel.status == 'delivered' &&
-        (parcel.paymentStatus ?? '') != 'paid' &&
-        !parcel.paymentOverride,
+      'delivered_paid' => parcel.status == 'delivered' &&
+          ((parcel.paymentStatus ?? '') == 'paid' || parcel.paymentOverride),
+      'delivered_unpaid' => parcel.status == 'delivered' &&
+          (parcel.paymentStatus ?? '') != 'paid' &&
+          !parcel.paymentOverride,
       'commission_received' => parcel.platformCommissionReceived,
       'commission_debt' => parcel.platformCommissionDebt,
       'commission_offered' => parcel.platformCommissionOffered,
@@ -417,20 +416,21 @@ class _ParcelsOverviewSection extends StatelessWidget {
                   icon: Icons.local_shipping_outlined,
                 ),
                 _SummaryTile(
-                  label: 'Colis livres',
+                  label: 'Colis livrés',
                   value: '${(overview['delivered'] as num?)?.toInt() ?? 0}',
                   color: Colors.green,
                   icon: Icons.check_circle_outline,
                 ),
                 _SummaryTile(
-                  label: 'Colis annules',
+                  label: 'Colis annulés',
                   value: '${(overview['cancelled'] as num?)?.toInt() ?? 0}',
                   color: Colors.orange,
                   icon: Icons.cancel_outlined,
                 ),
                 _SummaryTile(
-                  label: 'Paiement bloque',
-                  value: '${(overview['payment_blocked'] as num?)?.toInt() ?? 0}',
+                  label: 'Paiement bloqué',
+                  value:
+                      '${(overview['payment_blocked'] as num?)?.toInt() ?? 0}',
                   color: Colors.red,
                   icon: Icons.lock_clock_outlined,
                 ),
@@ -567,7 +567,7 @@ class _ParcelCard extends StatelessWidget {
               children: [
                 _InfoPill(
                   icon: Icons.person_outline,
-                  label: 'Expediteur: ${parcel.senderName ?? parcel.senderId}',
+                  label: 'Expéditeur : ${parcel.senderName ?? parcel.senderId}',
                 ),
                 _InfoPill(
                   icon: Icons.inbox_outlined,
@@ -591,7 +591,7 @@ class _ParcelCard extends StatelessWidget {
                 Expanded(
                   child: _MetaLine(
                     icon: Icons.schedule_outlined,
-                    label: 'Cree le',
+                    label: 'Créé le',
                     value: formatDate(parcel.createdAt),
                   ),
                 ),
@@ -613,7 +613,7 @@ class _ParcelCard extends StatelessWidget {
                   child: _MetaLine(
                     icon: Icons.account_balance_wallet_outlined,
                     label: 'Paiement',
-                    value: parcel.paymentStatus ?? 'non renseigne',
+                    value: parcel.paymentStatus ?? 'non renseigné',
                     valueColor: paymentColor,
                   ),
                 ),
@@ -680,7 +680,7 @@ class _ParcelCard extends StatelessWidget {
                   border: Border.all(color: Colors.red.shade100),
                 ),
                 child: const Text(
-                  'Remise finale bloquee par le paiement.',
+                  'Remise finale bloquée par le paiement.',
                   style: TextStyle(
                     color: Colors.red,
                     fontSize: 12,

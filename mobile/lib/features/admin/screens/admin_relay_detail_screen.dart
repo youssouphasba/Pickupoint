@@ -148,7 +148,7 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                             child: _UserIdentityTile(
                               user: agent,
                               subtitle:
-                                  'User ID: ${agent.id}\nRole: ${_roleLabel(agent.role)}\nKYC: ${agent.kycStatus}',
+                                  'ID utilisateur : ${agent.id}\nRôle : ${_roleLabel(agent.role)}\nKYC : ${agent.kycStatus}',
                             ),
                           ),
                       ],
@@ -225,7 +225,7 @@ class AdminRelayDetailScreen extends ConsumerWidget {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Impossible d ouvrir le composeur.')),
+      const SnackBar(content: Text('Impossible d’ouvrir le composeur.')),
     );
   }
 }
@@ -332,7 +332,7 @@ class _RelayHeader extends StatelessWidget {
             ),
             _InfoRow('Store ID', _stringOrDash(relayData['store_id'])),
             _InfoRow(
-              'Reference externe',
+              'Référence externe',
               _stringOrDash(relayData['external_ref']),
             ),
             _InfoRow(
@@ -353,9 +353,9 @@ class _RelayHeader extends StatelessWidget {
             ),
             _InfoRow('Score', _stringOrDash(relayData['score'])),
             _InfoRow('Description', _stringOrDash(relayData['description'])),
-            _InfoRow('Cree le', _formatDateValue(relayData['created_at'])),
+            _InfoRow('Créé le', _formatDateValue(relayData['created_at'])),
             _InfoRow(
-              'Mis a jour le',
+              'Mis à jour le',
               _formatDateValue(relayData['updated_at']),
             ),
           ],
@@ -677,11 +677,12 @@ class _RecentParcelTile extends StatelessWidget {
           onPressed: parcelId == '--'
               ? null
               : () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AdminParcelAuditScreen(id: parcelId),
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          AdminParcelAuditScreen(id: parcelId),
+                    ),
                   ),
-                ),
         ),
       ),
     );

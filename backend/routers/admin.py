@@ -1,4 +1,4 @@
-﻿"""
+"""
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import mimetypes
@@ -129,10 +129,10 @@ def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
 
 def _month_bounds(period: str) -> tuple[datetime, datetime]:
     if not re.fullmatch(r"\d{4}-\d{2}", period or ""):
-        raise bad_request_exception("PÃ©riode invalide")
+        raise bad_request_exception("Période invalide")
     year, month = map(int, period.split("-"))
     if not 1 <= month <= 12:
-        raise bad_request_exception("PÃ©riode invalide")
+        raise bad_request_exception("Période invalide")
     start = datetime(year, month, 1, tzinfo=timezone.utc)
     end = datetime(year, month, monthrange(year, month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc)
     return start, end
@@ -610,8 +610,8 @@ def _ensure_whatsapp_reply_window_open(conversation: dict | None) -> None:
     can_reply, _expires_at = _whatsapp_reply_window(conversation)
     if not can_reply:
         raise bad_request_exception(
-            "La fenÃªtre WhatsApp de 24 h est fermÃ©e. Le client doit d'abord renvoyer un message WhatsApp, "
-            "ou il faut utiliser un modÃ¨le approuvÃ©."
+            "La fenêtre WhatsApp de 24 h est fermée. Le client doit d'abord renvoyer un message WhatsApp, "
+            "ou il faut utiliser un modèle approuvé."
         )
 
 
@@ -639,7 +639,7 @@ async def list_whatsapp_support_conversations(
     return {"conversations": [_with_whatsapp_reply_window(conversation) for conversation in conversations]}
 
 
-@router.get("/support/whatsapp/conversations/{conversation_id}", summary="DÃ©tail conversation support WhatsApp")
+@router.get("/support/whatsapp/conversations/{conversation_id}", summary="Détail conversation support WhatsApp")
 async def get_whatsapp_support_conversation(
     conversation_id: str,
     _admin=Depends(require_admin_dep),
@@ -672,13 +672,13 @@ async def update_whatsapp_support_conversation_status(
     return {"conversation": _with_whatsapp_reply_window(conversation)}
 
 
-@router.post("/support/whatsapp/start", summary="DÃ©marrer un support WhatsApp par template")
+@router.post("/support/whatsapp/start", summary="Démarrer un support WhatsApp par template")
 async def start_whatsapp_support_conversation(
     payload: SupportStartRequest,
     admin_user=Depends(require_admin_dep),
 ):
     if not payload.phone and not payload.user_id:
-        raise bad_request_exception("Indiquez un utilisateur ou un numÃ©ro WhatsApp")
+        raise bad_request_exception("Indiquez un utilisateur ou un numéro WhatsApp")
     try:
         result = await start_support_template_conversation(
             phone=payload.phone,
@@ -691,21 +691,21 @@ async def start_whatsapp_support_conversation(
     return result
 
 
-@router.get("/support/whatsapp/media/{filename}", summary="MÃ©dia WhatsApp support")
+@router.get("/support/whatsapp/media/{filename}", summary="Média WhatsApp support")
 async def get_whatsapp_support_media(
     filename: str,
     _admin=Depends(require_admin_dep),
 ):
     if "/" in filename or "\\" in filename or ".." in filename:
-        raise not_found_exception("MÃ©dia WhatsApp")
+        raise not_found_exception("Média WhatsApp")
     path = (WHATSAPP_MEDIA_DIR / filename).resolve()
     base = WHATSAPP_MEDIA_DIR.resolve()
     if base not in path.parents:
-        raise not_found_exception("MÃ©dia WhatsApp")
+        raise not_found_exception("Média WhatsApp")
     if not path.is_file():
         restored = await ensure_whatsapp_support_media_file(filename)
         if not restored:
-            raise not_found_exception("MÃ©dia WhatsApp")
+            raise not_found_exception("Média WhatsApp")
         restored_path, restored_media_type = restored
         return FileResponse(path=restored_path, media_type=restored_media_type, filename=restored_path.name)
 
@@ -713,7 +713,7 @@ async def get_whatsapp_support_media(
     return FileResponse(path=path, media_type=media_type, filename=filename)
 
 
-@router.post("/support/whatsapp/conversations/{conversation_id}/reply", summary="RÃ©ponse texte WhatsApp")
+@router.post("/support/whatsapp/conversations/{conversation_id}/reply", summary="Réponse texte WhatsApp")
 async def reply_whatsapp_support_conversation(
     conversation_id: str,
     payload: SupportTextReplyRequest,
@@ -745,7 +745,7 @@ async def reopen_whatsapp_support_conversation(
     return {"message": serialize_support_doc(message)}
 
 
-@router.post("/support/whatsapp/conversations/{conversation_id}/voice", summary="RÃ©ponse vocale WhatsApp")
+@router.post("/support/whatsapp/conversations/{conversation_id}/voice", summary="Réponse vocale WhatsApp")
 async def reply_whatsapp_support_conversation_voice(
     conversation_id: str,
     file: UploadFile = File(...),
@@ -758,7 +758,7 @@ async def reply_whatsapp_support_conversation_voice(
 
     content_type = file.content_type or "application/octet-stream"
     if not content_type.startswith("audio/"):
-        raise bad_request_exception("Le fichier doit Ãªtre un audio")
+        raise bad_request_exception("Le fichier doit être un audio")
 
     content = await file.read(MAX_WHATSAPP_MEDIA_BYTES + 1)
     if len(content) > MAX_WHATSAPP_MEDIA_BYTES:
@@ -954,7 +954,7 @@ def _application_snapshot(
 
 
 def _looks_like_masked_phone(value: Any) -> bool:
-    return isinstance(value, str) and ("Â•" in value or "*" in value)
+    return isinstance(value, str) and ("•" in value or "*" in value)
 
 
 async def _restore_admin_parcel_phones(parcels: list[dict]) -> None:
@@ -1236,14 +1236,14 @@ def _mission_route_summary(mission: dict, live_location: dict | None, trail: lis
     }
 
 
-@router.post("/resolve-phones", summary="RÃ©soudre des numÃ©ros de tÃ©lÃ©phone en user_ids (Admin)")
+@router.post("/resolve-phones", summary="Résoudre des numéros de téléphone en user_ids (Admin)")
 async def resolve_phones(
     body: dict,
     _admin=Depends(require_admin_dep),
 ):
     phones = body.get("phones", [])
     if not phones or not isinstance(phones, list):
-        raise bad_request_exception("Liste de tÃ©lÃ©phones requise")
+        raise bad_request_exception("Liste de téléphones requise")
 
     from core.utils import normalize_phone
     user_ids = []
@@ -1258,7 +1258,7 @@ async def resolve_phones(
     return {"user_ids": user_ids, "not_found": not_found}
 
 
-@router.get("/dashboard", summary="KPIs temps rÃ©el")
+@router.get("/dashboard", summary="KPIs temps réel")
 async def dashboard(_admin=Depends(require_admin_dep)):
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1317,7 +1317,7 @@ async def dashboard(_admin=Depends(require_admin_dep)):
 
     success_rate = round(delivered / total_parcels * 100, 1) if total_parcels else 0.0
 
-    # Chiffre d'affaires : somme des paid_price des colis livrÃ©s
+    # Chiffre d'affaires : somme des paid_price des colis livrés
     pipeline = [
         {"$match": {"status": ParcelStatus.DELIVERED.value, "paid_price": {"$ne": None}}},
         {"$group": {"_id": None, "total": {"$sum": "$paid_price"}}},
@@ -1351,7 +1351,7 @@ async def admin_list_parcels(
     finance_filter: str = None,
     created_today: bool = False,
     payment_blocked: bool = False,
-    from_date: Optional[str] = Query(None, description="Date dÃ©but YYYY-MM-DD (UTC)"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     skip: int = 0,
     limit: int = 100,
@@ -1685,8 +1685,8 @@ async def admin_confirm_payment(
     _admin=Depends(require_admin_dep),
 ):
     """
-    Force le statut de paiement Ã  'paid'. Utile pour les paiements hors-ligne
-    ou pour dÃ©bloquer un flux si le webhook de paiement a Ã©chouÃ©.
+    Force le statut de paiement à 'paid'. Utile pour les paiements hors-ligne
+    ou pour débloquer un flux si le webhook de paiement a échoué.
     """
     now = datetime.now(timezone.utc)
     result = await db.parcels.update_one(
@@ -1702,9 +1702,9 @@ async def admin_confirm_payment(
         event_type="ADMIN_PAYMENT_CONFIRMED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes="Paiement validÃ© manuellement par l'admin",
+        notes="Paiement validé manuellement par l'admin",
     )
-    return {"message": "Paiement validÃ© avec succÃ¨s"}
+    return {"message": "Paiement validé avec succès"}
 
 
 @router.post("/parcels/{parcel_id}/payment-override", summary="Lever le blocage paiement d'un colis")
@@ -1761,7 +1761,7 @@ async def admin_payment_override(
             ]),
         },
     )
-    return {"message": "Blocage paiement levÃ©", "parcel_id": parcel_id}
+    return {"message": "Blocage paiement levé", "parcel_id": parcel_id}
 
 
 @router.post("/parcels/{parcel_id}/suspend", summary="Suspendre un colis (Admin)")
@@ -1800,21 +1800,21 @@ async def admin_unsuspend_parcel(
 
     await transition_status(
         parcel_id, to_status,
-        notes=f"Suspension levÃ©e vers {to_status.value}",
+        notes=f"Suspension levée vers {to_status.value}",
         **actor
     )
 
-    # Si le colis Ã©tait bien suspendu et qu'un livreur lui Ã©tait affectÃ©,
-    # le prÃ©venir explicitement que sa mission peut reprendre. La transition
-    # vers un statut actif lance dÃ©jÃ  une notif de statut gÃ©nÃ©rique mais elle
-    # ne lui parle pas spÃ©cifiquement de la levÃ©e de pause.
+    # Si le colis était bien suspendu et qu'un livreur lui était affecté,
+    # le prévenir explicitement que sa mission peut reprendre. La transition
+    # vers un statut actif lance déjà une notif de statut générique mais elle
+    # ne lui parle pas spécifiquement de la levée de pause.
     if parcel_before and parcel_before.get("status") == ParcelStatus.SUSPENDED.value and parcel_before.get("assigned_driver_id"):
         await notify_driver_mission_resumed(parcel_before, to_status)
 
-    return {"message": f"Suspension levÃ©e vers {to_status.value}"}
+    return {"message": f"Suspension levée vers {to_status.value}"}
 
 
-@router.get("/relay-points", summary="RÃ©seau relais complet")
+@router.get("/relay-points", summary="Réseau relais complet")
 async def admin_relay_points(
     active: Optional[bool] = None,
     skip: int = 0,
@@ -1844,7 +1844,7 @@ async def verify_relay(relay_id: str, _admin=Depends(require_admin_dep)):
     )
     if result.matched_count == 0:
         raise not_found_exception("Point relais")
-    return {"message": "Relais vÃ©rifiÃ©"}
+    return {"message": "Relais vérifié"}
 
 
 @router.get("/drivers", summary="Liste livreurs + stats")
@@ -1910,7 +1910,7 @@ async def admin_drivers(
 
 @router.get("/wallets/payouts", summary="Demandes de retrait en attente")
 async def admin_pending_payouts(
-    from_date: Optional[str] = Query(None, description="Date dÃ©but YYYY-MM-DD (UTC)"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
@@ -1934,15 +1934,15 @@ async def approve_payout(
     if wallet_before and wallet_before.get("payout_blocked"):
         raise bad_request_exception(
             wallet_before.get("payout_block_reason")
-            or "DÃ©caissement bloquÃ© manuellement par l'administration"
+            or "Décaissement bloqué manuellement par l'administration"
         )
     owner_id = payout.get("user_id") or payout.get("owner_id")
     owner = await db.users.find_one({"user_id": owner_id}, {"_id": 0, "role": 1}) if owner_id else None
     if owner and owner.get("role") == UserRole.DRIVER.value:
         if await _has_active_driver_mission(owner_id):
-            raise bad_request_exception("DÃ©caissement indisponible tant qu'une course est active")
+            raise bad_request_exception("Décaissement indisponible tant qu'une course est active")
         if await _recent_failed_driver_mission(owner_id):
-            raise bad_request_exception("DÃ©caissement bloquÃ© pendant 48h après une mission Ã©chouÃ©e")
+            raise bad_request_exception("Décaissement bloqué pendant 48h après une mission échouée")
 
     now = datetime.now(timezone.utc)
     payout_result = await db.payout_requests.update_one(
@@ -1966,14 +1966,14 @@ async def approve_payout(
             {"payout_id": payout_id, "status": "approved"},
             {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
         )
-        raise bad_request_exception("Solde bloque incoherent pour cette demande")
+        raise bad_request_exception("Solde bloqué incohérent pour cette demande")
 
     wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
     await record_wallet_transaction(
         wallet_id=payout["wallet_id"],
         amount=payout["amount"],
         tx_type=TransactionType.DEBIT.value,
-        description="Retrait approuve et verse",
+        description="Retrait approuvé et versé",
         reference=payout_id,
         ensure_unique=True,
     )
@@ -1982,7 +1982,7 @@ async def approve_payout(
         event_type="PAYOUT_APPROVED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=f"Retrait approuve pour le montant {payout['amount']} XOF",
+        notes=f"Retrait approuvé pour un montant de {payout['amount']} XOF",
         metadata={
             "payout_id": payout_id,
             "amount": payout["amount"],
@@ -2020,7 +2020,7 @@ async def approve_payout(
 
     await record_admin_event(
         AdminEventType.PAYOUT_APPROVED,
-        title=f"Retrait validÃ© : {int(payout['amount']):,} XOF".replace(",", " "),
+        title=f"Retrait validé : {int(payout['amount']):,} XOF".replace(",", " "),
         message=f"Payout {payout_id}",
         href="/dashboard/payouts",
         metadata={
@@ -2031,10 +2031,10 @@ async def approve_payout(
         },
     )
 
-    return {"message": "Retrait approuve", "payout_id": payout_id}
+    return {"message": "Retrait approuvé", "payout_id": payout_id}
 
 
-@router.put("/users/{user_id}/payout-block", summary="Bloquer ou dÃ©bloquer les dÃ©caissements utilisateur")
+@router.put("/users/{user_id}/payout-block", summary="Bloquer ou débloquer les décaissements utilisateur")
 async def set_user_payout_block(
     user_id: str,
     body: PayoutBlockRequest,
@@ -2044,7 +2044,7 @@ async def set_user_payout_block(
     if not user:
         raise not_found_exception("Utilisateur")
     if body.blocked and len(body.reason.strip()) < 3:
-        raise bad_request_exception("Le motif est obligatoire pour bloquer un dÃ©caissement")
+        raise bad_request_exception("Le motif est obligatoire pour bloquer un décaissement")
 
     wallet = await db.wallets.find_one({"owner_id": user_id}, {"_id": 0})
     if not wallet:
@@ -2077,14 +2077,14 @@ async def set_user_payout_block(
         event_type="PAYOUT_BLOCK_UPDATED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=body.reason.strip() if body.blocked else "DÃ©caissement dÃ©bloquÃ©",
+        notes=body.reason.strip() if body.blocked else "Décaissement débloqué",
         metadata={
             "user_id": user_id,
             "blocked": body.blocked,
             "reason": body.reason.strip() if body.blocked else "",
         },
     )
-    return {"message": "DÃ©caissement bloquÃ©" if body.blocked else "DÃ©caissement dÃ©bloquÃ©", "blocked": body.blocked}
+    return {"message": "Décaissement bloqué" if body.blocked else "Décaissement débloqué", "blocked": body.blocked}
 
 
 
@@ -2153,7 +2153,7 @@ async def admin_list_users(
     skip: int = 0,
     limit: int = 100,
     role: str = None,
-    from_date: Optional[str] = Query(None, description="Date dÃ©but YYYY-MM-DD (UTC)"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
@@ -2185,14 +2185,14 @@ async def admin_list_users(
     return {"users": users, "total": total}
 
 
-@router.post("/notifications/send", summary="Envoyer une notification ciblÃ©e")
+@router.post("/notifications/send", summary="Envoyer une notification ciblée")
 async def admin_send_targeted_notification(
     body: TargetedNotificationRequest,
     admin_user=Depends(require_admin_dep),
 ):
     user_ids = [user_id.strip() for user_id in body.user_ids if user_id.strip()]
     if not user_ids and not body.role:
-        raise bad_request_exception("SÃ©lectionnez au moins un utilisateur ou un rÃ´le")
+        raise bad_request_exception("Sélectionnez au moins un utilisateur ou un rôle")
 
     query: dict[str, Any] = {}
     if user_ids:
@@ -2208,7 +2208,7 @@ async def admin_send_targeted_notification(
         {"_id": 0, "user_id": 1, "role": 1, "is_active": 1, "is_banned": 1},
     ).to_list(length=500)
     if not users:
-        raise bad_request_exception("Aucun utilisateur Ã©ligible pour cette notification")
+        raise bad_request_exception("Aucun utilisateur éligible pour cette notification")
 
     matched_ids = [user["user_id"] for user in users]
     broadcast_id = f"ntfb_{uuid.uuid4().hex[:12]}"
@@ -2267,7 +2267,7 @@ async def admin_send_targeted_notification(
     }
 
 
-@router.get("/notifications/history", summary="Historique des notifications ciblÃ©es")
+@router.get("/notifications/history", summary="Historique des notifications ciblées")
 async def admin_notification_history(
     limit: int = Query(50, ge=1, le=200),
     _admin=Depends(require_admin_dep),
@@ -2343,7 +2343,7 @@ async def admin_moderate_user_kyc(
         if user.get("role") == UserRole.DRIVER.value:
             if not id_card_url or not license_url:
                 raise bad_request_exception(
-                    "Le livreur doit fournir la piece d'identite et le permis avant validation KYC"
+                    "Le livreur doit fournir sa pièce d’identité et son permis avant la validation KYC"
                 )
         elif not id_card_url and not license_url:
             raise bad_request_exception(
@@ -2681,7 +2681,7 @@ async def admin_reset_user_pin(
         },
     )
 
-    return {"message": "PIN utilisateur reinitialise"}
+    return {"message": "Code PIN de l’utilisateur réinitialisé"}
 
 
 @router.post("/users/{user_id}/ban", summary="Bannir un utilisateur")
@@ -2750,7 +2750,7 @@ async def admin_ban_user(
         }
     )
 
-    return {"message": "Utilisateur banni et sessions revoquees"}
+    return {"message": "Utilisateur banni et sessions révoquées"}
 
 
 @router.post("/users/{user_id}/unban", summary="Lever le bannissement")
@@ -2811,10 +2811,10 @@ async def admin_unban_user(
         }
     )
 
-    return {"message": "Bannissement leve"}
+    return {"message": "Bannissement levé"}
 
 
-@router.put("/users/{user_id}/referral-access", summary="Configurer l'acces parrainage d'un utilisateur")
+@router.put("/users/{user_id}/referral-access", summary="Configurer l’accès au parrainage d’un utilisateur")
 async def admin_set_user_referral_access(
     user_id: str,
     body: UserReferralAccessRequest,
@@ -2838,7 +2838,7 @@ async def admin_set_user_referral_access(
         event_type="USER_REFERRAL_ACCESS_UPDATED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes="Acces parrainage utilisateur mis a jour",
+        notes="Accès au parrainage de l’utilisateur mis à jour",
         metadata={
             "target_user_id": user_id,
             "before": {
@@ -2868,9 +2868,9 @@ async def admin_confirm_referral_payment(
     if not referral:
         raise not_found_exception("Parrainage")
     if referral.get("status") == "rewarded":
-        return {"message": "Paiement parrainage deja valide", "referral": referral}
+        return {"message": "Paiement du parrainage déjà validé", "referral": referral}
     if referral.get("status") != "qualified":
-        raise bad_request_exception("Le parrainage n'est pas encore qualifie pour paiement")
+        raise bad_request_exception("Le parrainage n’est pas encore admissible au paiement")
 
     now = datetime.now(timezone.utc)
     note = (body.note or "").strip()
@@ -2918,13 +2918,13 @@ async def admin_confirm_referral_payment(
     return {"message": "Paiement parrainage valide", "referral": updated}
 
 
-@router.get("/fleet/live", summary="Position GPS temps rÃ©el de la flotte")
+@router.get("/fleet/live", summary="Position GPS temps réel de la flotte")
 async def get_live_fleet(_admin=Depends(require_admin_dep)):
     """
-    Retourne la position GPS de tous les livreurs connectÃ©s 
-    ayant mis Ã  jour leur position rÃ©cemment.
+    Retourne la position GPS de tous les livreurs connectés
+    ayant mis à jour leur position récemment.
     """
-    # On cherche les livreurs actifs (mis Ã  jour depuis < 1h)
+    # On cherche les livreurs actifs (mis à jour depuis < 1h)
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
     
@@ -2969,11 +2969,11 @@ async def get_stale_parcels(_admin=Depends(require_admin_dep)):
     return {"stale_parcels": stale, "total": len(stale)}
 
 
-@router.get("/analytics/anomaly-alerts", summary="DÃ©tection d'anomalies (ImmobilitÃ©/Retard)")
+@router.get("/analytics/anomaly-alerts", summary="Détection d'anomalies (Immobilité/Retard)")
 async def get_anomaly_alerts(_admin=Depends(require_admin_dep)):
     """
-    Identifie les anomalies opÃ©rationnelles :
-    - Signal perdu : Pas de mise Ã  jour GPS depuis > 20 min sur une mission active.
+    Identifie les anomalies opérationnelles :
+    - Signal perdu : Pas de mise à jour GPS depuis > 20 min sur une mission active.
     - Retard critique : Mission active depuis > 3 heures.
     """
     from datetime import timedelta
@@ -3009,7 +3009,7 @@ async def get_anomaly_alerts(_admin=Depends(require_admin_dep)):
     }, {"_id": 0})
     
     async for m in long_cursor:
-        # Ã‰viter les doublons si dÃ©jÃ  en signal_lost
+        # Éviter les doublons si déjà en signal_lost
         if any(a["mission_id"] == m["mission_id"] for a in anomalies):
             continue
             
@@ -3034,11 +3034,11 @@ async def get_anomaly_alerts(_admin=Depends(require_admin_dep)):
     return {"anomalies": anomalies, "total": len(anomalies)}
 
 
-@router.get("/analytics/heatmap", summary="DonnÃ©es pour la heatmap des demandes")
+@router.get("/analytics/heatmap", summary="Données pour la heatmap des demandes")
 async def get_heatmap_data(_admin=Depends(require_admin_dep)):
     """
-    Retourne les coordonnÃ©es GPS de tous les points de collecte et livraison
-    pour visualiser la densitÃ© de la demande sur les 30 derniers jours.
+    Retourne les coordonnées GPS de tous les points de collecte et livraison
+    pour visualiser la densité de la demande sur les 30 derniers jours.
     """
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
@@ -3070,7 +3070,7 @@ async def get_heatmap_data(_admin=Depends(require_admin_dep)):
 @router.get("/parcels/{parcel_id}/audit", summary="Audit Trail complet du colis")
 async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
     """
-    Retourne l'historique complet des Ã©vÃ©nements avec mÃ©tadonnÃ©es techniques 
+    Retourne l'historique complet des événements avec métadonnées techniques
     (Scans, traces GPS, etc.) et noms des intervenants.
     """
     from services.parcel_service import get_parcel_timeline
@@ -3095,7 +3095,7 @@ async def get_parcel_audit(parcel_id: str, _admin=Depends(require_admin_dep)):
             if actor:
                 event["actor_name"] = actor["name"]
 
-    # On cherche aussi les traces GPS associÃ©es aux missions de ce colis
+    # On cherche aussi les traces GPS associées aux missions de ce colis
     missions_cursor = db.delivery_missions.find({"parcel_id": parcel_id}, {"_id": 0})
     missions = await missions_cursor.to_list(length=10)
     
@@ -3832,14 +3832,14 @@ async def admin_relay_point_detail(
     }
 
 
-@router.get("/finance/cod-monitoring", summary="Suivi du cash autorisÃ©")
+@router.get("/finance/cod-monitoring", summary="Suivi du cash autorisé")
 async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     """
-    Retourne le montant de cash thÃ©oriquement dÃ©tenu par chaque livreur/relais
-    pour les transactions autorisÃ©es hors-app (point 2).
+    Retourne le montant de cash théoriquement détenu par chaque livreur/relais
+    pour les transactions autorisées hors-app (point 2).
     """
-    # Ici on simule une agrÃ©gation sur les missions ou wallets
-    # Selon le schÃ©ma, on peut chercher les "cash_collected" dans les Ã©vÃ©nements
+    # Ici on simule une agrégation sur les missions ou wallets
+    # Selon le schéma, on peut chercher les "cash_collected" dans les événements
     pipeline = [
         {"$match": {"role": UserRole.DRIVER.value}},
         {"$project": {"_id": 0, "user_id": 1, "name": 1, "cod_balance": {"$ifNull": ["$cod_balance", 0]}}}
@@ -3848,7 +3848,7 @@ async def get_cod_monitoring(_admin=Depends(require_admin_dep)):
     return {"entities": drivers_cash}
 
 
-@router.get("/finance/monthly-summary", summary="SynthÃ¨se financiÃ¨re mensuelle")
+@router.get("/finance/monthly-summary", summary="Synthèse financière mensuelle")
 async def get_finance_monthly_summary(
     period: str = Query(..., description="Format YYYY-MM"),
     _admin=Depends(require_admin_dep),
@@ -4136,7 +4136,7 @@ async def admin_reassign_mission(
     if not driver:
         raise bad_request_exception("Livreur cible introuvable ou inactif")
     if not (driver.get("profile_picture_url") or "").strip() or driver.get("profile_picture_status") != "approved":
-        raise bad_request_exception("Le livreur cible doit avoir une photo de profil approuvee avant d'etre assigne")
+        raise bad_request_exception("Le livreur sélectionné doit avoir une photo de profil approuvée avant d’être assigné")
     if driver.get("is_available") is False:
         raise bad_request_exception("Le livreur cible est actuellement indisponible")
 
@@ -4149,7 +4149,7 @@ async def admin_reassign_mission(
         {"_id": 0, "mission_id": 1},
     )
     if active_mission:
-        raise bad_request_exception("Le livreur cible a deja une mission en cours")
+        raise bad_request_exception("Le livreur sélectionné a déjà une mission en cours")
 
     parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
     if not parcel:
@@ -4237,7 +4237,7 @@ async def admin_reassign_mission(
                 owner_id=body.new_driver_id,
                 owner_type="driver",
                 amount=commission_xof,
-                description=f"Commission mission imposee {mission_id}",
+                description=f"Commission de la mission imposée {mission_id}",
                 parcel_id=mission["parcel_id"],
                 reference=f"commission_debt:{mission_id}",
                 ensure_unique=True,
@@ -4289,7 +4289,7 @@ async def admin_reassign_mission(
             )
 
     return {
-        "message": "Mission reaffectee avec succes",
+        "message": "Mission réaffectée avec succès",
         "mission_id": mission_id,
         "parcel_id": mission.get("parcel_id"),
         "driver_id": body.new_driver_id,
@@ -4302,14 +4302,14 @@ class IncidentResolutionRequest(BaseModel):
     action: str  # "reassign", "return", "cancel"
     notes: Optional[str] = None
 
-@router.post("/incidents/{parcel_id}/resolve", summary="RÃ©soudre un incident (Admin)")
+@router.post("/incidents/{parcel_id}/resolve", summary="Résoudre un incident (Admin)")
 async def admin_resolve_incident(
     parcel_id: str,
     body: IncidentResolutionRequest,
     _admin=Depends(require_admin_dep),
 ):
     """
-    Prend une dÃ©cision suite Ã  un incident signalÃ© par un livreur.
+    Prend une décision suite à un incident signalé par un livreur.
     """
     parcel = await db.parcels.find_one({"parcel_id": parcel_id})
     if not parcel:
@@ -4319,7 +4319,7 @@ async def admin_resolve_incident(
     from services.parcel_service import transition_status, _create_delivery_mission, _record_event
     from models.delivery import MissionStatus
 
-    # 1. ClÃ´turer l'ancienne mission si elle est encore active
+    # 1. Clôturer l'ancienne mission si elle est encore active
     await db.delivery_missions.update_one(
         {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress", "incident_reported"]}},
         {"$set": {"status": MissionStatus.FAILED.value, "completed_at": now, "updated_at": now}}
@@ -4329,25 +4329,25 @@ async def admin_resolve_incident(
 
     if body.action == "reassign":
         # Repasser en OUT_FOR_DELIVERY (ou CREATED/IN_TRANSIT selon l'endroit)
-        # Pour simplifier, on force OUT_FOR_DELIVERY pour qu'une nouvelle mission soit crÃ©Ã©e
+        # Pour simplifier, on force OUT_FOR_DELIVERY pour qu'une nouvelle mission soit créée
         await db.parcels.update_one(
             {"parcel_id": parcel_id},
             {"$set": {"assigned_driver_id": None, "updated_at": now}}
         )
-        # On recrÃ©e une mission
+        # On recrée une mission
         await _create_delivery_mission(parcel, ParcelStatus(parcel["status"]))
-        notes = f"Incident rÃ©solu par rÃ©assignation. {body.notes or ''}"
+        notes = f"Incident résolu par réassignation. {body.notes or ''}"
     
     elif body.action == "return":
-        await transition_status(parcel_id, ParcelStatus.RETURNED, notes=f"Incident rÃ©solu par retour Ã  l'envoyeur. {body.notes or ''}", **actor)
-        return {"message": "Incident rÃ©solu : Colis en cours de retour"}
+        await transition_status(parcel_id, ParcelStatus.RETURNED, notes=f"Incident résolu par retour à l'envoyeur. {body.notes or ''}", **actor)
+        return {"message": "Incident résolu : Colis en cours de retour"}
 
     elif body.action == "cancel":
-        await transition_status(parcel_id, ParcelStatus.CANCELLED, notes=f"Incident rÃ©solu par annulation. {body.notes or ''}", **actor)
-        return {"message": "Incident rÃ©solu : Colis annulÃ©"}
+        await transition_status(parcel_id, ParcelStatus.CANCELLED, notes=f"Incident résolu par annulation. {body.notes or ''}", **actor)
+        return {"message": "Incident résolu : Colis annulé"}
 
     else:
-        raise bad_request_exception("Action de rÃ©solution invalide")
+        raise bad_request_exception("Action de résolution invalide")
 
     await _record_event(
         parcel_id=parcel_id,
@@ -4357,7 +4357,7 @@ async def admin_resolve_incident(
         metadata={"action": body.action}
     )
     
-    return {"message": "Incident rÃ©solu avec succÃ¨s"}
+    return {"message": "Incident résolu avec succès"}
 
 
 @router.post("/finance/settle", summary="Confirmer l'encaissement du cash (COD)")
@@ -4367,7 +4367,7 @@ async def admin_settle_cod(
     _admin=Depends(require_admin_dep),
 ):
     """
-    Solde tout ou partie du cash on delivery collectÃ© par un livreur.
+    Solde tout ou partie du cash on delivery collecté par un livreur.
     """
     from services.admin_service import settle_driver_cod
     res = await settle_driver_cod(driver_id, amount)
@@ -4376,7 +4376,7 @@ async def admin_settle_cod(
         event_type="COD_SETTLED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes=f"Encaissement COD validÃ© pour le livreur {driver_id}: {res['amount_settled']} XOF",
+        notes=f"Encaissement COD validé pour le livreur {driver_id}: {res['amount_settled']} XOF",
         metadata={"driver_id": driver_id, "amount_settled": res["amount_settled"]}
     )
     
@@ -4397,7 +4397,7 @@ async def admin_override_status(
     return await override_parcel_status(parcel_id, new_status, notes)
 
 
-# -- FidÃ©litÃ© & RÃ©compenses (Phase 8) -----------------------------------------
+# -- Fidélité & Récompenses (Phase 8) -----------------------------------------
 
 @router.post("/recompenses/trigger-monthly", summary="Lancer manuellement le calcul mensuel (Admin)")
 async def admin_trigger_monthly(
@@ -4405,7 +4405,7 @@ async def admin_trigger_monthly(
     _admin=Depends(require_admin_dep),
 ):
     """
-    DÃ©clenche le calcul des stats et le versement des bonus pour une pÃ©riode donnÃ©e.
+    Déclenche le calcul des stats et le versement des bonus pour une période donnée.
     """
     from services.ranking_service import (
         compute_driver_stats_for_period, 
@@ -4428,7 +4428,7 @@ async def admin_trigger_monthly(
     # 3. Bonus Relais
     await compute_relay_stats_and_pay_bonuses(period)
     
-    return {"message": f"Calculs terminÃ©s pour la pÃ©riode {period}"}
+    return {"message": f"Calculs terminés pour la période {period}"}
 
 
 @router.get("/recompenses/driver-stats", summary="Voir les stats de performance drivers")
@@ -4666,12 +4666,12 @@ async def admin_get_relay_stats(
 async def admin_get_audit_log(
     limit: int = 100,
     offset: int = 0,
-    from_date: Optional[str] = Query(None, description="Date dÃ©but YYYY-MM-DD (UTC)"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
     """
-    RÃ©cupÃ¨re les derniers Ã©vÃ©nements systÃ¨me pour une traÃ§abilitÃ© complÃ¨te.
+    Récupère les derniers événements système pour une traçabilité complète.
     """
     query = date_range_query(from_date, to_date, field="created_at")
     cursor = db.parcel_events.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
@@ -4737,14 +4737,14 @@ async def reject_payout(
             {"payout_id": payout_id, "status": "rejected"},
             {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
         )
-        raise bad_request_exception("Solde bloque incoherent pour cette demande")
+        raise bad_request_exception("Solde bloqué incohérent pour cette demande")
 
     wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
     await record_wallet_transaction(
         wallet_id=payout["wallet_id"],
         amount=payout["amount"],
         tx_type=TransactionType.CREDIT.value,
-        description="Retrait rejete et montant restitue",
+        description="Retrait rejeté et montant restitué",
         reference=payout_id,
         ensure_unique=True,
     )
@@ -4793,7 +4793,7 @@ async def reject_payout(
 
     await record_admin_event(
         AdminEventType.PAYOUT_REJECTED,
-        title=f"Retrait rejetÃ© : {int(payout['amount']):,} XOF".replace(",", " "),
+        title=f"Retrait rejeté : {int(payout['amount']):,} XOF".replace(",", " "),
         message=reason,
         href="/dashboard/payouts",
         metadata={
@@ -4804,13 +4804,13 @@ async def reject_payout(
         },
     )
 
-    return {"message": "Retrait rejete", "payout_id": payout_id}
+    return {"message": "Retrait rejeté", "payout_id": payout_id}
 
 
 
 # -- App Settings (Express, etc.) ---------------------------------------------
 
-@router.get("/settings", summary="Lire les paramÃ¨tres globaux de l'app")
+@router.get("/settings", summary="Lire les paramètres globaux de l'app")
 async def get_app_settings(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     pricing_settings = await get_pricing_settings()
@@ -4852,7 +4852,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     }
 
 
-@router.put("/settings/performance-rewards", summary="Configurer les rÃ©compenses de performance")
+@router.put("/settings/performance-rewards", summary="Configurer les récompenses de performance")
 async def update_performance_rewards_settings(body: dict, _admin=Depends(require_admin_dep)):
     performance_rewards = await set_performance_rewards_settings(body)
     await db.app_settings.update_one(
@@ -5030,7 +5030,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     now = datetime.now(timezone.utc)
     last_30_days = now - timedelta(days=30)
 
-    # Aggregation pipeline Â— no full user scan
+    # Aggregation pipeline — no full user scan
     pipeline = [
         {"$match": {"role": {"$in": REFERRAL_ELIGIBLE_ROLES}}},
         {"$group": {
@@ -5174,7 +5174,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     }
 
 
-@router.put("/settings/express", summary="Activer/dÃ©sactiver la livraison Express")
+@router.put("/settings/express", summary="Activer/désactiver la livraison Express")
 async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
     enabled = bool(body.get("enabled", False))
     await db.app_settings.update_one(
@@ -5182,7 +5182,7 @@ async def toggle_express(body: dict, _admin=Depends(require_admin_dep)):
         {"$set": {"express_enabled": enabled, "updated_at": datetime.now(timezone.utc)}},
         upsert=True,
     )
-    status = "activÃ©e" if enabled else "dÃ©sactivÃ©e"
+    status = "activée" if enabled else "désactivée"
     return {"express_enabled": enabled, "message": f"Livraison Express {status}"}
 
 
@@ -5205,11 +5205,11 @@ async def update_delivery_dispatch_settings(body: dict, _admin=Depends(require_a
     )
     return {
         "delivery_dispatch": delivery_dispatch,
-        "message": "Diffusion des courses mise a jour",
+        "message": "Diffusion des courses mise à jour",
     }
 
 
-@router.put("/settings/logistics", summary="Configurer les rÃ¨gles logistiques")
+@router.put("/settings/logistics", summary="Configurer les règles logistiques")
 async def update_logistics_settings(body: dict, _admin=Depends(require_admin_dep)):
     try:
         distance = float(body.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM))
@@ -5217,7 +5217,7 @@ async def update_logistics_settings(body: dict, _admin=Depends(require_admin_dep
         raise bad_request_exception("Rayon relais de repli invalide")
 
     if distance < 0.1 or distance > 10:
-        raise bad_request_exception("Le rayon relais de repli doit Ãªtre compris entre 0,1 km et 10 km")
+        raise bad_request_exception("Le rayon relais de repli doit être compris entre 0,1 km et 10 km")
 
     now = datetime.now(timezone.utc)
     await db.app_settings.update_one(
@@ -5230,11 +5230,11 @@ async def update_logistics_settings(body: dict, _admin=Depends(require_admin_dep
     )
     return {
         "redirect_relay_max_distance_km": distance,
-        "message": "RÃ¨gles logistiques mises Ã  jour",
+        "message": "Règles logistiques mises à jour",
     }
 
 
-@router.put("/settings/operational", summary="Configurer les rÃ¨gles opÃ©rationnelles")
+@router.put("/settings/operational", summary="Configurer les règles opérationnelles")
 async def update_operational_settings(body: dict, _admin=Depends(require_admin_dep)):
     numeric_defaults = {
         "base_relay_to_relay": settings.BASE_RELAY_TO_RELAY,
@@ -5259,15 +5259,15 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         except (TypeError, ValueError):
             raise bad_request_exception(f"Valeur invalide pour {key}")
         if value < 0:
-            raise bad_request_exception(f"{key} ne peut pas Ãªtre nÃ©gatif")
+            raise bad_request_exception(f"{key} ne peut pas être négatif")
         updates[key] = value
 
     if not 0.1 <= updates["redirect_relay_max_distance_km"] <= 10:
-        raise bad_request_exception("Le rayon relais de repli doit Ãªtre compris entre 0,1 km et 10 km")
+        raise bad_request_exception("Le rayon relais de repli doit être compris entre 0,1 km et 10 km")
     if updates["express_multiplier"] < 1:
-        raise bad_request_exception("Le multiplicateur Express doit Ãªtre supÃ©rieur ou Ã©gal Ã  1")
+        raise bad_request_exception("Le multiplicateur Express doit être supérieur ou égal à 1")
     if updates["night_multiplier"] < 1:
-        raise bad_request_exception("Le multiplicateur nuit/dimanche doit Ãªtre supÃ©rieur ou Ã©gal Ã  1")
+        raise bad_request_exception("Le multiplicateur nuit/dimanche doit être supérieur ou égal à 1")
     if updates["min_price"] < 100:
         raise bad_request_exception("Le prix minimum est trop faible")
     try:
@@ -5322,7 +5322,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         ),
         "redirect_relay_max_distance_km": after.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "pricing": await get_pricing_settings(),
-        "message": "Configuration opÃ©rationnelle mise Ã  jour",
+        "message": "Configuration opérationnelle mise à jour",
     }
 
 
@@ -5355,7 +5355,7 @@ async def update_referral_settings(
         event_type="ADMIN_REFERRAL_SETTINGS_UPDATED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
-        notes="Configuration du parrainage mise a jour",
+        notes="Configuration du parrainage mise à jour",
         metadata={
             "before": {r: get_referral_role_config(before, r) for r in REFERRAL_ELIGIBLE_ROLES},
             "after": {r: get_referral_role_config(after, r) for r in REFERRAL_ELIGIBLE_ROLES},
@@ -5373,7 +5373,7 @@ async def update_referral_settings(
         },
         "referral_share_base_url": get_referral_share_base_url(after),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(after),
-        "message": "Configuration du parrainage mise a jour",
+        "message": "Configuration du parrainage mise à jour",
     }
 
 
@@ -6125,5 +6125,3 @@ async def get_finance_overview(
         },
         "alerts": alerts,
     }
-
-

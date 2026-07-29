@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -282,7 +282,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _PriorityItem(
         title: 'Retards critiques',
-        subtitle: 'Missions en retard notable a investiguer.',
+        subtitle: 'Missions présentant un retard important à examiner.',
         count: _intValue(stats['critical_delay']),
         color: Colors.amber.shade800,
         icon: Icons.timer_outlined,
@@ -306,7 +306,7 @@ class _DashboardBody extends StatelessWidget {
       _MetricCardData(
         label: 'Flotte live',
         value: _intValue(stats['live_fleet']).toString(),
-        helper: 'Positions recues depuis moins d\'1h',
+        helper: 'Positions reçues depuis moins d’une heure',
         color: Colors.indigo,
         icon: Icons.map_outlined,
       ),
@@ -359,7 +359,7 @@ class _DashboardBody extends StatelessWidget {
       ),
       _ShortcutItem(
         title: 'Relais',
-        subtitle: 'Verification et contrôle réseau',
+        subtitle: 'Vérification et contrôle du réseau',
         route: '/admin/relays',
         icon: Icons.store_mall_directory_outlined,
         color: Colors.green,
@@ -825,8 +825,8 @@ class _ExpressToggleTileState extends ConsumerState<_ExpressToggleTile> {
             ),
             subtitle: Text(
               enabled
-                  ? 'Activee et visible par les clients (+30 %).'
-                  : 'Desactivee et masquee pour les clients.',
+                  ? 'Activée et visible par les clients (+30 %).'
+                  : 'Désactivée et masquée pour les clients.',
               style: TextStyle(
                 color: enabled ? const Color(0xFFFF6B00) : Colors.grey,
                 fontSize: 13,
@@ -882,25 +882,24 @@ class _DeliveryDispatchSettingsTileState
     if (stages.isEmpty) {
       return 'Aucun palier configuré.';
     }
-    return stages
-        .map((stage) {
-          final seconds = _intValue(stage['start_after_seconds']);
-          final radius = _doubleValue(stage['radius_km']);
-          final radiusLabel =
-              radius == radius.roundToDouble() ? radius.toInt().toString() : radius.toStringAsFixed(1);
-          if (seconds == 0) {
-            return '$radiusLabel km immédiatement';
-          }
-          return '$radiusLabel km après ${seconds}s';
-        })
-        .join(' • ');
+    return stages.map((stage) {
+      final seconds = _intValue(stage['start_after_seconds']);
+      final radius = _doubleValue(stage['radius_km']);
+      final radiusLabel = radius == radius.roundToDouble()
+          ? radius.toInt().toString()
+          : radius.toStringAsFixed(1);
+      if (seconds == 0) {
+        return '$radiusLabel km immédiatement';
+      }
+      return '$radiusLabel km après ${seconds}s';
+    }).join(' • ');
   }
 
   Future<void> _editStages(Map<String, dynamic> data) async {
     final stages = _stagesFromData(data);
     final radiusControllers = stages
-        .map((stage) =>
-            TextEditingController(text: _doubleValue(stage['radius_km']).toString()))
+        .map((stage) => TextEditingController(
+            text: _doubleValue(stage['radius_km']).toString()))
         .toList();
     final delayControllers = stages
         .map((stage) => TextEditingController(
@@ -959,7 +958,8 @@ class _DeliveryDispatchSettingsTileState
               onPressed: () {
                 final nextStages = <Map<String, dynamic>>[];
                 for (var index = 0; index < stages.length; index++) {
-                  final radius = double.tryParse(radiusControllers[index].text.trim());
+                  final radius =
+                      double.tryParse(radiusControllers[index].text.trim());
                   final startAfterSeconds =
                       int.tryParse(delayControllers[index].text.trim());
                   if (radius == null || startAfterSeconds == null) {
@@ -1109,7 +1109,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
       config['metric_options'] as List? ??
           const [
             {'value': 'sent_parcels', 'label': '0 colis envoyes'},
-            {'value': 'delivered_sender_parcels', 'label': '0 colis livres'},
+            {'value': 'delivered_sender_parcels', 'label': '0 colis livrés'},
             {
               'value': 'completed_driver_deliveries',
               'label': '0 livraisons effectuees'
@@ -1457,5 +1457,3 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     );
   }
 }
-
-

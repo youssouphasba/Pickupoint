@@ -76,7 +76,7 @@ class _ClientSearchScreenState extends State<ClientSearchScreen> {
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Saisissez simplement le code de suivi recu par SMS, WhatsApp ou visible dans les details du colis.',
+                  'Saisissez simplement le code de suivi reçu par SMS, WhatsApp ou visible dans les détails du colis.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white70, fontSize: 14),
                 ),
@@ -138,12 +138,12 @@ class _ClientSearchScreenState extends State<ClientSearchScreen> {
             icon: Icons.info_outline,
             title: 'Ou trouver le code',
             subtitle:
-                'Le code de suivi est partage a la creation du colis et dans les messages de suivi. Il ressemble a PKP-123456.',
+                'Le code de suivi est partagé à la création du colis et dans les messages de suivi. Il ressemble à PKP-123456.',
           ),
           const SizedBox(height: 12),
           const _InfoCard(
             icon: Icons.lock_outline,
-            title: 'A quoi sert cet ecran',
+            title: 'À quoi sert cet écran',
             subtitle:
                 'Il sert uniquement à consulter l’état d’un colis. Le client n’a rien à scanner ici.',
           ),

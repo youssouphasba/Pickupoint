@@ -55,8 +55,8 @@ class _AdminApplicationsScreenState
           tabs: const [
             Tab(text: 'Toutes'),
             Tab(text: 'En attente'),
-            Tab(text: 'Approuvees'),
-            Tab(text: 'Rejetees'),
+            Tab(text: 'Approuvées'),
+            Tab(text: 'Rejetées'),
           ],
         ),
       ),
@@ -98,8 +98,8 @@ class _ApplicationsList extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(
                   switch (status) {
-                    'approved' => 'Aucune candidature approuvee',
-                    'rejected' => 'Aucune candidature rejetee',
+                    'approved' => 'Aucune candidature approuvée',
+                    'rejected' => 'Aucune candidature rejetée',
                     'all' => 'Aucune candidature',
                     _ => 'Aucune candidature en attente',
                   },
@@ -206,11 +206,11 @@ class _ApplicationCard extends ConsumerWidget {
             ),
             const Divider(height: 20),
             _row(Icons.person_outline, 'Candidat', name),
-            _row(Icons.phone_outlined, 'Telephone', maskPhone(phone)),
+            _row(Icons.phone_outlined, 'Téléphone', maskPhone(phone)),
             _row(Icons.tag_outlined, 'Dossier', appId),
             _row(Icons.schedule_outlined, 'Soumise le', createdAt),
             if (status != 'pending')
-              _row(Icons.update_outlined, 'Traitee le', updatedAt),
+              _row(Icons.update_outlined, 'Traitée le', updatedAt),
             if (isDriver) ...[
               const SizedBox(height: 10),
               _ProfilePhotoReview(
@@ -225,7 +225,7 @@ class _ApplicationCard extends ConsumerWidget {
                   _stringOrDash(data['id_card_number'])),
               _row(Icons.credit_card_outlined, 'Permis',
                   _stringOrDash(data['license_number'])),
-              _row(Icons.two_wheeler_outlined, 'Vehicule',
+              _row(Icons.two_wheeler_outlined, 'Véhicule',
                   _stringOrDash(data['vehicle_type'])),
             ] else ...[
               _row(Icons.store_outlined, 'Boutique',
@@ -294,10 +294,10 @@ class _ApplicationCard extends ConsumerWidget {
                               context,
                               accessToken,
                               idCardUrl,
-                              title: 'Piece d identite (recto + verso)',
+                              title: 'Pièce d’identité (recto + verso)',
                             ),
                     icon: const Icon(Icons.badge_outlined, size: 16),
-                    label: const Text('Piece ID RV'),
+                    label: const Text('Pièce d’identité R/V'),
                   ),
                 if (licenseUrl.isNotEmpty)
                   OutlinedButton.icon(
@@ -338,7 +338,7 @@ class _ApplicationCard extends ConsumerWidget {
                 geoMapUrl == null) ...[
               const SizedBox(height: 12),
               const Text(
-                'Aucune piece ni position jointe. Verifiez au minimum les informations saisies avant validation.',
+                'Aucune pièce ni position jointe. Vérifiez au minimum les informations saisies avant validation.',
                 style: TextStyle(fontSize: 12, color: Colors.orange),
               ),
             ],
@@ -381,7 +381,7 @@ class _ApplicationCard extends ConsumerWidget {
     await _openUri(
       context,
       Uri(scheme: 'tel', path: phone),
-      errorMessage: 'Impossible d ouvrir le composeur telephonique',
+      errorMessage: 'Impossible d’ouvrir le composeur téléphonique',
     );
   }
 
@@ -397,7 +397,7 @@ class _ApplicationCard extends ConsumerWidget {
     await _openUri(
       context,
       uri,
-      errorMessage: 'Impossible d ouvrir le lien',
+      errorMessage: 'Impossible d’ouvrir le lien',
     );
   }
 
@@ -464,7 +464,7 @@ class _ApplicationCard extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                           const Text(
-                            'Impossible d afficher l image directement.',
+                            'Impossible d’afficher l’image directement.',
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 12),
@@ -523,8 +523,8 @@ class _ApplicationCard extends ConsumerWidget {
           children: [
             Text(
               type == 'driver'
-                  ? 'L utilisateur deviendra livreur et aura acces aux missions.'
-                  : 'L utilisateur deviendra agent relais et un point relais sera cree automatiquement.',
+                  ? 'L’utilisateur deviendra livreur et aura accès aux missions.'
+                  : 'L’utilisateur deviendra agent relais et un point relais sera créé automatiquement.',
               style: const TextStyle(fontSize: 13),
             ),
             const SizedBox(height: 12),
@@ -558,7 +558,7 @@ class _ApplicationCard extends ConsumerWidget {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     const SnackBar(
-                      content: Text('Candidature approuvee'),
+                      content: Text('Candidature approuvée'),
                       backgroundColor: Colors.green,
                     ),
                   );
@@ -633,7 +633,7 @@ class _ApplicationCard extends ConsumerWidget {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     const SnackBar(
-                      content: Text('Candidature rejetee'),
+                      content: Text('Candidature rejetée'),
                       backgroundColor: Colors.orange,
                     ),
                   );
@@ -765,9 +765,9 @@ class _ProfilePhotoReview extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final (label, color) = switch (status) {
-      'approved' => ('Photo approuvee', Colors.green),
-      'rejected' => ('Photo refusee', Colors.red),
-      'pending' => ('Photo a verifier', Colors.orange),
+      'approved' => ('Photo approuvée', Colors.green),
+      'rejected' => ('Photo refusée', Colors.red),
+      'pending' => ('Photo à vérifier', Colors.orange),
       _ => ('Photo absente', Colors.grey),
     };
 
@@ -829,9 +829,8 @@ class _ProfilePhotoReview extends ConsumerWidget {
                         ),
                       ),
                       OutlinedButton.icon(
-                        onPressed: userId.isEmpty
-                            ? null
-                            : () => _reject(context, ref),
+                        onPressed:
+                            userId.isEmpty ? null : () => _reject(context, ref),
                         icon: const Icon(Icons.close, size: 16),
                         label: const Text('Refuser'),
                         style: OutlinedButton.styleFrom(
@@ -900,7 +899,7 @@ class _ProfilePhotoReview extends ConsumerWidget {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Photo de profil mise a jour')),
+        const SnackBar(content: Text('Photo de profil mise à jour')),
       );
     } catch (e) {
       if (!context.mounted) {
@@ -924,8 +923,8 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      'approved' => ('Approuve', Colors.green),
-      'rejected' => ('Rejete', Colors.red),
+      'approved' => ('Approuvé', Colors.green),
+      'rejected' => ('Rejeté', Colors.red),
       _ => ('En attente', Colors.orange),
     };
 

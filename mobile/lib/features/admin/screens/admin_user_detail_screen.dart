@@ -70,7 +70,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
           );
           final kycDocuments = <Map<String, String>>[
             {
-              'label': "Piece d'identite (recto + verso)",
+              'label': 'Pièce d’identité (recto + verso)',
               'url': _stringOrEmpty(userData['kyc_id_card_url']),
             },
             {
@@ -133,8 +133,8 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           Expanded(
                             child: Text(
                               user.isDriver
-                                  ? "Pour un livreur, la piece d'identite et le permis sont requis avant validation."
-                                  : "L'utilisateur peut transmettre ses pieces plus tard depuis son profil.",
+                                  ? 'Pour un livreur, la pièce d’identité et le permis sont requis avant validation.'
+                                  : 'L’utilisateur peut transmettre ses pièces plus tard depuis son profil.',
                               style: const TextStyle(
                                 color: Colors.grey,
                                 fontSize: 12,
@@ -182,7 +182,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                                       status: 'verified',
                                     ),
                             icon: const Icon(Icons.verified_user_outlined),
-                            label: const Text('Verifier'),
+                            label: const Text('Vérifier'),
                           ),
                           OutlinedButton.icon(
                             onPressed: kycDocuments.isEmpty
@@ -413,8 +413,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           'Commission pr\u00e9lev\u00e9e',
                           formatXof(
                             ((walletFinancialSummary['commissions']
-                                            as Map?)?['wallet_hold_xof']
-                                        as num?)
+                                        as Map?)?['wallet_hold_xof'] as num?)
                                     ?.toDouble() ??
                                 0,
                           ),
@@ -423,8 +422,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                           'Commission en dette',
                           formatXof(
                             ((walletFinancialSummary['commissions']
-                                            as Map?)?['driver_debt_xof']
-                                        as num?)
+                                        as Map?)?['driver_debt_xof'] as num?)
                                     ?.toDouble() ??
                                 0,
                           ),
@@ -493,7 +491,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 if (lastMission.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
-                    title: 'Derniere mission',
+                    title: 'Dernière mission',
                     child: _MissionSummaryCard(
                       mission: lastMission,
                       onOpenAudit: () => Navigator.push(
@@ -510,13 +508,13 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 if (lastSession.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   _SectionCard(
-                    title: 'Derniere session',
+                    title: 'Dernière session',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _InfoRow('User ID', user.id),
                         _InfoRow(
-                          'Creee le',
+                          'Créée le',
                           _formatDateValue(lastSession['created_at']),
                         ),
                         _InfoRow(
@@ -535,10 +533,10 @@ class AdminUserDetailScreen extends ConsumerWidget {
                     children: [
                       _InfoRow('Code', _stringOrDash(referral['code'])),
                       _InfoRow(
-                        'Acces effectif',
+                        'Accès effectif',
                         (referral['effective_enabled'] as bool? ?? false)
                             ? 'Actif'
-                            : 'Desactive',
+                            : 'Désactivé',
                       ),
                       _InfoRow(
                         'Peut parrainer',
@@ -547,7 +545,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             : 'Non',
                       ),
                       _InfoRow(
-                        'Peut etre parraine',
+                        'Peut être parrainé',
                         (referral['can_be_referred'] as bool? ?? false)
                             ? 'Oui'
                             : 'Non',
@@ -585,11 +583,11 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         },
                       ),
                       _InfoRow(
-                        'Regle saisie',
+                        'Règle saisie',
                         _stringOrDash(referral['apply_rule']),
                       ),
                       _InfoRow(
-                        'Regle prime',
+                        'Règle de prime',
                         _stringOrDash(referral['reward_rule']),
                       ),
                       _InfoRow(
@@ -606,7 +604,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         userId: user.id,
                       ),
                       _InfoRow(
-                        'Bonus deja credite',
+                        'Bonus déjà crédité',
                         (referral['referral_credited'] as bool? ?? false)
                             ? 'Oui'
                             : 'Non',
@@ -685,7 +683,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Impossible d ouvrir le composeur.')),
+      const SnackBar(content: Text('Impossible d’ouvrir le composeur.')),
     );
   }
 
@@ -742,7 +740,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Acces parrainage mis a jour')),
+        const SnackBar(content: Text('Accès au parrainage mis à jour')),
       );
     } catch (e) {
       if (!context.mounted) {
@@ -766,7 +764,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
         context: context,
         title: 'Refuser le KYC',
         helper:
-            "Explique pourquoi les pieces de ${user.name} ne sont pas valides.",
+            'Explique pourquoi les pièces de ${user.name} ne sont pas valides.',
         confirmLabel: 'Refuser',
         confirmColor: Colors.red,
       );
@@ -777,7 +775,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Verifier le KYC'),
+          title: const Text('Vérifier le KYC'),
           content: Text(
             'Confirmer la validation KYC de ${user.name} ?',
           ),
@@ -788,7 +786,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Verifier'),
+              child: const Text('Vérifier'),
             ),
           ],
         ),
@@ -812,7 +810,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            status == 'verified' ? 'KYC verifie.' : 'KYC refuse.',
+            status == 'verified' ? 'KYC vérifié.' : 'KYC refusé.',
           ),
           backgroundColor: status == 'verified' ? Colors.green : Colors.red,
         ),
@@ -829,7 +827,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
 
   String _referralOverrideLabel(dynamic override) {
     if (override == null) {
-      return 'Herite du parametre global';
+      return 'Hérite du paramètre global';
     }
     return (override as bool) ? 'Force actif' : 'Force inactif';
   }
@@ -1198,9 +1196,10 @@ class _IdentityHeader extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _InfoRow('Légal accepté', user.acceptedLegal ? 'Oui' : 'Non'),
-            _InfoRow('Legal accepte le', _formatDateValue(acceptedLegalAt)),
-            _InfoRow('Cree le', _formatDateValue(createdAt)),
-            _InfoRow('Mis a jour le', _formatDateValue(updatedAt)),
+            _InfoRow('Mentions légales acceptées le',
+                _formatDateValue(acceptedLegalAt)),
+            _InfoRow('Créé le', _formatDateValue(createdAt)),
+            _InfoRow('Mis à jour le', _formatDateValue(updatedAt)),
           ],
         ),
       ),
@@ -1427,7 +1426,7 @@ class _SponsoredReferralList extends ConsumerWidget {
   static String _referralStatusLabel(dynamic status) {
     switch (status?.toString()) {
       case 'rewarded':
-        return 'Paye';
+        return 'Payé';
       case 'qualified':
         return 'Qualifie';
       case 'qualified_no_bonus':
@@ -1501,7 +1500,7 @@ class _MissionSummaryCard extends StatelessWidget {
           _InfoRow('Statut', _stringOrDash(mission['status'])),
           _InfoRow('Collecte', _stringOrDash(mission['pickup_label'])),
           _InfoRow('Livraison', _stringOrDash(mission['delivery_label'])),
-          _InfoRow('Assignee le', _formatDateValue(mission['assigned_at'])),
+          _InfoRow('Assignée le', _formatDateValue(mission['assigned_at'])),
           _InfoRow('Maj', _formatDateValue(mission['updated_at'])),
           const SizedBox(height: 10),
           Align(
@@ -1884,11 +1883,11 @@ Color _kycColor(String status) {
 String _kycStatusLabel(String status) {
   switch (status) {
     case 'verified':
-      return 'Verifie';
+      return 'Vérifié';
     case 'pending':
       return 'En attente';
     case 'rejected':
-      return 'Refuse';
+      return 'Refusé';
     default:
       return 'Non fourni';
   }

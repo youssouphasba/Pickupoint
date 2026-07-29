@@ -488,7 +488,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
         (referralCheckFailed ||
             (referralData['can_apply_now'] as bool? ?? false));
     final applyRule = referralData['apply_rule']?.toString() ??
-        'Les conditions du programme seront verifiees au moment de la saisie.';
+        'Les conditions du programme seront vérifiées au moment de la saisie.';
 
     return Column(
       children: [
@@ -969,7 +969,7 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
     final target = item['reward_count'] ?? 1;
     final name = item['referred_name']?.toString() ?? 'Utilisateur Denkma';
     final statusLabel = switch (status) {
-      'rewarded' => 'Paye',
+      'rewarded' => 'Payé',
       'qualified' => 'Qualifie',
       _ => 'En cours',
     };

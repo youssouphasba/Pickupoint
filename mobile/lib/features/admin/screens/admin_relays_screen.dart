@@ -49,7 +49,7 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
                   controller: _searchCtrl,
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    hintText: 'Nom, ville, quartier ou telephone',
+                    hintText: 'Nom, ville, quartier ou téléphone',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchCtrl.text.isEmpty
                         ? null
@@ -75,8 +75,8 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
                 child: Row(
                   children: [
                     _filterChip('Tous', 'all'),
-                    _filterChip('A verifier', 'pending'),
-                    _filterChip('Verifies', 'verified'),
+                    _filterChip('À vérifier', 'pending'),
+                    _filterChip('Vérifiés', 'verified'),
                     _filterChip('Actifs', 'active'),
                     _filterChip('Satures', 'full'),
                   ],
@@ -161,7 +161,7 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Relais verifie avec succes.')),
+        const SnackBar(content: Text('Relais vérifié avec succès.')),
       );
       ref.invalidate(adminRelaysProvider);
     } catch (e) {
@@ -191,7 +191,7 @@ class _RelaySummaryRow extends StatelessWidget {
       children: [
         Expanded(
           child: _SummaryTile(
-            label: 'A verifier',
+            label: 'À vérifier',
             value: '$pending',
             color: Colors.orange,
             icon: Icons.fact_check_outlined,
@@ -347,7 +347,7 @@ class _RelayCard extends StatelessWidget {
                 runSpacing: 8,
                 children: [
                   _StatusChip(
-                    label: relay.isVerified ? 'Verifie' : 'En attente',
+                    label: relay.isVerified ? 'Vérifié' : 'En attente',
                     color: relay.isVerified ? Colors.green : Colors.orange,
                   ),
                   _StatusChip(
@@ -355,7 +355,7 @@ class _RelayCard extends StatelessWidget {
                     color: relay.isActive ? Colors.green : Colors.grey,
                   ),
                   _StatusChip(
-                    label: relay.isFull ? 'Sature' : 'Capacite ok',
+                    label: relay.isFull ? 'Saturé' : 'Capacité disponible',
                     color: relay.isFull ? Colors.red : Colors.blue,
                   ),
                 ],

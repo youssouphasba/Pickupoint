@@ -114,7 +114,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                     controller: _searchCtrl,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Code, destinataire ou telephone',
+                      hintText: 'Code, destinataire ou téléphone',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: _searchCtrl.text.isEmpty
                           ? null
@@ -178,7 +178,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                       padding: EdgeInsets.all(24),
                       child: Center(
                         child: Text(
-                          'Aucun colis ne correspond a la recherche dans le stock.',
+                          'Aucun colis ne correspond à la recherche dans le stock.',
                           style: TextStyle(color: Colors.grey),
                         ),
                       ),
@@ -210,7 +210,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
                     padding: EdgeInsets.all(24),
                     child: Center(
                       child: Text(
-                        'Aucun colis ne correspond a la recherche en cours.',
+                        'Aucun colis ne correspond à la recherche en cours.',
                       ),
                     ),
                   ),
@@ -802,7 +802,7 @@ class _RelayParcelDetailSheetState
           ),
           const SizedBox(height: 4),
           Text(
-            'Cree le ${formatter.format(parcel.createdAt.toLocal())}',
+            'Créé le ${formatter.format(parcel.createdAt.toLocal())}',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const Divider(height: 28),

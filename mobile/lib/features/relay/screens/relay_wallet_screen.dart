@@ -236,7 +236,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        'Demande envoyee, en attente de validation.',
+                        'Demande envoyée, en attente de validation.',
                       ),
                     ),
                   );

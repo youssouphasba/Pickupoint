@@ -139,8 +139,8 @@ class _DriverApplicationFormState
                   ),
                   SizedBox(height: 6),
                   Text(
-                    'Livrez des colis a votre rythme et gagnez de l argent. '
-                    'Nous verifierons votre permis et votre identite avant validation.',
+                    'Livrez des colis à votre rythme et gagnez de l’argent. '
+                    'Nous vérifierons votre permis et votre identité avant validation.',
                     style: TextStyle(fontSize: 13, color: Colors.blueGrey),
                   ),
                 ],
@@ -153,13 +153,13 @@ class _DriverApplicationFormState
             ),
             const SizedBox(height: 8),
             const Text(
-              'Cette photo sera visible par les clients et verifiee par l administration avant activation des missions.',
+              'Cette photo sera visible par les clients et vérifiée par l’administration avant activation des missions.',
               style: TextStyle(fontSize: 12, color: Colors.blueGrey),
             ),
             const SizedBox(height: 12),
             _simpleDocPicker(
               label: _hasProfilePhoto
-                  ? 'Photo de profil deja ajoutee'
+                  ? 'Photo de profil déjà ajoutée'
                   : 'Ajouter une photo de profil',
               file: _profilePhotoFile,
               onTap: () => _pickDoc(_DriverDocSlot.profilePhoto),
@@ -168,17 +168,17 @@ class _DriverApplicationFormState
             _field(_nameCtrl, 'Nom complet *', Icons.person,
                 validator: _required),
             const SizedBox(height: 16),
-            _field(_cniCtrl, 'Numero CNI (carte d identite) *', Icons.badge,
+            _field(_cniCtrl, 'Numéro CNI (carte d’identité) *', Icons.badge,
                 validator: _required),
             const SizedBox(height: 16),
             _field(
-                _licCtrl, 'Numero de permis de conduire *', Icons.credit_card,
+                _licCtrl, 'Numéro de permis de conduire *', Icons.credit_card,
                 validator: _required),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _vehicle,
               decoration: const InputDecoration(
-                labelText: 'Type de vehicule *',
+                labelText: 'Type de véhicule *',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.directions_car),
               ),
@@ -200,7 +200,7 @@ class _DriverApplicationFormState
               decoration: const InputDecoration(
                 labelText: 'Message (optionnel)',
                 hintText:
-                    'Parlez-nous de votre experience, votre quartier de predilection...',
+                    'Parlez-nous de votre expérience, votre quartier de prédilection…',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.message),
                 alignLabelWithHint: true,
@@ -221,15 +221,15 @@ class _DriverApplicationFormState
               ),
               child: const Text(
                 'Ajoutez le recto et le verso de votre CNI puis de votre permis. '
-                'Chaque piece est fusionnee proprement avant envoi pour la verification.',
+                'Chaque pièce est fusionnée proprement avant envoi pour vérification.',
                 style: TextStyle(fontSize: 12, color: Colors.blueGrey),
               ),
             ),
             const SizedBox(height: 12),
             _documentSection(
-              title: 'Carte d identite',
+              title: 'Carte d’identité',
               subtitle:
-                  'Le recto et le verso doivent etre nets, complets et bien cadres.',
+                  'Le recto et le verso doivent être nets, complets et bien cadrés.',
               frontLabel: 'Recto',
               backLabel: 'Verso',
               frontGuideAsset: 'assets/kyc_guides/id_card_front.jpg',
@@ -243,7 +243,7 @@ class _DriverApplicationFormState
             _documentSection(
               title: 'Permis de conduire',
               subtitle:
-                  'Le numero, les dates et les categories doivent rester lisibles.',
+                  'Le numéro, les dates et les catégories doivent rester lisibles.',
               frontLabel: 'Recto',
               backLabel: 'Verso',
               frontGuideAsset: 'assets/kyc_guides/license_front.jpg',
@@ -303,7 +303,7 @@ class _DriverApplicationFormState
                   Text(
                     file == null
                         ? 'Cliquer pour choisir'
-                        : 'Fichier selectionne : ${_fileName(file)}',
+                        : 'Fichier sélectionné : ${_fileName(file)}',
                     style: TextStyle(
                       fontSize: 11,
                       color: file == null ? Colors.grey : Colors.green.shade700,
@@ -442,7 +442,7 @@ class _DriverApplicationFormState
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    selected ? 'Ajoute' : 'Exemple',
+                    selected ? 'Ajouté' : 'Exemple',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -623,12 +623,12 @@ class _DriverApplicationFormState
             children: [
               Icon(Icons.check_circle, color: Colors.green),
               SizedBox(width: 8),
-              Text('Candidature envoyee'),
+              Text('Candidature envoyée'),
             ],
           ),
           content: const Text(
-            'Votre dossier a ete transmis a l equipe Denkma. '
-            'Nous vous contacterons par telephone dans les 48h pour verifier vos pieces.',
+            'Votre dossier a été transmis à l’équipe Denkma. '
+            'Nous vous contacterons par téléphone dans les 48 h pour vérifier vos pièces.',
           ),
           actions: [
             ElevatedButton(
@@ -679,8 +679,9 @@ class _DriverApplicationFormState
 
     final frontImage = img.bakeOrientation(decodedFront);
     final backImage = img.bakeOrientation(decodedBack);
-    final targetHeight =
-        frontImage.height > backImage.height ? frontImage.height : backImage.height;
+    final targetHeight = frontImage.height > backImage.height
+        ? frontImage.height
+        : backImage.height;
     final normalizedFront = frontImage.height == targetHeight
         ? frontImage
         : img.copyResize(frontImage, height: targetHeight);
@@ -691,8 +692,7 @@ class _DriverApplicationFormState
     const gap = 24;
     const padding = 24;
     final canvas = img.Image(
-      width:
-          normalizedFront.width + normalizedBack.width + gap + (padding * 2),
+      width: normalizedFront.width + normalizedBack.width + gap + (padding * 2),
       height: targetHeight + (padding * 2),
       numChannels: 3,
     );

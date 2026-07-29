@@ -1099,7 +1099,7 @@ class _MissionCard extends ConsumerWidget {
                               ),
                               const SizedBox(height: 14),
                               _PreviewSection(
-                                title: 'Resume',
+                                title: 'Résumé',
                                 children: [
                                   _PreviewLine(
                                     icon: Icons.near_me_outlined,
@@ -1237,7 +1237,7 @@ class _MissionCard extends ConsumerWidget {
           icon:
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           infoWindow:
-              InfoWindow(title: 'Expediteur', snippet: _pickupZoneLabel()),
+              InfoWindow(title: 'Expéditeur', snippet: _pickupZoneLabel()),
         ),
       if (deliveryPoint != null)
         Marker(

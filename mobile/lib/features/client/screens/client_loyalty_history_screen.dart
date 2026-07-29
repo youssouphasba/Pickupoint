@@ -90,7 +90,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
   String _formatEventType(String type) {
     switch (type) {
       case 'delivery_completed':
-        return 'Livraison effectuee';
+        return 'Livraison effectuée';
       case 'referral_bonus':
         return 'Bonus de parrainage';
       case 'welcome_bonus':

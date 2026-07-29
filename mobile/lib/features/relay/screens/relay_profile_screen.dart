@@ -130,7 +130,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Profil du relais mis a jour avec succes.'),
+          content: Text('Profil du relais mis à jour avec succès.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -172,7 +172,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Téléphone',
                   helperText:
-                      'Le numero principal du compte agent reste verrouille.',
+                      'Le numéro principal du compte agent reste verrouillé.',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -219,7 +219,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Compte agent mis a jour.'),
+                    content: Text('Compte agent mis à jour.'),
                     backgroundColor: Colors.green,
                   ),
                 );
@@ -227,7 +227,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Mise a jour impossible: $e'),
+                    content: Text('Mise à jour impossible : $e'),
                     backgroundColor: Colors.red,
                   ),
                 );
@@ -351,7 +351,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                   ? 'Non renseigné'
                                   : user.email!,
                             ),
-                            _infoRow('Role', 'Agent relais'),
+                            _infoRow('Rôle', 'Agent relais'),
                             _infoRow('User ID', user.id),
                             _infoRow(
                               'État du compte',
@@ -411,7 +411,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                 controller: _descCtrl,
                                 maxLines: 3,
                                 decoration: const InputDecoration(
-                                  labelText: 'Instructions ou acces',
+                                  labelText: 'Instructions ou accès',
                                   hintText:
                                       'Repere utile pour les clients et les livreurs',
                                   border: OutlineInputBorder(),
@@ -437,21 +437,21 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                         child: _SectionCard(
                         title: 'Operationnel',
                         subtitle:
-                            'Vue rapide pour piloter le point relais et verifier sa capacite.',
+                            'Vue rapide pour piloter le point relais et vérifier sa capacité.',
                         child: Column(
                           children: [
                             _infoRow('Adresse', _relay!.addressLabel),
                             _infoRow('Ville', _relay!.city),
                             _infoRow(
-                              'Capacite',
+                              'Capacité',
                               '${_relay!.currentStock} / ${_relay!.capacity}',
                             ),
                             _infoRow(
-                              'Disponibilite',
+                              'Disponibilité',
                               _relay!.isActive ? 'Active' : 'Inactive',
                             ),
                             _infoRow(
-                              'Verification',
+                              'Vérification',
                               _relay!.isVerified ? 'Vérifié' : 'En attente',
                             ),
                             walletAsync.when(
@@ -496,9 +496,9 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                       Container(
                         key: _supportKey,
                         child: _SectionCard(
-                        title: 'Documents et legal',
+                        title: 'Documents et mentions légales',
                         subtitle:
-                            'Acces rapide aux documents utiles et informations de conformite.',
+                            'Accès rapide aux documents utiles et aux informations de conformité.',
                         child: Column(
                           children: [
                             const SupportWhatsAppTile(

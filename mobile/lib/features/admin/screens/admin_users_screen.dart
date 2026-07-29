@@ -54,7 +54,7 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
                   controller: _searchCtrl,
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    hintText: 'Nom, telephone, e-mail ou ID',
+                    hintText: 'Nom, téléphone, e-mail ou ID',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchCtrl.text.isEmpty
                         ? null
@@ -97,7 +97,7 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
                     _buildStatusChip('Suspendus', 'banned'),
                     _buildStatusChip('KYC ok', 'kyc_verified'),
                     _buildStatusChip(
-                        'Telephone non verifie', 'phone_unverified'),
+                        'Téléphone non vérifié', 'phone_unverified'),
                   ],
                 ),
               ),
@@ -335,8 +335,8 @@ class _UserCard extends ConsumerWidget {
                   ),
                   _InfoChip(
                     label: user.isPhoneVerified
-                        ? 'Telephone verifie'
-                        : 'Telephone non verifie',
+                        ? 'Téléphone vérifié'
+                        : 'Téléphone non vérifié',
                     color: user.isPhoneVerified ? Colors.green : Colors.orange,
                   ),
                   _InfoChip(
@@ -541,7 +541,7 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
           ),
           const SizedBox(height: 20),
           const Text(
-            'Changer le role',
+            'Changer le rôle',
             style: TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 13,
@@ -795,7 +795,7 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Role de ${widget.user.name} change en "$role".'),
+            content: Text('Rôle de ${widget.user.name} changé en « $role ».'),
             backgroundColor: Colors.green,
           ),
         );
@@ -911,13 +911,13 @@ class _LinkRelayButtonState extends ConsumerState<_LinkRelayButton> {
 String _kycLabel(String status) {
   switch (status) {
     case 'verified':
-      return 'KYC verifie';
+      return 'KYC vérifié';
     case 'pending':
       return 'KYC en attente';
     case 'rejected':
-      return 'KYC rejete';
+      return 'KYC rejeté';
     default:
-      return 'KYC non renseigne';
+      return 'KYC non renseigné';
   }
 }
 

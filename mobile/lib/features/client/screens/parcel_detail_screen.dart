@@ -1450,7 +1450,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Numero du point relais indisponible pour le moment'),
+          content: Text('Numéro du point relais indisponible pour le moment'),
         ),
       );
       return;

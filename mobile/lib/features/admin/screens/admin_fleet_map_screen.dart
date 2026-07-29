@@ -593,8 +593,16 @@ class _FleetSummary extends StatelessWidget {
     final items = [
       ('Missions actives', '${summary['total_active'] ?? 0}', Colors.blue),
       ('Missions live', '${summary['with_live_location'] ?? 0}', Colors.green),
-      ('Positions anciennes', '${summary['stale_locations'] ?? 0}', Colors.orange),
-      ('Missions sans position', '${summary['missing_locations'] ?? 0}', Colors.red),
+      (
+        'Positions anciennes',
+        '${summary['stale_locations'] ?? 0}',
+        Colors.orange
+      ),
+      (
+        'Missions sans position',
+        '${summary['missing_locations'] ?? 0}',
+        Colors.red
+      ),
       ('Hors course', '${summary['idle_drivers'] ?? 0}', Colors.purple),
     ];
     return Wrap(
@@ -895,7 +903,7 @@ class _IdleDriverCard extends StatelessWidget {
                   icon: Icons.my_location,
                   label: driver['is_live'] as bool? ?? false
                       ? 'Position app recente'
-                      : 'Derniere position app',
+                      : 'Dernière position dans l’application',
                 ),
               ],
             ),

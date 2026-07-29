@@ -51,13 +51,13 @@ class _NotificationSettingsScreenState
                 const Divider(),
                 _buildToggle(
                   label: 'WhatsApp',
-                  subtitle: 'Mises a jour de livraison par WhatsApp',
+                  subtitle: 'Mises à jour de livraison par WhatsApp',
                   value: prefs.whatsappEnabled,
                   onChanged: (v) => _updatePrefs(whatsapp: v),
                   icon: Icons.message_outlined,
                 ),
                 const SizedBox(height: 32),
-                _buildSectionTitle('Evenements'),
+                _buildSectionTitle('Événements'),
                 _buildToggle(
                   label: 'Statut des colis',
                   subtitle: 'Chaque etape de la livraison de vos colis',
@@ -151,7 +151,8 @@ class _NotificationSettingsScreenState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text(friendlyError(e)), backgroundColor: Colors.red),
         );
       }
     } finally {
