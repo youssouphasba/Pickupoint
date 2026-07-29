@@ -49,10 +49,19 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
 
     try {
       final api = ref.read(apiClientProvider);
-      final res = await api.trackParcel(code);
+      final lookupResponse = await api.lookupParcelByTracking(code);
+      final lookupData = lookupResponse.data as Map<String, dynamic>;
+      final parcelId = lookupData['parcel_id']?.toString() ?? '';
+      if (parcelId.isEmpty) {
+        throw StateError('Identifiant du colis indisponible');
+      }
+      final detailResponse = await api.getParcel(parcelId);
+      final detailData = detailResponse.data as Map<String, dynamic>;
+      final parcelData = detailData['parcel'] as Map<String, dynamic>;
+      final timeline = detailData['timeline'] as List? ?? [];
       if (!mounted) return;
       setState(() {
-        _parcel = Parcel.fromJson(res.data as Map<String, dynamic>);
+        _parcel = Parcel.fromJson({...parcelData, 'events': timeline});
         _isLoading = false;
       });
     } catch (_) {
