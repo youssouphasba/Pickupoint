@@ -193,8 +193,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 _infoRow('Destination', parcel.destinationAddress!),
               if (parcel.totalPrice != null)
                 _infoRow('Montant', formatXof(parcel.totalPrice!)),
-              if (parcel.paymentStatus != null)
-                _infoRow('Paiement', _paymentLabel(parcel)),
+              if (parcel.whoPays != null)
+                _infoRow('Règlement', _paymentLabel(parcel)),
               if (parcel.etaText != null) _infoRow('ETA', parcel.etaText!),
               if (parcel.distanceText != null)
                 _infoRow('Distance restante', parcel.distanceText!),
@@ -316,10 +316,10 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
   }
 
   static String _paymentLabel(Parcel parcel) {
-    if (parcel.whoPays == 'recipient' && parcel.paymentStatus != 'paid') {
-      return 'paye par le destinataire a la livraison';
+    if (parcel.whoPays == 'recipient') {
+      return 'Payé par le destinataire à la livraison';
     }
-    return parcel.paymentStatus ?? '-';
+    return 'Payé par l’expéditeur à la livraison';
   }
 }
 

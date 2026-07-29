@@ -279,7 +279,7 @@ class _ParcelCard extends StatelessWidget {
                         ? Icons.person_outline
                         : Icons.outbox_outlined,
                     label: isRecipient
-                        ? 'De ${parcel.senderName ?? 'Expediteur'}'
+                        ? 'De ${parcel.senderName ?? 'Expéditeur'}'
                         : 'Pour ${parcel.recipientName ?? 'Destinataire'}',
                   ),
                   _MetaChip(
@@ -294,13 +294,13 @@ class _ParcelCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              if (parcel.paymentStatus != null || parcel.etaText != null)
+              if (parcel.whoPays != null || parcel.etaText != null)
                 Row(
                   children: [
-                    if (parcel.paymentStatus != null)
+                    if (parcel.whoPays != null)
                       Expanded(
                         child: Text(
-                          'Paiement: ${_paymentLabel(parcel)}',
+                          'Règlement : ${_paymentLabel(parcel)}',
                           style: TextStyle(
                             fontSize: 12,
                             color: statusColor,
@@ -335,7 +335,7 @@ class _ParcelCard extends StatelessWidget {
                     border: Border.all(color: Colors.red.shade100),
                   ),
                   child: const Text(
-                    'Remise finale actuellement bloquee par le paiement.',
+                    'Remise finale actuellement bloquée par le règlement.',
                     style: TextStyle(
                       color: Colors.red,
                       fontSize: 12,
@@ -367,11 +367,10 @@ class _ParcelCard extends StatelessWidget {
   }
 
   static String _paymentLabel(Parcel parcel) {
-    final status = parcel.paymentStatus ?? '-';
-    if (parcel.whoPays == 'recipient' && status != 'paid') {
-      return 'paye par le destinataire a la livraison';
+    if (parcel.whoPays == 'recipient') {
+      return 'payé par le destinataire à la livraison';
     }
-    return status;
+    return 'payé par l’expéditeur à la livraison';
   }
 }
 

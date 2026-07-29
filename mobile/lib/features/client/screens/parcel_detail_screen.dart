@@ -1172,9 +1172,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
                 Text(
                   hasPrice
                       ? formatXof(parcel.totalPrice!)
-                      : 'En cours de calcul',
+                      : _priceUnavailableLabel(parcel),
                   style: TextStyle(
-                    fontSize: hasPrice ? 22 : 16,
+                    fontSize: hasPrice ? 22 : 14,
                     fontWeight: FontWeight.bold,
                     color: Colors.green.shade900,
                   ),
@@ -1195,6 +1195,20 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
         ],
       ),
     );
+  }
+
+  String _priceUnavailableLabel(Parcel parcel) {
+    final requiresPickupPosition =
+        parcel.deliveryMode.startsWith('home_to_') && !parcel.pickupConfirmed;
+    if (requiresPickupPosition) {
+      return 'En attente de la position de l’expéditeur';
+    }
+    final requiresDeliveryPosition =
+        parcel.deliveryMode.endsWith('_to_home') && !parcel.deliveryConfirmed;
+    if (requiresDeliveryPosition) {
+      return 'En attente de la position du destinataire';
+    }
+    return 'En cours de calcul';
   }
 
   Widget _buildDriverInfo(dynamic parcel) {
