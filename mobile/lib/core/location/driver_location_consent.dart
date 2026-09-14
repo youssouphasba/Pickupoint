@@ -3,6 +3,23 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
 class DriverLocationConsent {
+  static Future<bool> ensureForWork(BuildContext context) async {
+    final allowed = await ensure(context, userInitiated: true);
+    if (!allowed || !context.mounted) return false;
+    if (Theme.of(context).platform != TargetPlatform.android) return true;
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.always) return true;
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+          'Choisissez Toujours autoriser pour vous rendre disponible '
+          'ou accepter une course.',
+        ),
+      ));
+    }
+    return false;
+  }
+
   static const disclosureText =
       'Denkma collecte votre position pour vous proposer les courses proches '
       'et actualiser la flotte, même lorsque l’application est fermée ou non utilisée.';
@@ -13,6 +30,7 @@ class DriverLocationConsent {
   static const _storageKey = 'driver_location_consent_v1';
   static const _accepted = 'accepted';
   static const _declined = 'declined';
+  static const _backgroundPromptKey = 'driver_background_location_prompt_v1';
   static Future<bool>? _pendingRequest;
 
   static Future<bool> hasAccepted() async {
@@ -102,6 +120,37 @@ class DriverLocationConsent {
         );
       }
       return false;
+    }
+
+    if (permission == LocationPermission.whileInUse &&
+        context.mounted &&
+        Theme.of(context).platform == TargetPlatform.android &&
+        (userInitiated ||
+            await _storage.read(key: _backgroundPromptKey) == null)) {
+      if (!context.mounted) return false;
+      final openSettings = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Position en arrière-plan'),
+          content: const Text(
+            'Pour actualiser votre position et recevoir les courses proches '
+            'lorsque Denkma est en arrière-plan, ouvrez Autorisations, '
+            'puis Localisation et choisissez Toujours autoriser.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Plus tard'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Ouvrir les réglages'),
+            ),
+          ],
+        ),
+      );
+      await _storage.write(key: _backgroundPromptKey, value: 'shown');
+      if (openSettings == true) await Geolocator.openAppSettings();
     }
 
     return permission == LocationPermission.whileInUse ||

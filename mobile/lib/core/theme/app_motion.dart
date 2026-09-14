@@ -5,7 +5,7 @@ abstract final class AppMotion {
   static const fast = Duration(milliseconds: 150);
   static const standard = Duration(milliseconds: 260);
   static const emphasized = Duration(milliseconds: 420);
-  static const launch = Duration(seconds: 2);
+  static const launch = Duration(seconds: 3);
 
   static const standardCurve = Curves.easeOutCubic;
   static const emphasizedCurve = Curves.easeOutBack;

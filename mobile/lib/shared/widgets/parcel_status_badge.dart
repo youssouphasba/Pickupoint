@@ -83,7 +83,7 @@ class _ParcelStatusBadgeState extends State<ParcelStatusBadge>
           ),
           child: AnimatedSwitcher(
             duration: AppMotion.standard,
-            switchInCurve: AppMotion.emphasizedCurve,
+            switchInCurve: AppMotion.standardCurve,
             transitionBuilder: (child, animation) => FadeTransition(
               opacity: animation,
               child: ScaleTransition(scale: animation, child: child),

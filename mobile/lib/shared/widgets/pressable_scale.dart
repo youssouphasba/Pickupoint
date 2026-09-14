@@ -21,6 +21,12 @@ class PressableScale extends StatefulWidget {
 class _PressableScaleState extends State<PressableScale> {
   var _pressed = false;
 
+  @override
+  void didUpdateWidget(covariant PressableScale oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled) _pressed = false;
+  }
+
   void _setPressed(bool value) {
     if (!widget.enabled || _pressed == value) return;
     setState(() => _pressed = value);
@@ -35,7 +41,9 @@ class _PressableScaleState extends State<PressableScale> {
       onPointerUp: (_) => _setPressed(false),
       onPointerCancel: (_) => _setPressed(false),
       child: AnimatedScale(
-        scale: _pressed && !animationsDisabled ? widget.pressedScale : 1,
+        scale: widget.enabled && _pressed && !animationsDisabled
+            ? widget.pressedScale
+            : 1,
         duration: _pressed ? AppMotion.instant : AppMotion.fast,
         curve: _pressed ? Curves.easeOut : AppMotion.emphasizedCurve,
         child: widget.child,

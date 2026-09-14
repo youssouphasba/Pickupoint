@@ -48,8 +48,8 @@ class FreshPositionHelper {
   static Future<Position> getDriverSearchPosition() {
     return _resolveFreshPosition(
       maxAccuracyMeters: driverSearchMaxAccuracyMeters,
-      attempts: 4,
-      timeoutPerAttempt: const Duration(seconds: 8),
+      attempts: 1,
+      timeoutPerAttempt: const Duration(seconds: 10),
       desiredAccuracy: LocationAccuracy.high,
       failureMessage:
           'Localisation indisponible ou trop imprécise. Vérifiez le GPS puis réessayez.',
@@ -84,6 +84,7 @@ class FreshPositionHelper {
       try {
         final position = await Geolocator.getCurrentPosition(
           desiredAccuracy: desiredAccuracy,
+          timeLimit: timeoutPerAttempt,
         ).timeout(timeoutPerAttempt);
         if (bestPosition == null ||
             position.accuracy < bestPosition.accuracy) {

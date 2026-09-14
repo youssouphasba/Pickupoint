@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/location/driver_location_consent.dart';
+import '../../../core/location/driver_background_location_tile.dart';
 import '../../../core/location/driver_presence_service.dart';
 import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -108,22 +110,23 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
 
   Future<void> _toggleAvailability() async {
     if (_busyAvailability) return;
-    final currentlyAvailable =
-        ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
-    if (!currentlyAvailable &&
-        !await DriverLocationConsent.ensure(context, userInitiated: true)) {
-      return;
-    }
     setState(() => _busyAvailability = true);
     try {
+      final currentlyAvailable =
+          ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
+      if (!currentlyAvailable &&
+          !await DriverLocationConsent.ensureForWork(context)) {
+        return;
+      }
+      if (!mounted) return;
       final res = await ref.read(apiClientProvider).toggleAvailability();
       final newValue = res.data['is_available'] as bool? ?? false;
       ref.read(authProvider.notifier).updateUserAvailability(newValue);
       if (newValue) {
-        await ref.read(driverPresenceServiceProvider).reconcile(
+        unawaited(ref.read(driverPresenceServiceProvider).reconcile(
               ref.read(authProvider).valueOrNull,
               forceUpload: true,
-            );
+            ));
       }
     } catch (e) {
       _snack('Impossible de changer la disponibilité : $e', error: true);
@@ -684,6 +687,7 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                       _formatDate(user.updatedAt),
                     ),
                     const ChangePinTile(contentPadding: EdgeInsets.zero),
+                    const DriverBackgroundLocationTile(),
                     const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
                     ListTile(
                       contentPadding: EdgeInsets.zero,

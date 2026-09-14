@@ -79,6 +79,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   double? _driverLat;
   double? _driverLng;
   bool _gpsLoading = true;
+  Future<void>? _locationRequest;
   bool _toggling = false;
   bool _notificationActionHandled = false;
   Timer? _refreshTimer;
@@ -90,7 +91,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (!mounted ||
           WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
-          ModalRoute.of(context)?.isCurrent != true) return;
+          ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
     });
@@ -126,6 +129,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       return false;
     }
     await _fetchDriverLocation();
+    if (!mounted) return false;
     ref.read(locationTrackingServiceProvider);
     await ref.read(driverPresenceServiceProvider).reconcile(
           ref.read(authProvider).valueOrNull,
@@ -146,59 +150,62 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   /// Capture la position du livreur pour filtrer les missions par proximité.
   Future<void> _fetchDriverLocation() async {
+    final pending = _locationRequest;
+    if (pending != null) return pending;
+    final request = _resolveDriverLocation();
+    _locationRequest = request;
+    try {
+      await request;
+    } finally {
+      if (identical(_locationRequest, request)) _locationRequest = null;
+    }
+  }
+
+  Future<void> _resolveDriverLocation() async {
+    if (!mounted) return;
     setState(() => _gpsLoading = true);
     try {
-      final pos = await FreshPositionHelper.getDriverSearchPosition();
-      await _syncDriverPresenceLocation(pos);
+      final pos = await FreshPositionHelper.getDriverSearchPosition()
+          .timeout(const Duration(seconds: 10));
       if (mounted) {
         setState(() {
           _driverLat = pos.latitude;
           _driverLng = pos.longitude;
           _gpsLoading = false;
         });
+        unawaited(_syncDriverPresenceLocation(pos));
       }
     } catch (_) {
-      try {
-        final pos = await FreshPositionHelper.getDriverPresencePosition();
-        await _syncDriverPresenceLocation(pos);
-        if (mounted) {
-          setState(() {
-            _driverLat = pos.latitude;
-            _driverLng = pos.longitude;
-            _gpsLoading = false;
-          });
-        }
-      } catch (_) {
-        if (mounted) {
-          setState(() {
-            _driverLat = null;
-            _driverLng = null;
-            _gpsLoading = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _driverLat = null;
+          _driverLng = null;
+          _gpsLoading = false;
+        });
       }
     }
   }
 
   Future<void> _toggleAvailability() async {
     if (_toggling) return;
-    final currentlyAvailable =
-        ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
-    if (!currentlyAvailable &&
-        !await _prepareLocationAccess(userInitiated: true)) {
-      return;
-    }
     setState(() => _toggling = true);
     try {
+      final currentlyAvailable =
+          ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
+      if (!currentlyAvailable &&
+          !await DriverLocationConsent.ensureForWork(context)) {
+        return;
+      }
+      if (!mounted) return;
       final api = ref.read(apiClientProvider);
       final res = await api.toggleAvailability();
       final newVal = res.data['is_available'] as bool? ?? false;
       ref.read(authProvider.notifier).updateUserAvailability(newVal);
       if (newVal) {
-        await ref.read(driverPresenceServiceProvider).reconcile(
+        unawaited(ref.read(driverPresenceServiceProvider).reconcile(
               ref.read(authProvider).valueOrNull,
               forceUpload: true,
-            );
+            ));
       }
     } catch (e) {
       if (mounted) {
@@ -1489,6 +1496,8 @@ class _MissionCard extends ConsumerWidget {
 
   Future<void> _accept(BuildContext context, WidgetRef ref) async {
     try {
+      if (!await DriverLocationConsent.ensureForWork(context)) return;
+      if (!context.mounted) return;
       final requiredBalance = mission.walletBalanceRequiredXof > 0
           ? mission.walletBalanceRequiredXof
           : mission.totalCommissionXof;

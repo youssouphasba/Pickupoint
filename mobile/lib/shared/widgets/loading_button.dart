@@ -36,7 +36,7 @@ class LoadingButton extends StatelessWidget {
           onPressed: isLoading || onPressed == null
               ? null
               : () {
-                  ActionFeedback.confirm();
+                  ActionFeedback.tap();
                   onPressed!();
                 },
           style: ElevatedButton.styleFrom(
@@ -62,7 +62,7 @@ class LoadingButton extends StatelessWidget {
                   )
                 : Text(
                     label,
-                    key: const ValueKey('label'),
+                    key: ValueKey(label),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

@@ -21,11 +21,12 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
   late final AnimationController _controller;
   late final Animation<double> _logoOpacity;
   late final Animation<double> _logoScale;
-  late final Animation<double> _logoRide;
+  late final Animation<Offset> _logoRide;
   late final Animation<double> _taglineOpacity;
   late final Animation<Offset> _taglineOffset;
   late final Animation<double> _overlayOpacity;
   var _finished = false;
+  var _preparing = false;
 
   @override
   void initState() {
@@ -44,23 +45,13 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
         curve: const Interval(0, 0.62, curve: AppMotion.emphasizedCurve),
       ),
     );
-    _logoRide = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: -10, end: 8)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 35,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 8, end: -4)
-            .chain(CurveTween(curve: Curves.easeInOut)),
-        weight: 30,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: -4, end: 0)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 35,
-      ),
-    ]).animate(_controller);
+    _logoRide = Tween<Offset>(
+      begin: const Offset(-0.75, 0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.08, 0.65, curve: Curves.easeInOutCubic),
+    ));
     _taglineOpacity = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.42, 0.82, curve: Curves.easeOut),
@@ -82,7 +73,6 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
         weight: 30,
       ),
     ]).animate(_controller);
-    _controller.forward().whenComplete(_finish);
   }
 
   void _finish() {
@@ -98,7 +88,24 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
         !_finished) {
       _controller.value = 1;
       _finish();
+      return;
     }
+    if (!_preparing && !_finished) {
+      _preparing = true;
+      _prepareAnimation();
+    }
+  }
+
+  Future<void> _prepareAnimation() async {
+    await Future.wait([
+      precacheImage(const AssetImage('assets/logo_base.png'), context),
+      precacheImage(const AssetImage('assets/logo_moto.png'), context),
+    ]);
+    if (!mounted || _finished) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_finished) _controller.forward().whenComplete(_finish);
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   @override
@@ -133,6 +140,7 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
                             width: 230,
                             height: 230,
                             child: Stack(
+                              clipBehavior: Clip.none,
                               alignment: Alignment.center,
                               children: [
                                 Image.asset(
@@ -145,13 +153,8 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
                                   top: 15,
                                   left: 0,
                                   right: 0,
-                                  child: AnimatedBuilder(
-                                    animation: _logoRide,
-                                    builder: (context, child) =>
-                                        Transform.translate(
-                                      offset: Offset(_logoRide.value, 0),
-                                      child: child,
-                                    ),
+                                  child: SlideTransition(
+                                    position: _logoRide,
                                     child: Image.asset(
                                       'assets/logo_moto.png',
                                       width: 230,
