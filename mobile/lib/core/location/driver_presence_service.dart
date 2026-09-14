@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../auth/auth_provider.dart';
 import 'driver_location_consent.dart';
+import 'fresh_position_helper.dart';
 
 final driverPresenceServiceProvider = Provider<DriverPresenceService>((ref) {
   final service = DriverPresenceService(ref);
@@ -27,11 +28,26 @@ class DriverPresenceService {
   final Ref _ref;
   final _positionController = StreamController<Position>.broadcast();
   StreamSubscription<Position>? _subscription;
+  Future<Position>? _freshPositionRequest;
   DateTime? _lastUpload;
   bool _started = false;
   bool _starting = false;
 
   Stream<Position> get positions => _positionController.stream;
+
+  Future<Position> requestFreshPosition() {
+    final pending = _freshPositionRequest;
+    if (pending != null) return pending;
+
+    final request = FreshPositionHelper.getDriverSearchPosition();
+    _freshPositionRequest = request;
+    unawaited(request.whenComplete(() {
+      if (identical(_freshPositionRequest, request)) {
+        _freshPositionRequest = null;
+      }
+    }));
+    return request;
+  }
 
   Future<void> start() async {
     _started = true;
@@ -122,9 +138,8 @@ class DriverPresenceService {
 
   Future<void> _uploadFreshPosition() async {
     try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(const Duration(seconds: 12));
+      final position =
+          await requestFreshPosition().timeout(const Duration(seconds: 12));
       await _uploadPosition(position, force: true);
     } catch (_) {}
   }

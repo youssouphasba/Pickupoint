@@ -4,7 +4,8 @@ import 'package:geolocator/geolocator.dart';
 
 class DriverLocationConsent {
   static Future<bool> ensureForWork(BuildContext context) async {
-    final allowed = await ensure(context, userInitiated: true);
+    final allowed = await ensure(context, userInitiated: true)
+        .timeout(const Duration(seconds: 15));
     if (!allowed || !context.mounted) return false;
     if (Theme.of(context).platform != TargetPlatform.android) return true;
     final permission = await Geolocator.checkPermission();

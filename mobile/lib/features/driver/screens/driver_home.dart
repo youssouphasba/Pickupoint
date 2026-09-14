@@ -20,7 +20,6 @@ import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_presence_service.dart';
-import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/location/location_tracking_service.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../shared/feedback/action_feedback.dart';
@@ -228,8 +227,10 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       _driverLng = null;
     });
     try {
-      final pos = await FreshPositionHelper.getDriverSearchPosition()
-          .timeout(const Duration(seconds: 10));
+      final pos = await ref
+          .read(driverPresenceServiceProvider)
+          .requestFreshPosition()
+          .timeout(const Duration(seconds: 12));
       if (mounted) {
         setState(() {
           _driverLat = pos.latitude;
