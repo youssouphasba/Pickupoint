@@ -98,6 +98,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       setState(() {
         _driverLat = position.latitude;
         _driverLng = position.longitude;
+        _locationAccessLoading = false;
+        _gpsLoading = false;
         _locationError = null;
       });
     });
