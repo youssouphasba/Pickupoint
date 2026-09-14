@@ -43,6 +43,59 @@ class DeliveryDispatchVisibilityTests(unittest.TestCase):
             _can_driver_preview_pending_mission(
                 mission,
                 "driver-b",
+                14.8000,
+                -17.4677,
+            )
+        )
+
+    def test_driver_entering_the_radius_after_creation_can_preview_the_mission(self):
+        mission = {
+            "status": "pending",
+            "candidate_drivers": [],
+            "dispatch_notified_driver_ids": [],
+            "dispatch_radius_km": 2.0,
+            "pickup_geopin": {"lat": 14.7167, "lng": -17.4677},
+        }
+
+        self.assertTrue(
+            _can_driver_preview_pending_mission(
+                mission,
+                "driver-new",
+                14.7200,
+                -17.4677,
+            )
+        )
+
+    def test_new_driver_outside_the_radius_cannot_preview_the_mission(self):
+        mission = {
+            "status": "pending",
+            "candidate_drivers": [],
+            "dispatch_notified_driver_ids": [],
+            "dispatch_radius_km": 2.0,
+            "pickup_geopin": {"lat": 14.7167, "lng": -17.4677},
+        }
+
+        self.assertFalse(
+            _can_driver_preview_pending_mission(
+                mission,
+                "driver-new",
+                14.8000,
+                -17.4677,
+            )
+        )
+
+    def test_declined_driver_cannot_preview_after_reentering_the_radius(self):
+        mission = {
+            "status": "pending",
+            "declined_driver_ids": ["driver-a"],
+            "dispatch_radius_km": 2.0,
+            "pickup_geopin": {"lat": 14.7167, "lng": -17.4677},
+        }
+
+        self.assertFalse(
+            _can_driver_preview_pending_mission(
+                mission,
+                "driver-a",
                 14.7167,
                 -17.4677,
             )

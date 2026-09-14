@@ -167,7 +167,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       allowed = await DriverLocationConsent.ensure(
         context,
         userInitiated: userInitiated,
-      );
+      ).timeout(const Duration(seconds: 15));
     } catch (_) {
       allowed = false;
     }

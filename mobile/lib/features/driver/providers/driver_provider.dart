@@ -24,7 +24,7 @@ Future<bool> canLeaveDriverAccount(WidgetRef ref) async {
   return !hasActiveDriverMission(missions);
 }
 
-/// Provider pour les missions disponibles, filtrées par proximité si GPS fourni.
+/// Provider pour les missions disponibles, filtrées par proximité GPS actuelle.
 final availableMissionsProvider =
     FutureProvider.family<List<DeliveryMission>, DriverLocation>(
         (ref, loc) async {

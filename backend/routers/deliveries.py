@@ -345,16 +345,16 @@ def _can_driver_preview_pending_mission(
 
     candidates = mission.get("candidate_drivers") or []
     notified_driver_ids = mission.get("dispatch_notified_driver_ids") or []
-    if driver_user_id not in candidates and driver_user_id not in notified_driver_ids:
-        return False
-
+    already_targeted = (
+        driver_user_id in candidates or driver_user_id in notified_driver_ids
+    )
     pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
     if pickup_geopin is None or lat is None or lng is None:
-        return True
+        return already_targeted
 
     dispatch_radius_km = mission.get("dispatch_radius_km")
     if dispatch_radius_km is None:
-        dispatch_radius_km = 10.0 if mission.get("is_broadcast") else 5.0
+        dispatch_radius_km = 5.0
 
     distance_km = _haversine_km(
         lat,
@@ -362,7 +362,10 @@ def _can_driver_preview_pending_mission(
         pickup_geopin["lat"],
         pickup_geopin["lng"],
     )
-    return distance_km <= float(dispatch_radius_km)
+    if distance_km <= float(dispatch_radius_km):
+        return True
+
+    return False
 
 
 def _merge_driver_ids(existing: list[str], incoming: list[str]) -> list[str]:
