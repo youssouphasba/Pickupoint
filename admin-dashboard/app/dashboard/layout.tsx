@@ -57,7 +57,9 @@ export default function DashboardLayout({
           </div>
           <NotificationBell />
         </header>
-        <main className="min-w-0 flex-1 overflow-x-hidden">{children}</main>
+        <main className="dashboard-main min-w-0 max-w-full flex-1 overflow-x-hidden">
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -210,7 +210,7 @@ export function DateRangeFilter({ value, onChange, className }: Props) {
       </button>
 
       {open && (
-        <div className={cn("absolute top-[calc(100%+6px)] z-50 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border bg-background p-3 shadow-lg", panelAlign === "left" ? "left-0" : "right-0")}>
+        <div className={cn("absolute top-[calc(100%+6px)] z-50 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border bg-background p-3 shadow-lg max-[640px]:fixed max-[640px]:left-2 max-[640px]:right-2 max-[640px]:top-16 max-[640px]:w-auto max-[640px]:max-w-none", panelAlign === "left" ? "left-0" : "right-0")}>
           <div className="mb-3 flex flex-wrap gap-1.5">
             {(
               [

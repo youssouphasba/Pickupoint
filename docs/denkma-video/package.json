@@ -1,0 +1,23 @@
+{
+  "name": "denkma-video",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "npx remotion studio",
+    "render": "npx remotion render DenkmaPromo out/denkma-promo.mp4",
+    "still": "npx remotion still DenkmaPromo out/denkma-promo-frame.png --frame 360",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "^4.0.365"
+  },
+  "devDependencies": {
+    "@remotion/cli": "^4.0.365",
+    "@types/node": "^24.0.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.8.3"
+  }
+}

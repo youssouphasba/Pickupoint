@@ -50,5 +50,21 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard-main table {
+    min-width: max-content;
+  }
+
+  .dashboard-main .overflow-x-auto {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dashboard-main h1 {
+    overflow-wrap: anywhere;
   }
 }

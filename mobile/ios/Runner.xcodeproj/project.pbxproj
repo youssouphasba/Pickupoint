@@ -10,6 +10,9 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
+		D31000000000000000000001 /* denkma_message.wav in Resources */ = {isa = PBXBuildFile; fileRef = D31000000000000000000011 /* denkma_message.wav */; };
+		D31000000000000000000002 /* denkma_mission.wav in Resources */ = {isa = PBXBuildFile; fileRef = D31000000000000000000012 /* denkma_mission.wav */; };
+		D31000000000000000000003 /* denkma_status.wav in Resources */ = {isa = PBXBuildFile; fileRef = D31000000000000000000013 /* denkma_status.wav */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		A1D2E3F41B2C3D4E5F607182 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1D2E3F51B2C3D4E5F607182 /* GoogleService-Info.plist */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
@@ -46,6 +49,9 @@
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		D31000000000000000000011 /* denkma_message.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = NotificationSounds/denkma_message.wav; sourceTree = "<group>"; };
+		D31000000000000000000012 /* denkma_mission.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = NotificationSounds/denkma_mission.wav; sourceTree = "<group>"; };
+		D31000000000000000000013 /* denkma_status.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = NotificationSounds/denkma_status.wav; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
@@ -115,6 +121,9 @@
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
 				97C146FD1CF9000F007C117D /* Assets.xcassets */,
 				97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */,
+				D31000000000000000000011 /* denkma_message.wav */,
+				D31000000000000000000012 /* denkma_mission.wav */,
+				D31000000000000000000013 /* denkma_status.wav */,
 				A1D2E3F51B2C3D4E5F607182 /* GoogleService-Info.plist */,
 				97C147021CF9000F007C117D /* Info.plist */,
 				A1D2E3F61B2C3D4E5F607182 /* Runner.entitlements */,
@@ -226,6 +235,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1D2E3F41B2C3D4E5F607182 /* GoogleService-Info.plist in Resources */,
+				D31000000000000000000001 /* denkma_message.wav in Resources */,
+				D31000000000000000000002 /* denkma_mission.wav in Resources */,
+				D31000000000000000000003 /* denkma_status.wav in Resources */,
 				97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */,
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,

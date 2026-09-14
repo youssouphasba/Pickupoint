@@ -95,6 +95,44 @@ def _notif_id() -> str:
     return f"ntf_{uuid.uuid4().hex[:12]}"
 
 
+_PUSH_ALERT_PROFILES = {
+    "mission": {
+        "android_channel_id": "denkma_missions_v2",
+        "android_sound": "denkma_mission",
+        "ios_sound": "denkma_mission.wav",
+    },
+    "message": {
+        "android_channel_id": "denkma_messages_v2",
+        "android_sound": "denkma_message",
+        "ios_sound": "denkma_message.wav",
+    },
+    "status": {
+        "android_channel_id": "denkma_updates_v2",
+        "android_sound": "denkma_status",
+        "ios_sound": "denkma_status.wav",
+    },
+}
+
+
+def _push_alert_profile(
+    event_type: Optional[str],
+    ref_type: Optional[str],
+    category: Optional[str],
+) -> dict[str, str]:
+    normalized_event = (event_type or "").strip().lower()
+    normalized_ref = (ref_type or "").strip().lower()
+    normalized_category = (category or "").strip().lower()
+    if normalized_category == "messages" or normalized_event == "parcel_message":
+        return _PUSH_ALERT_PROFILES["message"]
+    if normalized_ref == "mission" or normalized_event in {
+        "mission_available",
+        "mission_detail",
+        "mission_unavailable",
+    }:
+        return _PUSH_ALERT_PROFILES["mission"]
+    return _PUSH_ALERT_PROFILES["status"]
+
+
 STATUS_MESSAGES = {
     ParcelStatus.CREATED:                 "Votre colis a été créé. Code de suivi : {tracking_code}",
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: "Votre colis a été déposé au point relais.",
@@ -930,6 +968,7 @@ async def _send_push(
             "event_type": event_type or "",
             "target_view": target_view or "",
             "dedupe_key": dedupe_key or "",
+            "category": category or "",
         }
         for key in (
             "message_id",
@@ -942,6 +981,7 @@ async def _send_push(
             if value is not None:
                 data[key] = str(value)
         collapse_id = (dedupe_key or event_type or ref_id or "").strip()[:64]
+        alert_profile = _push_alert_profile(event_type, ref_type, category)
         for token in fcm_tokens:
             message = _messaging.Message(
                 notification=_messaging.Notification(title=title, body=body),
@@ -950,12 +990,16 @@ async def _send_push(
                     collapse_key=collapse_id or None,
                     priority="high",
                     notification=_messaging.AndroidNotification(
-                        channel_id="high_importance_channel",
+                        channel_id=alert_profile["android_channel_id"],
+                        sound=alert_profile["android_sound"],
                         tag=collapse_id or None,
                     ),
                 ),
                 apns=_messaging.APNSConfig(
                     headers={"apns-collapse-id": collapse_id} if collapse_id else {},
+                    payload=_messaging.APNSPayload(
+                        aps=_messaging.Aps(sound=alert_profile["ios_sound"]),
+                    ),
                 ),
                 token=token,
             )
@@ -1114,7 +1158,10 @@ async def expire_mission_availability_notifications(
     }
     for user_id in user_ids:
         if user_id and user_id != accepted_by_user_id:
-            await _send_data_push(user_id, data)
+            await _send_data_push(
+                user_id,
+                {**data, "dedupe_key": f"mission_reminder:{user_id}"},
+            )
 
 
 async def expire_mission_availability_for_user(
@@ -1161,7 +1208,7 @@ async def expire_mission_availability_for_user(
             "target_view": "driver",
             "ref_type": "mission",
             "ref_id": mission_id,
-            "dedupe_key": dedupe_key,
+            "dedupe_key": f"mission_reminder:{user_id}",
         },
     )
 
@@ -1529,24 +1576,33 @@ async def notify_pending_mission_dispatch_reminder(
     mission: dict,
     radius_km: float,
 ) -> dict:
-    tracking_code = mission.get("tracking_code", "N/A")
     radius_label = f"{radius_km:.0f}" if float(radius_km).is_integer() else f"{radius_km:.1f}"
-    return await send_targeted_notifications(
-        user_ids=user_ids,
-        title="Course toujours disponible",
-        body=(
-            f"La course pour le colis {tracking_code} est toujours disponible dans un rayon de "
-            f"{radius_label} km."
-        ),
-        category="parcel_updates",
-        ref_type="mission",
-        ref_id=mission.get("mission_id"),
-        metadata={"dispatch_radius_km": radius_km, "reminder": True},
-        store_in_app=False,
-        event_type="mission_available",
-        target_view="driver",
-        dedupe_key=f"mission_available:{mission.get('mission_id')}",
-    )
+    results = []
+    for user_id in user_ids:
+        results.append(
+            await _store_and_send(
+                user_id=user_id,
+                title="Courses toujours disponibles",
+                body=(
+                    f"Des courses sont toujours disponibles dans un rayon de {radius_label} km. "
+                    "Ouvrez l'application pour les consulter."
+                ),
+                ref_type="mission",
+                ref_id=mission.get("mission_id"),
+                category="parcel_updates",
+                skip_whatsapp=True,
+                metadata={"dispatch_radius_km": radius_km, "reminder": True},
+                store_in_app=False,
+                event_type="mission_available",
+                target_view="driver",
+                dedupe_key=f"mission_reminder:{user_id}",
+            )
+        )
+    return {
+        "requested": len(user_ids),
+        "push_sent": sum(result.get("push_status") == "sent" for result in results),
+        "push_failed": sum(result.get("push_status") == "failed" for result in results),
+    }
 
 
 async def notify_new_parcel_message(

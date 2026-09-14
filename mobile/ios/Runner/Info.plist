@@ -78,17 +78,17 @@
 	<key>GoogleMapsApiKey</key>
 	<string></string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Cette application a besoin d'acceder a votre position pour le suivi des livraisons.</string>
+	<string>Denkma utilise votre position pour afficher les courses proches et suivre les livraisons.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Cette application a besoin d'acceder a votre position en arriere-plan pour le suivi des livraisons en temps reel.</string>
+	<string>Denkma utilise votre position même lorsque l'application est fermée pour proposer les courses proches et actualiser la flotte.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Cette application a besoin d'acceder a l'appareil photo pour scanner les codes de livraison et prendre des preuves de depot.</string>
+	<string>Denkma utilise l'appareil photo pour scanner les codes et prendre les preuves de dépôt.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Denkma utilise vos contacts uniquement pour sélectionner le nom et le numéro du destinataire.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Denkma utilise le microphone uniquement pour enregistrer et envoyer des notes vocales.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Cette application a besoin d'acceder a votre bibliotheque de photos pour enregistrer les preuves de livraison.</string>
+	<string>Denkma utilise votre photothèque pour sélectionner les preuves de livraison.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Denkma utilise Face ID uniquement si vous l'activez pour sécuriser votre connexion.</string>
 </dict>
