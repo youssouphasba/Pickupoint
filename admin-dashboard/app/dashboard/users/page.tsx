@@ -392,6 +392,16 @@ export default function UsersPage() {
         ),
       },
       {
+        id: "last_login_at",
+        header: "Dernière connexion",
+        accessorKey: "last_login_at",
+        cell: ({ getValue }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatDate(getValue() as string | undefined) || "Jamais"}
+          </span>
+        ),
+      },
+      {
         id: "actions",
         header: "Actions",
         enableSorting: false,

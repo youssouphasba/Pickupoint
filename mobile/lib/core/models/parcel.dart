@@ -44,6 +44,8 @@ class Parcel {
     this.recipientName,
     this.recipientPhone,
     this.destinationAddress,
+    this.originAreaLabel,
+    this.deliveryAreaLabel,
     this.destinationLat,
     this.destinationLng,
     this.weightKg,
@@ -116,6 +118,8 @@ class Parcel {
   final String? recipientName;
   final String? recipientPhone;
   final String? destinationAddress;
+  final String? originAreaLabel;
+  final String? deliveryAreaLabel;
   final double? destinationLat;
   final double? destinationLng;
   final double? weightKg;
@@ -188,6 +192,8 @@ class Parcel {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
     final deliveryAddr = json['delivery_address'] as Map<String, dynamic>?;
     final geopin = deliveryAddr?['geopin'] as Map<String, dynamic>?;
+    final originArea = json['origin_area_label']?.toString();
+    final deliveryArea = json['delivery_area_label']?.toString();
 
     return Parcel(
       id: json['parcel_id'] as String? ?? json['id'] as String? ?? '',
@@ -208,13 +214,16 @@ class Parcel {
       recipientPhone: json['recipient_phone']?.toString(),
       destinationAddress: deliveryAddr?['label']?.toString() ??
           deliveryAddr?['district']?.toString(),
+      originAreaLabel: originArea == 'Zone non précisée' ? null : originArea,
+      deliveryAreaLabel:
+          deliveryArea == 'Zone non précisée' ? null : deliveryArea,
       destinationLat: (geopin?['lat'] as num?)?.toDouble(),
       destinationLng: (geopin?['lng'] as num?)?.toDouble(),
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
       declaredValue: (json['declared_value'] as num?)?.toDouble(),
       hasInsurance: json['is_insured'] as bool? ?? false,
-      totalPrice: (json['quoted_price'] as num?)?.toDouble() ??
-          (json['paid_price'] as num?)?.toDouble(),
+        totalPrice: (json['paid_price'] as num?)?.toDouble() ??
+            (json['quoted_price'] as num?)?.toDouble(),
       paymentStatus: json['payment_status']?.toString(),
       externalRef: json['external_ref']?.toString(),
       events: (json['events'] as List<dynamic>?)

@@ -473,7 +473,7 @@ export default function UserDetailPage() {
             </Badge>
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Inscrit le {formatDate(user.created_at)} • ID: {user.user_id}
+            Inscrit le {formatDate(user.created_at)} · Dernière connexion : {formatDate(user.last_login_at) || "Jamais"} · ID : {user.user_id}
           </div>
         </div>
       </div>

@@ -61,6 +61,7 @@ export type AdminUser = {
   profile_picture_status?: string | null;
   profile_picture_rejected_reason?: string | null;
   created_at?: string;
+  last_login_at?: string | null;
   xp?: number;
   level?: number;
   total_ratings_count?: number;

@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
 import '../../../core/models/relay_point.dart';
 import '../providers/client_provider.dart';
@@ -36,8 +37,10 @@ class ParcelDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ParcelDetailScreen> createState() => _ParcelDetailScreenState();
 }
 
-class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
+class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
+    with WidgetsBindingObserver {
   Timer? _locationTimer;
+  Timer? _parcelTimer;
   double? _driverLat;
   double? _driverLng;
   double? _liveDestinationLat;
@@ -57,7 +60,15 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startPolling();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(parcelProvider(widget.id));
+    }
   }
 
   @override
@@ -93,17 +104,32 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
   @override
   void dispose() {
     _locationTimer?.cancel();
+    _parcelTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   void _startPolling() {
+    _parcelTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!_canRefresh) return;
+      final parcel = ref.read(parcelProvider(widget.id)).valueOrNull;
+      if (parcel != null &&
+          const {'delivered', 'cancelled', 'expired', 'returned'}
+              .contains(parcel.status)) return;
+      ref.invalidate(parcelProvider(widget.id));
+    });
     _locationTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
+      if (!_canRefresh) return;
       final parcel = ref.read(parcelProvider(widget.id)).value;
       if (parcel == null) return;
       if (!_shouldShowLiveTracking(parcel)) return;
       await _fetchDriverLocation();
     });
   }
+
+  bool get _canRefresh => mounted &&
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+      ModalRoute.of(context)?.isCurrent == true;
 
   Future<void> _fetchDriverLocation() async {
     try {
@@ -1130,8 +1156,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
 
   Widget _buildPriceCard(Parcel parcel) {
     final payerLabel = parcel.whoPays == 'recipient'
-        ? 'Payé au livreur par le destinataire'
-        : 'Payé au livreur par l’expéditeur';
+        ? 'À régler au livreur par le destinataire'
+        : 'À régler au livreur par l’expéditeur';
     final hasPrice = parcel.totalPrice != null;
 
     return Container(
@@ -1507,11 +1533,26 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen> {
           parcel.recipientName ?? 'N/A',
         ),
         _buildInfoRow(Icons.phone, 'Téléphone', parcel.recipientPhone ?? ''),
+        if (parcel.originAreaLabel != null &&
+            parcel.originAreaLabel!.trim().isNotEmpty)
+          _buildInfoRow(
+            Icons.trip_origin,
+            'Zone de collecte',
+            parcel.originAreaLabel!,
+          ),
         if (parcel.isRelayToHome)
           _buildInfoRow(
             Icons.location_on,
-            'Adresse',
-            parcel.destinationAddress ?? 'N/A',
+            'Zone de livraison',
+            parcel.deliveryAreaLabel ?? parcel.destinationAddress ?? 'N/A',
+          ),
+        if (!parcel.isRelayToHome &&
+            parcel.deliveryAreaLabel != null &&
+            parcel.deliveryAreaLabel!.trim().isNotEmpty)
+          _buildInfoRow(
+            Icons.location_on,
+            'Zone de livraison',
+            parcel.deliveryAreaLabel!,
           ),
         if (originRelayId != null && originRelayId.isNotEmpty) ...[
           const SizedBox(height: 8),

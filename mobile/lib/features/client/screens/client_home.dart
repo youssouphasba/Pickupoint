@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
@@ -16,11 +18,47 @@ import '../../../shared/widgets/state_feedback.dart';
 import '../../driver/providers/driver_provider.dart';
 import '../providers/client_provider.dart';
 
-class ClientHome extends ConsumerWidget {
+class ClientHome extends ConsumerStatefulWidget {
   const ClientHome({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ClientHome> createState() => _ClientHomeState();
+}
+
+class _ClientHomeState extends ConsumerState<ClientHome>
+    with WidgetsBindingObserver {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        ref.invalidate(parcelsProvider);
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) ref.invalidate(parcelsProvider);
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(foregroundNotificationRefreshProvider, (_, __) {
+      ref.invalidate(parcelsProvider);
+    });
     final parcelsAsync = ref.watch(parcelsProvider);
 
     return DefaultTabController(
@@ -286,10 +324,11 @@ class _ParcelCard extends StatelessWidget {
                     icon: Icons.schedule_outlined,
                     label: formatDate(parcel.createdAt),
                   ),
-                  if (parcel.totalPrice != null)
-                    _MetaChip(
+                  _MetaChip(
                       icon: Icons.payments_outlined,
-                      label: formatXof(parcel.totalPrice!),
+                      label: parcel.totalPrice != null
+                          ? formatXof(parcel.totalPrice!)
+                          : 'Prix en attente',
                     ),
                 ],
               ),
@@ -368,9 +407,9 @@ class _ParcelCard extends StatelessWidget {
 
   static String _paymentLabel(Parcel parcel) {
     if (parcel.whoPays == 'recipient') {
-      return 'payé par le destinataire à la livraison';
+      return 'au livreur par le destinataire';
     }
-    return 'payé par l’expéditeur à la livraison';
+    return 'au livreur par l’expéditeur';
   }
 }
 

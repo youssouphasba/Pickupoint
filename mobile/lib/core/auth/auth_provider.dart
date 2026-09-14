@@ -492,7 +492,7 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
   bool _isConfirmedSessionInvalid(DioException error) {
     final statusCode = error.response?.statusCode;
-    return statusCode == 400 || statusCode == 401 || statusCode == 403;
+    return statusCode == 400 || statusCode == 401;
   }
 
   /// Bascule entre la vue professionnelle et la vue client.

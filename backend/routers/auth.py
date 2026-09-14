@@ -178,9 +178,10 @@ async def firebase_login(body: FirebaseAuthRequest, request: Request):
         from core.exceptions import forbidden_exception
         raise forbidden_exception("Votre compte a été suspendu par l'administration.")
 
+    now = datetime.now(timezone.utc)
     await db.users.update_one(
         {"phone": phone},
-        {"$set": {"is_phone_verified": True, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {"is_phone_verified": True, "last_login_at": now, "updated_at": now}},
     )
     user_doc["is_phone_verified"] = True
 
@@ -276,7 +277,7 @@ async def login_pin(body: PINLoginRequest, request: Request):
                 "pin_failed_attempts": "",
                 "pin_locked_until": "",
             },
-            "$set": {"updated_at": now},
+            "$set": {"last_login_at": now, "updated_at": now},
         },
     )
 
@@ -377,6 +378,7 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "referral_applied_at": now if referred_by else None,
         "referral_source":   "signup" if referred_by else None,
         "created_at":        now,
+        "last_login_at":     now,
         "updated_at":        now,
     }
     await db.users.insert_one(user_doc)

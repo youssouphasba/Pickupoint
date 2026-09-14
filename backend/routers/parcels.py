@@ -56,6 +56,7 @@ from services.parcel_service import (
     refresh_quote_if_ready,
     sync_active_mission_with_parcel,
     ensure_live_location_accuracy,
+    build_location_area_label,
 )
 from services.pricing_service import calculate_price, _haversine_km
 from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
@@ -784,7 +785,9 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             "pickup_voice_note": 1,
             "delivery_voice_note": 1,
             "pickup_label": 1,
+            "pickup_area_label": 1,
             "delivery_label": 1,
+            "delivery_area_label": 1,
             "pickup_geopin": 1,
             "delivery_geopin": 1,
             "pickup_relay_id": 1,
@@ -792,6 +795,12 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         },
     )
     await _ensure_return_code_for_incident(parcel, active_mission)
+    parcel["origin_area_label"] = build_location_area_label(
+        parcel.get("origin_location"),
+    )
+    parcel["delivery_area_label"] = build_location_area_label(
+        parcel.get("delivery_address"),
+    )
     if active_mission:
         parcel["driver_location"] = active_mission.get("driver_location")
         parcel["eta_text"] = active_mission.get("eta_text")
@@ -802,6 +811,8 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
         parcel["who_pays"] = active_mission.get("who_pays") or parcel.get("who_pays")
         parcel["pickup_voice_note"] = active_mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         parcel["delivery_voice_note"] = active_mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
+        parcel["origin_area_label"] = active_mission.get("pickup_area_label") or parcel["origin_area_label"]
+        parcel["delivery_area_label"] = active_mission.get("delivery_area_label") or parcel["delivery_area_label"]
 
     if is_admin:
         await _enrich_admin_parcel_addresses(parcel, active_mission)

@@ -811,6 +811,7 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "average_rating": user.get("average_rating", 0.0),
         "total_earned": user.get("total_earned", 0.0),
         "created_at": user.get("created_at"),
+        "last_login_at": user.get("last_login_at"),
         "updated_at": user.get("updated_at"),
         "last_driver_location": user.get("last_driver_location"),
         "last_driver_location_at": user.get("last_driver_location_at"),

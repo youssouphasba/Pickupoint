@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -79,11 +80,19 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   bool _gpsLoading = true;
   bool _toggling = false;
   bool _notificationActionHandled = false;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!mounted ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
+          ModalRoute.of(context)?.isCurrent != true) return;
+      ref.invalidate(availableMissionsProvider);
+      ref.invalidate(myMissionsProvider);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prepareLocationAccess();
     });
@@ -91,6 +100,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -340,7 +350,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                       Expanded(
                         child: Text(
                           hasGps
-                              ? 'Missions à 5 km'
+                              ? 'Missions autour de vous'
                               : 'GPS requis pour voir les missions',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -602,7 +612,7 @@ class _MissionsList extends ConsumerWidget {
           // Pour "Disponibles" : comportement inchangé
           if (missions.isEmpty) {
             return _buildEmpty(driverLoc.lat != null
-                ? 'Aucune course dans votre rayon (5 km)'
+                ? 'Aucune course dans votre rayon'
                 : 'Aucune course disponible pour le moment');
           }
           return ListView.separated(
@@ -1103,7 +1113,7 @@ class _MissionCard extends ConsumerWidget {
                                 children: [
                                   _PreviewLine(
                                     icon: Icons.near_me_outlined,
-                                    label: "Vers l'expéditeur",
+                                    label: 'Vers la collecte',
                                     value: preview?.pickupDistanceText ??
                                         _fallbackPickupDistance(),
                                     trailing: preview?.pickupEtaText,
@@ -1111,7 +1121,7 @@ class _MissionCard extends ConsumerWidget {
                                   ),
                                   _PreviewLine(
                                     icon: Icons.route_outlined,
-                                    label: 'Course',
+                                    label: 'Collecte → livraison',
                                     value: preview?.deliveryDistanceText ??
                                         'Non disponible',
                                     trailing: preview?.deliveryEtaText,
@@ -1119,9 +1129,9 @@ class _MissionCard extends ConsumerWidget {
                                   ),
                                   _PreviewLine(
                                     icon: Icons.alt_route_outlined,
-                                    label: 'Total pour vous',
+                                    label: 'Trajet total',
                                     value: preview?.totalDistanceText ??
-                                        _fallbackTotalDistance(preview),
+                                        'Non disponible',
                                     trailing: preview?.totalEtaText,
                                     loading: isLoading,
                                   ),
@@ -1134,7 +1144,7 @@ class _MissionCard extends ConsumerWidget {
                               ),
                               const SizedBox(height: 14),
                               _PreviewSection(
-                                title: 'Details',
+                                title: 'Détails',
                                 children: [
                                   _PreviewLine(
                                     icon: mission.pickupIsRelay
@@ -1403,11 +1413,7 @@ class _MissionCard extends ConsumerWidget {
 
   String _fallbackPickupDistance() {
     if (mission.distanceKm == null) return 'Non disponible';
-    return '${mission.distanceKm!.toStringAsFixed(1)} km';
-  }
-
-  String _fallbackTotalDistance(_MissionPreview? preview) {
-    return preview?.deliveryDistanceText ?? _fallbackPickupDistance();
+    return '${mission.distanceKm!.toStringAsFixed(1)} km à vol d’oiseau';
   }
 
   String _pickupZoneLabel() {
