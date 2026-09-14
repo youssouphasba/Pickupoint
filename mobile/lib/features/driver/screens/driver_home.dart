@@ -23,6 +23,7 @@ import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/location/location_tracking_service.dart';
 import '../../../core/notifications/notification_service.dart';
+import '../../../shared/feedback/action_feedback.dart';
 
 class _MissionPreview {
   const _MissionPreview({
@@ -1527,6 +1528,7 @@ class _MissionCard extends ConsumerWidget {
       );
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
+      await ActionFeedback.mission();
       if (context.mounted) {
         await _showMissionAccepted(context);
       }
@@ -1626,6 +1628,7 @@ class _MissionCard extends ConsumerWidget {
     try {
       await ref.read(apiClientProvider).declineMission(mission.id);
       ref.invalidate(availableMissionsProvider);
+      await ActionFeedback.confirm();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

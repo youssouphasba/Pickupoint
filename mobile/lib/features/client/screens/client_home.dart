@@ -239,7 +239,19 @@ class _ParcelList extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       itemCount: parcels.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => _ParcelCard(parcel: parcels[index]),
+      itemBuilder: (_, index) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: 1),
+        duration: Duration(milliseconds: 260 + (index.clamp(0, 5) * 35)),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) => Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 16 * (1 - value)),
+            child: child,
+          ),
+        ),
+        child: _ParcelCard(parcel: parcels[index]),
+      ),
     );
   }
 }
@@ -325,11 +337,11 @@ class _ParcelCard extends StatelessWidget {
                     label: formatDate(parcel.createdAt),
                   ),
                   _MetaChip(
-                      icon: Icons.payments_outlined,
-                      label: parcel.totalPrice != null
-                          ? formatXof(parcel.totalPrice!)
-                          : 'Prix en attente',
-                    ),
+                    icon: Icons.payments_outlined,
+                    label: parcel.totalPrice != null
+                        ? formatXof(parcel.totalPrice!)
+                        : 'Prix en attente',
+                  ),
                 ],
               ),
               const SizedBox(height: 12),

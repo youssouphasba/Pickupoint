@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_motion.dart';
+import '../feedback/action_feedback.dart';
 import 'pressable_scale.dart';
 
 class LoadingButton extends StatelessWidget {
@@ -32,7 +33,12 @@ class LoadingButton extends StatelessWidget {
         width: double.infinity,
         height: 50,
         child: ElevatedButton(
-          onPressed: isLoading ? null : onPressed,
+          onPressed: isLoading || onPressed == null
+              ? null
+              : () {
+                  ActionFeedback.confirm();
+                  onPressed!();
+                },
           style: ElevatedButton.styleFrom(
             backgroundColor: color,
             foregroundColor: foregroundColor,

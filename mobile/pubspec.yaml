@@ -87,6 +87,9 @@ flutter:
     - shorebird.yaml
     - assets/logo.png
     - assets/logo_transparent.png
+    - assets/logo_base.png
+    - assets/logo_moto.png
+    - assets/sounds/
     - assets/kyc_guides/
   uses-material-design: true
 
