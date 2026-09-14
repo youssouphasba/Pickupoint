@@ -22,11 +22,16 @@ final driverPresenceServiceProvider = Provider<DriverPresenceService>((ref) {
 class DriverPresenceService {
   DriverPresenceService(this._ref);
 
+  static const _updateInterval = Duration(seconds: 15);
+
   final Ref _ref;
+  final _positionController = StreamController<Position>.broadcast();
   StreamSubscription<Position>? _subscription;
   DateTime? _lastUpload;
   bool _started = false;
   bool _starting = false;
+
+  Stream<Position> get positions => _positionController.stream;
 
   Future<void> start() async {
     _started = true;
@@ -45,9 +50,7 @@ class DriverPresenceService {
   }) async {
     if (!_started) return;
     final user = auth?.user;
-    final shouldTrack = auth?.isAuthenticated == true &&
-        user?.role == 'driver' &&
-        user?.isAvailable == true;
+    final shouldTrack = auth?.isAuthenticated == true && user?.role == 'driver';
     if (!shouldTrack) {
       await _stop();
       return;
@@ -78,8 +81,8 @@ class DriverPresenceService {
       if (defaultTargetPlatform == TargetPlatform.android) {
         settings = AndroidSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: 25,
-          intervalDuration: const Duration(seconds: 45),
+          distanceFilter: 10,
+          intervalDuration: _updateInterval,
           foregroundNotificationConfig: const ForegroundNotificationConfig(
             notificationTitle: 'Denkma livreur disponible',
             notificationText:
@@ -131,10 +134,11 @@ class DriverPresenceService {
     bool force = false,
   }) async {
     if (position.accuracy > 500) return;
+    if (!_positionController.isClosed) _positionController.add(position);
     final now = DateTime.now();
     if (!force &&
         _lastUpload != null &&
-        now.difference(_lastUpload!).inSeconds < 45) {
+        now.difference(_lastUpload!) < _updateInterval) {
       return;
     }
     _lastUpload = now;
@@ -155,5 +159,8 @@ class DriverPresenceService {
     _lastUpload = null;
   }
 
-  Future<void> dispose() => _stop();
+  Future<void> dispose() async {
+    await _stop();
+    await _positionController.close();
+  }
 }

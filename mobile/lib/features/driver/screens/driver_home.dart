@@ -78,8 +78,13 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     with WidgetsBindingObserver {
   double? _driverLat;
   double? _driverLng;
-  bool _gpsLoading = true;
+  bool _gpsLoading = false;
+  bool _locationAccessLoading = false;
+  String? _locationError;
   Future<void>? _locationRequest;
+  Future<bool>? _locationPreparationRequest;
+  StreamSubscription<Position>? _presencePositionSubscription;
+  Timer? _gpsRetryTimer;
   bool _toggling = false;
   bool _notificationActionHandled = false;
   Timer? _refreshTimer;
@@ -88,6 +93,15 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _presencePositionSubscription =
+        ref.read(driverPresenceServiceProvider).positions.listen((position) {
+      if (!mounted) return;
+      setState(() {
+        _driverLat = position.latitude;
+        _driverLng = position.longitude;
+        _locationError = null;
+      });
+    });
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (!mounted ||
           WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed ||
@@ -105,6 +119,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _gpsRetryTimer?.cancel();
+    _presencePositionSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -119,23 +135,65 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   }
 
   Future<bool> _prepareLocationAccess({bool userInitiated = false}) async {
-    final allowed = await DriverLocationConsent.ensure(
-      context,
-      userInitiated: userInitiated,
-    );
+    final pending = _locationPreparationRequest;
+    if (pending != null) return pending;
+
+    late final Future<bool> request;
+    request = _prepareLocationAccessOnce(userInitiated: userInitiated)
+        .whenComplete(() {
+      if (identical(_locationPreparationRequest, request)) {
+        _locationPreparationRequest = null;
+      }
+    });
+    _locationPreparationRequest = request;
+    return request;
+  }
+
+  Future<bool> _prepareLocationAccessOnce({
+    required bool userInitiated,
+  }) async {
+    if (mounted) {
+      setState(() {
+        _locationAccessLoading = true;
+        _gpsLoading = false;
+        _locationError = null;
+        _driverLat = null;
+        _driverLng = null;
+      });
+    }
+
+    bool allowed;
+    try {
+      allowed = await DriverLocationConsent.ensure(
+        context,
+        userInitiated: userInitiated,
+      );
+    } catch (_) {
+      allowed = false;
+    }
     if (!mounted) return false;
     if (!allowed) {
-      setState(() => _gpsLoading = false);
+      setState(() {
+        _locationAccessLoading = false;
+        _gpsLoading = false;
+        _locationError =
+            'Autorisez la localisation pour voir les courses disponibles.';
+      });
       return false;
     }
+
+    setState(() {
+      _locationAccessLoading = false;
+      _gpsLoading = true;
+    });
     await _fetchDriverLocation();
     if (!mounted) return false;
     ref.read(locationTrackingServiceProvider);
-    await ref.read(driverPresenceServiceProvider).reconcile(
+    unawaited(ref.read(driverPresenceServiceProvider).reconcile(
           ref.read(authProvider).valueOrNull,
           forceUpload: true,
-        );
-    return true;
+        ));
+    return _driverLat != null && _driverLng != null;
   }
 
   Future<void> _syncDriverPresenceLocation(Position pos) async {
@@ -163,7 +221,12 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   Future<void> _resolveDriverLocation() async {
     if (!mounted) return;
-    setState(() => _gpsLoading = true);
+    setState(() {
+      _gpsLoading = true;
+      _locationError = null;
+      _driverLat = null;
+      _driverLng = null;
+    });
     try {
       final pos = await FreshPositionHelper.getDriverSearchPosition()
           .timeout(const Duration(seconds: 10));
@@ -172,6 +235,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
           _driverLat = pos.latitude;
           _driverLng = pos.longitude;
           _gpsLoading = false;
+          _locationError = null;
         });
         unawaited(_syncDriverPresenceLocation(pos));
       }
@@ -181,9 +245,19 @@ class _DriverHomeState extends ConsumerState<DriverHome>
           _driverLat = null;
           _driverLng = null;
           _gpsLoading = false;
+          _locationError = 'Localisation indisponible. Vérifiez le GPS.';
         });
+        _scheduleGpsRetry();
       }
     }
+  }
+
+  void _scheduleGpsRetry() {
+    if (_gpsRetryTimer != null) return;
+    _gpsRetryTimer = Timer(const Duration(seconds: 15), () {
+      _gpsRetryTimer = null;
+      if (mounted) _prepareLocationAccess();
+    });
   }
 
   Future<void> _toggleAvailability() async {
@@ -283,7 +357,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     if (missionId == null ||
         missionId.isEmpty ||
         missions == null ||
-        _gpsLoading) {
+        _gpsLoading ||
+        _driverLat == null ||
+        _driverLng == null) {
       return;
     }
 
@@ -324,12 +400,23 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     });
     final isAvailable =
         ref.watch(authProvider).value?.user?.isAvailable ?? false;
-    final availableAsync = ref.watch(availableMissionsProvider(_driverLoc));
+    final hasGps = _driverLat != null && _driverLng != null;
+    final availableAsync = hasGps
+        ? ref.watch(availableMissionsProvider(_driverLoc))
+        : const AsyncValue.data(<DeliveryMission>[]);
     final myMissionsAsync = ref.watch(myMissionsProvider);
     final myMissions = myMissionsAsync.valueOrNull ?? const <DeliveryMission>[];
     final hasLockedMission = hasActiveDriverMission(myMissions);
-    final hasGps = _driverLat != null;
     _handleNotificationAction(availableAsync);
+
+    final locationMessage = _locationAccessLoading
+        ? 'Autorisation de localisation requise'
+        : _gpsLoading
+            ? 'Recherche de votre position…'
+            : _locationError ??
+                (hasGps
+                    ? 'Missions autour de vous'
+                    : 'Position requise pour voir les missions');
 
     return DefaultTabController(
       length: 2,
@@ -338,44 +425,36 @@ class _DriverHomeState extends ConsumerState<DriverHome>
           title: const SizedBox.shrink(),
           titleSpacing: 0,
           bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(68),
+            preferredSize: const Size.fromHeight(80),
             child: Column(
               children: [
-                if (!_gpsLoading)
-                  Container(
-                    color:
-                        hasGps ? Colors.green.shade700 : Colors.orange.shade700,
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
-                    width: double.infinity,
-                    child: Row(children: [
-                      Icon(
-                        hasGps ? Icons.my_location : Icons.location_off,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          hasGps
-                              ? 'Missions autour de vous'
-                              : 'GPS requis pour voir les missions',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+                Container(
+                  color:
+                      hasGps ? Colors.green.shade700 : Colors.orange.shade700,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
+                  width: double.infinity,
+                  child: Row(children: [
+                    Icon(
+                      hasGps ? Icons.my_location : Icons.location_off,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        locationMessage,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      InkWell(
-                        onTap: _fetchDriverLocation,
-                        child: const Icon(Icons.refresh,
-                            size: 18, color: Colors.white70),
-                      ),
-                    ]),
-                  ),
+                    ),
+                  ]),
+                ),
                 const TabBar(
                   labelColor: Colors.white,
                   unselectedLabelColor: Colors.white70,
@@ -619,7 +698,7 @@ class _MissionsList extends ConsumerWidget {
           if (missions.isEmpty) {
             return _buildEmpty(driverLoc.lat != null
                 ? 'Aucune course dans votre rayon'
-                : 'Aucune course disponible pour le moment');
+                : 'Activez la localisation pour voir les courses');
           }
           return ListView.separated(
             padding: const EdgeInsets.all(12),
