@@ -493,33 +493,31 @@ class _DriverHomeState extends ConsumerState<DriverHome>
             const NotificationPermissionBanner(),
             const CampaignBanner(role: 'driver'),
             Expanded(
-              child: _gpsLoading
-                  ? const Center(
-                      child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
-                            Text('Localisation en cours…',
-                                style: TextStyle(color: Colors.grey)),
-                          ]),
-                    )
-                  : TabBarView(
-                      children: [
-                        _MissionsList(
-                          asyncValue: availableAsync,
-                          isAvailable: true,
-                          driverLoc: _driverLoc,
-                          ensureGpsReady: _ensureGpsReady,
-                        ),
-                        _MissionsList(
-                          asyncValue: myMissionsAsync,
-                          isAvailable: false,
-                          driverLoc: _driverLoc,
-                          ensureGpsReady: _ensureGpsReady,
-                        ),
-                      ],
+              child: Stack(
+                children: [
+                  TabBarView(
+                    children: [
+                      _MissionsList(
+                        asyncValue: availableAsync,
+                        isAvailable: true,
+                        driverLoc: _driverLoc,
+                        ensureGpsReady: _ensureGpsReady,
+                      ),
+                      _MissionsList(
+                        asyncValue: myMissionsAsync,
+                        isAvailable: false,
+                        driverLoc: _driverLoc,
+                        ensureGpsReady: _ensureGpsReady,
+                      ),
+                    ],
+                  ),
+                  if (_gpsLoading)
+                    const Align(
+                      alignment: Alignment.topCenter,
+                      child: LinearProgressIndicator(minHeight: 2),
                     ),
+                ],
+              ),
             ),
           ],
         ),
