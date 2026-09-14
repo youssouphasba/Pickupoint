@@ -20,7 +20,6 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _logoOpacity;
-  late final Animation<double> _logoScale;
   late final Animation<Offset> _logoRide;
   late final Animation<double> _taglineOpacity;
   late final Animation<Offset> _taglineOffset;
@@ -39,18 +38,12 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
       parent: _controller,
       curve: const Interval(0, 0.38, curve: Curves.easeOut),
     );
-    _logoScale = Tween<double>(begin: 0.76, end: 1).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0, 0.62, curve: AppMotion.emphasizedCurve),
-      ),
-    );
     _logoRide = Tween<Offset>(
-      begin: const Offset(-0.75, 0),
+      begin: const Offset(-1, 0),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.08, 0.65, curve: Curves.easeInOutCubic),
+      curve: const Interval(0.04, 0.62, curve: Curves.easeOutCubic),
     ));
     _taglineOpacity = CurvedAnimation(
       parent: _controller,
@@ -132,40 +125,47 @@ class _AppLaunchRevealState extends State<AppLaunchReveal>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      FadeTransition(
-                        opacity: _logoOpacity,
-                        child: ScaleTransition(
-                          scale: _logoScale,
-                          child: SizedBox(
-                            width: 230,
-                            height: 230,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              alignment: Alignment.center,
-                              children: [
-                                Image.asset(
-                                  'assets/logo_base.png',
+                      SizedBox(
+                        width: 230,
+                        height: 230,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: [
+                            FadeTransition(
+                              opacity: _logoOpacity,
+                              child: Image.asset(
+                                'assets/logo_base.png',
+                                width: 230,
+                                height: 230,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            Positioned(
+                              top: 15,
+                              left: 0,
+                              right: 0,
+                              child: AnimatedBuilder(
+                                animation: _logoRide,
+                                builder: (context, child) =>
+                                    Transform.translate(
+                                  offset: Offset(
+                                    _logoRide.value.dx *
+                                        (MediaQuery.sizeOf(context).width / 2 +
+                                            115),
+                                    0,
+                                  ),
+                                  child: child,
+                                ),
+                                child: Image.asset(
+                                  'assets/logo_moto.png',
                                   width: 230,
-                                  height: 230,
+                                  height: 154,
                                   fit: BoxFit.contain,
                                 ),
-                                Positioned(
-                                  top: 15,
-                                  left: 0,
-                                  right: 0,
-                                  child: SlideTransition(
-                                    position: _logoRide,
-                                    child: Image.asset(
-                                      'assets/logo_moto.png',
-                                      width: 230,
-                                      height: 154,
-                                      fit: BoxFit.contain,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 8),
