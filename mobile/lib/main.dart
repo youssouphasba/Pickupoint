@@ -17,7 +17,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final notifications = FlutterLocalNotificationsPlugin();
     await notifications.initialize(
       const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_notification'),
         iOS: DarwinInitializationSettings(),
       ),
     );

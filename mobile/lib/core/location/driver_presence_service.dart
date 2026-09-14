@@ -85,8 +85,8 @@ class DriverPresenceService {
             notificationText:
                 'Votre zone est actualisée pour recevoir les courses proches.',
             notificationIcon: AndroidResource(
-              name: 'ic_launcher',
-              defType: 'mipmap',
+              name: 'ic_notification',
+              defType: 'drawable',
             ),
             enableWakeLock: true,
           ),

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../router/app_router.dart';
+import 'notification_alert_profile.dart';
 import 'notification_navigation.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
@@ -105,7 +106,8 @@ class NotificationService {
   }
 
   Future<void> _initializeLocalNotifications() async {
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidInit =
+        AndroidInitializationSettings('@drawable/ic_notification');
     const iosInit = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -121,6 +123,15 @@ class NotificationService {
         _handleLocalNotificationResponse(response);
       },
     );
+    if (Platform.isAndroid) {
+      final androidPlugin = _localNotifs.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      for (final profile in notificationAlertProfiles) {
+        await androidPlugin?.createNotificationChannel(
+          profile.toAndroidChannel(),
+        );
+      }
+    }
   }
 
   Future<void> _tryUploadCurrentToken() async {
@@ -153,19 +164,20 @@ class NotificationService {
   void _showLocalNotification(RemoteMessage message) {
     final notification = message.notification;
     final android = message.notification?.android;
+    final profile = notificationAlertProfileFor(
+      eventType: message.data['event_type']?.toString(),
+      refType: message.data['ref_type']?.toString(),
+      category: message.data['category']?.toString(),
+    );
 
     if (notification != null && android != null) {
       _localNotifs.show(
         notificationPlatformId(message.data),
         notification.title,
         notification.body,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'high_importance_channel',
-            'Notifications Importantes',
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
+        NotificationDetails(
+          android: profile.toAndroidDetails(),
+          iOS: profile.toDarwinDetails(),
         ),
         payload: jsonEncode(message.data),
       );

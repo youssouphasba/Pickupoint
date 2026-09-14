@@ -51,8 +51,8 @@ class LocationTrackingService {
           notificationTitle: 'Livraison en cours',
           notificationText: 'Votre position est partagée avec le client.',
           notificationIcon: AndroidResource(
-            name: 'ic_launcher',
-            defType: 'mipmap',
+            name: 'ic_notification',
+            defType: 'drawable',
           ),
           enableWakeLock: true,
         ),
@@ -69,8 +69,7 @@ class LocationTrackingService {
       locationSettings: locationSettings,
     ).listen((pos) async {
       final now = DateTime.now();
-      if (_lastUpdate == null ||
-          now.difference(_lastUpdate!).inSeconds >= 10) {
+      if (_lastUpdate == null || now.difference(_lastUpdate!).inSeconds >= 10) {
         _lastUpdate = now;
         try {
           await _ref.read(apiClientProvider).updateLocation(missionId, {
