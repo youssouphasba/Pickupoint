@@ -48,6 +48,7 @@ import {
   MapPin,
   Users,
   MessageCircle,
+  Clock3,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -712,6 +713,19 @@ export default function UserDetailPage() {
 
       {/* Summary KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardContent className="flex items-center gap-3 p-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+              <Clock3 className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold">
+                {formatDate(user.last_login_at) || "Jamais"}
+              </div>
+              <div className="text-xs text-muted-foreground">Dernière connexion</div>
+            </div>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-5">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">

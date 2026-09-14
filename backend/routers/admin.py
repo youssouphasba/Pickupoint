@@ -2427,6 +2427,8 @@ async def admin_user_detail(
         {"_id": 0, "refresh_token": 0},
         sort=[("created_at", -1)],
     )
+    if not user.get("last_login_at") and last_session and last_session.get("created_at"):
+        user["last_login_at"] = last_session["created_at"]
     active_sessions = await db.user_sessions.count_documents(
         {"user_id": user_id, "expires_at": {"$gte": datetime.now(timezone.utc)}}
     )
