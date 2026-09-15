@@ -49,6 +49,10 @@
                     android:pathPrefix="/api/users/referral/" />
                 <data
                     android:scheme="https"
+                    android:host="api.denkma.com"
+                    android:pathPrefix="/confirm/" />
+                <data
+                    android:scheme="https"
                     android:host="denkma.com"
                     android:pathPrefix="/api/users/referral/" />
                 <data
@@ -72,6 +76,15 @@
                     android:scheme="denkma"
                     android:host="app"
                     android:pathPrefix="/referral/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="denkma"
+                    android:host="app"
+                    android:pathPrefix="/confirm/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>

@@ -305,6 +305,10 @@ def _html_page(
         f"{settings.PUBLIC_SITE_URL.rstrip('/')}/app",
         quote=True,
     )
+    safe_app_open_url = html.escape(
+        f"denkma://app/confirm/{token}",
+        quote=True,
+    )
     greeting   = f"Bonjour {safe_name} ! " if safe_name else ""
     token_json = json.dumps(token)
     return f"""<!DOCTYPE html>
@@ -359,6 +363,13 @@ def _html_page(
       font-size: 16px; font-weight: bold; text-decoration: none;
     }}
     .app-download:active {{ background: #EAF2FD; }}
+    .app-open {{
+      display: none;
+      width: 100%; max-width: 360px; margin-top: 12px;
+      padding: 16px; border: 1px solid #1A73E8; border-radius: 8px;
+      color: #1557B0; background: #FFFFFF;
+      font-size: 16px; font-weight: bold; text-decoration: none;
+    }}
   </style>
 </head>
 <body>
@@ -386,10 +397,22 @@ def _html_page(
   <a class="app-download" href="{safe_app_install_url}">
     Télécharger l'application Denkma
   </a>
+  <a class="app-open" id="open-app" href="{safe_app_open_url}">
+    Ouvrir dans l'application Denkma
+  </a>
 
   <script nonce="{safe_script_nonce}">
     const TOKEN = {token_json};
+    const APP_URL = "{safe_app_open_url}";
     let mediaRecorder, audioChunks = [], isRecording = false, voiceBase64 = null;
+
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {{
+      const openApp = document.getElementById('open-app');
+      openApp.style.display = 'block';
+      window.setTimeout(() => {{
+        document.location.href = APP_URL;
+      }}, 150);
+    }}
 
     async function getLocation() {{
       const btn = document.getElementById('btn-locate');

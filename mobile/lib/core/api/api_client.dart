@@ -216,6 +216,12 @@ class ApiClient {
   ) =>
       _dio.put(ApiEndpoints.updateDeliveryAddress(id), data: body);
 
+  Future<Response> confirmLocationByToken(
+    String token,
+    Map<String, dynamic> body,
+  ) =>
+      _dio.post(ApiEndpoints.confirmLocationByToken(token), data: body);
+
   Future<Response> previewDeliveryAddressChange(
     String id,
     Map<String, dynamic> body,

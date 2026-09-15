@@ -18,6 +18,7 @@ import '../../features/client/providers/create_parcel_prefill_provider.dart';
 import '../../features/client/screens/create_parcel_screen.dart';
 import '../../features/client/screens/quote_screen.dart';
 import '../../features/client/screens/parcel_detail_screen.dart';
+import '../../features/client/screens/confirm_location_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
@@ -313,6 +314,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = auth?.status == AuthStatus.authenticated;
       final isAuthRoute = state.fullPath?.startsWith('/auth') ?? false;
       final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
+      final isLocationConfirmationRoute =
+          state.fullPath?.startsWith('/confirm/') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
       final referralCode = _extractReferralCode(state.uri);
       final isParcelAppLink = _isParcelAppLink(state.uri);
@@ -394,6 +397,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (isLegalRoute) {
         return null; // autoriser l'accès aux CGU/Privacy à tout moment
       }
+      if (isLocationConfirmationRoute) return null;
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
       if (isLoggedIn && isAuthRoute) {
         if (state.uri.queryParameters['intent'] == 'create_parcel') {
@@ -420,9 +424,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       // ── Public / Communs ────────────────────────────────────────
       GoRoute(
-          path: '/legal/:docType',
+        path: '/legal/:docType',
           builder: (_, s) =>
-              LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+            LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+      GoRoute(
+        path: '/confirm/:token',
+        builder: (_, s) => ConfirmLocationScreen(
+          token: s.pathParameters['token']!,
+        ),
+      ),
       GoRoute(
         path: '/referral/:code',
         redirect: (_, s) => Uri(

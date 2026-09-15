@@ -64,6 +64,8 @@ class ApiEndpoints {
       '$_base/api/parcels/$id/delivery-address/preview';
   static String applyDeliveryAddress(String id) =>
       '$_base/api/parcels/$id/delivery-address/apply';
+  static String confirmLocationByToken(String token) =>
+      '$_base/confirm/${Uri.encodeComponent(token)}/locate';
 
   // ─── Relay points ─────────────────────────────────────────────────────────
   static const relayPoints = '$_base/api/relay-points';
