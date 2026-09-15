@@ -107,7 +107,7 @@ class NotificationService {
 
   Future<void> _initializeLocalNotifications() async {
     const androidInit =
-        AndroidInitializationSettings('@drawable/ic_notification');
+        AndroidInitializationSettings('@drawable/ic_notification_logo');
     const iosInit = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
