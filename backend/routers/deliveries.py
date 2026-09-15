@@ -213,6 +213,8 @@ async def _hydrate_mission_area_labels(
             pickup_source = (relay or {}).get("address") or {}
         else:
             pickup_source = parcel.get("origin_location") or {}
+        if mission.get("pickup_geopin"):
+            pickup_source = {**pickup_source, "geopin": mission["pickup_geopin"]}
         pickup_source = await _enrich_location_from_geopin(pickup_source) or {}
         pickup_area_label = build_location_area_label(
             pickup_source,
@@ -231,6 +233,8 @@ async def _hydrate_mission_area_labels(
             delivery_source = (relay or {}).get("address") or {}
         else:
             delivery_source = _current_delivery_location(parcel)
+        if mission.get("delivery_geopin"):
+            delivery_source = {**delivery_source, "geopin": mission["delivery_geopin"]}
         delivery_source = await _enrich_location_from_geopin(delivery_source) or {}
         delivery_area_label = build_location_area_label(
             delivery_source,
