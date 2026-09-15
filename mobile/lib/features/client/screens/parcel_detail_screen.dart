@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
 import '../../../core/models/relay_point.dart';
 import '../providers/client_provider.dart';
@@ -23,6 +22,8 @@ import 'package:geolocator/geolocator.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/widgets/success_celebration.dart';
+import '../../../shared/feedback/action_feedback.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({
@@ -115,7 +116,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
       final parcel = ref.read(parcelProvider(widget.id)).valueOrNull;
       if (parcel != null &&
           const {'delivered', 'cancelled', 'expired', 'returned'}
-              .contains(parcel.status)) return;
+              .contains(parcel.status)) {
+        return;
+      }
       ref.invalidate(parcelProvider(widget.id));
     });
     _locationTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
@@ -127,7 +130,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     });
   }
 
-  bool get _canRefresh => mounted &&
+  bool get _canRefresh =>
+      mounted &&
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
       ModalRoute.of(context)?.isCurrent == true;
 
@@ -594,6 +598,10 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
           _confirmLocationAccuracy = pos.accuracy;
           _confirmLocationUpdatedAt = now;
         });
+        await ActionFeedback.confirm();
+        if (mounted) {
+          showSuccessCelebration(context, message: 'Position confirmée');
+        }
         ref.invalidate(parcelProvider(widget.id));
       }
     } catch (e) {

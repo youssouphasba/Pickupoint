@@ -5,6 +5,8 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/success_celebration.dart';
+import '../../../shared/feedback/action_feedback.dart';
 
 class ConfirmLocationScreen extends ConsumerStatefulWidget {
   const ConfirmLocationScreen({super.key, required this.token});
@@ -16,8 +18,7 @@ class ConfirmLocationScreen extends ConsumerStatefulWidget {
       _ConfirmLocationScreenState();
 }
 
-class _ConfirmLocationScreenState
-    extends ConsumerState<ConfirmLocationScreen> {
+class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
   bool _isSubmitting = false;
   bool _confirmed = false;
   String? _error;
@@ -46,6 +47,10 @@ class _ConfirmLocationScreenState
         _confirmed = true;
         _isSubmitting = false;
       });
+      await ActionFeedback.confirm();
+      if (mounted) {
+        showSuccessCelebration(context, message: 'Position confirmée');
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {

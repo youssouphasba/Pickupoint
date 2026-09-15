@@ -19,6 +19,8 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/widgets/success_celebration.dart';
+import '../../../shared/feedback/action_feedback.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -138,6 +140,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             backgroundColor: Colors.red,
           ),
         );
+        await ActionFeedback.mission();
+        if (mounted) {
+          showSuccessCelebration(context, message: 'Collecte confirmée');
+        }
       }
     } finally {
       if (mounted) {
@@ -644,7 +650,11 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context);
+        await ActionFeedback.mission();
+        if (mounted) {
+          showSuccessCelebration(context, message: 'Livraison validée');
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       if (mounted) {
