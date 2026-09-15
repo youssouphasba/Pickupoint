@@ -1,11 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
 class DriverLocationConsent {
   static Future<bool> ensureForWork(BuildContext context) async {
-    final allowed = await ensure(context, userInitiated: true)
-        .timeout(const Duration(seconds: 15));
+    final allowed = await ensure(context, userInitiated: true);
     if (!allowed || !context.mounted) return false;
     if (Theme.of(context).platform != TargetPlatform.android) return true;
     final permission = await Geolocator.checkPermission();
@@ -33,6 +34,56 @@ class DriverLocationConsent {
   static const _declined = 'declined';
   static const _backgroundPromptKey = 'driver_background_location_prompt_v1';
   static Future<bool>? _pendingRequest;
+
+  static Future<void> _openSettings(Future<bool> Function() open) async {
+    final resumed = Completer<void>();
+    var leftApp = false;
+    final listener = AppLifecycleListener(onStateChange: (state) {
+      if (state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.paused) {
+        leftApp = true;
+      }
+      if (state == AppLifecycleState.resumed &&
+          leftApp &&
+          !resumed.isCompleted) {
+        resumed.complete();
+      }
+    });
+    try {
+      if (await open()) await resumed.future;
+    } finally {
+      listener.dispose();
+    }
+  }
+
+  static Future<bool> _offerSettings(
+    BuildContext context, {
+    required String title,
+    required String message,
+    required Future<bool> Function() open,
+  }) async {
+    if (!context.mounted) return false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Plus tard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Ouvrir les réglages'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return false;
+    await _openSettings(open);
+    return context.mounted;
+  }
 
   static Future<bool> hasAccepted() async {
     return await _read(_storageKey) == _accepted;
@@ -104,64 +155,55 @@ class DriverLocationConsent {
     }
 
     if (!await Geolocator.isLocationServiceEnabled()) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Activez la localisation du téléphone.')),
-        );
+      if (!context.mounted) return false;
+      final returned = await _offerSettings(
+        context,
+        title: 'Activer la localisation',
+        message:
+            'Activez la localisation du téléphone pour voir les courses proches.',
+        open: Geolocator.openLocationSettings,
+      );
+      if (!returned || !await Geolocator.isLocationServiceEnabled()) {
+        return false;
       }
-      return false;
     }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.deniedForever) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Autorisez la localisation dans les réglages du téléphone.',
-            ),
-            action: SnackBarAction(
-              label: 'Réglages',
-              onPressed: Geolocator.openAppSettings,
-            ),
-          ),
-        );
-      }
-      return false;
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      if (!context.mounted) return false;
+      final returned = await _offerSettings(
+        context,
+        title: 'Autoriser la position',
+        message:
+            'Ouvrez Autorisations, puis Localisation, et autorisez l’accès à votre position.',
+        open: Geolocator.openAppSettings,
+      );
+      if (!returned) return false;
+      permission = await Geolocator.checkPermission();
     }
 
+    final isAndroid =
+        context.mounted && Theme.of(context).platform == TargetPlatform.android;
+    final backgroundPromptShown = isAndroid
+        ? await _read(_backgroundPromptKey) != null
+        : true;
     if (permission == LocationPermission.whileInUse &&
         context.mounted &&
-        Theme.of(context).platform == TargetPlatform.android &&
-        (userInitiated || await _read(_backgroundPromptKey) == null)) {
-      if (!context.mounted) return false;
-      final openSettings = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Position en arrière-plan'),
-          content: const Text(
-            'Pour actualiser votre position et recevoir les courses proches '
-            'lorsque Denkma est en arrière-plan, ouvrez Autorisations, '
-            'puis Localisation et choisissez Toujours autoriser.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Plus tard'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Ouvrir les réglages'),
-            ),
-          ],
-        ),
+        isAndroid &&
+        (userInitiated || !backgroundPromptShown)) {
+      final returned = await _offerSettings(
+        context,
+        title: 'Position en arrière-plan',
+        message: 'Pour recevoir les courses proches en arrière-plan, ouvrez '
+            'Autorisations > Localisation et choisissez Toujours autoriser.',
+        open: Geolocator.openAppSettings,
       );
+      if (returned) permission = await Geolocator.checkPermission();
       await _storage.write(key: _backgroundPromptKey, value: 'shown');
-      if (openSettings == true) await Geolocator.openAppSettings();
     }
 
     return permission == LocationPermission.whileInUse ||

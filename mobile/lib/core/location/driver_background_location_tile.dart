@@ -74,17 +74,20 @@ class _DriverBackgroundLocationTileState
       return const SizedBox.shrink();
     }
     final allowed = _permission == LocationPermission.always;
+    final subtitle = _failed
+        ? 'Vérification indisponible'
+        : _permission == null
+            ? 'Vérification…'
+            : allowed
+                ? 'Toujours autorisée'
+                : _permission == LocationPermission.whileInUse
+                    ? 'Choisissez « Toujours autoriser » dans les réglages'
+                    : 'Autorisez la position dans les réglages';
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.location_on_outlined),
       title: const Text('Position en arrière-plan'),
-      subtitle: Text(_failed
-          ? 'Vérification indisponible'
-          : _permission == null
-              ? 'Vérification…'
-              : allowed
-                  ? 'Toujours autorisée'
-                  : 'Autorisation à compléter'),
+      subtitle: Text(subtitle),
       trailing: allowed
           ? const Icon(Icons.check_circle_outline)
           : TextButton(

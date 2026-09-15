@@ -1,4 +1,21 @@
 class DeliveryMission {
+  static String _areaLabel(Iterable<Object?> candidates) {
+    for (final value in candidates) {
+      if (value is! String) continue;
+      final label = value.trim();
+      final normalized = label.toLowerCase();
+      if (label.isEmpty ||
+          label == '—' ||
+          normalized.startsWith('position ') ||
+          normalized.startsWith('adresse dest') ||
+          normalized.startsWith('zone non')) {
+        continue;
+      }
+      return label;
+    }
+    return 'Quartier indisponible';
+  }
+
   const DeliveryMission({
     required this.id,
     required this.parcelId,
@@ -144,20 +161,22 @@ class DeliveryMission {
       pickupRelayId: json['pickup_relay_id'] as String?,
       pickupLabel: json['pickup_label'] as String? ?? '—',
       pickupCity: json['pickup_city'] as String? ?? '',
-      pickupAreaLabel: json['pickup_area_label'] as String? ??
-          json['pickup_city'] as String? ??
-          json['pickup_label'] as String? ??
-          'Zone non précisée',
+      pickupAreaLabel: _areaLabel([
+        json['pickup_area_label'],
+        json['pickup_city'],
+        json['pickup_label'],
+      ]),
       pickupLat: pg?['lat'] != null ? (pg!['lat'] as num).toDouble() : null,
       pickupLng: pg?['lng'] != null ? (pg!['lng'] as num).toDouble() : null,
       deliveryType: json['delivery_type'] as String?,
       deliveryRelayId: json['delivery_relay_id'] as String?,
       deliveryLabel: json['delivery_label'] as String? ?? '—',
       deliveryCity: json['delivery_city'] as String? ?? '',
-      deliveryAreaLabel: json['delivery_area_label'] as String? ??
-          json['delivery_city'] as String? ??
-          json['delivery_label'] as String? ??
-          'Zone non précisée',
+      deliveryAreaLabel: _areaLabel([
+        json['delivery_area_label'],
+        json['delivery_city'],
+        json['delivery_label'],
+      ]),
       deliveryLat: dg?['lat'] != null ? (dg!['lat'] as num).toDouble() : null,
       deliveryLng: dg?['lng'] != null ? (dg!['lng'] as num).toDouble() : null,
       recipientName: json['recipient_name'] as String?,

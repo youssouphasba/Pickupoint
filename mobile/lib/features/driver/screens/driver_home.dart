@@ -168,7 +168,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       allowed = await DriverLocationConsent.ensure(
         context,
         userInitiated: userInitiated,
-      ).timeout(const Duration(seconds: 15));
+      );
     } catch (_) {
       allowed = false;
     }
@@ -419,7 +419,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
             : _locationError ??
                 (hasGps
                     ? 'Missions autour de vous'
-                    : 'Position requise pour voir les missions');
+                    : 'Choisissez « Toujours autoriser » pour voir les missions');
+    final locationActionVisible =
+        !hasGps && !_locationAccessLoading && !_gpsLoading;
 
     return DefaultTabController(
       length: 2,
@@ -447,7 +449,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                     Expanded(
                       child: Text(
                         locationMessage,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
@@ -456,6 +458,18 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                         ),
                       ),
                     ),
+                    if (locationActionVisible)
+                      TextButton(
+                        onPressed: () => _prepareLocationAccess(
+                          userInitiated: true,
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: const Size(0, 30),
+                        ),
+                        child: const Text('Activer'),
+                      ),
                   ]),
                 ),
                 const TabBar(
@@ -1575,6 +1589,7 @@ class _MissionCard extends ConsumerWidget {
   }
 
   Future<void> _accept(BuildContext context, WidgetRef ref) async {
+    final router = GoRouter.of(context);
     try {
       if (!await DriverLocationConsent.ensureForWork(context)) return;
       if (!context.mounted) return;
@@ -1621,9 +1636,7 @@ class _MissionCard extends ConsumerWidget {
       if (context.mounted) {
         await _showMissionAccepted(context);
       }
-      if (context.mounted) {
-        context.push('/driver/mission/${mission.id}');
-      }
+      router.push('/driver/mission/${mission.id}');
     } catch (e) {
       if (context.mounted) {
         String msg = 'Erreur lors de l\'acceptation';
@@ -1643,6 +1656,7 @@ class _MissionCard extends ConsumerWidget {
   }
 
   Future<void> _showMissionAccepted(BuildContext context) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
     final closed = showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -1707,8 +1721,8 @@ class _MissionCard extends ConsumerWidget {
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 650));
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
+    if (navigator.mounted) {
+      navigator.pop();
     }
     await closed;
   }
