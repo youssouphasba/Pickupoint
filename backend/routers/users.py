@@ -1024,11 +1024,40 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         else {"recipient_phone": None}
     )
     received_count = await db.parcels.count_documents(received_query)
+    active_statuses = [
+        "created",
+        "dropped_at_origin_relay",
+        "in_transit",
+        "at_destination_relay",
+        "available_at_relay",
+        "out_for_delivery",
+    ]
+    user_parcel_query = {
+        "$or": [
+            {"sender_user_id": user_id},
+            received_query,
+        ]
+    }
+    active_count = await db.parcels.count_documents({
+        **user_parcel_query,
+        "status": {"$in": active_statuses},
+    })
+    delivered_count = await db.parcels.count_documents({
+        **user_parcel_query,
+        "status": "delivered",
+    })
+    cancelled_count = await db.parcels.count_documents({
+        **user_parcel_query,
+        "status": "cancelled",
+    })
 
     return {
         "parcels_sent": sent_count,
         "parcels_received": received_count,
         "total_parcels": sent_count + received_count,
+        "parcels_active": active_count,
+        "parcels_delivered": delivered_count,
+        "parcels_cancelled": cancelled_count,
         "loyalty_points": current_user.get("loyalty_points", 0),
         "loyalty_tier": current_user.get("loyalty_tier", "bronze"),
         "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),

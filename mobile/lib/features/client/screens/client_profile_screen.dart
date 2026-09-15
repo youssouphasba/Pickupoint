@@ -14,6 +14,7 @@ import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/utils/currency_format.dart';
 
 final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   final res = await ref.watch(apiClientProvider).getReferralInfo();
@@ -298,35 +299,53 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
         children: [
           _buildStatItem(
             context,
-            'Envois mois',
-            '${stats['client_monthly_sent'] ?? 0}',
+            'Colis envoyés',
+            '${stats['parcels_sent'] ?? 0}',
             Icons.outbox_outlined,
             Colors.blue,
-            'Nombre de colis que vous avez créés ce mois-ci. Il sert à suivre votre objectif mensuel client.',
+            'Nombre total de colis que vous avez créés.',
           ),
           _buildStatItem(
             context,
-            'Objectif',
-            '${(((stats['client_goal_progress'] as num?)?.toDouble() ?? 0) * 100).round()}%',
-            Icons.flag_outlined,
-            Colors.green,
-            'Progression vers votre objectif mensuel. Exemple: 100% signifie que vous avez atteint le nombre de colis attendu ce mois.',
+            'Colis reçus',
+            '${stats['parcels_received'] ?? 0}',
+            Icons.move_to_inbox_outlined,
+            Colors.teal,
+            'Nombre total de colis envoyés à votre numéro.',
           ),
           _buildStatItem(
             context,
-            'Points',
-            '${stats['loyalty_points'] ?? 0}',
-            Icons.stars_outlined,
-            Colors.amber,
-            'Vos points fidélité. Vous gagnez ${stats['loyalty_points_per_delivery'] ?? 0} points quand un colis envoyé est livré.',
+            'En cours',
+            '${stats['parcels_active'] ?? 0}',
+            Icons.local_shipping_outlined,
+            Colors.orange,
+            'Colis envoyés ou reçus qui ne sont pas encore terminés.',
           ),
           _buildStatItem(
             context,
-            'Réussite',
-            '${stats['client_monthly_success_rate'] ?? 0}%',
+            'Colis livrés',
+            '${stats['parcels_delivered'] ?? 0}',
             Icons.verified_outlined,
+            Colors.green,
+            'Nombre de colis envoyés ou reçus qui ont été livrés.',
+          ),
+          _buildStatItem(
+            context,
+            'Colis annulés',
+            '${stats['parcels_cancelled'] ?? 0}',
+            Icons.cancel_outlined,
+            Colors.red,
+            'Nombre de colis envoyés ou reçus qui ont été annulés.',
+          ),
+          _buildStatItem(
+            context,
+            'Dépenses ce mois',
+            formatXof(
+              (stats['client_monthly_spent_xof'] as num?)?.toDouble() ?? 0,
+            ),
+            Icons.payments_outlined,
             Colors.indigo,
-            'Part des colis créés ce mois qui ont déjà été livrés. Les colis encore en cours peuvent faire évoluer ce pourcentage.',
+            'Montant des livraisons que vous avez payées ce mois-ci.',
           ),
         ],
       ),
