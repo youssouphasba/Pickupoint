@@ -68,6 +68,22 @@ router = APIRouter()
 PRIVATE_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
 PRIVATE_PARCEL_PHOTO_DIR = UPLOADS_DIR.parent / "private_uploads" / "parcel_photos"
 PARCEL_PHOTO_MAX_SIZE = 5 * 1024 * 1024
+LOCATION_CHANGE_ALLOWED_STATUSES = {
+    ParcelStatus.CREATED.value,
+    ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+}
+
+
+def _ensure_delivery_location_can_change(
+    parcel: dict,
+    current_user: Optional[dict] = None,
+) -> None:
+    if current_user and _is_admin(current_user):
+        return
+    if parcel.get("status") not in LOCATION_CHANGE_ALLOWED_STATUSES:
+        raise bad_request_exception(
+            "La position ne peut plus être modifiée après la collecte du colis"
+        )
 
 
 def _parcel_photos_bucket() -> AsyncIOMotorGridFSBucket:
@@ -1008,6 +1024,8 @@ async def confirm_location_authenticated(
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut confirmer la position de livraison")
 
+    _ensure_delivery_location_can_change(parcel, current_user)
+
     location = _build_confirmed_location_payload(
         payload,
         source="app_recipient",
@@ -1055,8 +1073,7 @@ async def preview_delivery_address_change(
     if not is_recipient and not _is_admin(current_user):
         raise forbidden_exception("Seul le destinataire peut demander un changement d'adresse")
 
-    if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
-        raise bad_request_exception("Colis déjà terminé, modification impossible")
+    _ensure_delivery_location_can_change(parcel, current_user)
 
     ensure_live_location_accuracy(
         payload.accuracy,
@@ -1080,8 +1097,7 @@ async def apply_delivery_address_change(
     if not is_recipient and not _is_admin(current_user):
         raise forbidden_exception("Seul le destinataire peut appliquer un changement d'adresse")
 
-    if parcel.get("status") in ("delivered", "cancelled", "returned", "expired"):
-        raise bad_request_exception("Colis déjà terminé, modification impossible")
+    _ensure_delivery_location_can_change(parcel, current_user)
 
     ensure_live_location_accuracy(
         payload.accuracy,
@@ -1166,8 +1182,7 @@ async def update_delivery_address(
     if not is_recipient:
         raise forbidden_exception("Seul le destinataire peut mettre à jour l'adresse de livraison")
 
-    if parcel.get("status") in ("delivered", "cancelled", "returned"):
-        raise bad_request_exception("Colis déjà terminé, modification impossible")
+    _ensure_delivery_location_can_change(parcel)
 
     ensure_live_location_accuracy(
         payload.accuracy,

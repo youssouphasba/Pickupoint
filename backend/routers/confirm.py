@@ -31,6 +31,7 @@ from services.google_maps_service import reverse_geocode
 router = APIRouter()
 
 TERMINAL_PARCEL_STATUSES = {"delivered", "cancelled", "returned", "expired", "disputed"}
+LOCATION_CHANGE_ALLOWED_STATUSES = {"created", "dropped_at_origin_relay"}
 RELAY_CHANGE_ALLOWED_STATUSES = {"created", "dropped_at_origin_relay"}
 PRIVATE_CONFIRM_VOICE_DIR = UPLOADS_DIR.parent / "private_uploads" / "voice"
 MAX_CONFIRM_VOICE_SIZE = 5 * 1024 * 1024
@@ -38,6 +39,13 @@ MAX_CONFIRM_VOICE_SIZE = 5 * 1024 * 1024
 
 def _is_confirm_token_expired(parcel: dict) -> bool:
     return (parcel.get("status") or "").lower() in TERMINAL_PARCEL_STATUSES
+
+
+def _ensure_location_can_change(parcel: dict) -> None:
+    if parcel.get("status") not in LOCATION_CHANGE_ALLOWED_STATUSES:
+        raise bad_request_exception(
+            "La position ne peut plus être modifiée après la collecte du colis"
+        )
 
 
 def _token_hash(token: str) -> str:
@@ -699,6 +707,8 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
 
     if _is_confirm_token_expired(parcel):
         raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
+
+    _ensure_location_can_change(parcel)
 
     ensure_live_location_accuracy(
         payload.accuracy,
