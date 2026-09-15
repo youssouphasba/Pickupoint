@@ -79,7 +79,9 @@ class _MapPickerModalState extends State<MapPickerModal> {
 
       if (permission == LocationPermission.always ||
           permission == LocationPermission.whileInUse) {
-        final pos = await Geolocator.getCurrentPosition();
+        final pos = await Geolocator.getCurrentPosition().timeout(
+          const Duration(seconds: 10),
+        );
         _selectedPosition = LatLng(pos.latitude, pos.longitude);
       } else {
         _selectedPosition = const LatLng(14.6928, -17.4467);

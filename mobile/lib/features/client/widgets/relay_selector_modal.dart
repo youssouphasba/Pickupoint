@@ -50,7 +50,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         }
         if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
           _currentPosition = await Geolocator.getCurrentPosition(
-              desiredAccuracy: LocationAccuracy.high);
+              desiredAccuracy: LocationAccuracy.high)
+              .timeout(const Duration(seconds: 10));
         }
       }
     } catch (e) {

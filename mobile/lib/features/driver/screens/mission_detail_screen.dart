@@ -127,7 +127,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       }
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-      );
+      ).timeout(const Duration(seconds: 10));
       if (!mounted) {
         return;
       }
@@ -140,10 +140,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             backgroundColor: Colors.red,
           ),
         );
-        await ActionFeedback.mission();
-        if (mounted) {
-          showSuccessCelebration(context, message: 'Collecte confirmée');
-        }
       }
     } finally {
       if (mounted) {
@@ -468,7 +464,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       try {
         final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
-        );
+        ).timeout(const Duration(seconds: 8));
         lat = pos.latitude;
         lng = pos.longitude;
       } catch (_) {}
@@ -481,6 +477,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             backgroundColor: Colors.green,
           ),
         );
+        await ActionFeedback.mission();
+        if (mounted) {
+          showSuccessCelebration(context, message: 'Collecte confirmée');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -520,7 +520,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       }
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-      );
+      ).timeout(const Duration(seconds: 8));
 
       final api = ref.read(apiClientProvider);
       await api.arriveAtDestination(
@@ -1542,8 +1542,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 heroTag: 'recenter_me',
                 onPressed: () async {
                   await _refreshDriverPosition();
-                  final pos =
-                      _driverPosition ?? await Geolocator.getCurrentPosition();
+                  final pos = _driverPosition ??
+                      await Geolocator.getCurrentPosition().timeout(
+                        const Duration(seconds: 8),
+                      );
                   _mapController?.animateCamera(
                     CameraUpdate.newLatLng(LatLng(pos.latitude, pos.longitude)),
                   );

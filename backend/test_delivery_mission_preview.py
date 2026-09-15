@@ -43,6 +43,10 @@ class DeliveryMissionPreviewTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(),
             ),
             patch(
+                "routers.deliveries._hydrate_mission_area_labels",
+                new=AsyncMock(),
+            ),
+            patch(
                 "routers.deliveries.get_directions_eta",
                 new=AsyncMock(side_effect=[pickup_route, delivery_route]),
             ),
