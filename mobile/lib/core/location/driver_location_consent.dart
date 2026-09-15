@@ -35,7 +35,18 @@ class DriverLocationConsent {
   static Future<bool>? _pendingRequest;
 
   static Future<bool> hasAccepted() async {
-    return await _storage.read(key: _storageKey) == _accepted;
+    return await _read(_storageKey) == _accepted;
+  }
+
+  static Future<String?> _read(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (_) {
+      try {
+        await _storage.delete(key: key);
+      } catch (_) {}
+      return null;
+    }
   }
 
   static Future<bool> ensure(
@@ -59,7 +70,7 @@ class DriverLocationConsent {
     BuildContext context, {
     required bool userInitiated,
   }) async {
-    final savedChoice = await _storage.read(key: _storageKey);
+    final savedChoice = await _read(_storageKey);
     if (savedChoice == _declined && !userInitiated) {
       return false;
     }
@@ -126,8 +137,7 @@ class DriverLocationConsent {
     if (permission == LocationPermission.whileInUse &&
         context.mounted &&
         Theme.of(context).platform == TargetPlatform.android &&
-        (userInitiated ||
-            await _storage.read(key: _backgroundPromptKey) == null)) {
+        (userInitiated || await _read(_backgroundPromptKey) == null)) {
       if (!context.mounted) return false;
       final openSettings = await showDialog<bool>(
         context: context,
