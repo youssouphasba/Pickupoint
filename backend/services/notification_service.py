@@ -134,11 +134,11 @@ def _push_alert_profile(
 
 
 STATUS_MESSAGES = {
-    ParcelStatus.CREATED:                 "Votre colis a été créé. Code de suivi : {tracking_code}",
+    ParcelStatus.CREATED:                 "Vous avez un colis à recevoir ! Code de suivi : {tracking_code}",
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: "Votre colis a été déposé au point relais.",
-    ParcelStatus.IN_TRANSIT:              "Votre colis est en transit.",
+    ParcelStatus.IN_TRANSIT:              "Votre colis est en route.",
     ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis est arrivé au relais destination.",
-    ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis est disponible pour retrait au relais. Code PIN requis.",
+    ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis vous attend au relais. Présentez votre code de retrait pour le récupérer.",
     ParcelStatus.OUT_FOR_DELIVERY:        "Un livreur est en route pour livrer votre colis.",
     ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Merci d'avoir utilisé Denkma !",
     ParcelStatus.DELIVERY_FAILED:         "La livraison n'a pas pu être finalisée. Denkma recherche la meilleure solution.",
@@ -154,7 +154,7 @@ STATUS_MESSAGES = {
 SENDER_STATUS_MESSAGES = {
     ParcelStatus.CREATED:                 "Votre colis {tracking_code} a été créé.",
     ParcelStatus.DROPPED_AT_ORIGIN_RELAY: "Votre colis {tracking_code} a été déposé au point relais de départ.",
-    ParcelStatus.IN_TRANSIT:              "Votre colis {tracking_code} est en transit.",
+    ParcelStatus.IN_TRANSIT:              "Votre colis {tracking_code} est en route.",
     ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis {tracking_code} est arrivé au relais proche du destinataire.",
     ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis {tracking_code} est disponible au relais pour le destinataire.",
     ParcelStatus.OUT_FOR_DELIVERY:        "Le livreur est en route pour livrer votre colis {tracking_code}.",
@@ -227,7 +227,7 @@ def _should_send_whatsapp_tracking(user_doc: dict | None, category: Optional[str
     if not prefs.get("whatsapp", True):
         return False
 
-    has_app = bool(user_doc.get("fcm_token"))
+    has_app = bool(_push_tokens_from_user(user_doc))
     push_enabled = prefs.get("push", True)
 
     # Push prioritaire : si l'app peut recevoir la notif, on ne double pas avec WhatsApp.
@@ -284,6 +284,25 @@ def _body_with_recipient_code(body: str, parcel: dict, status: ParcelStatus) -> 
     if str(code) in body:
         return body
     return f"{body} {label} : {code}."
+
+
+def _status_title(status: ParcelStatus, *, recipient: bool = False) -> str:
+    return {
+        ParcelStatus.CREATED: "Vous avez un colis à recevoir !" if recipient else "Colis créé",
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY: "Colis déposé au relais",
+        ParcelStatus.IN_TRANSIT: "Colis en route",
+        ParcelStatus.AT_DESTINATION_RELAY: "Colis arrivé au relais",
+        ParcelStatus.AVAILABLE_AT_RELAY: "Colis prêt à être retiré",
+        ParcelStatus.OUT_FOR_DELIVERY: "Livraison en cours",
+        ParcelStatus.DELIVERED: "Colis livré",
+        ParcelStatus.DELIVERY_FAILED: "Livraison non terminée",
+        ParcelStatus.REDIRECTED_TO_RELAY: "Colis redirigé vers un relais",
+        ParcelStatus.INCIDENT_REPORTED: "Incident signalé",
+        ParcelStatus.CANCELLED: "Colis annulé",
+        ParcelStatus.EXPIRED: "Délai de retrait dépassé",
+        ParcelStatus.RETURNED: "Colis retourné",
+        ParcelStatus.SUSPENDED: "Livraison suspendue",
+    }.get(status, "Suivi de votre colis")
 
 
 def _status_body(messages: dict, status: ParcelStatus, tracking_code: str, relay_pin: str) -> str:
@@ -585,7 +604,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         )
         await _store_and_send(
             user_id=sender_id,
-            title="Mise à jour colis",
+            title=_status_title(new_status),
             body=sender_body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
@@ -638,7 +657,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         # body en texte libre (qui faisait doublon WhatsApp).
         await _store_and_send(
             user_id=recipient_user_id,
-            title="Mise à jour colis",
+            title=_status_title(new_status, recipient=True),
             body=recipient_body,
             ref_type="parcel",
             ref_id=parcel.get("parcel_id"),
@@ -738,7 +757,7 @@ async def notify_sender_driver_assigned(parcel: dict, driver: dict):
     )
     await _store_and_send(
         user_id=sender_id,
-        title="Livreur assigné",
+        title="Un livreur a accepté votre colis",
         body=body,
         ref_type="parcel",
         ref_id=parcel.get("parcel_id"),
@@ -772,7 +791,7 @@ async def _store_and_send(
     """
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"notification_prefs": 1, "phone": 1, "fcm_token": 1, "role": 1},
+        {"notification_prefs": 1, "phone": 1, "fcm_token": 1, "fcm_tokens": 1, "role": 1},
     )
     if not _notification_category_enabled(user, category):
         return {
@@ -1390,7 +1409,7 @@ async def notify_delivery_code(
         instruction = "Donnez ce code au livreur pour valider la remise."
     msg = (
         f"Bonjour {recipient_name},\n"
-        f"Un colis vous est destiné (réf. {tracking_code}).\n"
+        f"Vous avez un colis à recevoir ! Référence : {tracking_code}.\n"
         f"Votre code de réception : *{delivery_code}*\n"
     )
     if payment_url:
