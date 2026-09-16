@@ -56,7 +56,7 @@ class NotificationAlertProfile {
       channelDescription: channelDescription,
       importance: importance,
       priority: priority,
-      icon: 'ic_notification',
+      icon: 'ic_notification_logo',
       playSound: true,
       sound: RawResourceAndroidNotificationSound(soundResource),
       enableVibration: true,
