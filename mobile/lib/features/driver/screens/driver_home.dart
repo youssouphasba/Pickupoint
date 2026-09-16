@@ -429,7 +429,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final locationMessage = !_backgroundLocationAllowed &&
             !_locationAccessLoading &&
             !_gpsLoading
-        ? 'Activez « Toujours autoriser » pour recevoir les courses et partager votre position.'
+        ? 'Dans les réglages, ouvrez Autorisations > Localisation, choisissez '
+            '« Toujours autoriser » pour recevoir des courses à proximité, '
+            'puis revenez dans Denkma.'
         : _locationAccessLoading
             ? 'Autorisation de localisation requise'
             : _gpsLoading
@@ -486,7 +488,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           minimumSize: const Size(0, 30),
                         ),
-                        child: const Text('Ouvrir les réglages'),
+                        child: const Text('Activer « Toujours autoriser »'),
                       ),
                   ]),
                 ),
