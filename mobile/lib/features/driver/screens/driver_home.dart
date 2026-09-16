@@ -79,6 +79,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   double? _driverLng;
   bool _gpsLoading = false;
   bool _locationAccessLoading = false;
+  bool _backgroundLocationAllowed = true;
   String? _locationError;
   Future<void>? _locationRequest;
   Future<bool>? _locationPreparationRequest;
@@ -92,6 +93,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _refreshBackgroundPermission();
     _presencePositionSubscription =
         ref.read(driverPresenceServiceProvider).positions.listen((position) {
       if (!mounted) return;
@@ -129,9 +131,20 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _refreshBackgroundPermission();
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
       _prepareLocationAccess();
+    }
+  }
+
+  Future<void> _refreshBackgroundPermission() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final permission = await Geolocator.checkPermission();
+    if (mounted) {
+      setState(() {
+        _backgroundLocationAllowed = permission == LocationPermission.always;
+      });
     }
   }
 
@@ -173,6 +186,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       allowed = false;
     }
     if (!mounted) return false;
+    await _refreshBackgroundPermission();
     if (!allowed) {
       setState(() {
         _locationAccessLoading = false;
@@ -412,16 +426,20 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final hasLockedMission = hasActiveDriverMission(myMissions);
     _handleNotificationAction(availableAsync);
 
-    final locationMessage = _locationAccessLoading
-        ? 'Autorisation de localisation requise'
-        : _gpsLoading
-            ? 'Recherche de votre position…'
-            : _locationError ??
-                (hasGps
-                    ? 'Missions autour de vous'
-                    : 'Choisissez « Toujours autoriser » pour voir les missions');
+    final locationMessage = !_backgroundLocationAllowed &&
+            !_locationAccessLoading &&
+            !_gpsLoading
+        ? 'Activez « Toujours autoriser » pour recevoir les courses et partager votre position.'
+        : _locationAccessLoading
+            ? 'Autorisation de localisation requise'
+            : _gpsLoading
+                ? 'Recherche de votre position…'
+                : _locationError ??
+                    (hasGps
+                        ? 'Missions autour de vous'
+                        : 'Choisissez « Toujours autoriser » pour voir les missions');
     final locationActionVisible =
-        !hasGps && !_locationAccessLoading && !_gpsLoading;
+        !_backgroundLocationAllowed && !_locationAccessLoading && !_gpsLoading;
 
     return DefaultTabController(
       length: 2,
@@ -468,7 +486,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                           minimumSize: const Size(0, 30),
                         ),
-                        child: const Text('Activer'),
+                        child: const Text('Ouvrir les réglages'),
                       ),
                   ]),
                 ),
