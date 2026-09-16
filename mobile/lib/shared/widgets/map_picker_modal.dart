@@ -202,6 +202,22 @@ class _MapPickerModalState extends State<MapPickerModal> {
   Future<String?> _reverseGeocode(LatLng pos) async {
     try {
       final res = await _dio.get(
+        ApiEndpoints.reverseAddress,
+        queryParameters: {
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+        },
+      );
+      final data = res.data;
+      final address = data is Map ? data['address'] : null;
+      final formatted = address is Map
+          ? address['formatted_address']?.toString().trim()
+          : null;
+      if (formatted != null && formatted.isNotEmpty) return formatted;
+    } catch (_) {}
+
+    try {
+      final res = await _dio.get(
         'https://photon.komoot.io/reverse',
         queryParameters: {
           'lat': pos.latitude,
@@ -316,8 +332,19 @@ class _MapPickerModalState extends State<MapPickerModal> {
                         onMapCreated: (c) => _mapController = c,
                         onCameraMove: (position) {
                           _selectedPosition = position.target;
-                          // L'adresse mise en cache n'est plus valide après un déplacement manuel.
-                          if (_selectedAddressForPosition != null) {
+                        },
+                        onCameraIdle: () {
+                          final addressPosition = _selectedAddressForPosition;
+                          final selectedPosition = _selectedPosition;
+                          if (addressPosition != null &&
+                              selectedPosition != null &&
+                              Geolocator.distanceBetween(
+                                    addressPosition.latitude,
+                                    addressPosition.longitude,
+                                    selectedPosition.latitude,
+                                    selectedPosition.longitude,
+                                  ) >
+                                  25) {
                             _selectedAddress = null;
                             _selectedAddressForPosition = null;
                           }

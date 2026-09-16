@@ -21,7 +21,6 @@ import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
-import '../widgets/mission_elapsed_badge.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -1202,15 +1201,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       body: missionAsync.when(
         data: (mission) {
           _revealRequestedMessage();
-          final hasActiveTimer =
-              activeDriverMissionStatuses.contains(mission.status);
+          final pickupCountdown = _pickupConfirmationRemaining(mission);
           return Column(
             children: [
-              if (hasActiveTimer)
-                MissionElapsedBadge(
-                  prominent: true,
-                  startedAt: mission.assignedAt ?? mission.createdAt,
-                ),
+              if (pickupCountdown != null &&
+                  mission.pickupConfirmationTimeoutMinutes != null)
+                _buildPickupConfirmationCountdownCard(mission),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
@@ -1710,22 +1706,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         hasPickup ? LatLng(mission.pickupLat!, mission.pickupLng!) : null;
     final deliveryLatLng =
         hasDelivery ? LatLng(mission.deliveryLat!, mission.deliveryLng!) : null;
-    final pickupDistance = pickupLatLng == null
-        ? null
-        : Geolocator.distanceBetween(
-            driverPosition.latitude,
-            driverPosition.longitude,
-            pickupLatLng.latitude,
-            pickupLatLng.longitude,
-          );
-    final deliveryDistance = deliveryLatLng == null
-        ? null
-        : Geolocator.distanceBetween(
-            driverPosition.latitude,
-            driverPosition.longitude,
-            deliveryLatLng.latitude,
-            deliveryLatLng.longitude,
-          );
+    final isHeadingToPickup = mission.status == 'assigned';
     final mapPoints = <LatLng>[
       driverLatLng,
       if (pickupLatLng != null) pickupLatLng,
@@ -1755,22 +1736,19 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           infoWindow: const InfoWindow(title: 'Destinataire / livraison'),
         ),
     };
+    final routePoints = mission.encodedPolyline == null
+        ? <LatLng>[]
+        : PolylinePoints()
+            .decodePolyline(mission.encodedPolyline!)
+            .map((point) => LatLng(point.latitude, point.longitude))
+            .toList();
     final polylines = <Polyline>{
-      if (pickupLatLng != null)
+      if (routePoints.length > 1)
         Polyline(
-          polylineId: const PolylineId('distance_driver_pickup'),
-          points: [driverLatLng, pickupLatLng],
-          color: Colors.orange.withValues(alpha: 0.85),
-          width: 4,
-          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
-        ),
-      if (deliveryLatLng != null)
-        Polyline(
-          polylineId: const PolylineId('distance_driver_delivery'),
-          points: [driverLatLng, deliveryLatLng],
-          color: Colors.red.withValues(alpha: 0.8),
-          width: 4,
-          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
+          polylineId: const PolylineId('distance_active_route'),
+          points: routePoints,
+          color: Colors.blue.shade700,
+          width: 5,
         ),
     };
 
@@ -1798,7 +1776,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             children: [
               Expanded(
                 child: Text(
-                  'Distances de la course',
+                  'Trajet en cours',
                   style: TextStyle(
                     fontSize: 21,
                     fontWeight: FontWeight.w800,
@@ -1813,28 +1791,17 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildDistanceCard(
-                  title: 'Vers expéditeur',
-                  value: _formatDistanceMeters(pickupDistance),
-                  subtitle: _pickupAreaLabel(mission),
-                  color: Colors.orange,
-                  icon: Icons.storefront_rounded,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildDistanceCard(
-                  title: 'Vers destinataire',
-                  value: _formatDistanceMeters(deliveryDistance),
-                  subtitle: _deliveryAreaLabel(mission),
-                  color: Colors.red,
-                  icon: Icons.location_on_rounded,
-                ),
-              ),
-            ],
+          _buildDistanceCard(
+            title: isHeadingToPickup ? 'Vers le point de retrait' : 'Vers le destinataire',
+            value: mission.distanceText?.isNotEmpty == true
+                ? mission.distanceText!
+                : 'Itinéraire en cours de calcul',
+            subtitle: [
+              isHeadingToPickup ? _pickupAreaLabel(mission) : _deliveryAreaLabel(mission),
+              if (mission.etaText?.isNotEmpty == true) 'Temps estimé : ${mission.etaText}',
+            ].join(' · '),
+            color: isHeadingToPickup ? Colors.orange : Colors.red,
+            icon: isHeadingToPickup ? Icons.storefront_rounded : Icons.location_on_rounded,
           ),
           const SizedBox(height: 14),
           Container(
@@ -1869,7 +1836,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Bleu : vous. Orange : expéditeur ou retrait. Rouge : destinataire ou livraison.',
+            'Bleu : itinéraire routier estimé. Orange : retrait. Rouge : livraison.',
             style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade600),
           ),
           const SizedBox(height: 14),
@@ -1942,16 +1909,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ],
       ),
     );
-  }
-
-  String _formatDistanceMeters(double? meters) {
-    if (meters == null) {
-      return '--';
-    }
-    if (meters < 1000) {
-      return '${meters.round()} m';
-    }
-    return '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
   void _fitControllerToPoints(
@@ -2146,45 +2103,50 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
           Row(
             children: [
               Icon(Icons.timer_outlined, color: color, size: 18),
               const SizedBox(width: 8),
-              Text(
-                'Temps restant pour récupérer le colis',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Temps pour récupérer le colis',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Text(
+                    isExpired
+                        ? 'La mission peut être réattribuée.'
+                        : 'Délai : $timeoutMinutes min',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: color.shade700,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const Spacer(),
           Text(
             _formatRemainingDuration(remaining),
             style: TextStyle(
-              fontSize: 26,
+              fontSize: 22,
               fontWeight: FontWeight.w800,
               color: color,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            isExpired
-                ? 'La mission peut être réattribuée à tout moment.'
-                : 'Après $timeoutMinutes min sans confirmation de collecte, la mission sera réattribuée.',
-            style: TextStyle(
-              fontSize: 12,
-              color: color.shade700,
             ),
           ),
         ],
@@ -2199,8 +2161,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     if (status == 'assigned') {
       return Column(
         children: [
-          _buildPickupConfirmationCountdownCard(mission),
-          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(

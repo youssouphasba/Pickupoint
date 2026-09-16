@@ -1518,26 +1518,35 @@ async def update_location(
 
     # ── Calculer l'ETA si nécessaire (max 1 fois toutes les 5 minutes pour budget API) ──
     last_eta_update = _as_aware_utc(mission.get("eta_updated_at"))
+    route_status = mission.get("status")
+    eta_target_status = mission.get("eta_target_status")
     should_update_eta = (
-        mission["status"] == MissionStatus.IN_PROGRESS.value
-        and (last_eta_update is None or (now - last_eta_update).total_seconds() > 300)
+        route_status in {MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value}
+        and (
+            eta_target_status != route_status
+            or last_eta_update is None
+            or (now - last_eta_update).total_seconds() > 300
+        )
     )
-    
+
     delivery_geopin = _normalize_geopin(mission.get("delivery_geopin"))
+    pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
+    route_target = pickup_geopin if route_status == MissionStatus.ASSIGNED.value else delivery_geopin
+    eta_data = None
     if should_update_eta:
-        dest_lat = delivery_geopin.get("lat") if delivery_geopin else None
-        dest_lng = delivery_geopin.get("lng") if delivery_geopin else None
-        if dest_lat and dest_lng:
-            eta_data = await get_directions_eta(body.lat, body.lng, dest_lat, dest_lng)
-            if eta_data:
-                update_query["$set"].update({
-                    "eta_seconds":    eta_data["duration_seconds"],
-                    "eta_text":       eta_data["duration_text"],
-                    "distance_text":  eta_data["distance_text"],
-                    "eta_updated_at": now,
-                })
-                if eta_data.get("encoded_polyline"):
-                    update_query["$set"]["encoded_polyline"] = eta_data["encoded_polyline"]
+        update_query["$set"].update({"eta_updated_at": now, "eta_target_status": route_status})
+        if route_target and route_target.get("lat") is not None and route_target.get("lng") is not None:
+            eta_data = await get_directions_eta(body.lat, body.lng, route_target["lat"], route_target["lng"])
+        if eta_data:
+            update_query["$set"].update({
+                "eta_seconds": eta_data["duration_seconds"],
+                "eta_text": eta_data["duration_text"],
+                "distance_text": eta_data["distance_text"],
+            })
+            if eta_data.get("encoded_polyline"):
+                update_query["$set"]["encoded_polyline"] = eta_data["encoded_polyline"]
+        else:
+            update_query["$unset"] = {"eta_seconds": "", "eta_text": "", "distance_text": "", "encoded_polyline": ""}
 
     # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
     if (mission["status"] == MissionStatus.IN_PROGRESS.value and 
@@ -1611,17 +1620,9 @@ async def update_location(
                     )
                     if user_id
                 ]
-                target_key = (
-                    "pickup_geopin"
-                    if mission.get("status") == MissionStatus.ASSIGNED.value
-                    else "delivery_geopin"
+                current_route_estimate = eta_data or (
+                    mission if mission.get("eta_target_status") == mission.get("status") else {}
                 )
-                target = _normalize_geopin(mission.get(target_key))
-                remaining_km = ""
-                if target and target.get("lat") is not None and target.get("lng") is not None:
-                    from services.pricing_service import _haversine_km
-
-                    remaining_km = f"{_haversine_km(body.lat, body.lng, target['lat'], target['lng']):.1f}"
                 await notify_tracking_progress(
                     user_ids,
                     parcel_id=mission.get("parcel_id", ""),
@@ -1631,8 +1632,8 @@ async def update_location(
                         if mission.get("status") == MissionStatus.ASSIGNED.value
                         else "Livreur en route vers la livraison"
                     ),
-                    remaining_km=remaining_km,
-                    eta_text=mission.get("eta_text") or "",
+                    distance_text=current_route_estimate.get("distance_text") or "",
+                    eta_text=current_route_estimate.get("duration_text") or current_route_estimate.get("eta_text") or "",
                 )
 
     return {"message": "Position mise à jour"}

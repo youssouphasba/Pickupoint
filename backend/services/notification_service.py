@@ -1168,7 +1168,7 @@ async def notify_tracking_progress(
     parcel_id: str,
     tracking_code: str,
     phase: str,
-    remaining_km: str,
+    distance_text: str,
     eta_text: str,
 ) -> None:
     data = {
@@ -1179,7 +1179,7 @@ async def notify_tracking_progress(
         "dedupe_key": f"tracking_progress:{parcel_id}",
         "tracking_code": tracking_code,
         "phase": phase,
-        "remaining_km": remaining_km,
+        "distance_text": distance_text,
         "eta_text": eta_text,
     }
     for user_id in set(user_ids):

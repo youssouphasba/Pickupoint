@@ -37,6 +37,12 @@ class CreateParcelScreen extends ConsumerStatefulWidget {
 class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   final _pageController = PageController();
   int _currentStep = 0;
+  final _originSectionKey = GlobalKey();
+  final _destinationSectionKey = GlobalKey();
+  final _routeSummaryKey = GlobalKey();
+  final _step2PrimaryActionKey = GlobalKey();
+  final _step2DestinationRelayKey = GlobalKey();
+  final _step2RecipientInfoKey = GlobalKey();
 
   // ── Choix de flux ────────────────────────────────────────────────────────────
   _DestMode _destMode = _DestMode.home;
@@ -254,7 +260,11 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     if (!_validateCurrentStep()) return;
     if (_currentStep < 2) {
       _pageController.nextPage(
-          duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      ).then((_) {
+        if (_currentStep == 1) _scrollTo(_step2PrimaryActionKey);
+      });
       setState(() => _currentStep++);
     } else {
       _getQuote();
@@ -267,6 +277,19 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
       setState(() => _currentStep--);
     }
+  }
+
+  void _scrollTo(GlobalKey key) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = key.currentContext;
+      if (!mounted || target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.12,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   bool _validateCurrentStep() {
@@ -341,6 +364,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         _originAddress = null;
         _originWasAdjusted = false;
       });
+      _scrollTo(_destinationSectionKey);
       await _loadOriginAddress(pos.latitude, pos.longitude);
     } catch (e) {
       _showError(friendlyError(e));
@@ -355,8 +379,12 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     try {
       final response =
           await ref.read(apiClientProvider).reverseGeocode(lat, lng);
-      final data = response.data as Map<String, dynamic>?;
-      final address = data?['address'] as Map<String, dynamic>?;
+      final rawData = response.data;
+      final data = rawData is Map ? Map<String, dynamic>.from(rawData) : null;
+      final rawAddress = data?['address'];
+      final address = rawAddress is Map
+          ? Map<String, dynamic>.from(rawAddress)
+          : null;
       final formatted = address?['formatted_address']?.toString().trim();
       if (mounted && formatted != null && formatted.isNotEmpty) {
         setState(() => _originAddress = formatted);
@@ -384,8 +412,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       _originLng = result.position.longitude;
       _originAccuracy = null;
       _originAddress = result.address;
+      _originAddressLoading = true;
       _originWasAdjusted = true;
     });
+    await _loadOriginAddress(result.position.latitude, result.position.longitude);
   }
 
   // ── Devis ────────────────────────────────────────────────────────────────────
@@ -743,8 +773,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildRouteSummary(),
-          const SizedBox(height: 24),
           // ── Qui initie ? ──────────────────────────
           _sectionTitle(Icons.swap_horiz, 'Quelle est votre situation ?'),
           const SizedBox(height: 12),
@@ -755,7 +783,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             title: "J'envoie un colis",
             desc:
                 "Vous êtes l'expéditeur. Vous pouvez appeler le destinataire ou lui demander de confirmer sa position dans l'application ou via le lien WhatsApp reçu.",
-            onTap: () => setState(() => _initiatedBy = _InitiatedBy.sender),
+            onTap: () {
+              setState(() => _initiatedBy = _InitiatedBy.sender);
+              _scrollTo(_originSectionKey);
+            },
           ),
           const SizedBox(height: 10),
           _choiceCard(
@@ -765,7 +796,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             title: "Je veux recevoir un colis",
             desc:
                 "L'expéditeur n'utilise pas l'app. Il recevra un lien pour confirmer son emplacement.",
-            onTap: () => setState(() => _initiatedBy = _InitiatedBy.recipient),
+            onTap: () {
+              setState(() => _initiatedBy = _InitiatedBy.recipient);
+              _scrollTo(_originSectionKey);
+            },
           ),
 
           const SizedBox(height: 28),
@@ -773,11 +807,15 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           const SizedBox(height: 20),
 
           // ── Origine ───────────────────────────────
-          _sectionTitle(
+          KeyedSubtree(
+            key: _originSectionKey,
+            child: _sectionTitle(
               Icons.place,
               isReverse
                   ? 'L\'expéditeur dépose le colis…'
-                  : 'Le livreur récupère le colis…'),
+                  : 'Le livreur récupère le colis…',
+            ),
+          ),
           const SizedBox(height: 12),
           _choiceCard(
             selected: _originMode == _OriginMode.gps,
@@ -788,7 +826,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'Un livreur ira récupérer le colis à la position de l\'expéditeur.'
                 : 'Un livreur vient récupérer le colis à votre position.',
-            onTap: () => setState(() => _originMode = _OriginMode.gps),
+            onTap: () {
+              setState(() => _originMode = _OriginMode.gps);
+              _scrollTo(_destinationSectionKey);
+            },
           ),
           const SizedBox(height: 10),
           _choiceCard(
@@ -799,10 +840,13 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'L\'expéditeur amènera lui-même le colis au relais de son choix.'
                 : 'Vous amenez vous-même le colis au relais de votre choix.',
-            onTap: () => setState(() {
-              _originMode = _OriginMode.relay;
-              _originLat = null;
-            }),
+            onTap: () {
+              setState(() {
+                _originMode = _OriginMode.relay;
+                _originLat = null;
+              });
+              _scrollTo(_destinationSectionKey);
+            },
           ),
 
           // Bouton GPS si mode sélectionné
@@ -944,8 +988,13 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           const SizedBox(height: 20),
 
           // ── Destination ───────────────────────────
-          _sectionTitle(Icons.where_to_vote,
-              isReverse ? 'Vous recevez le colis…' : 'Le colis est livré…'),
+          KeyedSubtree(
+            key: _destinationSectionKey,
+            child: _sectionTitle(
+              Icons.where_to_vote,
+              isReverse ? 'Vous recevez le colis…' : 'Le colis est livré…',
+            ),
+          ),
           const SizedBox(height: 12),
           _choiceCard(
             selected: _destMode == _DestMode.home,
@@ -955,7 +1004,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'Le livreur vous livre directement chez vous. En cas d\'absence, redirection vers le relais le plus proche.'
                 : 'Le nom et le numéro du destinataire suffisent. Vous pouvez l’appeler ou lui demander de confirmer sa position dans l’application ou via le lien WhatsApp reçu.',
-            onTap: () => setState(() => _destMode = _DestMode.home),
+            onTap: () {
+              setState(() => _destMode = _DestMode.home);
+              _scrollTo(_routeSummaryKey);
+            },
           ),
           const SizedBox(height: 10),
           _choiceCard(
@@ -966,9 +1018,14 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             desc: isReverse
                 ? 'Vous récupérez le colis au point relais de votre choix.'
                 : 'Le destinataire récupère le colis au point relais que vous choisissez pour lui.',
-            onTap: () => setState(() => _destMode = _DestMode.relay),
+            onTap: () {
+              setState(() => _destMode = _DestMode.relay);
+              _scrollTo(_routeSummaryKey);
+            },
           ),
-          const SizedBox(height: 80),
+          const SizedBox(height: 20),
+          KeyedSubtree(key: _routeSummaryKey, child: _buildRouteSummary()),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -1004,9 +1061,15 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                 );
                 if (selected != null) {
                   setState(() => _originRelay = selected);
+                  _scrollTo(_destMode == _DestMode.relay
+                      ? _step2DestinationRelayKey
+                      : _step2RecipientInfoKey);
                 }
               },
               child: Container(
+                key: _originMode == _OriginMode.relay
+                    ? _step2PrimaryActionKey
+                    : null,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade400),
@@ -1050,9 +1113,15 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                 );
                 if (selected != null) {
                   setState(() => _destinationRelay = selected);
+                  _scrollTo(_step2RecipientInfoKey);
                 }
               },
               child: Container(
+                key: _originMode == _OriginMode.relay
+                    ? _step2DestinationRelayKey
+                    : _destMode == _DestMode.relay
+                        ? _step2PrimaryActionKey
+                        : null,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade400),
@@ -1117,6 +1186,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           ],
 
           TextField(
+            key: _originMode == _OriginMode.relay ||
+                    _destMode == _DestMode.relay
+                ? _step2RecipientInfoKey
+                : _step2PrimaryActionKey,
             controller: _recipientNameController,
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(

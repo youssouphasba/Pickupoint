@@ -42,14 +42,16 @@ async def get_directions_eta(origin_lat: float, origin_lng: float, dest_lat: flo
             response.raise_for_status()
             data = response.json()
             
-            if data.get("status") == "OK":
-                route = data["routes"][0]["legs"][0]
+            if data.get("status") == "OK" and data.get("routes"):
+                route = data["routes"][0]
+                leg = route["legs"][0]
+                duration = leg["duration"]
                 return {
-                    "duration_seconds": route["duration"]["value"],
-                    "duration_text": route["duration"]["text"],
-                    "distance_meters": route["distance"]["value"],
-                    "distance_text": route["distance"]["text"],
-                    "encoded_polyline": data["routes"][0]["overview_polyline"]["points"],
+                    "duration_seconds": duration["value"],
+                    "duration_text": duration["text"],
+                    "distance_meters": leg["distance"]["value"],
+                    "distance_text": leg["distance"]["text"],
+                    "encoded_polyline": route["overview_polyline"]["points"],
                 }
             else:
                 logger.error(

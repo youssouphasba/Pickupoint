@@ -35,27 +35,38 @@ class RelayPoint {
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
     final rawAddress = json['address'];
-    final addr = rawAddress is Map<String, dynamic>
-        ? rawAddress
+    final addr = rawAddress is Map
+        ? Map<String, dynamic>.from(rawAddress)
         : <String, dynamic>{
             if (rawAddress is String && rawAddress.trim().isNotEmpty)
               'label': rawAddress.trim(),
           };
     final rawGeopin = addr['geopin'];
-    final geopin = rawGeopin is Map<String, dynamic> ? rawGeopin : null;
+    final geopin = rawGeopin is Map ? Map<String, dynamic>.from(rawGeopin) : null;
     final rawOpeningHours = json['opening_hours'];
+    final addressLabel = [
+      addr['label'],
+      addr['formatted_address'],
+      addr['address_line'],
+      addr['full_address'],
+      addr['display_name'],
+      addr['address'],
+      addr['street'],
+      addr['notes'],
+    ].map((value) => value is String ? value.trim() : '').firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => '',
+        );
 
     return RelayPoint(
       id: json['relay_id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Point relais',
       phone: json['phone'] as String? ?? '',
       description: json['description'] as String?,
-      openingHours:
-          rawOpeningHours is Map<String, dynamic> ? rawOpeningHours : null,
-      addressLabel: addr['label'] as String? ??
-          addr['district'] as String? ??
-          addr['city'] as String? ??
-          '',
+      openingHours: rawOpeningHours is Map
+          ? Map<String, dynamic>.from(rawOpeningHours)
+          : null,
+      addressLabel: addressLabel,
       city: addr['city'] as String? ?? '',
       district: addr['district'] as String?,
       agentId: json['owner_user_id'] as String? ?? '',
@@ -72,10 +83,16 @@ class RelayPoint {
   bool get isFull => currentStock >= capacity;
 
   String get displayName {
-    final parts = [
+    final parts = <String>[
+      if (addressLabel.trim().isNotEmpty) addressLabel.trim(),
       if (district != null && district!.trim().isNotEmpty) district!.trim(),
       if (city.trim().isNotEmpty) city.trim(),
-    ];
+    ].fold<List<String>>([], (unique, value) {
+      if (!unique.any((entry) => entry.toLowerCase() == value.toLowerCase())) {
+        unique.add(value);
+      }
+      return unique;
+    });
     return parts.isEmpty ? name : '$name — ${parts.join(', ')}';
   }
 }

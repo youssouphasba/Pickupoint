@@ -428,12 +428,12 @@ Future<void> showBackgroundClientTrackingNotification(
   if (parcelId.isEmpty) return;
   final trackingCode = data['tracking_code']?.toString();
   final phase = data['phase']?.toString() ?? 'Livraison en cours';
-  final remainingKm = data['remaining_km']?.toString();
+  final distanceText = data['distance_text']?.toString();
   final etaText = data['eta_text']?.toString();
   final details = <String>[
-    if (remainingKm != null && remainingKm.isNotEmpty)
-      'Distance à vol d’oiseau : $remainingKm km',
-    if (etaText != null && etaText.isNotEmpty) 'Arrivée estimée : $etaText',
+    if (distanceText != null && distanceText.isNotEmpty)
+      'Distance par la route : $distanceText',
+    if (etaText != null && etaText.isNotEmpty) 'Temps estimé : $etaText',
   ];
   await notifications.show(
     trackingProgressNotificationId(parcelId),

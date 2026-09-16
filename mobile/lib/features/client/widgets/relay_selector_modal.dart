@@ -111,6 +111,9 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
       _filteredRelays = _allRelays
           .where((r) =>
               r.name.toLowerCase().contains(q) ||
+              r.addressLabel.toLowerCase().contains(q) ||
+              (r.description?.toLowerCase().contains(q) ?? false) ||
+              r.phone.toLowerCase().contains(q) ||
               (r.district?.toLowerCase() ?? '').contains(q) ||
               r.city.toLowerCase().contains(q))
           .toList();
@@ -119,6 +122,31 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
   void _selectRelay(RelayPoint relay) {
     Navigator.of(context).pop(relay); // Renvoie le relais sélectionné
+  }
+
+  String _relayArea(RelayPoint relay) {
+    final parts = <String>[];
+    for (final value in [relay.district, relay.city]) {
+      final normalized = value?.trim() ?? '';
+      if (normalized.isNotEmpty &&
+          !parts.any((part) => part.toLowerCase() == normalized.toLowerCase())) {
+        parts.add(normalized);
+      }
+    }
+    return parts.join(', ');
+  }
+
+  String? _relayOpeningHours(RelayPoint relay) {
+    final hours = relay.openingHours;
+    if (hours == null || hours.isEmpty) return null;
+    final general = hours['general']?.toString().trim();
+    if (general != null && general.isNotEmpty) return general;
+    final entries = hours.entries
+        .map((entry) => MapEntry(entry.key.trim(), entry.value.toString().trim()))
+        .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .toList();
+    return entries.isEmpty ? null : entries.join(' · ');
   }
 
   @override
@@ -211,34 +239,58 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                               title: Text(r.name,
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold)),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('${r.district}, ${r.city}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w500)),
-                                  if (r.openingHours?['general'] != null &&
-                                      r.openingHours!['general']
-                                          .toString()
-                                          .isNotEmpty)
-                                    Text(
-                                      '🕒 ${r.openingHours!["general"]}',
-                                      style: const TextStyle(
-                                          fontSize: 12, color: Colors.green),
-                                    ),
-                                  if (r.description != null &&
-                                      r.description!.isNotEmpty)
-                                    Text(
-                                      'ℹ️ ${r.description}',
-                                      style: const TextStyle(
-                                          fontSize: 12,
-                                          fontStyle: FontStyle.italic,
-                                          color: Colors.indigo),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                ],
-                              ),
+                              subtitle: Builder(builder: (context) {
+                                final area = _relayArea(r);
+                                final address = r.addressLabel.trim();
+                                final hours = _relayOpeningHours(r);
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (address.isNotEmpty &&
+                                        address.toLowerCase() !=
+                                            area.toLowerCase())
+                                      Text(
+                                        address,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    if (area.isNotEmpty)
+                                      Text(
+                                        area,
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.blueGrey),
+                                      ),
+                                    if (r.phone.trim().isNotEmpty)
+                                      Text(
+                                        r.phone,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    if (hours != null)
+                                      Text(
+                                        'Horaires : $hours',
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.green),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    if (r.description?.trim().isNotEmpty ==
+                                        true)
+                                      Text(
+                                        r.description!.trim(),
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            fontStyle: FontStyle.italic,
+                                            color: Colors.indigo),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                );
+                              }),
                               onTap: () => _selectRelay(r),
                               trailing: IconButton(
                                 icon: const Icon(Icons.map_outlined,
