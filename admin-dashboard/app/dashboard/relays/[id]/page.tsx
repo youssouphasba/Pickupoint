@@ -3,7 +3,14 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, fetchRelayDetail, verifyRelay } from "@/lib/api";
+import {
+  api,
+  fetchRelayDetail,
+  getRelayAddressLabel,
+  getRelayCoordinates,
+  verifyRelay,
+} from "@/lib/api";
+import { LocationPreviewMap } from "@/components/location-preview-map";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -137,6 +144,7 @@ export default function RelayDetailPage() {
   const relay = data.relay_point;
   const stock = data.stock_summary;
   const wallet = data.wallet;
+  const coordinates = getRelayCoordinates(relay);
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -158,13 +166,20 @@ export default function RelayDetailPage() {
             )}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {relay.city ?? ""} {relay.address ? `— ${relay.address}` : ""} •
+            {relay.city ?? ""} {getRelayAddressLabel(relay) ? `— ${getRelayAddressLabel(relay)}` : ""} •
             ID: {relay.relay_id}
           </div>
-          {relay.latitude && relay.longitude && (
+          {coordinates && (
             <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" />
-              {relay.latitude.toFixed(5)}, {relay.longitude.toFixed(5)}
+              <a
+                href={`https://www.google.com/maps?q=${coordinates.latitude},${coordinates.longitude}`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:underline"
+              >
+                {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+              </a>
             </div>
           )}
         </div>
@@ -179,6 +194,20 @@ export default function RelayDetailPage() {
           </Button>
         )}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Localisation du relais</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LocationPreviewMap
+            point={coordinates
+              ? { lat: coordinates.latitude, lng: coordinates.longitude }
+              : null}
+            title={`Localisation de ${relay.name}`}
+          />
+        </CardContent>
+      </Card>
 
       {data.applications && data.applications.length > 0 && (
         <Card>

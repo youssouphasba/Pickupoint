@@ -159,6 +159,12 @@ class ApiClient {
   Future<Response> getQuote(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.quote, data: body);
 
+  Future<Response> reverseGeocode(double lat, double lng) =>
+      _dio.get(ApiEndpoints.reverseAddress, queryParameters: {
+        'lat': lat,
+        'lng': lng,
+      });
+
   Future<Response> createParcel(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcels, data: body);
 

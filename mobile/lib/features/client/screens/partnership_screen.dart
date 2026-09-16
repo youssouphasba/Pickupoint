@@ -1,10 +1,7 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image/image.dart' as img;
@@ -14,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/map_picker_modal.dart';
 
 class PartnershipScreen extends ConsumerStatefulWidget {
   const PartnershipScreen({super.key});
@@ -895,67 +893,21 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
   }
 
   Future<void> _pickLocation() async {
-    LatLng initialPos = const LatLng(14.6928, -17.4467);
-    try {
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
-      initialPos = LatLng(pos.latitude, pos.longitude);
-    } catch (_) {}
-
-    if (!mounted) return;
-
-    final LatLng? picked = await showDialog<LatLng>(
+    final result = await showModalBottomSheet<MapPickerResult>(
       context: context,
-      builder: (ctx) {
-        LatLng tempPos = initialPos;
-        return StatefulBuilder(builder: (ctx, setLocal) {
-          return AlertDialog(
-            title: const Text('Position du Point Relais'),
-            contentPadding: EdgeInsets.zero,
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 400,
-              child: Stack(
-                children: [
-                  GoogleMap(
-                    initialCameraPosition:
-                        CameraPosition(target: initialPos, zoom: 15),
-                    onCameraMove: (cam) => tempPos = cam.target,
-                    myLocationEnabled: true,
-                    myLocationButtonEnabled: true,
-                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                      Factory<OneSequenceGestureRecognizer>(
-                          () => EagerGestureRecognizer()),
-                    },
-                  ),
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: 35),
-                      child:
-                          Icon(Icons.location_on, color: Colors.red, size: 40),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Annuler')),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, tempPos),
-                child: const Text('Confirmer cette position'),
-              ),
-            ],
-          );
-        });
-      },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const MapPickerModal(
+        title: 'Position du point relais',
+      ),
     );
-
-    if (!mounted) return;
-    if (picked != null) {
-      setState(() => _selectedLocation = picked);
-    }
+    if (!mounted || result == null) return;
+    setState(() {
+      _selectedLocation = result.position;
+      if (result.address != null && result.address!.trim().isNotEmpty) {
+        _addrCtrl.text = result.address!;
+      }
+    });
   }
 
   Widget _field(TextEditingController ctrl, String label, IconData icon,

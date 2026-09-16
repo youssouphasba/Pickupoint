@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/map_picker_modal.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
 
@@ -22,8 +24,13 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
   bool _isSubmitting = false;
   bool _confirmed = false;
   String? _error;
+  double? _pendingLat;
+  double? _pendingLng;
+  double? _pendingAccuracy;
+  String? _pendingAddress;
+  bool _pendingWasAdjusted = false;
 
-  Future<void> _confirmLocation() async {
+  Future<void> _prepareLocation() async {
     if (_isSubmitting || _confirmed) return;
     setState(() {
       _isSubmitting = true;
@@ -32,14 +39,53 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
 
     try {
       final position = await FreshPositionHelper.getStrictFreshPosition(
-        context: 'la confirmation de votre position',
+        context: 'la préparation de la confirmation de votre position',
       );
+      setState(() {
+        _pendingLat = position.latitude;
+        _pendingLng = position.longitude;
+        _pendingAccuracy = position.accuracy;
+        _pendingAddress = null;
+        _pendingWasAdjusted = false;
+        _isSubmitting = false;
+      });
+      try {
+        final response = await ref.read(apiClientProvider).reverseGeocode(
+              position.latitude,
+              position.longitude,
+            );
+        final data = response.data as Map<String, dynamic>?;
+        final address = data?['address'] as Map<String, dynamic>?;
+        final formatted = address?['formatted_address']?.toString().trim();
+        if (mounted && formatted != null && formatted.isNotEmpty) {
+          setState(() => _pendingAddress = formatted);
+        }
+      } catch (_) {}
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _error = friendlyError(error);
+      });
+    }
+  }
+
+  Future<void> _confirmLocation() async {
+    if (_isSubmitting || _confirmed || _pendingLat == null || _pendingLng == null) {
+      return;
+    }
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
+
+    try {
       await ref.read(apiClientProvider).confirmLocationByToken(
         widget.token,
         {
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'accuracy': position.accuracy,
+          'lat': _pendingLat,
+          'lng': _pendingLng,
+          'accuracy': _pendingAccuracy,
         },
       );
       if (!mounted) return;
@@ -58,6 +104,27 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
         _error = friendlyError(error);
       });
     }
+  }
+
+  Future<void> _editLocation() async {
+    if (_pendingLat == null || _pendingLng == null) return;
+    final result = await showModalBottomSheet<MapPickerResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MapPickerModal(
+        title: 'Vérifier votre position',
+        initialPosition: LatLng(_pendingLat!, _pendingLng!),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _pendingLat = result.position.latitude;
+      _pendingLng = result.position.longitude;
+      _pendingAccuracy = null;
+      _pendingAddress = result.address;
+      _pendingWasAdjusted = true;
+    });
   }
 
   @override
@@ -84,7 +151,7 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
               Text(
                 _confirmed
                     ? 'Le livreur pourra vous trouver à cette position.'
-                    : 'Confirmez votre position actuelle pour permettre la livraison.',
+                    : 'Vérifiez la position détectée avant de la confirmer.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
@@ -95,12 +162,19 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
                   color: Colors.green,
                   size: 72,
                 )
-              else
+              else ...[
+                if (_pendingLat != null && _pendingLng != null)
+                  _buildPendingLocationCard(),
                 LoadingButton(
-                  label: 'Confirmer ma position',
+                  label: _pendingLat == null
+                      ? 'Détecter ma position'
+                      : 'Confirmer cette position',
                   isLoading: _isSubmitting,
-                  onPressed: _confirmLocation,
+                  onPressed: _pendingLat == null
+                      ? _prepareLocation
+                      : _confirmLocation,
                 ),
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Text(
@@ -112,6 +186,44 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPendingLocationCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Position détectée',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(_pendingAddress?.isNotEmpty == true
+              ? _pendingAddress!
+              : 'Adresse indisponible'),
+          const SizedBox(height: 4),
+          Text(
+            _pendingWasAdjusted
+                ? 'Position ajustée sur la carte'
+                : _pendingAccuracy != null
+                    ? 'Précision estimée : ±${_pendingAccuracy!.toStringAsFixed(0)} m'
+                    : 'Coordonnées GPS enregistrées',
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _editLocation,
+            icon: const Icon(Icons.map_outlined, size: 18),
+            label: const Text('Voir / modifier la carte'),
+          ),
+        ],
       ),
     );
   }

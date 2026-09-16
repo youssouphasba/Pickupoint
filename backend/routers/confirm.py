@@ -356,6 +356,15 @@ def _html_page(
       min-height: 22px; max-width: 360px; margin: 0 auto 16px;
       color: #B3261E; font-size: 14px; line-height: 1.4;
     }}
+    #location-preview {{
+      display: none; width: 100%; max-width: 360px; margin: 0 auto 16px;
+      padding: 16px; border: 1px solid #D7E3F4; border-radius: 14px;
+      background: #F4F8FF; text-align: left;
+    }}
+    #location-preview strong {{ display: block; color: #1557B0; margin-bottom: 6px; }}
+    #location-preview small {{ display: block; color: #5F6368; margin-top: 5px; line-height: 1.4; }}
+    #location-preview a {{ display: inline-block; margin-top: 10px; color: #1557B0; font-weight: bold; }}
+    #btn-confirm-location {{ display: none; }}
     .app-download {{
       width: 100%; max-width: 360px; margin-top: 24px;
       padding: 16px; border: 1px solid #1A73E8; border-radius: 8px;
@@ -375,12 +384,21 @@ def _html_page(
 <body>
   <div class="logo">📦</div>
   <h1>{greeting}Votre colis Denkma</h1>
-  <p>Appuyez sur le bouton pour indiquer<br>votre position de <strong>{safe_role_label}</strong></p>
+  <p>Détectez puis vérifiez la position de <strong>{safe_role_label}</strong> avant de la confirmer.</p>
 
   <button class="btn" id="btn-locate" type="button">
-    📍 Confirmer ma position
+    📍 Détecter ma position
   </button>
   <div id="location-status" role="status" aria-live="polite"></div>
+  <div id="location-preview">
+    <strong>Position détectée</strong>
+    <span id="location-address">Adresse indisponible</span>
+    <small id="location-accuracy"></small>
+    <a id="location-map" href="#" target="_blank" rel="noreferrer">Voir la position sur la carte</a>
+  </div>
+  <button class="btn" id="btn-confirm-location" type="button">
+    ✅ Confirmer cette position
+  </button>
 
   <div id="voice-section">
     <button class="btn btn-voice" id="btn-voice" type="button">
@@ -405,6 +423,7 @@ def _html_page(
     const TOKEN = {token_json};
     const APP_URL = "{safe_app_open_url}";
     let mediaRecorder, audioChunks = [], isRecording = false, voiceBase64 = null;
+    let pendingLocation = null;
 
     if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {{
       const openApp = document.getElementById('open-app');
@@ -430,13 +449,20 @@ def _html_page(
             enableHighAccuracy: true, timeout: 20000, maximumAge: 0
           }})
         );
-        await sendLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
-        btn.style.display = 'none';
+        pendingLocation = {{
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy
+        }};
+        await showLocationPreview(pendingLocation);
+        btn.textContent = "📍 Recapturer la position";
+        btn.disabled = false;
+        btn.style.display = 'block';
+        document.getElementById('btn-confirm-location').style.display = 'block';
+        document.getElementById('location-preview').style.display = 'block';
         status.textContent = "";
-        document.getElementById('success').style.display = 'block';
-        document.getElementById('voice-section').style.display = 'block';
       }} catch(e) {{
-        btn.textContent = "📍 Confirmer ma position";
+        btn.textContent = "📍 Détecter ma position";
         btn.disabled = false;
         if (e && e.code === 1) {{
           status.textContent = "Autorisez la localisation, puis réessayez.";
@@ -447,6 +473,42 @@ def _html_page(
             ? e.message
             : "Position indisponible. Vérifiez votre GPS puis réessayez.";
         }}
+      }}
+    }}
+
+    async function showLocationPreview(location) {{
+      const address = document.getElementById('location-address');
+      const accuracy = document.getElementById('location-accuracy');
+      const map = document.getElementById('location-map');
+      address.textContent = "Recherche de l'adresse...";
+      accuracy.textContent = location.accuracy
+        ? `Précision estimée : ±${{Math.round(location.accuracy)}} m`
+        : "Précision GPS indisponible";
+      map.href = `https://www.openstreetmap.org/?mlat=${{location.lat}}&mlon=${{location.lng}}#map=18/${{location.lat}}/${{location.lng}}`;
+      try {{
+        const response = await fetch(`/api/geo/reverse?lat=${{encodeURIComponent(location.lat)}}&lng=${{encodeURIComponent(location.lng)}}`);
+        const payload = await response.json();
+        address.textContent = payload.address?.formatted_address || "Adresse indisponible";
+      }} catch (_) {{
+        address.textContent = "Adresse indisponible — vérifiez le point sur la carte";
+      }}
+    }}
+
+    async function confirmPendingLocation() {{
+      if (!pendingLocation) return;
+      const confirmBtn = document.getElementById('btn-confirm-location');
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "⏳ Confirmation...";
+      try {{
+        await sendLocation(pendingLocation.lat, pendingLocation.lng, pendingLocation.accuracy);
+        confirmBtn.style.display = 'none';
+        document.getElementById('location-preview').style.display = 'none';
+        document.getElementById('success').style.display = 'block';
+        document.getElementById('voice-section').style.display = 'block';
+      }} catch (e) {{
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "✅ Confirmer cette position";
+        document.getElementById('location-status').textContent = e.message || "Impossible d'enregistrer la position.";
       }}
     }}
 
@@ -505,6 +567,7 @@ def _html_page(
       }}
     }}
     document.getElementById('btn-locate').addEventListener('click', getLocation);
+    document.getElementById('btn-confirm-location').addEventListener('click', confirmPendingLocation);
     document.getElementById('btn-voice').addEventListener('click', toggleRecording);
   </script>
 </body>

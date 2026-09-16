@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from services.google_maps_service import geocode_address_suggestions
+from services.google_maps_service import geocode_address_suggestions, reverse_geocode
 
 router = APIRouter()
 
@@ -16,3 +16,12 @@ async def address_suggestions(
 ):
     suggestions = await geocode_address_suggestions(q, lat=lat, lng=lng, limit=limit)
     return {"suggestions": suggestions}
+
+
+@router.get("/reverse", summary="Convertir une position GPS en adresse")
+async def reverse_address(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+):
+    address = await reverse_geocode(lat, lng)
+    return {"address": address}

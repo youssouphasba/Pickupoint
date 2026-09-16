@@ -21,6 +21,7 @@ import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
+import '../widgets/mission_elapsed_badge.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -1201,9 +1202,19 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       body: missionAsync.when(
         data: (mission) {
           _revealRequestedMessage();
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
+          final hasActiveTimer =
+              activeDriverMissionStatuses.contains(mission.status);
+          return Column(
+            children: [
+              if (hasActiveTimer)
+                MissionElapsedBadge(
+                  prominent: true,
+                  startedAt: mission.assignedAt ?? mission.createdAt,
+                ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_whatsappCallStatus != null) ...[
@@ -1389,7 +1400,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 _buildActionButtons(mission),
                 const SizedBox(height: 40),
               ],
-            ),
+                  ),
+                ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),

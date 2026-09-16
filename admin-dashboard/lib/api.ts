@@ -543,7 +543,12 @@ export type AdminRelay = {
   city?: string;
   address?:
     | string
-    | { label?: string; city?: string; geopin?: { lat: number; lng: number } };
+    | {
+        label?: string;
+        district?: string;
+        city?: string;
+        geopin?: { lat: number; lng: number };
+      };
   latitude?: number;
   longitude?: number;
   is_active: boolean;
@@ -553,6 +558,24 @@ export type AdminRelay = {
   agent_user_id?: string | null;
   created_at?: string;
 };
+
+export function getRelayCoordinates(relay: AdminRelay) {
+  const geopin = typeof relay.address === "object" ? relay.address?.geopin : undefined;
+  const latitude = relay.latitude ?? geopin?.lat;
+  const longitude = relay.longitude ?? geopin?.lng;
+  if (typeof latitude !== "number" || typeof longitude !== "number") {
+    return null;
+  }
+  return { latitude, longitude };
+}
+
+export function getRelayAddressLabel(relay: AdminRelay) {
+  if (typeof relay.address === "string") return relay.address;
+  if (!relay.address) return null;
+  return [relay.address.label, relay.address.district, relay.address.city]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join(", ") || null;
+}
 
 export async function fetchRelays(params?: { active?: boolean }) {
   const { data } = await api.get<{ relay_points: AdminRelay[]; total: number }>(

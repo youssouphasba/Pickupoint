@@ -4,7 +4,14 @@ import * as React from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
-import { AdminRelay, fetchRelays, fetchRelayStats, verifyRelay } from "@/lib/api";
+import {
+  AdminRelay,
+  fetchRelays,
+  fetchRelayStats,
+  getRelayAddressLabel,
+  getRelayCoordinates,
+  verifyRelay,
+} from "@/lib/api";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,9 +86,26 @@ export default function RelaysPage() {
         id: "address",
         header: "Adresse",
         cell: ({ row }) => {
-          const addr = row.original.address;
-          const label = typeof addr === "string" ? addr : addr?.label ?? "—";
-          return <span className="text-xs">{label}</span>;
+          return <span className="text-xs">{getRelayAddressLabel(row.original) ?? "—"}</span>;
+        },
+      },
+      {
+        id: "location",
+        header: "Localisation",
+        cell: ({ row }) => {
+          const coordinates = getRelayCoordinates(row.original);
+          if (!coordinates) return <span className="text-xs">Non renseignée</span>;
+          const mapsUrl = `https://www.google.com/maps?q=${coordinates.latitude},${coordinates.longitude}`;
+          return (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary underline-offset-4 hover:underline"
+            >
+              {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+            </a>
+          );
         },
       },
       {
@@ -223,7 +247,7 @@ export default function RelaysPage() {
           globalFilterFn={(r, q) =>
             (r.name ?? "").toLowerCase().includes(q) ||
             (r.city ?? "").toLowerCase().includes(q) ||
-            (typeof r.address === "string" ? r.address : r.address?.label ?? "").toLowerCase().includes(q) ||
+            (getRelayAddressLabel(r) ?? "").toLowerCase().includes(q) ||
             (r.relay_id ?? "").toLowerCase().includes(q)
           }
         />

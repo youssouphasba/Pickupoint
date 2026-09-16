@@ -110,7 +110,7 @@ class RelayApplicationCreate(BaseModel):
     business_name:   str
     address_label:   str
     city:            str = "Dakar"
-    geopin:          Optional[GeoPin] = None
+    geopin:          GeoPin
     business_reg:    Optional[str] = None
     opening_hours:   Optional[str] = None
     message:         Optional[str] = None
@@ -410,6 +410,10 @@ async def approve_application(
 
     elif app["type"] == "relay":
         data = app["data"]
+        if not data.get("geopin"):
+            raise bad_request_exception(
+                "Impossible d'activer ce relais sans position GPS."
+            )
         relay_id = f"rly_{uuid.uuid4().hex[:12]}"
 
         relay_doc = {

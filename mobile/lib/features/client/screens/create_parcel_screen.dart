@@ -4,6 +4,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/location/fresh_position_helper.dart';
@@ -13,6 +14,7 @@ import '../models/create_parcel_prefill.dart';
 import '../providers/create_parcel_prefill_provider.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/map_picker_modal.dart';
 import '../widgets/relay_selector_modal.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -38,7 +40,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
 
   // ── Choix de flux ────────────────────────────────────────────────────────────
   _DestMode _destMode = _DestMode.home;
-  _OriginMode _originMode = _OriginMode.relay;
+  _OriginMode _originMode = _OriginMode.gps;
   _InitiatedBy _initiatedBy = _InitiatedBy.sender;
 
   // ── Relais ───────────────────────────────────────────────────────────────────
@@ -49,6 +51,9 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   double? _originLat;
   double? _originLng;
   double? _originAccuracy;
+  String? _originAddress;
+  bool _originAddressLoading = false;
+  bool _originWasAdjusted = false;
   bool _gpsLoading = false;
 
   // ── Destinataire / Expéditeur (flux inverse) ─────────────────────────────────
@@ -333,12 +338,54 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         _originLat = pos.latitude;
         _originLng = pos.longitude;
         _originAccuracy = pos.accuracy;
+        _originAddress = null;
+        _originWasAdjusted = false;
       });
+      await _loadOriginAddress(pos.latitude, pos.longitude);
     } catch (e) {
       _showError(friendlyError(e));
     } finally {
       if (mounted) setState(() => _gpsLoading = false);
     }
+  }
+
+  Future<void> _loadOriginAddress(double lat, double lng) async {
+    if (!mounted) return;
+    setState(() => _originAddressLoading = true);
+    try {
+      final response =
+          await ref.read(apiClientProvider).reverseGeocode(lat, lng);
+      final data = response.data as Map<String, dynamic>?;
+      final address = data?['address'] as Map<String, dynamic>?;
+      final formatted = address?['formatted_address']?.toString().trim();
+      if (mounted && formatted != null && formatted.isNotEmpty) {
+        setState(() => _originAddress = formatted);
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _originAddressLoading = false);
+    }
+  }
+
+  Future<void> _editOriginPosition() async {
+    if (_originLat == null || _originLng == null) return;
+    final result = await showModalBottomSheet<MapPickerResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MapPickerModal(
+        title: 'Vérifier la position de collecte',
+        initialPosition: LatLng(_originLat!, _originLng!),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _originLat = result.position.latitude;
+      _originLng = result.position.longitude;
+      _originAccuracy = null;
+      _originAddress = result.address;
+      _originWasAdjusted = true;
+    });
   }
 
   // ── Devis ────────────────────────────────────────────────────────────────────
@@ -518,63 +565,78 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   }
 
   Widget _buildStepIndicator() {
+    const labels = ['Trajet', 'Coordonnées', 'Colis'];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      child: Row(
-        children: List.generate(3, (i) {
-          final isDone = i < _currentStep;
-          final isCurrent = i == _currentStep;
-          return Expanded(
-            child: Row(children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOutCubic,
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDone || isCurrent
-                      ? Theme.of(context).primaryColor
-                      : Colors.grey.shade300,
-                ),
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  transitionBuilder: (child, animation) => ScaleTransition(
-                    scale: animation,
-                    child: child,
-                  ),
-                  child: isDone
-                      ? const Icon(
-                          Icons.check,
-                          key: ValueKey('done'),
-                          size: 16,
-                          color: Colors.white,
-                        )
-                      : Text(
-                          '${i + 1}',
-                          key: ValueKey('step-$i-$isCurrent'),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: isCurrent ? Colors.white : Colors.grey,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+      child: Column(
+        children: [
+          Row(
+            children: List.generate(3, (i) {
+              final isDone = i < _currentStep;
+              final isCurrent = i == _currentStep;
+              return Expanded(
+                child: Row(children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isDone || isCurrent
+                          ? Theme.of(context).primaryColor
+                          : Colors.grey.shade300,
+                    ),
+                    child: isDone
+                        ? const Icon(Icons.check, size: 16, color: Colors.white)
+                        : Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              color: isCurrent ? Colors.white : Colors.grey,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
+                  ),
+                  if (i < 2)
+                    Expanded(
+                      child: Container(
+                        height: 2,
+                        color: i < _currentStep
+                            ? Theme.of(context).primaryColor
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                ]),
+              );
+            }),
+          ),
+          const SizedBox(height: 5),
+          Row(
+            children: List.generate(
+              labels.length,
+              (i) => Expanded(
+                child: Text(
+                  labels[i],
+                  textAlign: i == 0
+                      ? TextAlign.left
+                      : i == labels.length - 1
+                          ? TextAlign.right
+                          : TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight:
+                        i == _currentStep ? FontWeight.w700 : FontWeight.w400,
+                    color: i <= _currentStep
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey,
+                  ),
                 ),
               ),
-              if (i < 2)
-                Expanded(
-                  child: Container(
-                    height: 2,
-                    color: i < _currentStep
-                        ? Theme.of(context).primaryColor
-                        : Colors.grey.shade300,
-                  ),
-                ),
-            ]),
-          );
-        }),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -604,6 +666,76 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     );
   }
 
+  String _routeSummaryText() {
+    final origin = _originMode == _OriginMode.gps ? 'Domicile' : 'Point relais';
+    final destination =
+        _destMode == _DestMode.home ? 'Domicile' : 'Point relais';
+    return '$origin → $destination';
+  }
+
+  Widget _buildRouteSummary() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).primaryColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).primaryColor.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Votre trajet',
+            style: TextStyle(
+              color: Theme.of(context).primaryColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _routeSummaryText(),
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Choisissez où le livreur récupère le colis et où le destinataire le reçoit.',
+            style: TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeDeliveryHelp(bool isReverse) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 20, color: Colors.blue.shade700),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              isReverse
+                  ? 'Pour recevoir le colis à domicile, votre nom et votre numéro suffisent. Vous pourrez confirmer votre position ensuite.'
+                  : 'Pour livrer à domicile, le nom et le numéro du destinataire suffisent. Vous pouvez l’appeler ou lui demander de confirmer sa position dans l’application ou via le lien WhatsApp reçu.',
+              style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Étape 1 : Destination + Origine ──────────────────────────────────────────
   Widget _buildStep1() {
     return SingleChildScrollView(
@@ -611,6 +743,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildRouteSummary(),
+          const SizedBox(height: 24),
           // ── Qui initie ? ──────────────────────────
           _sectionTitle(Icons.swap_horiz, 'Quelle est votre situation ?'),
           const SizedBox(height: 12),
@@ -620,7 +754,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             color: Theme.of(context).primaryColor,
             title: "J'envoie un colis",
             desc:
-                "Vous êtes l'expéditeur. Un lien GPS peut être envoyé au destinataire.",
+                "Vous êtes l'expéditeur. Vous pouvez appeler le destinataire ou lui demander de confirmer sa position dans l'application ou via le lien WhatsApp reçu.",
             onTap: () => setState(() => _initiatedBy = _InitiatedBy.sender),
           ),
           const SizedBox(height: 10),
@@ -700,7 +834,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                             : const Icon(Icons.my_location),
                         label: Text(_gpsLoading
                             ? 'Localisation…'
-                            : 'Confirmer ma position'),
+                            : 'Détecter ma position'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
@@ -716,30 +850,92 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.green.shade300),
                       ),
-                      child: Row(children: [
-                        const Icon(Icons.check_circle, color: Colors.green),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Position capturée',
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.green)),
-                                Text(
-                                  '${_originLat!.toStringAsFixed(5)}, ${_originLng!.toStringAsFixed(5)}'
-                                  '${_originAccuracy != null ? ' (±${_originAccuracy!.toStringAsFixed(0)} m)' : ''}',
-                                  style: const TextStyle(
-                                      fontSize: 12, color: Colors.grey),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.check_circle,
+                                  color: Colors.green),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Position capturée',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.green)),
+                                    if (_originAddressLoading)
+                                      const Text(
+                                        'Recherche de l’adresse…',
+                                        style: TextStyle(
+                                            fontSize: 12, color: Colors.grey),
+                                      )
+                                    else
+                                      Text(
+                                        _originAddress ??
+                                            'Adresse indisponible',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black87,
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      _originWasAdjusted
+                                          ? 'Position ajustée sur la carte'
+                                          : _originAccuracy != null
+                                              ? 'Précision estimée : ±${_originAccuracy!.toStringAsFixed(0)} m'
+                                              : 'Coordonnées GPS enregistrées',
+                                      style: const TextStyle(
+                                          fontSize: 11, color: Colors.grey),
+                                    ),
+                                    ExpansionTile(
+                                      tilePadding: EdgeInsets.zero,
+                                      childrenPadding: EdgeInsets.zero,
+                                      dense: true,
+                                      title: const Text(
+                                        'Voir les coordonnées GPS',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
+                                      children: [
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '${_originLat!.toStringAsFixed(6)}, ${_originLng!.toStringAsFixed(6)}',
+                                            style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                              ]),
-                        ),
-                        TextButton(
-                          onPressed: _captureOriginGPS,
-                          child: const Text('Recapturer'),
-                        ),
-                      ]),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: _editOriginPosition,
+                                icon: const Icon(Icons.map_outlined, size: 17),
+                                label: const Text('Voir / modifier la carte'),
+                              ),
+                              TextButton(
+                                onPressed: _captureOriginGPS,
+                                child: const Text('Recapturer'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
             ),
           ],
@@ -758,7 +954,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             title: 'À domicile',
             desc: isReverse
                 ? 'Le livreur vous livre directement chez vous. En cas d\'absence, redirection vers le relais le plus proche.'
-                : 'Le livreur livre directement chez le destinataire. En cas d\'absence, redirection vers le relais le plus proche.',
+                : 'Le nom et le numéro du destinataire suffisent. Vous pouvez l’appeler ou lui demander de confirmer sa position dans l’application ou via le lien WhatsApp reçu.',
             onTap: () => setState(() => _destMode = _DestMode.home),
           ),
           const SizedBox(height: 10),
@@ -788,6 +984,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildFavoriteSelector(),
+          if (_destMode == _DestMode.home) ...[
+            _buildHomeDeliveryHelp(isReverse),
+            const SizedBox(height: 20),
+          ],
           const SizedBox(height: 24),
 
           // ── Relais de départ (uniquement si mode relais) ──────────────────
@@ -877,42 +1077,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                     const Icon(Icons.arrow_drop_down, color: Colors.grey),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-
-          // ── Adresse indicative (mode domicile) ────────────────────────────
-          if (_destMode == _DestMode.home) ...[
-            _sectionTitle(Icons.home, 'Zone de livraison'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _addressLabelController,
-              decoration: const InputDecoration(
-                labelText: 'Adresse indicative (optionnel)',
-                hintText: 'Ex: Sacré-Cœur 3, Villa 42',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.pin_drop),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _addressDistrictController,
-              decoration: const InputDecoration(
-                labelText: 'Quartier (optionnel)',
-                hintText: 'Ex: Plateau, Mermoz…',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.map),
-              ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _addressCityController,
-              decoration: const InputDecoration(
-                labelText: 'Ville (optionnel)',
-                hintText: 'Ex: Paris, Lille, Dakar',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.location_city),
               ),
             ),
             const SizedBox(height: 24),

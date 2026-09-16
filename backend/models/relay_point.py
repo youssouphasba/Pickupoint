@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.common import Address, RelayType, clean_optional_text
 
@@ -44,6 +44,12 @@ class RelayPointCreate(BaseModel):
     def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
         return clean_optional_text(value)
 
+    @model_validator(mode="after")
+    def require_location(self):
+        if self.address.geopin is None:
+            raise ValueError("La position GPS du point relais est obligatoire")
+        return self
+
 
 class RelayPointUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=120)
@@ -59,3 +65,9 @@ class RelayPointUpdate(BaseModel):
     @classmethod
     def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
         return clean_optional_text(value)
+
+    @model_validator(mode="after")
+    def require_location_when_address_changes(self):
+        if self.address is not None and self.address.geopin is None:
+            raise ValueError("La position GPS du point relais est obligatoire")
+        return self

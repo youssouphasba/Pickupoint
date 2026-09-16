@@ -14,6 +14,8 @@ String? notificationRouteFor({
   final encodedMessageId = Uri.encodeComponent((messageId ?? '').trim());
 
   switch (action) {
+    case 'tracking_progress':
+      return id.isEmpty ? null : '/client/parcel/$encodedId';
     case 'mission_available':
       return id.isEmpty ? '/driver' : '/driver?preview=$encodedId';
     case 'mission_detail':
@@ -66,6 +68,18 @@ String? notificationRouteFor({
     _ => null,
   };
 }
+
+int trackingProgressNotificationId(String parcelId) {
+  var hash = 0x811c9dc5;
+  for (final unit in 'tracking_progress:$parcelId'.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return hash;
+}
+
+int get driverActiveMissionNotificationId =>
+    trackingProgressNotificationId('driver_active_mission');
 
 String? notificationExternalUrl({
   required String? eventType,

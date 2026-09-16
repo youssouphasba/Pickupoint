@@ -3,7 +3,7 @@ Service notification : envoi de notifications push, SMS, WhatsApp aux utilisateu
 """
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 import uuid
 from typing import Optional
@@ -15,6 +15,24 @@ from models.notification import NotificationChannel, NotificationStatus
 from models.common import ParcelStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _mission_elapsed_label(assigned_at: object) -> str | None:
+    if isinstance(assigned_at, str):
+        try:
+            assigned_at = datetime.fromisoformat(assigned_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(assigned_at, datetime):
+        return None
+    if assigned_at.tzinfo is None:
+        assigned_at = assigned_at.replace(tzinfo=timezone.utc)
+    total_minutes = max(
+        0,
+        int((datetime.now(timezone.utc) - assigned_at.astimezone(timezone.utc)).total_seconds() // 60),
+    )
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours} h {minutes:02d}" if hours else f"{minutes} min"
 
 # Firebase Admin — initialisé à la demande (pas à l'import) pour éviter
 # tout blocage réseau au démarrage (Railway tourne sur GCP, le metadata server
@@ -523,10 +541,13 @@ async def _notify_driver_parcel_change(parcel: dict, new_status: ParcelStatus) -
     body = body_template.format(tracking_code=tracking_code)
     mission = await db.delivery_missions.find_one(
         {"parcel_id": parcel.get("parcel_id"), "driver_id": driver_id},
-        {"_id": 0, "mission_id": 1},
+        {"_id": 0, "mission_id": 1, "assigned_at": 1},
         sort=[("updated_at", -1)],
     )
     mission_id = (mission or {}).get("mission_id")
+    elapsed_label = _mission_elapsed_label((mission or {}).get("assigned_at"))
+    if elapsed_label:
+        body = f"{body} Mission en cours depuis {elapsed_label}."
     is_unavailable = new_status in {ParcelStatus.CANCELLED, ParcelStatus.RETURNED}
     await _store_and_send(
         user_id=driver_id,
@@ -554,10 +575,13 @@ async def notify_driver_mission_resumed(parcel: dict, new_status: ParcelStatus) 
     )
     mission = await db.delivery_missions.find_one(
         {"parcel_id": parcel.get("parcel_id"), "driver_id": driver_id},
-        {"_id": 0, "mission_id": 1},
+        {"_id": 0, "mission_id": 1, "assigned_at": 1},
         sort=[("updated_at", -1)],
     )
     mission_id = (mission or {}).get("mission_id")
+    elapsed_label = _mission_elapsed_label((mission or {}).get("assigned_at"))
+    if elapsed_label:
+        body = f"{body} Mission en cours depuis {elapsed_label}."
     await _store_and_send(
         user_id=driver_id,
         title="Mission reprise",
@@ -612,6 +636,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             whatsapp_template=sender_template,
             whatsapp_variables=sender_template_vars,
             skip_whatsapp=not is_creation,
+            metadata={"parcel_status": new_status.value},
         )
 
     # Notifier destinataire
@@ -625,6 +650,20 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
         user = await _find_user_by_phone(recipient_phone)
         if user:
             recipient_user_id = user["user_id"]
+
+    if new_status in {
+        ParcelStatus.DELIVERED,
+        ParcelStatus.DELIVERY_FAILED,
+        ParcelStatus.CANCELLED,
+        ParcelStatus.RETURNED,
+        ParcelStatus.EXPIRED,
+        ParcelStatus.SUSPENDED,
+        ParcelStatus.DISPUTED,
+    }:
+        await notify_tracking_ended(
+            [uid for uid in (sender_id, recipient_user_id) if uid],
+            parcel_id=parcel.get("parcel_id", ""),
+        )
 
     recipient_first = _first_name(parcel.get("recipient_name"))
     recipient_body = _body_with_recipient_code(recipient_body_base, parcel, new_status)
@@ -665,6 +704,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             whatsapp_template=recipient_template,
             whatsapp_variables=template_vars_recipient,
             whatsapp_button_variables=recipient_button_vars,
+            metadata={"parcel_status": new_status.value},
         )
         # Le code de retrait/livraison est déjà inclus dans le template principal
         # pour CREATED, AVAILABLE_AT_RELAY et REDIRECTED_TO_RELAY. On envoie un
@@ -992,6 +1032,7 @@ async def _send_push(
         for key in (
             "message_id",
             "parcel_id",
+            "parcel_status",
             "store_url",
             "platform",
             "version",
@@ -1059,14 +1100,22 @@ async def _send_push(
         return {"push_status": "failed", "push_reason": str(e)[:240]}
 
 
-async def _send_data_push(user_id: str, data: dict[str, str]) -> None:
+async def _send_data_push(
+    user_id: str,
+    data: dict[str, str],
+    *,
+    push_platform: str | None = None,
+    category: str | None = None,
+) -> None:
     user = await db.users.find_one(
         {"user_id": user_id},
         {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1},
     )
     if not user or not ((user.get("notification_prefs") or {}).get("push", True)):
         return
-    tokens = _push_tokens_from_user(user)
+    if category and not _notification_category_enabled(user, category):
+        return
+    tokens = _push_tokens_from_user(user, push_platform)
     if not tokens:
         return
 
@@ -1085,6 +1134,11 @@ async def _send_data_push(user_id: str, data: dict[str, str]) -> None:
                     android=_messaging.AndroidConfig(
                         collapse_key=collapse_id or None,
                         priority="high",
+                        ttl=(
+                            timedelta(seconds=90)
+                            if data.get("event_type") == "tracking_progress"
+                            else None
+                        ),
                     ),
                     apns=_messaging.APNSConfig(
                         headers={
@@ -1095,6 +1149,8 @@ async def _send_data_push(user_id: str, data: dict[str, str]) -> None:
                             aps=_messaging.Aps(content_available=True),
                         ),
                     ),
+                    # Android clients update one ongoing, silent notification;
+                    # iOS requires a separate Live Activity implementation.
                     token=token,
                 )
             )
@@ -1104,6 +1160,52 @@ async def _send_data_push(user_id: str, data: dict[str, str]) -> None:
                     {"user_id": user_id},
                     {"$pull": {"fcm_tokens": {"token": token}}},
                 )
+
+
+async def notify_tracking_progress(
+    user_ids: list[str],
+    *,
+    parcel_id: str,
+    tracking_code: str,
+    phase: str,
+    remaining_km: str,
+    eta_text: str,
+) -> None:
+    data = {
+        "event_type": "tracking_progress",
+        "ref_type": "parcel",
+        "ref_id": parcel_id,
+        "target_view": "client",
+        "dedupe_key": f"tracking_progress:{parcel_id}",
+        "tracking_code": tracking_code,
+        "phase": phase,
+        "remaining_km": remaining_km,
+        "eta_text": eta_text,
+    }
+    for user_id in set(user_ids):
+        await _send_data_push(
+            user_id,
+            data,
+            push_platform="android",
+            category="parcel_updates",
+        )
+
+
+async def notify_tracking_ended(user_ids: list[str], *, parcel_id: str) -> None:
+    data = {
+        "event_type": "tracking_ended",
+        "ref_type": "parcel",
+        "ref_id": parcel_id,
+        "target_view": "client",
+        "dedupe_key": f"tracking_progress:{parcel_id}",
+    }
+    for user_id in set(user_ids):
+        await _send_data_push(
+            user_id,
+            data,
+            push_platform="android",
+            category="parcel_updates",
+        )
 
 
 async def expire_mission_availability_notifications(

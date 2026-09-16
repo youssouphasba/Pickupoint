@@ -43,6 +43,7 @@ from services.notification_service import (
     notify_pending_mission_dispatch_reminder,
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
+    notify_tracking_progress,
 )
 from services.wallet_service import (
     compute_delivery_commission_breakdown,
@@ -1567,6 +1568,72 @@ async def update_location(
             "updated_at": now
         }}
     )
+
+    if mission.get("status") in {
+        MissionStatus.ASSIGNED.value,
+        MissionStatus.IN_PROGRESS.value,
+    }:
+        push_cutoff = now - timedelta(seconds=60)
+        push_claim = await db.delivery_missions.update_one(
+            {
+                "mission_id": mission_id,
+                "status": mission.get("status"),
+                "$or": [
+                    {"last_tracking_push_status": {"$ne": mission.get("status")}},
+                    {"last_tracking_push_at": {"$lte": push_cutoff}},
+                    {"last_tracking_push_at": {"$exists": False}},
+                ],
+            },
+            {
+                "$set": {
+                    "last_tracking_push_at": now,
+                    "last_tracking_push_status": mission.get("status"),
+                }
+            },
+        )
+        if push_claim.modified_count:
+            parcel = await db.parcels.find_one(
+                {"parcel_id": mission.get("parcel_id")},
+                {
+                    "_id": 0,
+                    "sender_user_id": 1,
+                    "recipient_user_id": 1,
+                    "tracking_code": 1,
+                    "status": 1,
+                },
+            )
+            if parcel and parcel.get("status") != ParcelStatus.SUSPENDED.value:
+                user_ids = [
+                    user_id
+                    for user_id in (
+                        parcel.get("sender_user_id"),
+                        parcel.get("recipient_user_id"),
+                    )
+                    if user_id
+                ]
+                target_key = (
+                    "pickup_geopin"
+                    if mission.get("status") == MissionStatus.ASSIGNED.value
+                    else "delivery_geopin"
+                )
+                target = _normalize_geopin(mission.get(target_key))
+                remaining_km = ""
+                if target and target.get("lat") is not None and target.get("lng") is not None:
+                    from services.pricing_service import _haversine_km
+
+                    remaining_km = f"{_haversine_km(body.lat, body.lng, target['lat'], target['lng']):.1f}"
+                await notify_tracking_progress(
+                    user_ids,
+                    parcel_id=mission.get("parcel_id", ""),
+                    tracking_code=parcel.get("tracking_code") or "",
+                    phase=(
+                        "Livreur en route vers la collecte"
+                        if mission.get("status") == MissionStatus.ASSIGNED.value
+                        else "Livreur en route vers la livraison"
+                    ),
+                    remaining_km=remaining_km,
+                    eta_text=mission.get("eta_text") or "",
+                )
 
     return {"message": "Position mise à jour"}
 

@@ -59,8 +59,9 @@ class Parcel {
     this.initiatedBy = 'sender',
     this.deliveryConfirmed = false,
     this.pickupConfirmed = false,
-    this.deliveryLocation,
-    this.pickupLocation,
+      this.deliveryLocation,
+      this.pickupLocation,
+      this.originLocation,
     this.deliveryCode,
     this.pinCode,
     this.pickupCode,
@@ -137,6 +138,7 @@ class Parcel {
   final bool pickupConfirmed;
   final Map<String, dynamic>? deliveryLocation; // {lat, lng, accuracy}
   final Map<String, dynamic>? pickupLocation;
+  final Map<String, dynamic>? originLocation;
   final String?
       deliveryCode; // code que le destinataire donne au livreur (domicile)
   final String?
@@ -236,8 +238,11 @@ class Parcel {
       initiatedBy: json['initiated_by']?.toString() ?? 'sender',
       deliveryConfirmed: json['delivery_confirmed'] as bool? ?? false,
       pickupConfirmed: json['pickup_confirmed'] as bool? ?? false,
-      deliveryLocation: json['delivery_location'] as Map<String, dynamic>?,
-      pickupLocation: json['pickup_location'] as Map<String, dynamic>?,
+      deliveryLocation: json['delivery_location'] as Map<String, dynamic>? ??
+          json['delivery_address'] as Map<String, dynamic>?,
+      pickupLocation: json['pickup_location'] as Map<String, dynamic>? ??
+          json['origin_location'] as Map<String, dynamic>?,
+      originLocation: json['origin_location'] as Map<String, dynamic>?,
       deliveryCode: json['delivery_code'] as String?,
       pinCode: json['relay_pin'] as String? ?? json['pin_code'] as String?,
       pickupCode: json['pickup_code'] as String?,

@@ -18,13 +18,13 @@ class RelaySelectorModal extends ConsumerStatefulWidget {
 class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   GoogleMapController? _mapController;
   final TextEditingController _searchController = TextEditingController();
-  
+
   List<RelayPoint> _allRelays = [];
   List<RelayPoint> _filteredRelays = [];
   bool _isLoading = true;
   String? _error;
   Position? _currentPosition;
-  
+
   // Dakar centroid (Utilisé par défaut si on n'a pas la position)
   static const LatLng _dakarCenter = LatLng(14.6928, -17.4467);
 
@@ -33,7 +33,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     super.initState();
     _initLocationAndFetch();
   }
-  
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -48,33 +48,43 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         if (permission == LocationPermission.denied) {
           permission = await Geolocator.requestPermission();
         }
-        if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
+        if (permission == LocationPermission.whileInUse ||
+            permission == LocationPermission.always) {
           _currentPosition = await Geolocator.getCurrentPosition(
-              desiredAccuracy: LocationAccuracy.high)
+                  desiredAccuracy: LocationAccuracy.high)
               .timeout(const Duration(seconds: 10));
         }
       }
     } catch (e) {
       debugPrint("Location error: $e");
     }
-    
+
     await _fetchRelays();
   }
 
   Future<void> _fetchRelays() async {
     try {
-      setState(() { _isLoading = true; _error = null; });
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
       final api = ref.read(apiClientProvider);
-      
-      final res = _currentPosition != null 
-          ? await api.getNearbyRelays(_currentPosition!.latitude, _currentPosition!.longitude)
-          : await api.getRelayPoints(params: {'limit': 200}); // Fallback to all, avec une limite plus large
-          
-      final data = res.data as Map<String, dynamic>;
+
+      var res = _currentPosition != null
+          ? await api.getNearbyRelays(
+              _currentPosition!.latitude, _currentPosition!.longitude)
+          : await api.getRelayPoints(params: {'limit': 200});
+
+      var data = res.data as Map<String, dynamic>;
+      final nearbyRelays = data['relay_points'] as List? ?? const [];
+      if (_currentPosition != null && nearbyRelays.isEmpty) {
+        res = await api.getRelayPoints(params: {'limit': 200});
+        data = res.data as Map<String, dynamic>;
+      }
       final list = (data['relay_points'] as List? ?? [])
           .map((e) => RelayPoint.fromJson(e as Map<String, dynamic>))
           .toList();
-          
+
       if (mounted) {
         setState(() {
           _allRelays = list;
@@ -83,7 +93,11 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() { _error = friendlyError(e); _isLoading = false; });
+      if (mounted)
+        setState(() {
+          _error = friendlyError(e);
+          _isLoading = false;
+        });
     }
   }
 
@@ -94,11 +108,12 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     }
     final q = query.toLowerCase();
     setState(() {
-      _filteredRelays = _allRelays.where((r) => 
-        r.name.toLowerCase().contains(q) || 
-        (r.district?.toLowerCase() ?? '').contains(q) ||
-        r.city.toLowerCase().contains(q)
-      ).toList();
+      _filteredRelays = _allRelays
+          .where((r) =>
+              r.name.toLowerCase().contains(q) ||
+              (r.district?.toLowerCase() ?? '').contains(q) ||
+              r.city.toLowerCase().contains(q))
+          .toList();
     });
   }
 
@@ -119,24 +134,29 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
           // Poignée drag
           Container(
             margin: const EdgeInsets.symmetric(vertical: 12),
-            width: 40, height: 5,
+            width: 40,
+            height: 5,
             decoration: BoxDecoration(
               color: Colors.grey.shade300,
               borderRadius: BorderRadius.circular(10),
             ),
           ),
-          
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Choisir un relais', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                const Text('Choisir un relais',
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context)),
               ],
             ),
           ),
-          
+
           // Barre de recherche
           Padding(
             padding: const EdgeInsets.all(16),
@@ -145,74 +165,97 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
               decoration: InputDecoration(
                 hintText: 'Rechercher par nom, quartier...',
                 prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
               ),
               onChanged: _filterRelays,
             ),
           ),
-          
+
           // MAP ou Loading
           Expanded(
             flex: 2,
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null 
-                ? Center(child: Text('Erreur: $_error', style: const TextStyle(color: Colors.red)))
-                : _buildMapInfo(),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Text('Erreur: $_error',
+                            style: const TextStyle(color: Colors.red)))
+                    : _buildMapInfo(),
           ),
-          
+
           // LISTE
           Expanded(
             flex: 3,
             child: Container(
               color: Colors.grey.shade50,
-              child: _isLoading 
+              child: _isLoading
                   ? const SizedBox() // géré en haut
                   : _filteredRelays.isEmpty
-                    ? const Center(child: Text('Aucun relais trouvé'))
-                    : ListView.separated(
-                        itemCount: _filteredRelays.length,
-                        separatorBuilder: (_,__) => const Divider(height: 1),
-                        itemBuilder: (context, i) {
-                          final r = _filteredRelays[i];
-                          return ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle),
-                              child: const Icon(Icons.storefront, color: Colors.blue),
-                            ),
-                            title: Text(r.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('${r.district}, ${r.city}', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                if (r.openingHours?['general'] != null && r.openingHours!['general'].toString().isNotEmpty)
-                                  Text(
-                                    '🕒 ${r.openingHours!["general"]}', 
-                                    style: const TextStyle(fontSize: 12, color: Colors.green),
-                                  ),
-                                if (r.description != null && r.description!.isNotEmpty)
-                                  Text(
-                                    'ℹ️ ${r.description}', 
-                                    style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.indigo),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                              ],
-                            ),
-                            onTap: () => _selectRelay(r),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.map_outlined, color: Colors.grey),
-                              onPressed: () {
-                                if (r.lat != null && r.lng != null && _mapController != null) {
-                                  _mapController!.animateCamera(CameraUpdate.newLatLngZoom(LatLng(r.lat!, r.lng!), 15.0));
-                                }
-                              },
-                            ),
-                          );
-                        },
-                      ),
+                      ? _buildEmptyState()
+                      : ListView.separated(
+                          itemCount: _filteredRelays.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, i) {
+                            final r = _filteredRelays[i];
+                            return ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    shape: BoxShape.circle),
+                                child: const Icon(Icons.storefront,
+                                    color: Colors.blue),
+                              ),
+                              title: Text(r.name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${r.district}, ${r.city}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w500)),
+                                  if (r.openingHours?['general'] != null &&
+                                      r.openingHours!['general']
+                                          .toString()
+                                          .isNotEmpty)
+                                    Text(
+                                      '🕒 ${r.openingHours!["general"]}',
+                                      style: const TextStyle(
+                                          fontSize: 12, color: Colors.green),
+                                    ),
+                                  if (r.description != null &&
+                                      r.description!.isNotEmpty)
+                                    Text(
+                                      'ℹ️ ${r.description}',
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          fontStyle: FontStyle.italic,
+                                          color: Colors.indigo),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                              onTap: () => _selectRelay(r),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.map_outlined,
+                                    color: Colors.grey),
+                                onPressed: () {
+                                  if (r.lat != null &&
+                                      r.lng != null &&
+                                      _mapController != null) {
+                                    _mapController!.animateCamera(
+                                        CameraUpdate.newLatLngZoom(
+                                            LatLng(r.lat!, r.lng!), 15.0));
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
             ),
           ),
         ],
@@ -220,8 +263,34 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     );
   }
 
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.store_mall_directory_outlined,
+                size: 44, color: Colors.grey.shade500),
+            const SizedBox(height: 12),
+            const Text(
+              'Aucun relais ne correspond à votre recherche.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _fetchRelays,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMapInfo() {
-    final center = _currentPosition != null 
+    final center = _currentPosition != null
         ? LatLng(_currentPosition!.latitude, _currentPosition!.longitude)
         : _dakarCenter;
 
@@ -232,7 +301,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
       markers.add(
         Marker(
           markerId: const MarkerId('user_pos'),
-          position: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          position:
+              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         ),
       );
@@ -245,7 +315,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
           Marker(
             markerId: MarkerId(r.id),
             position: LatLng(r.lat!, r.lng!),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            icon:
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
             onTap: () => _selectRelay(r),
           ),
         );
@@ -262,7 +333,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         if (_currentPosition == null && _filteredRelays.isNotEmpty) {
           final first = _filteredRelays.first;
           if (first.lat != null && first.lng != null) {
-            controller.animateCamera(CameraUpdate.newLatLngZoom(LatLng(first.lat!, first.lng!), 13.0));
+            controller.animateCamera(CameraUpdate.newLatLngZoom(
+                LatLng(first.lat!, first.lng!), 13.0));
           }
         }
       },

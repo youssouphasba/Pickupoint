@@ -13,7 +13,22 @@ import 'app.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  if (message.data['event_type']?.toString() == 'mission_unavailable') {
+  final eventType = message.data['event_type']?.toString();
+  final endsParcelTracking = eventType == 'parcel_detail' &&
+      const {
+        'delivered',
+        'delivery_failed',
+        'cancelled',
+        'expired',
+        'returned',
+        'suspended',
+        'disputed',
+      }
+          .contains(message.data['parcel_status']);
+  if (eventType == 'mission_unavailable' ||
+      eventType == 'tracking_progress' ||
+      eventType == 'tracking_ended' ||
+      endsParcelTracking) {
     final notifications = FlutterLocalNotificationsPlugin();
     await notifications.initialize(
       const InitializationSettings(
@@ -22,7 +37,34 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         iOS: DarwinInitializationSettings(),
       ),
     );
-    await notifications.cancel(notificationPlatformId(message.data));
+    await notifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'denkma_tracking_progress_v1',
+            'Suivi en cours',
+            description: 'Progression des colis suivis et missions actives',
+            importance: Importance.low,
+            playSound: false,
+            enableVibration: false,
+            showBadge: false,
+          ),
+        );
+    if (eventType == 'tracking_progress') {
+      await showBackgroundClientTrackingNotification(
+        notifications,
+        message.data,
+      );
+    } else if (eventType == 'tracking_ended' || endsParcelTracking) {
+      final parcelId = message.data['ref_id']?.toString() ?? '';
+      if (parcelId.isNotEmpty) {
+        await notifications.cancel(trackingProgressNotificationId(parcelId));
+      }
+    } else {
+      await notifications.cancel(driverActiveMissionNotificationId);
+      await notifications.cancel(notificationPlatformId(message.data));
+    }
   }
   debugPrint('FCM background message: ${message.messageId}');
 }

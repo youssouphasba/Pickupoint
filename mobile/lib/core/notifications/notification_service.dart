@@ -30,7 +30,9 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialMessageHandled = false;
+  bool _localNotificationsInitialized = false;
   String? _appVersion;
+  String? _activeDriverMissionNotificationId;
 
   bool get _hasAuthenticatedSession {
     final authState = _ref.read(authProvider).valueOrNull;
@@ -106,6 +108,7 @@ class NotificationService {
   }
 
   Future<void> _initializeLocalNotifications() async {
+    if (_localNotificationsInitialized) return;
     const androidInit =
         AndroidInitializationSettings('@drawable/ic_notification_logo');
     const iosInit = DarwinInitializationSettings(
@@ -126,12 +129,24 @@ class NotificationService {
     if (Platform.isAndroid) {
       final androidPlugin = _localNotifs.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'denkma_tracking_progress_v1',
+          'Suivi en cours',
+          description: 'Progression des colis suivis et missions actives',
+          importance: Importance.low,
+          playSound: false,
+          enableVibration: false,
+          showBadge: false,
+        ),
+      );
       for (final profile in notificationAlertProfiles) {
         await androidPlugin?.createNotificationChannel(
           profile.toAndroidChannel(),
         );
       }
     }
+    _localNotificationsInitialized = true;
   }
 
   Future<void> _tryUploadCurrentToken() async {
@@ -184,6 +199,66 @@ class NotificationService {
     }
   }
 
+  Future<void> syncDriverMissionNotification({
+    required String? missionId,
+    required String? trackingCode,
+    required DateTime? assignedAt,
+  }) async {
+    if (!Platform.isAndroid) return;
+    await _initializeLocalNotifications();
+    final notificationId = driverActiveMissionNotificationId;
+    if (missionId == null || assignedAt == null) {
+      await _localNotifs.cancel(notificationId);
+      _activeDriverMissionNotificationId = null;
+      return;
+    }
+    if (_activeDriverMissionNotificationId == missionId) return;
+    final data = <String, dynamic>{
+      'event_type': 'mission_detail',
+      'ref_type': 'mission',
+      'ref_id': missionId,
+      'target_view': 'driver',
+    };
+    try {
+      await _localNotifs.show(
+        notificationId,
+        'Mission en cours${trackingCode == null ? '' : ' · $trackingCode'}',
+        'Temps écoulé depuis votre acceptation',
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'denkma_tracking_progress_v1',
+            'Suivi en cours',
+            channelDescription: 'Progression des colis suivis et missions actives',
+            importance: Importance.low,
+            priority: Priority.low,
+            category: AndroidNotificationCategory.service,
+            icon: 'ic_notification_logo',
+            ongoing: true,
+            autoCancel: false,
+            onlyAlertOnce: true,
+            playSound: false,
+            enableVibration: false,
+            showWhen: true,
+            when: assignedAt.millisecondsSinceEpoch,
+            usesChronometer: true,
+          ),
+        ),
+        payload: jsonEncode(data),
+      );
+      _activeDriverMissionNotificationId = missionId;
+    } catch (_) {
+      _activeDriverMissionNotificationId = null;
+    }
+  }
+
+  Future<void> showClientTrackingNotification(
+    Map<String, dynamic> data,
+  ) async {
+    if (Platform.isAndroid) {
+      await showBackgroundClientTrackingNotification(_localNotifs, data);
+    }
+  }
+
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     final eventType = message.data['event_type']?.toString();
     final refreshNotifier =
@@ -194,7 +269,35 @@ class NotificationService {
           _ref.read(foregroundMissionNotificationProvider.notifier);
       notifier.state = notifier.state + 1;
     }
+    if (eventType == 'tracking_progress') {
+      await showClientTrackingNotification(message.data);
+      return;
+    }
+    if (eventType == 'tracking_ended') {
+      final parcelId = message.data['ref_id']?.toString() ?? '';
+      if (parcelId.isNotEmpty) {
+        await _localNotifs.cancel(trackingProgressNotificationId(parcelId));
+      }
+      return;
+    }
+    if (eventType == 'parcel_detail' &&
+        const {
+          'delivered',
+          'delivery_failed',
+          'cancelled',
+          'expired',
+          'returned',
+          'suspended',
+          'disputed',
+        }
+            .contains(message.data['parcel_status'])) {
+      final parcelId = message.data['ref_id']?.toString() ?? '';
+      if (parcelId.isNotEmpty) {
+        await _localNotifs.cancel(trackingProgressNotificationId(parcelId));
+      }
+    }
     if (eventType == 'mission_unavailable') {
+      await _localNotifs.cancel(driverActiveMissionNotificationId);
       await _localNotifs.cancel(notificationPlatformId(message.data));
       return;
     }
@@ -237,6 +340,15 @@ class NotificationService {
 
   Future<void> _navigateFromData(Map<String, dynamic> data) async {
     final eventType = data['event_type']?.toString();
+    if (eventType == 'tracking_ended') {
+      final parcelId = data['ref_id']?.toString() ?? '';
+      if (parcelId.isNotEmpty) {
+        await _localNotifs.cancel(trackingProgressNotificationId(parcelId));
+      }
+    }
+    if (eventType == 'tracking_progress') {
+      await showClientTrackingNotification(data);
+    }
     if (eventType == 'mission_unavailable') {
       await _localNotifs.cancel(notificationPlatformId(data));
     }
@@ -306,4 +418,44 @@ class NotificationService {
     } catch (_) {}
     _ref.invalidate(notificationSettingsProvider);
   }
+}
+
+Future<void> showBackgroundClientTrackingNotification(
+  FlutterLocalNotificationsPlugin notifications,
+  Map<String, dynamic> data,
+) async {
+  final parcelId = data['ref_id']?.toString() ?? '';
+  if (parcelId.isEmpty) return;
+  final trackingCode = data['tracking_code']?.toString();
+  final phase = data['phase']?.toString() ?? 'Livraison en cours';
+  final remainingKm = data['remaining_km']?.toString();
+  final etaText = data['eta_text']?.toString();
+  final details = <String>[
+    if (remainingKm != null && remainingKm.isNotEmpty)
+      'Distance à vol d’oiseau : $remainingKm km',
+    if (etaText != null && etaText.isNotEmpty) 'Arrivée estimée : $etaText',
+  ];
+  await notifications.show(
+    trackingProgressNotificationId(parcelId),
+    'Suivi${trackingCode == null || trackingCode.isEmpty ? '' : ' · $trackingCode'}',
+    [phase, ...details].join(' · '),
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'denkma_tracking_progress_v1',
+        'Suivi en cours',
+        channelDescription: 'Progression des colis suivis et missions actives',
+        importance: Importance.low,
+        priority: Priority.low,
+        category: AndroidNotificationCategory.status,
+        icon: 'ic_notification_logo',
+        ongoing: true,
+        autoCancel: false,
+        onlyAlertOnce: true,
+        playSound: false,
+        enableVibration: false,
+        showWhen: false,
+      ),
+    ),
+    payload: jsonEncode(data),
+  );
 }

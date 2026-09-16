@@ -50,6 +50,7 @@ class DeliveryMission {
     this.senderPhone,
     this.failureReason,
     this.assignedAt,
+    this.startedAt,
     this.completedAt,
     this.pickupConfirmationTimeoutMinutes,
     this.pickupConfirmationDeadlineAt,
@@ -118,6 +119,7 @@ class DeliveryMission {
   final String? failureReason;
   final DateTime createdAt;
   final DateTime? assignedAt;
+  final DateTime? startedAt;
   final DateTime? completedAt;
   final int? pickupConfirmationTimeoutMinutes;
   final DateTime? pickupConfirmationDeadlineAt;
@@ -195,6 +197,9 @@ class DeliveryMission {
       createdAt: DateTime.parse(json['created_at'] as String),
       assignedAt: json['assigned_at'] != null
           ? DateTime.tryParse(json['assigned_at'] as String)
+          : null,
+      startedAt: json['started_at'] != null
+          ? DateTime.tryParse(json['started_at'] as String)
           : null,
       completedAt: json['completed_at'] != null
           ? DateTime.tryParse(json['completed_at'] as String)

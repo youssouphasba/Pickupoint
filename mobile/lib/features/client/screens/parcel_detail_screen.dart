@@ -254,6 +254,26 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                 _buildQrSection(context, parcel, isRecipient: isRecipient),
 
                 const SizedBox(height: 20),
+                if (parcel.deliveryMode.startsWith('home_to_') &&
+                    _hasGeopin(parcel.originLocation)) ...[
+                  _buildParcelLocationCard(
+                    title: 'Position de collecte',
+                    description: 'Position enregistrée pour récupérer le colis chez l’expéditeur.',
+                    location: parcel.originLocation!,
+                    markerTitle: 'Collecte chez l’expéditeur',
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (parcel.deliveryMode.endsWith('_to_home') &&
+                    _hasGeopin(parcel.deliveryLocation)) ...[
+                  _buildParcelLocationCard(
+                    title: 'Position de livraison',
+                    description: 'Position géocodée confirmée par le destinataire.',
+                    location: parcel.deliveryLocation!,
+                    markerTitle: 'Livraison chez le destinataire',
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 _buildEnhancedInfoSection(parcel, isRecipient: isRecipient),
                 const SizedBox(height: 28),
 
@@ -1583,6 +1603,183 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
           ),
         ],
       ],
+    );
+  }
+
+  bool _hasGeopin(Map<String, dynamic>? location) {
+    final geopin = location?['geopin'];
+    return geopin is Map &&
+        geopin['lat'] is num &&
+        geopin['lng'] is num;
+  }
+
+  Widget _buildParcelLocationCard({
+    required String title,
+    required String description,
+    required Map<String, dynamic> location,
+    required String markerTitle,
+  }) {
+    final geopin = Map<String, dynamic>.from(location['geopin'] as Map);
+    final lat = (geopin['lat'] as num).toDouble();
+    final lng = (geopin['lng'] as num).toDouble();
+    final addressParts = <String>[];
+    for (final candidate in [
+      location['formatted_address'],
+      location['label'],
+      location['district'],
+      location['city'],
+    ]) {
+      if (candidate is! String) continue;
+      final value = candidate.trim();
+      if (value.isNotEmpty && !addressParts.contains(value)) {
+        addressParts.add(value);
+      }
+    }
+    final address = addressParts.join(', ');
+    final accuracy = (geopin['accuracy'] as num?)?.toDouble();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blue.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.location_on, color: Colors.blue.shade700),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(description,
+              style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          const SizedBox(height: 10),
+          Text(
+            address.isEmpty ? 'Adresse géocodée indisponible' : address,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            'GPS : ${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+          if (accuracy != null) ...[
+            const SizedBox(height: 4),
+            Text('Précision estimée : ±${accuracy.round()} m',
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _showParcelLocationMap(
+                title: title,
+                markerTitle: markerTitle,
+                lat: lat,
+                lng: lng,
+                address: address,
+                accuracy: accuracy,
+              ),
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Voir sur la carte'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showParcelLocationMap({
+    required String title,
+    required String markerTitle,
+    required double lat,
+    required double lng,
+    required String address,
+    required double? accuracy,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.78,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(address, style: const TextStyle(color: Colors.black54)),
+              ],
+              if (accuracy != null) ...[
+                const SizedBox(height: 3),
+                Text('Précision estimée : ±${accuracy.round()} m',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              ],
+              const SizedBox(height: 12),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: LatLng(lat, lng),
+                      zoom: 16,
+                    ),
+                    markers: {
+                      Marker(
+                        markerId: MarkerId('parcel_location_$title'),
+                        position: LatLng(lat, lng),
+                        infoWindow: InfoWindow(title: markerTitle),
+                      ),
+                    },
+                    zoomControlsEnabled: true,
+                    myLocationButtonEnabled: false,
+                    mapToolbarEnabled: true,
+                    gestureRecognizers:
+                        <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(
+                        () => EagerGestureRecognizer(),
+                      ),
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => launchUrl(Uri.parse(
+                    'https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=18/$lat/$lng',
+                  )),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Ouvrir dans une application de carte'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
