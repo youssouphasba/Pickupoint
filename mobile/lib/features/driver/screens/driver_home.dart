@@ -448,9 +448,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final locationMessage = !_backgroundLocationAllowed &&
             !_locationAccessLoading &&
             !_gpsLoading
-        ? 'Dans les réglages, ouvrez Autorisations > Localisation, choisissez '
-            '« Toujours autoriser » pour recevoir des courses à proximité, '
-            'puis revenez dans Denkma.'
+        ? 'Position en arrière-plan requise pour recevoir des courses à proximité.'
         : _locationAccessLoading
             ? 'Autorisation de localisation requise'
             : _gpsLoading
@@ -637,6 +635,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                         isAvailable: true,
                         driverLoc: _driverLoc,
                         ensureGpsReady: _ensureGpsReady,
+                        backgroundLocationAllowed: _backgroundLocationAllowed,
+                        onEnableBackgroundLocation: () =>
+                            _prepareLocationAccess(userInitiated: true),
                       ),
                       _MissionsList(
                         asyncValue: myMissionsAsync,
@@ -667,11 +668,15 @@ class _MissionsList extends ConsumerWidget {
     required this.isAvailable,
     required this.driverLoc,
     required this.ensureGpsReady,
+    this.backgroundLocationAllowed = true,
+    this.onEnableBackgroundLocation,
   });
   final AsyncValue<List<DeliveryMission>> asyncValue;
   final bool isAvailable;
   final DriverLocation driverLoc;
   final Future<bool> Function() ensureGpsReady;
+  final bool backgroundLocationAllowed;
+  final VoidCallback? onEnableBackgroundLocation;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -752,6 +757,15 @@ class _MissionsList extends ConsumerWidget {
 
           // Pour "Disponibles" : comportement inchangé
           if (missions.isEmpty) {
+            if (!backgroundLocationAllowed) {
+              return _buildEmpty(
+                'Dans les réglages, ouvrez Autorisations > Localisation, '
+                'choisissez « Toujours autoriser » pour recevoir des courses '
+                'à proximité, puis revenez dans Denkma.',
+                actionLabel: 'Activer « Toujours autoriser »',
+                onAction: onEnableBackgroundLocation,
+              );
+            }
             return _buildEmpty(driverLoc.lat != null
                 ? 'Aucune course dans votre rayon'
                 : 'Activez la localisation pour voir les courses');
@@ -777,14 +791,31 @@ class _MissionsList extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmpty(String msg) => Center(
+  Widget _buildEmpty(
+    String msg, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) => Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Icon(Icons.local_shipping_outlined,
               size: 64, color: Colors.grey.shade300),
           const SizedBox(height: 16),
-          Text(msg,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Text(
+              msg,
               style: const TextStyle(fontSize: 15, color: Colors.grey),
-              textAlign: TextAlign.center),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onAction,
+              icon: const Icon(Icons.settings_outlined),
+              label: Text(actionLabel),
+            ),
+          ],
         ]),
       );
 
