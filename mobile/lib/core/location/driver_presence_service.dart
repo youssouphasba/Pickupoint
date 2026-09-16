@@ -88,8 +88,12 @@ class DriverPresenceService {
       if (!serviceEnabled) return;
 
       final permission = await Geolocator.checkPermission();
-      if (permission != LocationPermission.whileInUse &&
-          permission != LocationPermission.always) {
+      final hasRequiredPermission =
+          defaultTargetPlatform == TargetPlatform.android
+              ? permission == LocationPermission.always
+              : permission == LocationPermission.whileInUse ||
+                  permission == LocationPermission.always;
+      if (!hasRequiredPermission) {
         return;
       }
 
@@ -104,7 +108,7 @@ class DriverPresenceService {
             notificationText:
                 'Votre zone est actualisée pour recevoir les courses proches.',
             notificationIcon: AndroidResource(
-              name: 'ic_notification_logo',
+              name: 'ic_notification',
               defType: 'drawable',
             ),
             enableWakeLock: true,

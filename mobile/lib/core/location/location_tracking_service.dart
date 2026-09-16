@@ -51,7 +51,7 @@ class LocationTrackingService {
           notificationTitle: 'Livraison en cours',
           notificationText: 'Votre position est partagée avec le client.',
           notificationIcon: AndroidResource(
-            name: 'ic_notification_logo',
+              name: 'ic_notification',
             defType: 'drawable',
           ),
           enableWakeLock: true,
