@@ -23,8 +23,11 @@ class DriverLocationConsent {
   }
 
   static const disclosureText =
-      'Denkma collecte votre position pour vous proposer les courses proches '
-      'et actualiser la flotte, même lorsque l’application est fermée ou non utilisée.';
+      'Denkma collecte et transmet votre position à ses serveurs pour vous '
+      'proposer les courses proches et permettre le suivi de vos livraisons '
+      'par l’expéditeur, le destinataire et l’équipe Denkma, même lorsque '
+      'l’application est fermée ou non utilisée. Cette autorisation est '
+      'nécessaire pour recevoir des courses et actualiser votre position.';
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -132,7 +135,7 @@ class DriverLocationConsent {
             context: context,
             barrierDismissible: false,
             builder: (dialogContext) => AlertDialog(
-              title: const Text('Position du livreur'),
+              title: const Text('Autorisation de localisation du livreur'),
               content: const Text(disclosureText),
               actions: [
                 TextButton(
@@ -188,9 +191,8 @@ class DriverLocationConsent {
 
     final isAndroid =
         context.mounted && Theme.of(context).platform == TargetPlatform.android;
-    final backgroundPromptShown = isAndroid
-        ? await _read(_backgroundPromptKey) != null
-        : true;
+    final backgroundPromptShown =
+        isAndroid ? await _read(_backgroundPromptKey) != null : true;
     if (permission == LocationPermission.whileInUse &&
         context.mounted &&
         isAndroid &&
@@ -206,6 +208,7 @@ class DriverLocationConsent {
       await _storage.write(key: _backgroundPromptKey, value: 'shown');
     }
 
+    if (isAndroid) return permission == LocationPermission.always;
     return permission == LocationPermission.whileInUse ||
         permission == LocationPermission.always;
   }

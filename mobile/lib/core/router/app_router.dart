@@ -424,9 +424,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       // ── Public / Communs ────────────────────────────────────────
       GoRoute(
-        path: '/legal/:docType',
+          path: '/legal/:docType',
           builder: (_, s) =>
-            LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+              LegalDocumentScreen(docType: s.pathParameters['docType']!)),
       GoRoute(
         path: '/confirm/:token',
         builder: (_, s) => ConfirmLocationScreen(
@@ -843,8 +843,12 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
     if (!await DriverLocationConsent.hasAccepted()) return;
     final permission = await Geolocator.checkPermission();
-    if (permission != LocationPermission.whileInUse &&
-        permission != LocationPermission.always) {
+    final hasRequiredPermission =
+        defaultTargetPlatform == TargetPlatform.android
+            ? permission == LocationPermission.always
+            : permission == LocationPermission.whileInUse ||
+                permission == LocationPermission.always;
+    if (!hasRequiredPermission) {
       return;
     }
     _trackingMissionId = missionId;
