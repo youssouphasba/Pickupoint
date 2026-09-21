@@ -4,6 +4,15 @@ import Flutter
 enum DriverMissionActivityBridge {
   private static let channelName = "com.denkma.app/driver_mission_activity"
 
+  @available(iOS 16.1, *)
+  private static func end(_ activity: Activity<DenkmaMissionAttributes>) async {
+    if #available(iOS 16.2, *) {
+      await activity.end(nil, dismissalPolicy: .immediate)
+    } else {
+      await activity.end(using: nil)
+    }
+  }
+
   static func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
@@ -34,7 +43,7 @@ enum DriverMissionActivityBridge {
               return
             }
             for activity in Activity<DenkmaMissionAttributes>.activities {
-              await activity.end(nil, dismissalPolicy: .immediate)
+              await end(activity)
             }
             let state = DenkmaMissionAttributes.ContentState(deadline: deadline)
             _ = try Activity.request(attributes: attributes, contentState: state, pushType: nil)
@@ -46,7 +55,7 @@ enum DriverMissionActivityBridge {
       case "end":
         Task {
           for activity in Activity<DenkmaMissionAttributes>.activities {
-            await activity.end(nil, dismissalPolicy: .immediate)
+            await end(activity)
           }
           result(nil)
         }
