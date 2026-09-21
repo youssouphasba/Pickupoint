@@ -62,6 +62,8 @@ class LocationTrackingService {
         accuracy: LocationAccuracy.high,
         distanceFilter: 10,
         pauseLocationUpdatesAutomatically: true,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
       );
     }
 

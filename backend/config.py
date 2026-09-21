@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     APP_DOWNLOAD_URL: Optional[str] = None
     ANDROID_STORE_URL: Optional[str] = None
     IOS_STORE_URL: Optional[str] = None
+    IOS_TEAM_ID: Optional[str] = None
     GOOGLE_DIRECTIONS_API_KEY: Optional[str] = None
     MOBILE_ADMIN_PHONE_NUMBERS: str = ""
     MOBILE_ADMIN_ROLE: str = "superadmin"

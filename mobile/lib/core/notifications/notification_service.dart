@@ -6,20 +6,24 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../features/driver/providers/driver_provider.dart';
 import '../router/app_router.dart';
 import 'notification_alert_profile.dart';
 import 'notification_navigation.dart';
 
 final notificationServiceProvider = Provider((ref) => NotificationService(ref));
-final foregroundMissionNotificationProvider = StateProvider<int>((ref) => 0);
 final foregroundNotificationRefreshProvider = StateProvider<int>((ref) => 0);
 
 final notificationSettingsProvider =
     FutureProvider<NotificationSettings>((ref) async {
   return FirebaseMessaging.instance.getNotificationSettings();
 });
+
+const _driverMissionActivityChannel =
+    MethodChannel('com.denkma.app/driver_mission_activity');
 
 class NotificationService {
   NotificationService(this._ref);
@@ -33,6 +37,7 @@ class NotificationService {
   bool _localNotificationsInitialized = false;
   String? _appVersion;
   String? _activeDriverMissionNotificationId;
+  DateTime? _activeDriverMissionDeadline;
 
   bool get _hasAuthenticatedSession {
     final authState = _ref.read(authProvider).valueOrNull;
@@ -203,16 +208,38 @@ class NotificationService {
     required String? missionId,
     required String? trackingCode,
     required DateTime? assignedAt,
+    required DateTime? pickupConfirmationDeadline,
   }) async {
+    if (Platform.isIOS) {
+      try {
+        if (missionId == null || pickupConfirmationDeadline == null) {
+          await _driverMissionActivityChannel.invokeMethod<void>('end');
+        } else {
+          await _driverMissionActivityChannel.invokeMethod<void>('start', {
+            'missionId': missionId,
+            'trackingCode': trackingCode ?? '',
+            'deadline': pickupConfirmationDeadline.toUtc().toIso8601String(),
+          });
+        }
+      } catch (_) {}
+      return;
+    }
     if (!Platform.isAndroid) return;
     await _initializeLocalNotifications();
     final notificationId = driverActiveMissionNotificationId;
     if (missionId == null || assignedAt == null) {
       await _localNotifs.cancel(notificationId);
       _activeDriverMissionNotificationId = null;
+      _activeDriverMissionDeadline = null;
       return;
     }
-    if (_activeDriverMissionNotificationId == missionId) return;
+    if (_activeDriverMissionNotificationId == missionId &&
+        _activeDriverMissionDeadline == pickupConfirmationDeadline) {
+      return;
+    }
+    final isPickupCountdown = pickupConfirmationDeadline != null;
+    final referenceTime =
+        (pickupConfirmationDeadline ?? assignedAt).millisecondsSinceEpoch;
     final data = <String, dynamic>{
       'event_type': 'mission_detail',
       'ref_type': 'mission',
@@ -222,13 +249,18 @@ class NotificationService {
     try {
       await _localNotifs.show(
         notificationId,
-        'Mission en cours${trackingCode == null ? '' : ' · $trackingCode'}',
-        'Temps écoulé depuis votre acceptation',
+        isPickupCountdown
+            ? 'Temps pour récupérer le colis'
+            : 'Mission en cours${trackingCode == null ? '' : ' · $trackingCode'}',
+        isPickupCountdown
+            ? 'Confirmez la récupération avant la fin du délai.'
+            : 'Temps écoulé depuis votre acceptation',
         NotificationDetails(
           android: AndroidNotificationDetails(
             'denkma_tracking_progress_v1',
             'Suivi en cours',
-            channelDescription: 'Progression des colis suivis et missions actives',
+            channelDescription:
+                'Progression des colis suivis et missions actives',
             importance: Importance.low,
             priority: Priority.low,
             category: AndroidNotificationCategory.service,
@@ -239,15 +271,18 @@ class NotificationService {
             playSound: false,
             enableVibration: false,
             showWhen: true,
-            when: assignedAt.millisecondsSinceEpoch,
+            when: referenceTime,
             usesChronometer: true,
+            chronometerCountDown: isPickupCountdown,
           ),
         ),
         payload: jsonEncode(data),
       );
       _activeDriverMissionNotificationId = missionId;
+      _activeDriverMissionDeadline = pickupConfirmationDeadline;
     } catch (_) {
       _activeDriverMissionNotificationId = null;
+      _activeDriverMissionDeadline = null;
     }
   }
 
@@ -289,8 +324,7 @@ class NotificationService {
           'returned',
           'suspended',
           'disputed',
-        }
-            .contains(message.data['parcel_status'])) {
+        }.contains(message.data['parcel_status'])) {
       final parcelId = message.data['ref_id']?.toString() ?? '';
       if (parcelId.isNotEmpty) {
         await _localNotifs.cancel(trackingProgressNotificationId(parcelId));

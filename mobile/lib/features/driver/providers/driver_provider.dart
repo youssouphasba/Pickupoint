@@ -7,6 +7,8 @@ import '../../../core/models/wallet.dart';
 /// Utiliser `(lat: null, lng: null)` si GPS indisponible (fallback = toutes les missions).
 typedef DriverLocation = ({double? lat, double? lng});
 
+final foregroundMissionNotificationProvider = StateProvider<int>((ref) => 0);
+
 const activeDriverMissionStatuses = {
   'assigned',
   'in_progress',

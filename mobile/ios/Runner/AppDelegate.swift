@@ -16,6 +16,9 @@ import UIKit
     }
 
     GeneratedPluginRegistrant.register(with: self)
+    if let controller = window?.rootViewController as? FlutterViewController {
+      DriverMissionActivityBridge.register(with: controller.binaryMessenger)
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

@@ -312,41 +312,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   }
 
   Future<bool> _ensureGpsReady() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Activez le GPS pour accepter une course et rester traçable.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      await Geolocator.openLocationSettings();
-      return false;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Autorisez la localisation pour accepter une course.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return false;
-    }
-    return true;
+    return DriverLocationConsent.ensure(context, userInitiated: true);
   }
 
   DriverLocation get _driverLoc => (lat: _driverLat, lng: _driverLng);
@@ -414,7 +380,6 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   Widget build(BuildContext context) {
     ref.listen<int>(foregroundMissionNotificationProvider, (_, __) {
       ref.invalidate(availableMissionsProvider);
-      ref.invalidate(myMissionsProvider);
     });
     final isAvailable =
         ref.watch(authProvider).value?.user?.isAvailable ?? false;
@@ -435,12 +400,15 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(ref.read(notificationServiceProvider).syncDriverMissionNotification(
-              missionId: activeMission?.id,
-              trackingCode: activeMission?.trackingCode,
-              assignedAt: activeMission?.assignedAt ??
-                  (activeMission == null ? null : activeMission.createdAt),
-            ));
+        unawaited(
+            ref.read(notificationServiceProvider).syncDriverMissionNotification(
+                  missionId: activeMission?.id,
+                  trackingCode: activeMission?.trackingCode,
+                  assignedAt: activeMission?.assignedAt ??
+                      activeMission?.createdAt,
+                  pickupConfirmationDeadline:
+                      activeMission?.pickupConfirmationDeadlineAt,
+                ));
       });
     }
     _handleNotificationAction(availableAsync);
@@ -795,7 +763,8 @@ class _MissionsList extends ConsumerWidget {
     String msg, {
     String? actionLabel,
     VoidCallback? onAction,
-  }) => Center(
+  }) =>
+      Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Icon(Icons.local_shipping_outlined,
               size: 64, color: Colors.grey.shade300),

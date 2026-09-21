@@ -21,6 +21,7 @@ import 'dart:convert';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
+import '../../../core/location/driver_location_consent.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -152,39 +153,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     String disabledMessage =
         'Activez le GPS pour poursuivre cette livraison et rester suivi.',
   }) async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(disabledMessage),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      await Geolocator.openLocationSettings();
-      return false;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission != LocationPermission.whileInUse &&
-        permission != LocationPermission.always) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Autorisez la localisation pour continuer cette mission.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return false;
-    }
-    return true;
+    return DriverLocationConsent.ensure(context, userInitiated: true);
   }
 
   // ── Scan QR ou saisie manuelle → retourne le code saisi ──────────────────
@@ -508,15 +477,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       );
       if (!gpsReady) {
         return;
-      }
-      // Capturer la position GPS du driver
-      LocationPermission perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied ||
-          perm == LocationPermission.deniedForever) {
-        throw 'Permission GPS requise pour confirmer l\'arrivée';
       }
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -1201,201 +1161,199 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       body: missionAsync.when(
         data: (mission) {
           _revealRequestedMessage();
-          final pickupCountdown = _pickupConfirmationRemaining(mission);
           return Column(
             children: [
-              if (pickupCountdown != null &&
-                  mission.pickupConfirmationTimeoutMinutes != null)
-                _buildPickupConfirmationCountdownCard(mission),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
                   child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_whatsappCallStatus != null) ...[
-                  _buildWhatsappCallBanner(),
-                  const SizedBox(height: 12),
-                ],
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildAmountSummary(
-                              label: 'PRIX DE LA COURSE',
-                              amount: mission.coursePrice,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            height: 48,
-                            color: Colors.blue.shade100,
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: _buildAmountSummary(
-                              label: 'VOTRE GAIN',
-                              amount: mission.earnAmount,
-                              color: Colors.blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (mission.driverBonusXof > 0) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.green,
-                          ),
-                        ),
-                      ],
-                      if (mission.etaText != null) ...[
+                      if (_whatsappCallStatus != null) ...[
+                        _buildWhatsappCallBanner(),
                         const SizedBox(height: 12),
-                        Divider(color: Colors.blue.shade100, height: 1),
-                        const SizedBox(height: 10),
-                        Row(
+                      ],
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(
-                              Icons.route,
-                              size: 18,
-                              color: Colors.green,
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildAmountSummary(
+                                    label: 'PRIX DE LA COURSE',
+                                    amount: mission.coursePrice,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 48,
+                                  color: Colors.blue.shade100,
+                                ),
+                                const SizedBox(width: 20),
+                                Expanded(
+                                  child: _buildAmountSummary(
+                                    label: 'VOTRE GAIN',
+                                    amount: mission.earnAmount,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                [
-                                  mission.etaText,
-                                  mission.distanceText,
-                                ].whereType<String>().join(' · '),
+                            if (mission.driverBonusXof > 0) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
                                 style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.blueGrey,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                  color: Colors.green,
                                 ),
                               ),
-                            ),
+                            ],
+                            if (mission.etaText != null) ...[
+                              const SizedBox(height: 12),
+                              Divider(color: Colors.blue.shade100, height: 1),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.route,
+                                    size: 18,
+                                    color: Colors.green,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      [
+                                        mission.etaText,
+                                        mission.distanceText,
+                                      ].whereType<String>().join(' · '),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.blueGrey,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // ── Carte itinéraire ───────────────────────────────────────
+                      _buildRouteMap(mission),
+                      const SizedBox(height: 20),
+
+                      // ── Statut du paiement ─────────────────────────────────────
+                      _buildPaymentStatus(mission),
+                      const SizedBox(height: 20),
+                      if ((mission.senderName?.isNotEmpty ?? false) ||
+                          (mission.recipientName?.isNotEmpty ?? false)) ...[
+                        const Text(
+                          'Personnes du colis',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        if (mission.senderName?.isNotEmpty ?? false) ...[
+                          _buildContactCard(
+                            title: 'Expéditeur',
+                            name: mission.senderName!,
+                            photo: mission.senderPhotoUrl,
+                            phone: mission.senderPhone,
+                            onPhoneTap: mission.senderPhone == null
+                                ? null
+                                : () => launchUrl(
+                                    Uri.parse('tel:${mission.senderPhone}')),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (mission.recipientName?.isNotEmpty ?? false) ...[
+                          _buildContactCard(
+                            title: 'Destinataire',
+                            name: mission.recipientName!,
+                            photo: mission.recipientPhotoUrl,
+                            phone: mission.recipientPhone,
+                            onPhoneTap: mission.recipientPhone == null
+                                ? null
+                                : () => launchUrl(
+                                    Uri.parse('tel:${mission.recipientPhone}')),
+                            showCall: true,
+                            onCall: _activeWhatsappCallId != null
+                                ? _hangUpWhatsappCall
+                                : () => _callRecipientViaDenkma(mission.id),
+                            callLabel: _activeWhatsappCallId != null
+                                ? 'Raccrocher'
+                                : 'Appeler via Denkma',
+                          ),
+                          const SizedBox(height: 20),
+                        ],
                       ],
+                      if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
+                          (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
+                        _buildInstructionCards(mission),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // ── Points de passage ───────────────────────
+                      const Text(
+                        'Points de passage',
+                        style: TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+
+                      _buildContactCard(
+                        title: 'Collecte',
+                        name: _pickupAreaLabel(mission),
+                        photo: mission.senderPhotoUrl,
+                        phone: null,
+                        showCall: false,
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      _buildContactCard(
+                        title: 'Livraison',
+                        name: _deliveryAreaLabel(mission),
+                        photo: mission.recipientPhotoUrl,
+                        phone: null,
+                        showCall: false,
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // ── Code de suivi (visible livreur pour montrer au relais) ─
+                      if (mission.trackingCode != null) ...[
+                        _buildTrackingCodeCard(mission),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // ── Messagerie colis ──────────────────────────────────────
+                      if (mission.status == 'assigned' ||
+                          mission.status == 'in_progress') ...[
+                        ParcelChatWidget(
+                          key: _chatKey,
+                          parcelId: mission.parcelId,
+                          initialMessageId: widget.initialMessageId,
+                          isClosed: false,
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+
+                      // ── Boutons action selon statut ───────────────────────────
+                      _buildActionButtons(mission),
+                      const SizedBox(height: 40),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // ── Carte itinéraire ───────────────────────────────────────
-                _buildRouteMap(mission),
-                const SizedBox(height: 20),
-
-                // ── Statut du paiement ─────────────────────────────────────
-                _buildPaymentStatus(mission),
-                const SizedBox(height: 20),
-                if ((mission.senderName?.isNotEmpty ?? false) ||
-                    (mission.recipientName?.isNotEmpty ?? false)) ...[
-                  const Text(
-                    'Personnes du colis',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  if (mission.senderName?.isNotEmpty ?? false) ...[
-                    _buildContactCard(
-                      title: 'Expéditeur',
-                      name: mission.senderName!,
-                      photo: mission.senderPhotoUrl,
-                      phone: mission.senderPhone,
-                      onPhoneTap: mission.senderPhone == null
-                          ? null
-                          : () => launchUrl(
-                              Uri.parse('tel:${mission.senderPhone}')),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (mission.recipientName?.isNotEmpty ?? false) ...[
-                    _buildContactCard(
-                      title: 'Destinataire',
-                      name: mission.recipientName!,
-                      photo: mission.recipientPhotoUrl,
-                      phone: mission.recipientPhone,
-                      onPhoneTap: mission.recipientPhone == null
-                          ? null
-                          : () => launchUrl(
-                              Uri.parse('tel:${mission.recipientPhone}')),
-                      showCall: true,
-                      onCall: _activeWhatsappCallId != null
-                          ? _hangUpWhatsappCall
-                          : () => _callRecipientViaDenkma(mission.id),
-                      callLabel: _activeWhatsappCallId != null
-                          ? 'Raccrocher'
-                          : 'Appeler via Denkma',
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                ],
-                if ((mission.pickupVoiceNote?.isNotEmpty ?? false) ||
-                    (mission.deliveryVoiceNote?.isNotEmpty ?? false)) ...[
-                  _buildInstructionCards(mission),
-                  const SizedBox(height: 20),
-                ],
-
-                // ── Points de passage ───────────────────────
-                const Text(
-                  'Points de passage',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-
-                _buildContactCard(
-                  title: 'Collecte',
-                  name: _pickupAreaLabel(mission),
-                  photo: mission.senderPhotoUrl,
-                  phone: null,
-                  showCall: false,
-                ),
-
-                const SizedBox(height: 12),
-
-                _buildContactCard(
-                  title: 'Livraison',
-                  name: _deliveryAreaLabel(mission),
-                  photo: mission.recipientPhotoUrl,
-                  phone: null,
-                  showCall: false,
-                ),
-
-                const SizedBox(height: 20),
-
-                // ── Code de suivi (visible livreur pour montrer au relais) ─
-                if (mission.trackingCode != null) ...[
-                  _buildTrackingCodeCard(mission),
-                  const SizedBox(height: 20),
-                ],
-
-                // ── Messagerie colis ──────────────────────────────────────
-                if (mission.status == 'assigned' ||
-                    mission.status == 'in_progress') ...[
-                  ParcelChatWidget(
-                    key: _chatKey,
-                    parcelId: mission.parcelId,
-                    initialMessageId: widget.initialMessageId,
-                    isClosed: false,
-                  ),
-                  const SizedBox(height: 20),
-                ],
-
-                // ── Boutons action selon statut ───────────────────────────
-                _buildActionButtons(mission),
-                const SizedBox(height: 40),
-              ],
                   ),
                 ),
               ),
@@ -1792,16 +1750,23 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
           ),
           const SizedBox(height: 12),
           _buildDistanceCard(
-            title: isHeadingToPickup ? 'Vers le point de retrait' : 'Vers le destinataire',
+            title: isHeadingToPickup
+                ? 'Vers le point de retrait'
+                : 'Vers le destinataire',
             value: mission.distanceText?.isNotEmpty == true
                 ? mission.distanceText!
                 : 'Itinéraire en cours de calcul',
             subtitle: [
-              isHeadingToPickup ? _pickupAreaLabel(mission) : _deliveryAreaLabel(mission),
-              if (mission.etaText?.isNotEmpty == true) 'Temps estimé : ${mission.etaText}',
+              isHeadingToPickup
+                  ? _pickupAreaLabel(mission)
+                  : _deliveryAreaLabel(mission),
+              if (mission.etaText?.isNotEmpty == true)
+                'Temps estimé : ${mission.etaText}',
             ].join(' · '),
             color: isHeadingToPickup ? Colors.orange : Colors.red,
-            icon: isHeadingToPickup ? Icons.storefront_rounded : Icons.location_on_rounded,
+            icon: isHeadingToPickup
+                ? Icons.storefront_rounded
+                : Icons.location_on_rounded,
           ),
           const SizedBox(height: 14),
           Container(
@@ -2058,97 +2023,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Duration? _pickupConfirmationRemaining(DeliveryMission mission) {
-    final deadline = mission.pickupConfirmationDeadlineAt;
-    if (!mission.isAssigned || deadline == null) {
-      return null;
-    }
-    final remaining = deadline.toLocal().difference(DateTime.now());
-    if (remaining.isNegative) {
-      return Duration.zero;
-    }
-    return remaining;
-  }
-
-  String _formatRemainingDuration(Duration remaining) {
-    final totalSeconds = remaining.inSeconds;
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  Widget _buildPickupConfirmationCountdownCard(DeliveryMission mission) {
-    final remaining = _pickupConfirmationRemaining(mission);
-    final timeoutMinutes = mission.pickupConfirmationTimeoutMinutes;
-    if (remaining == null || timeoutMinutes == null) {
-      return const SizedBox.shrink();
-    }
-
-    final remainingMinutes = remaining.inMinutes;
-    final isExpired = remaining == Duration.zero;
-    final isCritical = remainingMinutes < 5;
-    final isWarning = remainingMinutes < 10;
-    final color = isExpired
-        ? Colors.red
-        : isCritical
-            ? Colors.red
-            : isWarning
-                ? Colors.orange
-                : Colors.green;
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
-      ),
-      child: Row(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.timer_outlined, color: color, size: 18),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Temps pour récupérer le colis',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                      fontSize: 12,
-                    ),
-                  ),
-                  Text(
-                    isExpired
-                        ? 'La mission peut être réattribuée.'
-                        : 'Délai : $timeoutMinutes min',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: color.shade700,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            _formatRemainingDuration(remaining),
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
         ],
       ),
     );

@@ -597,6 +597,27 @@ async def android_assetlinks():
     return JSONResponse(content=ASSETLINKS_PAYLOAD)
 
 
+@app.get("/.well-known/apple-app-site-association", include_in_schema=False)
+async def apple_app_site_association():
+    team_id = (settings.IOS_TEAM_ID or "").strip()
+    details = []
+    if team_id:
+        details.append({
+            "appID": f"{team_id}.com.denkma.app",
+            "paths": [
+                "/app/*",
+                "/confirm/*",
+                "/api/users/referral/*",
+                "/parcel*",
+                "/create-parcel*",
+            ],
+        })
+    return JSONResponse(
+        content={"applinks": {"apps": [], "details": details}},
+        media_type="application/json",
+    )
+
+
 @app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok", "app": "denkma", "version": "1.0.0"}

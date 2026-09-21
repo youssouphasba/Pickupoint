@@ -36,6 +36,7 @@ import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
 import '../../features/driver/providers/driver_provider.dart';
+import '../../features/driver/widgets/pickup_confirmation_countdown_badge.dart';
 import '../location/driver_location_consent.dart';
 import '../location/driver_presence_service.dart';
 import '../../features/admin/screens/admin_dashboard.dart';
@@ -846,8 +847,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     final hasRequiredPermission =
         defaultTargetPlatform == TargetPlatform.android
             ? permission == LocationPermission.always
-            : permission == LocationPermission.whileInUse ||
-                permission == LocationPermission.always;
+            : permission == LocationPermission.always;
     if (!hasRequiredPermission) {
       return;
     }
@@ -874,6 +874,7 @@ class _DriverShellState extends ConsumerState<DriverShell> {
         activityType: ActivityType.automotiveNavigation,
         pauseLocationUpdatesAutomatically: false,
         showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
       );
     } else {
       locationSettings = const LocationSettings(
@@ -916,8 +917,14 @@ class _DriverShellState extends ConsumerState<DriverShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(foregroundMissionNotificationProvider, (_, __) {
+      ref.invalidate(myMissionsProvider);
+    });
     final location = GoRouterState.of(context).matchedLocation;
     final myMissions = ref.watch(myMissionsProvider).valueOrNull ?? const [];
+    final assignedMissions = myMissions.where((mission) => mission.isAssigned);
+    final pickupCountdownMission =
+        assignedMissions.isEmpty ? null : assignedMissions.first;
     final hasTrackableMission = myMissions.any(
       (mission) =>
           mission.status == 'assigned' ||
@@ -958,7 +965,25 @@ class _DriverShellState extends ConsumerState<DriverShell> {
       currentIndex: idx,
       tabs: DriverShell._tabs,
       currentLocation: location,
-      body: widget.child,
+      body: SafeArea(
+        top: true,
+        bottom: false,
+        child: Column(
+          children: [
+            if (pickupCountdownMission?.pickupConfirmationDeadlineAt != null &&
+                pickupCountdownMission?.pickupConfirmationTimeoutMinutes !=
+                    null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: PickupConfirmationCountdownBadge(
+                  deadline:
+                      pickupCountdownMission!.pickupConfirmationDeadlineAt!,
+                ),
+              ),
+            Expanded(child: widget.child),
+          ],
+        ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
           currentIndex: idx,
           type: BottomNavigationBarType.fixed,
