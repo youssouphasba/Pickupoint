@@ -26,8 +26,8 @@ class DriverLocationConsent {
       'Denkma collecte et transmet votre position à ses serveurs pour vous '
       'proposer les courses proches et permettre le suivi de vos livraisons '
       'par l’expéditeur, le destinataire et l’équipe Denkma, même lorsque '
-      'l’application est fermée ou non utilisée. Cette autorisation est '
-      'nécessaire pour recevoir des courses et actualiser votre position.';
+      'l’application est fermée ou non utilisée. Appuyez sur « Continuer » '
+      'pour donner votre accord avant la demande d’autorisation Android.';
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -124,12 +124,18 @@ class DriverLocationConsent {
     BuildContext context, {
     required bool userInitiated,
   }) async {
+    final isAndroid =
+        context.mounted && Theme.of(context).platform == TargetPlatform.android;
     final savedChoice = await _read(_storageKey);
     if (savedChoice == _declined && !userInitiated) {
       return false;
     }
 
-    if (savedChoice != _accepted) {
+    final currentPermission = await Geolocator.checkPermission();
+    final disclosureRequired = currentPermission == LocationPermission.denied ||
+        currentPermission == LocationPermission.deniedForever ||
+        (isAndroid && currentPermission != LocationPermission.always);
+    if (disclosureRequired || savedChoice != _accepted) {
       if (!context.mounted) return false;
       final accepted = await showDialog<bool>(
             context: context,
@@ -171,7 +177,7 @@ class DriverLocationConsent {
       }
     }
 
-    var permission = await Geolocator.checkPermission();
+    var permission = currentPermission;
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -189,8 +195,6 @@ class DriverLocationConsent {
       permission = await Geolocator.checkPermission();
     }
 
-    final isAndroid =
-        context.mounted && Theme.of(context).platform == TargetPlatform.android;
     final backgroundPromptShown =
         isAndroid ? await _read(_backgroundPromptKey) != null : true;
     if (permission == LocationPermission.whileInUse &&
