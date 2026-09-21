@@ -228,7 +228,7 @@ workflows:
         BUNDLE_ID: com.denkma.app
         LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
         IOS_BUILD_NAME: "1.0.26"
-        IOS_BUILD_NUMBER: "45"
+        IOS_BUILD_NUMBER: "46"
     cache:
       cache_paths:
         - $HOME/.pub-cache
