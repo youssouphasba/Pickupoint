@@ -23,7 +23,6 @@ import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/location_tracking_service.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../shared/feedback/action_feedback.dart';
-import '../widgets/mission_elapsed_badge.dart';
 
 class _MissionPreview {
   const _MissionPreview({
@@ -912,13 +911,6 @@ class _MissionCard extends ConsumerWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (!isAvailable &&
-              activeDriverMissionStatuses.contains(mission.status)) ...[
-            MissionElapsedBadge(
-              startedAt: mission.assignedAt ?? mission.createdAt,
-            ),
-            const SizedBox(height: 10),
-          ],
           // En-tête : tracking code + distance + gain
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(

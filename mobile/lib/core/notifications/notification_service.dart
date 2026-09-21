@@ -136,13 +136,13 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.createNotificationChannel(
         const AndroidNotificationChannel(
-          'denkma_tracking_progress_v1',
-          'Suivi en cours',
-          description: 'Progression des colis suivis et missions actives',
-          importance: Importance.low,
+          'denkma_driver_mission_v2',
+          'Mission livreur',
+          description: 'Compte à rebours et état de la mission active',
+          importance: Importance.defaultImportance,
           playSound: false,
           enableVibration: false,
-          showBadge: false,
+          showBadge: true,
         ),
       );
       for (final profile in notificationAlertProfiles) {
@@ -257,12 +257,11 @@ class NotificationService {
             : 'Temps écoulé depuis votre acceptation',
         NotificationDetails(
           android: AndroidNotificationDetails(
-            'denkma_tracking_progress_v1',
-            'Suivi en cours',
-            channelDescription:
-                'Progression des colis suivis et missions actives',
-            importance: Importance.low,
-            priority: Priority.low,
+            'denkma_driver_mission_v2',
+            'Mission livreur',
+            channelDescription: 'Compte à rebours et état de la mission active',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
             category: AndroidNotificationCategory.service,
             icon: 'ic_notification_logo',
             ongoing: true,
@@ -274,6 +273,20 @@ class NotificationService {
             when: referenceTime,
             usesChronometer: true,
             chronometerCountDown: isPickupCountdown,
+            subText:
+                isPickupCountdown ? 'Délai de 30 minutes' : 'Mission active',
+            ticker: isPickupCountdown
+                ? 'Compte à rebours de récupération actif'
+                : 'Mission livreur active',
+            styleInformation: BigTextStyleInformation(
+              isPickupCountdown
+                  ? 'Le compte à rebours reste visible pendant la navigation. Confirmez la récupération avant son expiration.'
+                  : 'Le chronomètre suit le temps depuis l’acceptation de la mission.',
+              contentTitle: isPickupCountdown
+                  ? 'Récupération à confirmer'
+                  : 'Mission livreur en cours',
+              summaryText: 'Denkma',
+            ),
           ),
         ),
         payload: jsonEncode(data),
