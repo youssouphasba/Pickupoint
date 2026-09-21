@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -20,30 +22,41 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
   String _filter = 'all';
   GoogleMapController? _mapController;
   String? _lastMapSignature;
+  int _page = 1;
+  Timer? _searchTimer;
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchTimer?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final relaysAsync = ref.watch(adminRelaysProvider);
+    final relaysAsync = ref.watch(adminRelaysPageProvider(
+      AdminRelaysPageQuery(page: _page, search: _searchCtrl.text),
+    ));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Points relais'),
         actions: [
           IconButton(
+            tooltip: 'Géocoder les relais incomplets',
+            icon: const Icon(Icons.location_searching),
+            onPressed: () => _geocodeMissingRelays(context, ref),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(adminRelaysProvider),
+            onPressed: () => ref.invalidate(adminRelaysPageProvider),
           ),
         ],
       ),
       body: relaysAsync.when(
-        data: (relays) {
+        data: (pageResult) {
+          final relays = pageResult.items;
           final filtered = relays.where(_matchesFilter).toList();
           return Column(
             children: [
@@ -51,7 +64,12 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) {
+                    _searchTimer?.cancel();
+                    _searchTimer = Timer(const Duration(milliseconds: 350), () {
+                      if (mounted) setState(() => _page = 1);
+                    });
+                  },
                   decoration: InputDecoration(
                     hintText: 'Nom, ville, quartier ou téléphone',
                     prefixIcon: const Icon(Icons.search),
@@ -113,6 +131,17 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
                         },
                       ),
               ),
+              if (pageResult.total > 100)
+                _RelayPagination(
+                  page: _page,
+                  total: pageResult.total,
+                  onPrevious: _page > 1
+                      ? () => setState(() => _page--)
+                      : null,
+                  onNext: _page * 100 < pageResult.total
+                      ? () => setState(() => _page++)
+                      : null,
+                ),
             ],
           );
         },
@@ -273,7 +302,10 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
       child: FilterChip(
         label: Text(label),
         selected: _filter == value,
-        onSelected: (_) => setState(() => _filter = value),
+        onSelected: (_) => setState(() {
+          _filter = value;
+          _page = 1;
+        }),
       ),
     );
   }
@@ -317,7 +349,7 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Relais vérifié avec succès.')),
       );
-      ref.invalidate(adminRelaysProvider);
+      ref.invalidate(adminRelaysPageProvider);
     } catch (e) {
       if (!context.mounted) {
         return;
@@ -326,6 +358,74 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
         SnackBar(content: Text(friendlyError(e))),
       );
     }
+  }
+
+  Future<void> _geocodeMissingRelays(BuildContext context, WidgetRef ref) async {
+    try {
+      final result = await ref.read(apiClientProvider).geocodeMissingAdminRelays();
+      if (!context.mounted) return;
+      ref.invalidate(adminRelaysPageProvider);
+      final data = Map<String, dynamic>.from(result.data as Map? ?? const {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${data['geocoded'] ?? 0} relais géocodé(s), ${data['remaining'] ?? 0} restant(s).',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+}
+
+class _RelayPagination extends StatelessWidget {
+  const _RelayPagination({
+    required this.page,
+    required this.total,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int page;
+  final int total;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final first = ((page - 1) * 100) + 1;
+    final last = (page * 100).clamp(0, total);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('$first–$last sur $total'),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Page précédente',
+                  onPressed: onPrevious,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Text('$page'),
+                IconButton(
+                  tooltip: 'Page suivante',
+                  onPressed: onNext,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

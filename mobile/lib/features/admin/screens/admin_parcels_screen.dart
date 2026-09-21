@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,10 +26,59 @@ class AdminParcelsScreen extends ConsumerStatefulWidget {
   ConsumerState<AdminParcelsScreen> createState() => _AdminParcelsScreenState();
 }
 
+class _AdminPagination extends StatelessWidget {
+  const _AdminPagination({
+    required this.page,
+    required this.total,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int page;
+  final int total;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final first = ((page - 1) * 100) + 1;
+    final last = (page * 100).clamp(0, total);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('$first–$last sur $total'),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Page précédente',
+                  onPressed: onPrevious,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Text('$page'),
+                IconButton(
+                  tooltip: 'Page suivante',
+                  onPressed: onNext,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
   final _searchCtrl = TextEditingController();
   late String _statusFilter;
   String? _periodFilter;
+  int _page = 1;
+  Timer? _searchTimer;
 
   @override
   void initState() {
@@ -39,12 +90,19 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final parcelsAsync = ref.watch(adminParcelsProvider);
+    final query = AdminParcelsPageQuery(
+      page: _page,
+      search: _searchCtrl.text,
+      status: _statusFilter,
+      period: _periodFilter,
+    );
+    final parcelsAsync = ref.watch(adminParcelsPageProvider(query));
     final overviewAsync = ref.watch(adminParcelsOverviewProvider);
 
     return Scaffold(
@@ -54,87 +112,124 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              ref.invalidate(adminParcelsProvider);
+              ref.invalidate(adminParcelsPageProvider);
               ref.invalidate(adminParcelsOverviewProvider);
             },
           ),
         ],
       ),
       body: parcelsAsync.when(
-        data: (parcels) {
+        data: (pageResult) {
+          final parcels = pageResult.items;
           final filtered = parcels.where(_matchesFilters).toList();
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText:
-                        'Code, expéditeur, destinataire ou livreur en charge',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchCtrl.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() {});
-                            },
-                          ),
-                    border: const OutlineInputBorder(),
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(adminParcelsPageProvider(query));
+              await ref.read(adminParcelsPageProvider(query).future);
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) {
+                        _searchTimer?.cancel();
+                        _searchTimer = Timer(const Duration(milliseconds: 350), () {
+                          if (mounted) setState(() => _page = 1);
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText:
+                            'Code, expéditeur, destinataire ou livreur en charge',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchCtrl.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _page = 1);
+                                },
+                              ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _ParcelsOverviewSection(overviewAsync: overviewAsync),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    _buildFilterChip('Tous', 'all'),
-                    _buildFilterChip('Actifs', 'active'),
-                    _buildFilterChip('Bloques paiement', 'blocked_payment'),
-                    _buildFilterChip('Litiges', 'disputed'),
-                    _buildFilterChip('Livrés', 'delivered'),
-                    _buildFilterChip('Annulés', 'cancelled'),
-                    _buildFilterChip('À régulariser', 'delivered_unpaid'),
-                    _buildFilterChip('Commission reçue', 'commission_received'),
-                    _buildFilterChip('Commission dette', 'commission_debt'),
-                    _buildFilterChip(
-                        'Commission offerte', 'commission_offered'),
-                  ],
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _ParcelsOverviewSection(overviewAsync: overviewAsync),
+                  ),
                 ),
-              ),
-              Expanded(
-                child: filtered.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Aucun colis ne correspond aux filtres en cours.',
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
+                SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        _buildFilterChip('Tous', 'all'),
+                        _buildFilterChip('Actifs', 'active'),
+                        _buildFilterChip('Bloques paiement', 'blocked_payment'),
+                        _buildFilterChip('Litiges', 'disputed'),
+                        _buildFilterChip('Livrés', 'delivered'),
+                        _buildFilterChip('Annulés', 'cancelled'),
+                        _buildFilterChip('À régulariser', 'delivered_unpaid'),
+                        _buildFilterChip('Commission reçue', 'commission_received'),
+                        _buildFilterChip('Commission dette', 'commission_debt'),
+                        _buildFilterChip('Commission offerte', 'commission_offered'),
+                      ],
+                    ),
+                  ),
+                ),
+                if (filtered.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text('Aucun colis ne correspond aux filtres en cours.'),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
                           final parcel = filtered[index];
-                          return _ParcelCard(
-                            parcel: parcel,
-                            onOpenAudit: () => context
-                                .push('/admin/parcels/${parcel.id}/audit'),
-                            onOpenActions: () =>
-                                _showStatusActionSheet(context, ref, parcel),
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _ParcelCard(
+                              parcel: parcel,
+                              onOpenAudit: () => context
+                                  .push('/admin/parcels/${parcel.id}/audit'),
+                              onOpenActions: () =>
+                                  _showStatusActionSheet(context, ref, parcel),
+                            ),
                           );
                         },
+                        childCount: filtered.length,
                       ),
-              ),
-            ],
+                    ),
+                  ),
+                if (pageResult.total > 100)
+                  SliverToBoxAdapter(
+                    child: _AdminPagination(
+                      page: _page,
+                      total: pageResult.total,
+                      onPrevious: _page > 1
+                          ? () => setState(() => _page--)
+                          : null,
+                      onNext: _page * 100 < pageResult.total
+                          ? () => setState(() => _page++)
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -149,7 +244,10 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
       child: FilterChip(
         label: Text(label),
         selected: _statusFilter == value,
-        onSelected: (_) => setState(() => _statusFilter = value),
+        onSelected: (_) => setState(() {
+          _statusFilter = value;
+          _page = 1;
+        }),
       ),
     );
   }
@@ -338,7 +436,7 @@ class _AdminParcelsScreenState extends ConsumerState<AdminParcelsScreen> {
                   return;
                 }
                 Navigator.pop(dialogContext);
-                ref.invalidate(adminParcelsProvider);
+                ref.invalidate(adminParcelsPageProvider);
                 ref.invalidate(adminDashboardProvider);
                 if (!context.mounted) {
                   return;

@@ -75,6 +75,10 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                   address: address,
                   geopin: geopin,
                   onCall: () => _callPhone(context, relay.phone),
+                  onEdit: () => _editRelay(context, ref, relay, address, geopin),
+                  onArchive: relay.isActive
+                      ? () => _archiveRelay(context, ref, relay.id)
+                      : null,
                 ),
                 const SizedBox(height: 16),
                 _SectionCard(
@@ -228,6 +232,161 @@ class AdminRelayDetailScreen extends ConsumerWidget {
       const SnackBar(content: Text('Impossible d’ouvrir le composeur.')),
     );
   }
+
+  Future<void> _editRelay(
+    BuildContext context,
+    WidgetRef ref,
+    RelayPoint relay,
+    Map<String, dynamic> address,
+    Map<String, dynamic> geopin,
+  ) async {
+    final name = TextEditingController(text: relay.name);
+    final phone = TextEditingController(text: relay.phone);
+    final label = TextEditingController(text: address['label']?.toString() ?? '');
+    final city = TextEditingController(text: address['city']?.toString() ?? relay.city);
+    final district = TextEditingController(text: address['district']?.toString() ?? '');
+    final lat = TextEditingController(text: geopin['lat']?.toString() ?? '');
+    final lng = TextEditingController(text: geopin['lng']?.toString() ?? '');
+    final capacity = TextEditingController(text: relay.capacity.toString());
+    var saving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: const Text('Modifier le relais'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final field in [
+                    (name, 'Nom'),
+                    (phone, 'Téléphone'),
+                    (label, 'Adresse'),
+                    (city, 'Ville'),
+                    (district, 'Quartier'),
+                    (capacity, 'Capacité'),
+                    (lat, 'Latitude'),
+                    (lng, 'Longitude'),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextField(
+                        controller: field.$1,
+                        keyboardType: field.$2 == 'Latitude' || field.$2 == 'Longitude' || field.$2 == 'Capacité'
+                            ? const TextInputType.numberWithOptions(decimal: true)
+                            : null,
+                        decoration: InputDecoration(labelText: field.$2),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        setState(() => saving = true);
+                        try {
+                          final latValue = double.tryParse(lat.text.trim());
+                          final lngValue = double.tryParse(lng.text.trim());
+                          await ref.read(apiClientProvider).updateRelayPoint(
+                            relay.id,
+                            {
+                              'name': name.text.trim(),
+                              'phone': phone.text.trim(),
+                              'max_capacity': int.tryParse(capacity.text.trim()) ?? relay.capacity,
+                              'address': {
+                                'label': label.text.trim().isEmpty ? null : label.text.trim(),
+                                'city': city.text.trim().isEmpty ? null : city.text.trim(),
+                                'district': district.text.trim().isEmpty ? null : district.text.trim(),
+                                if (latValue != null && lngValue != null)
+                                  'geopin': {'lat': latValue, 'lng': lngValue},
+                              },
+                            },
+                          );
+                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          ref.invalidate(adminRelayDetailProvider(relay.id));
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Relais modifié avec succès.')),
+                            );
+                          }
+                        } catch (error) {
+                          setState(() => saving = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(friendlyError(error))),
+                            );
+                          }
+                        }
+                      },
+                child: saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Enregistrer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      name.dispose();
+      phone.dispose();
+      label.dispose();
+      city.dispose();
+      district.dispose();
+      lat.dispose();
+      lng.dispose();
+      capacity.dispose();
+    }
+  }
+
+  Future<void> _archiveRelay(
+    BuildContext context,
+    WidgetRef ref,
+    String relayId,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Archiver le relais ?'),
+        content: const Text(
+          'Le relais sera désactivé et les agents associés repasseront en vue client. '
+          'L’opération sera refusée si des colis actifs y sont encore associés.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Archiver'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(apiClientProvider).archiveAdminRelay(relayId);
+      ref.invalidate(adminRelayDetailProvider(relayId));
+      ref.invalidate(adminRelaysProvider);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Relais archivé avec succès.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(error))),
+      );
+    }
+  }
 }
 
 class _RelayHeader extends StatelessWidget {
@@ -237,6 +396,8 @@ class _RelayHeader extends StatelessWidget {
     required this.address,
     required this.geopin,
     required this.onCall,
+    required this.onEdit,
+    required this.onArchive,
   });
 
   final RelayPoint relay;
@@ -244,6 +405,8 @@ class _RelayHeader extends StatelessWidget {
   final Map<String, dynamic> address;
   final Map<String, dynamic> geopin;
   final VoidCallback onCall;
+  final VoidCallback onEdit;
+  final VoidCallback? onArchive;
 
   @override
   Widget build(BuildContext context) {
@@ -323,6 +486,17 @@ class _RelayHeader extends StatelessWidget {
                   icon: const Icon(Icons.call),
                   label: const Text('Appeler'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Modifier'),
+                ),
+                if (onArchive != null)
+                  OutlinedButton.icon(
+                    onPressed: onArchive,
+                    icon: const Icon(Icons.archive_outlined),
+                    label: const Text('Archiver'),
+                  ),
               ],
             ),
             const SizedBox(height: 16),

@@ -113,6 +113,7 @@ export async function fetchUsersOverview(params?: {
 
 export async function fetchUsers(params: {
   role?: string;
+  search?: string;
   from_date?: string;
   to_date?: string;
   skip?: number;
@@ -228,6 +229,7 @@ export type TargetedNotificationPayload = {
   title: string;
   body: string;
   user_ids: string[];
+  role?: "client" | "driver" | "relay_agent" | "admin" | "superadmin";
   category?: "admin" | "messages" | "promotions" | "parcel_updates";
   ref_type?: string | null;
   ref_id?: string | null;
@@ -305,6 +307,7 @@ export type AdminParcel = {
 };
 
 export async function fetchParcels(params: {
+  search?: string;
   status?: string;
   scope?: string;
   finance_filter?: string;
@@ -577,16 +580,65 @@ export function getRelayAddressLabel(relay: AdminRelay) {
     .join(", ") || null;
 }
 
-export async function fetchRelays(params?: { active?: boolean }) {
+export async function fetchRelays(params?: {
+  active?: boolean;
+  search?: string;
+  skip?: number;
+  limit?: number;
+}) {
   const { data } = await api.get<{ relay_points: AdminRelay[]; total: number }>(
     "/api/admin/relay-points",
-    { params: { limit: 500, ...params } },
+    { params: { limit: 100, ...params } },
   );
   return data;
 }
 
 export async function verifyRelay(relayId: string) {
   const { data } = await api.put(`/api/admin/relay-points/${relayId}/verify`);
+  return data;
+}
+
+export type RelayAddressInput = {
+  label?: string;
+  city?: string;
+  district?: string;
+  notes?: string;
+  geopin?: { lat: number; lng: number };
+};
+
+export async function createRelayPoint(body: {
+  name: string;
+  phone: string;
+  address: RelayAddressInput;
+  relay_type?: string;
+  description?: string;
+  max_capacity?: number;
+  opening_hours?: Record<string, string>;
+}) {
+  const { data } = await api.post<AdminRelay>("/api/relay-points", body);
+  return data;
+}
+
+export async function updateRelayPoint(relayId: string, body: {
+  name?: string;
+  phone?: string;
+  address?: RelayAddressInput;
+  max_capacity?: number;
+  opening_hours?: Record<string, string>;
+  is_active?: boolean;
+}) {
+  const { data } = await api.put<AdminRelay>(`/api/relay-points/${relayId}`, body);
+  return data;
+}
+
+export async function geocodeMissingRelays(limit = 100) {
+  const { data } = await api.post<{
+    processed: number;
+    geocoded: number;
+    unchanged: number;
+    remaining: number;
+    errors: { relay_id?: string; error: string }[];
+  }>("/api/admin/relay-points/geocode-missing", null, { params: { limit } });
   return data;
 }
 
@@ -665,8 +717,9 @@ export async function fetchAuditLog(params: {
   offset?: number;
   from_date?: string;
   to_date?: string;
+  search?: string;
 }) {
-  const { data } = await api.get("/api/admin/audit-log", { params });
+  const { data } = await api.get<{ events: any[]; total: number }>("/api/admin/audit-log", { params });
   return data;
 }
 
@@ -921,6 +974,11 @@ export async function assignRelayPoint(userId: string, relayId: string) {
   return data;
 }
 
+export async function archiveRelay(relayId: string) {
+  const { data } = await api.post(`/api/admin/relay-points/${relayId}/archive`);
+  return data;
+}
+
 export async function setReferralAccess(
   userId: string,
   enabledOverride: boolean | null,
@@ -1109,6 +1167,7 @@ export type ActionCenter = {
     payment_blocked: ActionCategory;
     support: ActionCategory;
     disputes: ActionCategory;
+    security: ActionCategory;
   };
   sla: Record<string, { warning: number; critical: number }>;
 };

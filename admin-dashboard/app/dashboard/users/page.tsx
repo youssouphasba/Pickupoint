@@ -12,11 +12,13 @@ import {
 } from "@/lib/api";
 import { ActionModal } from "@/components/action-modal";
 import { DataTable } from "@/components/data-table";
+import { ServerPagination } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { driverLevelTitle } from "@/lib/driver-levels";
 import { formatDate } from "@/lib/utils";
@@ -115,6 +117,8 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [role, setRole] = React.useState("all");
+  const [serverSearch, setServerSearch] = React.useState("");
+  const [page, setPage] = React.useState(0);
   const [dateRange, setDateRange] = React.useState<DateRange>({});
   const [banTarget, setBanTarget] = React.useState<AdminUser | null>(null);
   const [unbanTarget, setUnbanTarget] = React.useState<AdminUser | null>(null);
@@ -123,12 +127,16 @@ export default function UsersPage() {
     queryKey: ["users", role, dateRange.from ?? "", dateRange.to ?? ""],
     queryFn: () =>
       fetchUsers({
-        limit: 500,
+        limit: 100,
+        skip: page * 100,
         role: role === "all" ? undefined : role,
+        search: serverSearch.trim() || undefined,
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
+    refetchInterval: 60_000,
   });
+  React.useEffect(() => setPage(0), [role, serverSearch, dateRange.from, dateRange.to]);
   const period = React.useMemo(currentPeriod, []);
   const { data: clientStatsData } = useQuery({
     queryKey: ["users-client-performance", period],
@@ -484,6 +492,13 @@ export default function UsersPage() {
         ))}
       </div>
 
+      <Input
+        value={serverSearch}
+        onChange={(event) => setServerSearch(event.target.value)}
+        placeholder="Rechercher côté serveur : nom, téléphone, e-mail, ID…"
+        className="max-w-xl"
+      />
+
       {isLoading && (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -495,17 +510,20 @@ export default function UsersPage() {
         </div>
       )}
       {data && (
-        <DataTable
-          columns={columns}
-          data={users}
-          searchPlaceholder="Nom, téléphone, e-mail, ID..."
-          globalFilterFn={(user, query) =>
-            userDisplayName(user).toLowerCase().includes(query) ||
-            (user.phone ?? "").toLowerCase().includes(query) ||
-            (user.email ?? "").toLowerCase().includes(query) ||
-            (user.user_id ?? "").toLowerCase().includes(query)
-          }
-        />
+        <>
+          <DataTable
+            columns={columns}
+            data={users}
+            searchPlaceholder="Filtrer la page…"
+            globalFilterFn={(user, query) =>
+              userDisplayName(user).toLowerCase().includes(query) ||
+              (user.phone ?? "").toLowerCase().includes(query) ||
+              (user.email ?? "").toLowerCase().includes(query) ||
+              (user.user_id ?? "").toLowerCase().includes(query)
+            }
+          />
+          <ServerPagination page={page} total={data.total} pageSize={100} onPageChange={setPage} />
+        </>
       )}
 
       <ActionModal

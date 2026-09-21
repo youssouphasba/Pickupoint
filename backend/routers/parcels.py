@@ -60,6 +60,7 @@ from services.parcel_service import (
 )
 from services.pricing_service import calculate_price, _haversine_km
 from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
+from services.admin_events_service import AdminEventType, record_admin_event
 from services.wallet_service import credit_wallet, debit_wallet
 from services.google_maps_service import reverse_geocode
 from config import UPLOADS_DIR, settings
@@ -1682,18 +1683,100 @@ async def deliver_parcel(
         raise bad_request_exception("Code de livraison invalide. Vérifiez le code à 6 chiffres.")
     await clear_code_attempts(db, parcel_id, "delivery_code")
 
+    is_admin = _is_admin(current_user)
+    is_debug_simulation = bool(parcel.get("is_simulation") and settings.DEBUG and is_admin)
+
+    if not is_admin and not is_debug_simulation and (
+        body.driver_lat is None or body.driver_lng is None
+    ):
+        metadata = {
+            "driver_id": current_user["user_id"],
+            "parcel_id": parcel_id,
+            "reason": "missing_driver_coordinates",
+        }
+        await _record_event(
+            event_type="SECURITY_GPS_BLOCKED",
+            parcel_id=parcel_id,
+            actor_id=current_user["user_id"],
+            actor_role=current_user["role"],
+            notes="Livraison bloquée : coordonnées GPS du livreur absentes.",
+            metadata=metadata,
+        )
+        await record_admin_event(
+            AdminEventType.SECURITY_GPS_BLOCKED,
+            title="Livraison bloquée : GPS absent",
+            message=f"Le livreur {current_user['user_id']} a tenté de confirmer une livraison sans position.",
+            href=f"/dashboard/parcels/{parcel_id}",
+            metadata={**metadata, "action": "deliver_parcel"},
+        )
+        raise bad_request_exception(
+            "La position GPS du livreur est obligatoire pour confirmer la livraison."
+        )
+
+    if body.proof_type not in {None, "photo", "pin"}:
+        raise bad_request_exception("Type de preuve de livraison non reconnu.")
+    if body.proof_type == "photo" and not body.proof_data:
+        raise bad_request_exception("La photo de preuve est manquante.")
+
     # ── Géofence : livreur doit être à moins de 500m ───────────────────
-    if parcel.get("is_simulation") and settings.DEBUG:
+    if is_debug_simulation:
         logger.info(f"Bypass geofence pour colis de simulation {parcel_id}")
-    elif body.driver_lat is not None and body.driver_lng is not None:
+    else:
         # Priorité : delivery_location (confirmé GPS) puis delivery_address.geopin (saisi texte)
         delivery_loc = parcel.get("delivery_location") or {}
         geo = delivery_loc.get("geopin") or delivery_loc or (parcel.get("delivery_address") or {}).get("geopin") or {}
         dest_lat = geo.get("lat")
         dest_lng = geo.get("lng")
-        if dest_lat is not None and dest_lng is not None:
+        if dest_lat is None or dest_lng is None:
+            if not is_admin:
+                metadata = {
+                    "driver_id": current_user["user_id"],
+                    "parcel_id": parcel_id,
+                    "reason": "delivery_point_not_geocoded",
+                }
+                await _record_event(
+                    event_type="SECURITY_GPS_BLOCKED",
+                    parcel_id=parcel_id,
+                    actor_id=current_user["user_id"],
+                    actor_role=current_user["role"],
+                    notes="Livraison bloquée : destination non géolocalisée.",
+                    metadata=metadata,
+                )
+                await record_admin_event(
+                    AdminEventType.SECURITY_GPS_BLOCKED,
+                    title="Livraison bloquée : destination non géolocalisée",
+                    message=f"La destination du colis {parcel.get('tracking_code', parcel_id)} n'est pas géolocalisée.",
+                    href=f"/dashboard/parcels/{parcel_id}",
+                    metadata={**metadata, "action": "deliver_parcel"},
+                )
+                raise bad_request_exception(
+                    "La destination n'est pas géolocalisée. Validation impossible."
+                )
+        elif body.driver_lat is not None and body.driver_lng is not None:
             dist_m = _haversine_km(body.driver_lat, body.driver_lng, dest_lat, dest_lng) * 1000
             if dist_m > 500:
+                metadata = {
+                    "driver_id": current_user["user_id"],
+                    "parcel_id": parcel_id,
+                    "reason": "delivery_geofence_exceeded",
+                    "distance_m": round(dist_m),
+                    "limit_m": 500,
+                }
+                await _record_event(
+                    event_type="SECURITY_GPS_BLOCKED",
+                    parcel_id=parcel_id,
+                    actor_id=current_user["user_id"],
+                    actor_role=current_user["role"],
+                    notes=f"Livraison bloquée : livreur à {round(dist_m)} m de la destination.",
+                    metadata=metadata,
+                )
+                await record_admin_event(
+                    AdminEventType.SECURITY_GPS_BLOCKED,
+                    title="Livraison bloquée : distance excessive",
+                    message=f"Le livreur est à {round(dist_m)} m de la destination.",
+                    href=f"/dashboard/parcels/{parcel_id}",
+                    metadata={**metadata, "action": "deliver_parcel"},
+                )
                 raise bad_request_exception(
                     f"Vous êtes trop loin de l'adresse de livraison ({int(dist_m)} m). Rapprochez-vous (< 500 m)."
                 )
@@ -1705,7 +1788,7 @@ async def deliver_parcel(
         metadata={
             "delivery_code_used": True,
             "proof_type": body.proof_type,
-            "proof_data": body.proof_data, # stocké en DB (optimisé webp via mobile)
+            "proof_data": body.proof_data,
         },
     )
     return updated

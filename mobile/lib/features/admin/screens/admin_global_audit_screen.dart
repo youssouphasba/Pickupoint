@@ -48,15 +48,20 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
               final type = ev['event_type'] ?? "UNKNOWN";
               final actor = ev['actor_name'] ?? ev['actor_role'] ?? "Système";
               final tracking = ev['tracking_code'] ?? "---";
+              final notes = ev['notes'] as String?;
+              final title = type == 'SECURITY_GPS_BLOCKED'
+                  ? 'BLOCAGE SÉCURITÉ GPS'
+                  : type.toString().replaceAll('_', ' ');
 
               return ListTile(
                 leading: _getEventIcon(type),
-                title: Text(type.replaceAll('_', ' ')),
+                title: Text(title),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Acteur: $actor'),
                     Text('Colis: $tracking'),
+                    if (notes != null && notes.isNotEmpty) Text(notes),
                     Text('Date: $date', style: const TextStyle(fontSize: 11)),
                   ],
                 ),
@@ -126,6 +131,9 @@ class AdminGlobalAuditScreen extends ConsumerWidget {
   }
 
   Widget _getEventIcon(String type) {
+    if (type == 'SECURITY_GPS_BLOCKED') {
+      return const Icon(Icons.gps_off, color: Colors.red);
+    }
     if (type.contains('CREATED')) {
       return const Icon(Icons.add_box, color: Colors.blue);
     }

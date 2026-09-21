@@ -34,6 +34,8 @@ class AdminEventType:
     PARCEL_REDIRECTED = "parcel_redirected"
     PARCEL_CANCELLED = "parcel_cancelled"
     MISSION_RELEASED = "mission_released"
+    RELAY_ARCHIVED = "relay_archived"
+    SECURITY_GPS_BLOCKED = "security_gps_blocked"
 
 
 # Sévérité : critical → rouge + son, warning → orange, info → gris.
@@ -50,6 +52,8 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     AdminEventType.PARCEL_REDIRECTED: "warning",
     AdminEventType.PARCEL_CANCELLED: "info",
     AdminEventType.MISSION_RELEASED: "info",
+    AdminEventType.RELAY_ARCHIVED: "warning",
+    AdminEventType.SECURITY_GPS_BLOCKED: "critical",
 }
 
 

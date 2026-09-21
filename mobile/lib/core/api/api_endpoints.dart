@@ -135,6 +135,10 @@ class ApiEndpoints {
   static String adminParcelStatus(String id) =>
       '$_base/api/admin/parcels/$id/override';
   static const adminRelays = '$_base/api/admin/relay-points';
+  static const adminRelayGeocodeMissing =
+      '$_base/api/admin/relay-points/geocode-missing';
+  static String adminRelayArchive(String id) =>
+      '$_base/api/admin/relay-points/$id/archive';
   static const adminPayouts = '$_base/api/admin/wallets/payouts';
   static String adminApprove(String id) =>
       '$_base/api/admin/wallets/payouts/$id/approve';
@@ -181,6 +185,7 @@ class ApiEndpoints {
   static String adminReassignMission(String id) =>
       '$_base/api/admin/missions/$id/reassign';
   static const adminAuditLog = '$_base/api/admin/audit-log';
+  static const adminActionCenter = '$_base/api/admin/action-center';
 
   // ─── Utilisateurs ─────────────────────────────────────────────────────────
   static const myAvailability = '$_base/api/users/me/availability';

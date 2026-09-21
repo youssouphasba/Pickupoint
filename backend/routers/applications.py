@@ -392,6 +392,10 @@ async def approve_application(
     if app["type"] == "driver":
         data = app["data"]
         user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if user and user.get("role") == UserRole.RELAY_AGENT.value:
+            raise bad_request_exception(
+                "Cet utilisateur est déjà agent relais. Il doit quitter ce rôle avant de devenir livreur."
+            )
         if not user or not (user.get("profile_picture_url") or "").strip():
             raise bad_request_exception("Le livreur doit ajouter une photo de profil avant validation")
         if user.get("profile_picture_status") != "approved":
@@ -410,6 +414,11 @@ async def approve_application(
 
     elif app["type"] == "relay":
         data = app["data"]
+        user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "role": 1})
+        if user and user.get("role") == UserRole.DRIVER.value:
+            raise bad_request_exception(
+                "Cet utilisateur est déjà livreur. Il doit quitter ce rôle avant de devenir agent relais."
+            )
         if not data.get("geopin"):
             raise bad_request_exception(
                 "Impossible d'activer ce relais sans position GPS."

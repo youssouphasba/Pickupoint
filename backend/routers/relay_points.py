@@ -12,6 +12,7 @@ from core.exceptions import not_found_exception, forbidden_exception
 from database import db
 from models.common import UserRole
 from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
+from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
 
 router = APIRouter()
@@ -235,12 +236,13 @@ async def create_relay_point(
     current_user: dict = Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
 ):
     now = datetime.now(timezone.utc)
+    address = await geocode_relay_address(body.address)
     relay_doc = {
         "relay_id":          _relay_id(),
         "owner_user_id":     current_user["user_id"],
         "agent_user_ids":    [],
         "name":              body.name,
-        "address":           body.address.model_dump(),
+        "address":           address.model_dump(),
         "relay_type":        body.relay_type,
         "phone":             body.phone,
         "max_capacity":      body.max_capacity,
@@ -277,7 +279,7 @@ async def update_relay_point(
 
     updates = body.model_dump(exclude_none=True)
     if "address" in updates:
-        updates["address"] = body.address.model_dump()
+        updates["address"] = (await geocode_relay_address(body.address)).model_dump()
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc)
         await db.relay_points.update_one({"relay_id": relay_id}, {"$set": updates})

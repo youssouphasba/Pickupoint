@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -10,6 +11,38 @@ from models.common import UserRole
 bearer_scheme = HTTPBearer(auto_error=False)
 
 ADMIN_COOKIE_NAME = "denkma_admin_session"
+
+
+async def _normalize_deleted_relay_assignment(user: dict) -> dict:
+    if user.get("role") != UserRole.RELAY_AGENT.value:
+        return user
+
+    relay_id = user.get("relay_point_id")
+    relay_exists = bool(
+        relay_id
+        and await db.relay_points.find_one(
+            {"relay_id": relay_id},
+            {"_id": 1},
+        )
+    )
+    if relay_exists:
+        return user
+
+    now = datetime.now(timezone.utc)
+    await db.users.update_one(
+        {"user_id": user.get("user_id")},
+        {
+            "$set": {
+                "role": UserRole.CLIENT.value,
+                "relay_point_id": None,
+                "updated_at": now,
+            }
+        },
+    )
+    user["role"] = UserRole.CLIENT.value
+    user["relay_point_id"] = None
+    user["updated_at"] = now
+    return user
 
 
 def _extract_token(
@@ -48,7 +81,7 @@ async def get_current_user(
         )
     if user.get("is_banned"):
         raise forbidden_exception("Compte suspendu par l'administration")
-    return user
+    return await _normalize_deleted_relay_assignment(user)
 
 
 async def get_current_user_optional(
@@ -69,7 +102,7 @@ async def get_current_user_optional(
         user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
         if not user or not user.get("is_active", True) or user.get("is_banned"):
             return None
-        return user
+        return await _normalize_deleted_relay_assignment(user)
     except Exception:
         return None
 

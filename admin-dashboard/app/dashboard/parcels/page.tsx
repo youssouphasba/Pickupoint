@@ -8,10 +8,11 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Loader2 } from "lucide-react";
 
 import { AdminParcel, AdminParcelsOverview, fetchParcels, fetchParcelsOverview } from "@/lib/api";
-import { DataTable } from "@/components/data-table";
+import { DataTable, ServerPagination } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 
 const STATUS_LABELS: Record<string, string> = {
   created: "Créé",
@@ -168,6 +169,8 @@ export default function ParcelsPage() {
   const [dateRange, setDateRange] = React.useState<DateRange>(() =>
     dateRangeFromSearchParams(searchParams)
   );
+  const [serverSearch, setServerSearch] = React.useState("");
+  const [page, setPage] = React.useState(0);
 
   React.useEffect(() => {
     setSelectedFilter(filterFromSearchParams(searchParams));
@@ -177,6 +180,10 @@ export default function ParcelsPage() {
   const activeFilter =
     FILTERS.find((filter) => filter.value === selectedFilter) ?? FILTERS[0];
 
+  React.useEffect(() => {
+    setPage(0);
+  }, [activeFilter.value, serverSearch, dateRange.from, dateRange.to]);
+
   const { data: overviewData } = useQuery({
     queryKey: ["parcels-overview", dateRange.from ?? "", dateRange.to ?? ""],
     queryFn: () =>
@@ -184,17 +191,21 @@ export default function ParcelsPage() {
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
+    refetchInterval: 60_000,
   });
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["parcels", activeFilter.value, dateRange.from ?? "", dateRange.to ?? ""],
+    queryKey: ["parcels", activeFilter.value, dateRange.from ?? "", dateRange.to ?? "", serverSearch, page],
     queryFn: () =>
       fetchParcels({
-        limit: 500,
+        limit: 100,
+        skip: page * 100,
+        search: serverSearch.trim() || undefined,
         ...activeFilter.params,
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
+    refetchInterval: 30_000,
   });
 
   const columns = React.useMemo<ColumnDef<AdminParcel, any>[]>(
@@ -361,19 +372,29 @@ export default function ParcelsPage() {
         </div>
       ) : null}
 
+      <Input
+        value={serverSearch}
+        onChange={(event) => setServerSearch(event.target.value)}
+        placeholder="Rechercher côté serveur : tracking, expéditeur, destinataire…"
+        className="max-w-xl"
+      />
+
       {data ? (
-        <DataTable
-          columns={columns}
-          data={data.parcels}
-          searchPlaceholder="Code suivi, expéditeur, destinataire, téléphone…"
-          globalFilterFn={(parcel, query) =>
-            (parcel.tracking_code ?? "").toLowerCase().includes(query) ||
-            (parcel.sender_name ?? "").toLowerCase().includes(query) ||
-            (parcel.recipient_name ?? "").toLowerCase().includes(query) ||
-            (parcel.recipient_phone ?? "").toLowerCase().includes(query) ||
-            (parcel.parcel_id ?? "").toLowerCase().includes(query)
-          }
-        />
+        <>
+          <DataTable
+            columns={columns}
+            data={data.parcels}
+            searchPlaceholder="Filtrer la page…"
+            globalFilterFn={(parcel, query) =>
+              (parcel.tracking_code ?? "").toLowerCase().includes(query) ||
+              (parcel.sender_name ?? "").toLowerCase().includes(query) ||
+              (parcel.recipient_name ?? "").toLowerCase().includes(query) ||
+              (parcel.recipient_phone ?? "").toLowerCase().includes(query) ||
+              (parcel.parcel_id ?? "").toLowerCase().includes(query)
+            }
+          />
+          <ServerPagination page={page} total={data.total} pageSize={100} onPageChange={setPage} />
+        </>
       ) : null}
     </div>
   );

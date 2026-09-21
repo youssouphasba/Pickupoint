@@ -45,6 +45,7 @@ class AdminDashboard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(adminDashboardProvider);
+    final actionCenterAsync = ref.watch(adminActionCenterProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -62,21 +63,34 @@ class AdminDashboard extends ConsumerWidget {
           ref.refresh(_expressSettingsProvider.future),
           ref.refresh(_deliveryDispatchSettingsProvider.future),
           ref.refresh(_referralSettingsProvider.future),
+          ref.refresh(adminActionCenterProvider.future),
         ]),
         child: statsAsync.when(
-          data: (stats) => _DashboardBody(stats: stats),
+          data: (stats) => _DashboardBody(
+            stats: stats,
+            securityCount: _securityCount(actionCenterAsync.valueOrNull),
+          ),
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, __) => Center(child: Text(friendlyError(e))),
         ),
       ),
     );
   }
+
+  int _securityCount(Map<String, dynamic>? actionCenter) {
+    final categories = actionCenter?['categories'];
+    if (categories is! Map) return 0;
+    final security = categories['security'];
+    if (security is! Map) return 0;
+    return (security['count'] as num?)?.toInt() ?? 0;
+  }
 }
 
 class _DashboardBody extends StatelessWidget {
-  const _DashboardBody({required this.stats});
+  const _DashboardBody({required this.stats, required this.securityCount});
 
   final Map<String, dynamic> stats;
+  final int securityCount;
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +105,19 @@ class _DashboardBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHero(context),
+          if (securityCount > 0) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: Colors.red.shade50,
+              child: ListTile(
+                leading: const Icon(Icons.gpp_maybe_outlined, color: Colors.red),
+                title: const Text('Alertes sécurité livreurs'),
+                subtitle: Text('$securityCount événement(s) non lu(s)'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/admin/audit-log'),
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const Text(
             'Vue d\'ensemble',
@@ -124,7 +151,7 @@ class _DashboardBody extends StatelessWidget {
               label: 'Chiffre d\'affaires',
               value: formatXof(_doubleValue(stats['revenue_xof'])),
               helper:
-                  'Taux de succès ${_doubleValue(stats['succèss_rate']).toStringAsFixed(1)} %',
+                  'Taux de succès ${_doubleValue(stats['success_rate']).toStringAsFixed(1)} %',
               color: Colors.green,
               icon: Icons.trending_up,
             ),
@@ -324,13 +351,20 @@ class _DashboardBody extends StatelessWidget {
         color: Colors.green,
         icon: Icons.storefront_outlined,
       ),
-      _MetricCardData(
-        label: 'Livraisons réussies',
+            _MetricCardData(
+              label: 'Livraisons réussies',
         value: _intValue(stats['delivered']).toString(),
         helper: '${_intValue(stats['failed'])} échecs enregistrés',
         color: Colors.blueGrey,
-        icon: Icons.check_circle_outline,
-      ),
+              icon: Icons.check_circle_outline,
+            ),
+            _MetricCardData(
+              label: 'Alertes sécurité',
+              value: securityCount.toString(),
+              helper: 'GPS ou géofence bloqué',
+              color: securityCount > 0 ? Colors.red : Colors.green,
+              icon: Icons.gpp_maybe_outlined,
+            ),
     ];
   }
 

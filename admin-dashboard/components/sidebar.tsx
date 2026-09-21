@@ -43,6 +43,7 @@ type Item = {
     | "anomalies"
     | "stale_parcels"
     | "support"
+    | "security"
     | "incidents_payment"; // combo : incidents + paiements bloqués sous "Colis"
 };
 
@@ -61,6 +62,7 @@ const items: Item[] = [
   { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },
   { href: "/dashboard/finance", label: "Finance", Icon: Banknote },
   { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle, badge: "anomalies" },
+  { href: "/dashboard/audit-log?search=SECURITY_GPS_BLOCKED", label: "Sécurité livreurs", Icon: AlertTriangle, badge: "security" },
   { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle, badge: "support" },
   { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock, badge: "stale_parcels" },
   { href: "/dashboard/heatmap", label: "Heatmap", Icon: Flame },

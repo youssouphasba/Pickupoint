@@ -24,6 +24,13 @@ final adminDashboardProvider =
   return res.data as Map<String, dynamic>;
 });
 
+final adminActionCenterProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminActionCenter();
+  return Map<String, dynamic>.from(res.data as Map<String, dynamic>);
+});
+
 /// Provider pour tous les colis (vue admin).
 final adminParcelsProvider = FutureProvider<List<Parcel>>((ref) async {
   final api = ref.watch(apiClientProvider);
@@ -32,6 +39,78 @@ final adminParcelsProvider = FutureProvider<List<Parcel>>((ref) async {
   return (data['parcels'] as List? ?? [])
       .map((e) => Parcel.fromJson(e as Map<String, dynamic>))
       .toList();
+});
+
+class AdminParcelsPageQuery {
+  const AdminParcelsPageQuery({
+    this.page = 1,
+    this.search = '',
+    this.status,
+    this.period,
+  });
+
+  final int page;
+  final String search;
+  final String? status;
+  final String? period;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AdminParcelsPageQuery &&
+      other.page == page &&
+      other.search == search &&
+      other.status == status &&
+      other.period == period;
+
+  @override
+  int get hashCode => Object.hash(page, search, status, period);
+}
+
+class AdminPageResult<T> {
+  const AdminPageResult({required this.items, required this.total});
+
+  final List<T> items;
+  final int total;
+}
+
+final adminParcelsPageProvider =
+    FutureProvider.family<AdminPageResult<Parcel>, AdminParcelsPageQuery>(
+        (ref, query) async {
+  final api = ref.watch(apiClientProvider);
+  final params = <String, dynamic>{
+    'skip': (query.page - 1) * 100,
+    'limit': 100,
+  };
+  if (query.search.trim().isNotEmpty) params['search'] = query.search.trim();
+  if (query.period != null) {
+    params['from_date'] = '${query.period}-01';
+  }
+  if (query.status != null) {
+    if (query.status == 'active') {
+      params['scope'] = 'active';
+    } else if (query.status == 'blocked_payment') {
+      params['payment_blocked'] = true;
+    } else if ({
+      'delivered_paid',
+      'delivered_unpaid',
+      'commission_received',
+      'commission_debt',
+      'commission_offered',
+    }.contains(query.status)) {
+      params['finance_filter'] = query.status;
+    } else if (query.status != 'all') {
+      params['status'] = query.status;
+    }
+  }
+  final res = await api.getAdminParcels(params: params);
+  final data = res.data as Map<String, dynamic>;
+  final parcels = (data['parcels'] as List? ?? [])
+      .map((e) => Parcel.fromJson(e as Map<String, dynamic>))
+      .toList();
+  return AdminPageResult(
+    items: parcels,
+    total: (data['total'] as num?)?.toInt() ?? parcels.length,
+  );
 });
 
 final adminParcelsOverviewProvider =
@@ -75,6 +154,79 @@ final adminUsersProvider = FutureProvider<List<User>>((ref) async {
     return bTime.compareTo(aTime);
   });
   return users;
+});
+
+class AdminRelaysPageQuery {
+  const AdminRelaysPageQuery({this.page = 1, this.search = ''});
+
+  final int page;
+  final String search;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AdminRelaysPageQuery &&
+      other.page == page &&
+      other.search == search;
+
+  @override
+  int get hashCode => Object.hash(page, search);
+}
+
+final adminRelaysPageProvider =
+    FutureProvider.family<AdminPageResult<RelayPoint>, AdminRelaysPageQuery>(
+        (ref, query) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminRelays(
+    skip: (query.page - 1) * 100,
+    limit: 100,
+    search: query.search,
+  );
+  final data = res.data as Map<String, dynamic>;
+  final relays = (data['relay_points'] as List? ?? [])
+      .map((e) => RelayPoint.fromJson(e as Map<String, dynamic>))
+      .toList();
+  return AdminPageResult(
+    items: relays,
+    total: (data['total'] as num?)?.toInt() ?? relays.length,
+  );
+});
+
+class AdminUsersPageQuery {
+  const AdminUsersPageQuery({this.page = 1, this.search = '', this.role});
+
+  final int page;
+  final String search;
+  final String? role;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AdminUsersPageQuery &&
+      other.page == page &&
+      other.search == search &&
+      other.role == role;
+
+  @override
+  int get hashCode => Object.hash(page, search, role);
+}
+
+final adminUsersPageProvider =
+    FutureProvider.family<AdminPageResult<User>, AdminUsersPageQuery>(
+        (ref, query) async {
+  final api = ref.watch(apiClientProvider);
+  final res = await api.getAdminUsers(
+    skip: (query.page - 1) * 100,
+    limit: 100,
+    search: query.search,
+    role: query.role,
+  );
+  final data = res.data as Map<String, dynamic>;
+  final users = (data['users'] as List? ?? [])
+      .map((e) => User.fromJson(e as Map<String, dynamic>))
+      .toList();
+  return AdminPageResult(
+    items: users,
+    total: (data['total'] as num?)?.toInt() ?? users.length,
+  );
 });
 
 final adminUsersOverviewProvider =

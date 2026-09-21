@@ -1004,8 +1004,37 @@ async def confirm_pickup(
         raise bad_request_exception("Code de collecte invalide")
     await clear_code_attempts(db, parcel["parcel_id"], "pickup_code")
 
+    is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    is_debug_simulation = bool(parcel.get("is_simulation") and settings.DEBUG and is_admin)
+
+    if not is_admin and not is_debug_simulation and (body.lat is None or body.lng is None):
+        metadata = {
+            "driver_id": current_user["user_id"],
+            "parcel_id": parcel["parcel_id"],
+            "mission_id": mission_id,
+            "reason": "missing_driver_coordinates",
+        }
+        await _record_event(
+            event_type="SECURITY_GPS_BLOCKED",
+            parcel_id=parcel["parcel_id"],
+            actor_id=current_user["user_id"],
+            actor_role=current_user["role"],
+            notes="Collecte bloquée : coordonnées GPS du livreur absentes.",
+            metadata=metadata,
+        )
+        await record_admin_event(
+            AdminEventType.SECURITY_GPS_BLOCKED,
+            title="Collecte bloquée : GPS absent",
+            message=f"Le livreur {current_user['user_id']} a tenté de confirmer une collecte sans position.",
+            href=f"/dashboard/parcels/{parcel['parcel_id']}",
+            metadata={**metadata, "action": "confirm_pickup"},
+        )
+        raise bad_request_exception(
+            "La position GPS du livreur est obligatoire pour confirmer la collecte."
+        )
+
     # Vérification proximité : driver doit être proche du point de collecte (< 500m)
-    if body.lat is not None and body.lng is not None and not (parcel.get("is_simulation") and settings.DEBUG):
+    if not is_debug_simulation:
         from services.pricing_service import _haversine_km
         pickup_geopin = None
         mode = parcel.get("delivery_mode", "")
@@ -1016,12 +1045,64 @@ async def confirm_pickup(
             # Collecte au relais d'origine
             origin_relay_id = parcel.get("origin_relay_id")
             if origin_relay_id:
-                relay = await db.relay_points.find_one({"relay_id": origin_relay_id}, {"location": 1})
-                if relay and relay.get("location"):
-                    pickup_geopin = relay["location"]
-        if pickup_geopin and pickup_geopin.get("lat") and pickup_geopin.get("lng"):
+                relay = await db.relay_points.find_one(
+                    {"relay_id": origin_relay_id},
+                    {"address.geopin": 1},
+                )
+                pickup_geopin = (relay or {}).get("address", {}).get("geopin")
+        if not pickup_geopin or pickup_geopin.get("lat") is None or pickup_geopin.get("lng") is None:
+            if not is_admin:
+                metadata = {
+                    "driver_id": current_user["user_id"],
+                    "parcel_id": parcel["parcel_id"],
+                    "mission_id": mission_id,
+                    "reason": "pickup_point_not_geocoded",
+                    "pickup_relay_id": parcel.get("origin_relay_id"),
+                }
+                await _record_event(
+                    event_type="SECURITY_GPS_BLOCKED",
+                    parcel_id=parcel["parcel_id"],
+                    actor_id=current_user["user_id"],
+                    actor_role=current_user["role"],
+                    notes="Collecte bloquée : point de collecte non géolocalisé.",
+                    metadata=metadata,
+                )
+                await record_admin_event(
+                    AdminEventType.SECURITY_GPS_BLOCKED,
+                    title="Collecte bloquée : point non géolocalisé",
+                    message=f"Le point de collecte du colis {parcel.get('tracking_code', parcel['parcel_id'])} n'est pas géolocalisé.",
+                    href=f"/dashboard/parcels/{parcel['parcel_id']}",
+                    metadata={**metadata, "action": "confirm_pickup"},
+                )
+                raise bad_request_exception(
+                    "Le point de collecte n'est pas géolocalisé. Validation impossible."
+                )
+        elif body.lat is not None and body.lng is not None:
             dist_m = _haversine_km(body.lat, body.lng, pickup_geopin["lat"], pickup_geopin["lng"]) * 1000
             if dist_m > 500:
+                metadata = {
+                    "driver_id": current_user["user_id"],
+                    "parcel_id": parcel["parcel_id"],
+                    "mission_id": mission_id,
+                    "reason": "pickup_geofence_exceeded",
+                    "distance_m": round(dist_m),
+                    "limit_m": 500,
+                }
+                await _record_event(
+                    event_type="SECURITY_GPS_BLOCKED",
+                    parcel_id=parcel["parcel_id"],
+                    actor_id=current_user["user_id"],
+                    actor_role=current_user["role"],
+                    notes=f"Collecte bloquée : livreur à {round(dist_m)} m du point prévu.",
+                    metadata=metadata,
+                )
+                await record_admin_event(
+                    AdminEventType.SECURITY_GPS_BLOCKED,
+                    title="Collecte bloquée : distance excessive",
+                    message=f"Le livreur est à {round(dist_m)} m du point de collecte.",
+                    href=f"/dashboard/parcels/{parcel['parcel_id']}",
+                    metadata={**metadata, "action": "confirm_pickup"},
+                )
                 raise bad_request_exception(
                     f"Vous êtes à {int(dist_m)}m du point de collecte. Rapprochez-vous à moins de 500m."
                 )

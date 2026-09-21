@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -20,16 +22,24 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
   final _searchCtrl = TextEditingController();
   String _roleFilter = 'all';
   String _statusFilter = 'all';
+  int _page = 1;
+  Timer? _searchTimer;
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _searchTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final usersAsync = ref.watch(adminUsersProvider);
+    final query = AdminUsersPageQuery(
+      page: _page,
+      search: _searchCtrl.text,
+      role: _roleFilter,
+    );
+    final usersAsync = ref.watch(adminUsersPageProvider(query));
 
     return Scaffold(
       appBar: AppBar(
@@ -38,86 +48,124 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              ref.invalidate(adminUsersProvider);
+              ref.invalidate(adminUsersPageProvider);
             },
           ),
         ],
       ),
       body: usersAsync.when(
-        data: (users) {
+        data: (pageResult) {
+          final users = pageResult.items;
           final filtered = users.where(_matchesFilters).toList();
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText: 'Nom, téléphone, e-mail ou ID',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchCtrl.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() {});
-                            },
-                          ),
-                    border: const OutlineInputBorder(),
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(adminUsersPageProvider(query));
+              await ref.read(adminUsersPageProvider(query).future);
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      onChanged: (_) {
+                        _searchTimer?.cancel();
+                        _searchTimer = Timer(const Duration(milliseconds: 350), () {
+                          if (mounted) setState(() => _page = 1);
+                        });
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Nom, téléphone, e-mail ou ID',
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchCtrl.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _page = 1);
+                                },
+                              ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _UsersOverviewSection(users: users),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    _buildRoleChip('Tous', 'all'),
-                    _buildRoleChip('Clients', 'client'),
-                    _buildRoleChip('Relais', 'relay_agent'),
-                    _buildRoleChip('Livreurs', 'driver'),
-                    _buildRoleChip('Admins', 'admin'),
-                  ],
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _UsersOverviewSection(users: users),
+                  ),
                 ),
-              ),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    _buildStatusChip('Tous', 'all'),
-                    _buildStatusChip('Actifs', 'active'),
-                    _buildStatusChip('Suspendus', 'banned'),
-                    _buildStatusChip('KYC ok', 'kyc_verified'),
-                    _buildStatusChip(
-                        'Téléphone non vérifié', 'phone_unverified'),
-                  ],
+                SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        _buildRoleChip('Tous', 'all'),
+                        _buildRoleChip('Clients', 'client'),
+                        _buildRoleChip('Relais', 'relay_agent'),
+                        _buildRoleChip('Livreurs', 'driver'),
+                        _buildRoleChip('Admins', 'admin'),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: filtered.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Aucun utilisateur ne correspond aux filtres.',
+                SliverToBoxAdapter(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        _buildStatusChip('Tous', 'all'),
+                        _buildStatusChip('Actifs', 'active'),
+                        _buildStatusChip('Suspendus', 'banned'),
+                        _buildStatusChip('KYC ok', 'kyc_verified'),
+                        _buildStatusChip(
+                            'Téléphone non vérifié', 'phone_unverified'),
+                      ],
+                    ),
+                  ),
+                ),
+                if (filtered.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text('Aucun utilisateur ne correspond aux filtres.'),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, index) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _UserCard(user: filtered[index]),
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (_, index) =>
-                            _UserCard(user: filtered[index]),
+                        childCount: filtered.length,
                       ),
-              ),
-            ],
+                    ),
+                  ),
+                if (pageResult.total > 100)
+                  SliverToBoxAdapter(
+                    child: _AdminUsersPagination(
+                      page: _page,
+                      total: pageResult.total,
+                      onPrevious: _page > 1
+                          ? () => setState(() => _page--)
+                          : null,
+                      onNext: _page * 100 < pageResult.total
+                          ? () => setState(() => _page++)
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -132,7 +180,10 @@ class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
       child: FilterChip(
         label: Text(label),
         selected: _roleFilter == value,
-        onSelected: (_) => setState(() => _roleFilter = value),
+        onSelected: (_) => setState(() {
+          _roleFilter = value;
+          _page = 1;
+        }),
       ),
     );
   }
@@ -225,6 +276,53 @@ class _UsersOverviewSection extends StatelessWidget {
           icon: Icons.admin_panel_settings_outlined,
         ),
       ].map((child) => SizedBox(width: 160, child: child)).toList(),
+    );
+  }
+}
+
+class _AdminUsersPagination extends StatelessWidget {
+  const _AdminUsersPagination({
+    required this.page,
+    required this.total,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final int page;
+  final int total;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final first = ((page - 1) * 100) + 1;
+    final last = (page * 100).clamp(0, total);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('$first–$last sur $total'),
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Page précédente',
+                  onPressed: onPrevious,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Text('$page'),
+                IconButton(
+                  tooltip: 'Page suivante',
+                  onPressed: onNext,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -562,12 +660,14 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
                   'driver',
                   Icons.delivery_dining,
                   Colors.blue,
+                  disabled: widget.user.role == 'relay_agent',
                 ),
                 _roleButton(
                   'Agent relais',
                   'relay_agent',
                   Icons.store,
                   Colors.orange,
+                  disabled: widget.user.role == 'driver',
                 ),
                 _roleButton(
                   'Admin',
@@ -762,25 +862,26 @@ class _UserActionsSheetState extends ConsumerState<_UserActionsSheet> {
     String role,
     IconData icon,
     Color color,
+    {bool disabled = false}
   ) {
     final isCurrent = widget.user.role == role;
+    final isDisabled = isCurrent || disabled;
     return OutlinedButton.icon(
-      onPressed: isCurrent ? null : () => _changeRole(context, role),
-      icon: Icon(icon, size: 16, color: isCurrent ? Colors.grey : color),
+      onPressed: isDisabled ? null : () => _changeRole(context, role),
+      icon: Icon(icon, size: 16, color: isDisabled ? Colors.grey : color),
       label: Text(
         label,
         style: TextStyle(
-          color: isCurrent ? Colors.grey : color,
+          color: isDisabled ? Colors.grey : color,
           fontSize: 13,
         ),
       ),
       style: OutlinedButton.styleFrom(
         side: BorderSide(
-          color:
-              isCurrent ? Colors.grey.shade300 : color.withValues(alpha: 0.5),
+          color: isDisabled ? Colors.grey.shade300 : color.withValues(alpha: 0.5),
         ),
         backgroundColor:
-            isCurrent ? Colors.grey.shade100 : color.withValues(alpha: 0.05),
+            isDisabled ? Colors.grey.shade100 : color.withValues(alpha: 0.05),
       ),
     );
   }

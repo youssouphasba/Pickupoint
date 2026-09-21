@@ -19,7 +19,7 @@ from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from core.security import hash_password
 from database import db
-from models.common import UserRole, ParcelStatus
+from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
 from services.parcel_service import (
@@ -65,6 +65,7 @@ from services.performance_rewards_service import (
     get_performance_rewards_settings,
     set_performance_rewards_settings,
 )
+from services.relay_geocoding_service import geocode_relay_address
 from services.wallet_service import (
     credit_wallet,
     compute_delivery_commission_breakdown,
@@ -1354,11 +1355,22 @@ async def admin_list_parcels(
     payment_blocked: bool = False,
     from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    search: Optional[str] = Query(None, max_length=120),
     skip: int = 0,
     limit: int = 100,
     _admin=Depends(require_admin_dep),
 ):
     query: dict = {}
+
+    if search and search.strip():
+        pattern = re.escape(search.strip())
+        query.setdefault("$and", []).append({"$or": [
+            {"tracking_code": {"$regex": pattern, "$options": "i"}},
+            {"parcel_id": {"$regex": pattern, "$options": "i"}},
+            {"sender_name": {"$regex": pattern, "$options": "i"}},
+            {"recipient_name": {"$regex": pattern, "$options": "i"}},
+            {"recipient_phone": {"$regex": pattern, "$options": "i"}},
+        ]})
 
     date_clause = date_range_query(from_date, to_date, field="created_at")
     if date_clause:
@@ -1818,6 +1830,7 @@ async def admin_unsuspend_parcel(
 @router.get("/relay-points", summary="Réseau relais complet")
 async def admin_relay_points(
     active: Optional[bool] = None,
+    search: Optional[str] = Query(None, max_length=120),
     skip: int = 0,
     limit: int = 100,
     _admin=Depends(require_admin_dep),
@@ -1825,6 +1838,16 @@ async def admin_relay_points(
     query = {}
     if active is not None:
         query["is_active"] = active
+    if search and search.strip():
+        pattern = re.escape(search.strip())
+        query["$or"] = [
+            {"relay_id": {"$regex": pattern, "$options": "i"}},
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"phone": {"$regex": pattern, "$options": "i"}},
+            {"address.label": {"$regex": pattern, "$options": "i"}},
+            {"address.city": {"$regex": pattern, "$options": "i"}},
+            {"address.district": {"$regex": pattern, "$options": "i"}},
+        ]
     safe_limit = min(max(limit, 1), 1000)
     safe_skip = max(skip, 0)
     cursor = (
@@ -1837,6 +1860,50 @@ async def admin_relay_points(
     return {"relay_points": await cursor.to_list(length=safe_limit), "total": total}
 
 
+@router.post("/relay-points/geocode-missing", summary="Géocoder les relais incomplets")
+async def admin_geocode_missing_relays(
+    limit: int = Query(100, ge=1, le=500),
+    _admin=Depends(require_admin_dep),
+):
+    query = {
+        "$or": [
+            {"address.geopin": {"$exists": False}},
+            {"address.geopin": None},
+            {"address.label": {"$in": [None, ""]}},
+        ]
+    }
+    relays = await db.relay_points.find(query, {"_id": 0}).sort("updated_at", -1).limit(limit).to_list(length=limit)
+    processed = 0
+    geocoded = 0
+    unchanged = 0
+    errors = []
+
+    for relay in relays:
+        processed += 1
+        try:
+            address = Address.model_validate(relay.get("address") or {})
+            enriched = await geocode_relay_address(address)
+            enriched_data = enriched.model_dump()
+            if enriched_data == (relay.get("address") or {}):
+                unchanged += 1
+                continue
+            await db.relay_points.update_one(
+                {"relay_id": relay["relay_id"]},
+                {"$set": {"address": enriched_data, "updated_at": datetime.now(timezone.utc)}},
+            )
+            geocoded += 1
+        except Exception as exc:
+            errors.append({"relay_id": relay.get("relay_id"), "error": str(exc)})
+
+    return {
+        "processed": processed,
+        "geocoded": geocoded,
+        "unchanged": unchanged,
+        "errors": errors,
+        "remaining": await db.relay_points.count_documents(query),
+    }
+
+
 @router.put("/relay-points/{relay_id}/verify", summary="Valider un relais")
 async def verify_relay(relay_id: str, _admin=Depends(require_admin_dep)):
     result = await db.relay_points.update_one(
@@ -1846,6 +1913,63 @@ async def verify_relay(relay_id: str, _admin=Depends(require_admin_dep)):
     if result.matched_count == 0:
         raise not_found_exception("Point relais")
     return {"message": "Relais vérifié"}
+
+
+@router.post("/relay-points/{relay_id}/archive", summary="Archiver un relais")
+async def archive_relay(relay_id: str, _admin=Depends(require_admin_dep)):
+    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+    if not relay:
+        raise not_found_exception("Point relais")
+    if not relay.get("is_active", True):
+        return {"message": "Relais déjà archivé", "relay_id": relay_id}
+
+    active_statuses = [
+        ParcelStatus.CREATED.value,
+        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
+        ParcelStatus.IN_TRANSIT.value,
+        ParcelStatus.AT_DESTINATION_RELAY.value,
+        ParcelStatus.AVAILABLE_AT_RELAY.value,
+        ParcelStatus.OUT_FOR_DELIVERY.value,
+        ParcelStatus.REDIRECTED_TO_RELAY.value,
+        ParcelStatus.INCIDENT_REPORTED.value,
+        ParcelStatus.SUSPENDED.value,
+    ]
+    active_parcels = await db.parcels.count_documents({
+        "status": {"$in": active_statuses},
+        "$or": [
+            {"origin_relay_id": relay_id},
+            {"destination_relay_id": relay_id},
+            {"redirect_relay_id": relay_id},
+            {"transit_relay_id": relay_id},
+        ],
+    })
+    if active_parcels:
+        raise bad_request_exception(
+            f"Impossible d’archiver ce relais : {active_parcels} colis actif(s) lui sont encore associés."
+        )
+
+    now = datetime.now(timezone.utc)
+    await db.relay_points.update_one(
+        {"relay_id": relay_id},
+        {"$set": {"is_active": False, "updated_at": now}},
+    )
+    await db.users.update_many(
+        {"relay_point_id": relay_id},
+        {
+            "$set": {
+                "role": UserRole.CLIENT.value,
+                "relay_point_id": None,
+                "updated_at": now,
+            }
+        },
+    )
+    await record_admin_event(
+        event_type=AdminEventType.RELAY_ARCHIVED,
+        title="Relais archivé",
+        message=f"Le relais {relay_id} a été archivé.",
+        metadata={"relay_id": relay_id},
+    )
+    return {"message": "Relais archivé", "relay_id": relay_id}
 
 
 @router.get("/drivers", summary="Liste livreurs + stats")
@@ -2156,6 +2280,7 @@ async def admin_list_users(
     role: str = None,
     from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    search: Optional[str] = Query(None, max_length=120),
     _admin=Depends(require_admin_dep),
 ):
     from services.ranking_service import refresh_driver_stats_for_period
@@ -2169,6 +2294,15 @@ async def admin_list_users(
     if role:
         query["role"] = role
     query.update(date_range_query(from_date, to_date, field="created_at"))
+    if search and search.strip():
+        pattern = re.escape(search.strip())
+        query["$or"] = [
+            {"user_id": {"$regex": pattern, "$options": "i"}},
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"full_name": {"$regex": pattern, "$options": "i"}},
+            {"phone": {"$regex": pattern, "$options": "i"}},
+            {"email": {"$regex": pattern, "$options": "i"}},
+        ]
     
     cursor = db.users.find(query, {"_id": 0}).skip(skip).limit(limit).sort("created_at", -1)
     users = await cursor.to_list(length=limit)
@@ -2207,7 +2341,7 @@ async def admin_send_targeted_notification(
     users = await db.users.find(
         query,
         {"_id": 0, "user_id": 1, "role": 1, "is_active": 1, "is_banned": 1},
-    ).to_list(length=500)
+    ).to_list(length=100000)
     if not users:
         raise bad_request_exception("Aucun utilisateur éligible pour cette notification")
 
@@ -4671,12 +4805,21 @@ async def admin_get_audit_log(
     offset: int = 0,
     from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    search: Optional[str] = Query(None, max_length=120),
     _admin=Depends(require_admin_dep),
 ):
     """
     Récupère les derniers événements système pour une traçabilité complète.
     """
     query = date_range_query(from_date, to_date, field="created_at")
+    if search and search.strip():
+        pattern = re.escape(search.strip())
+        query["$or"] = [
+            {"event_type": {"$regex": pattern, "$options": "i"}},
+            {"actor_id": {"$regex": pattern, "$options": "i"}},
+            {"parcel_id": {"$regex": pattern, "$options": "i"}},
+            {"notes": {"$regex": pattern, "$options": "i"}},
+        ]
     cursor = db.parcel_events.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
     events = await cursor.to_list(length=limit)
     
@@ -4692,7 +4835,8 @@ async def admin_get_audit_log(
             if parcel:
                 ev["tracking_code"] = parcel["tracking_code"]
                 
-    return {"events": events}
+    total = await db.parcel_events.count_documents(query)
+    return {"events": events, "total": total}
 
 
 @router.put("/wallets/payouts/{payout_id}/reject", summary="Rejeter retrait")

@@ -5,19 +5,23 @@ import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
+  archiveRelay,
   fetchRelayDetail,
   getRelayAddressLabel,
   getRelayCoordinates,
+  updateRelayPoint,
   verifyRelay,
 } from "@/lib/api";
 import { LocationPreviewMap } from "@/components/location-preview-map";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
+  Archive,
   CheckCircle2,
   Loader2,
   MapPin,
@@ -107,6 +111,17 @@ export default function RelayDetailPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [editForm, setEditForm] = React.useState({
+    name: "",
+    phone: "",
+    label: "",
+    city: "",
+    district: "",
+    lat: "",
+    lng: "",
+    maxCapacity: "",
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["relay-detail", id],
@@ -119,8 +134,41 @@ export default function RelayDetailPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["relay-detail", id] });
       qc.invalidateQueries({ queryKey: ["relays"] });
+      qc.invalidateQueries({ queryKey: ["relays-map"] });
       toast("Relais vérifié.");
     },
+  });
+  const updateMut = useMutation({
+    mutationFn: () => updateRelayPoint(id, {
+      name: editForm.name.trim(),
+      phone: editForm.phone.trim(),
+      max_capacity: Number(editForm.maxCapacity),
+      address: {
+        label: editForm.label.trim() || undefined,
+        city: editForm.city.trim() || undefined,
+        district: editForm.district.trim() || undefined,
+        ...(editForm.lat.trim() && editForm.lng.trim()
+          ? { geopin: { lat: Number(editForm.lat), lng: Number(editForm.lng) } }
+          : {}),
+      },
+    }),
+    onSuccess: () => {
+      setEditOpen(false);
+      qc.invalidateQueries({ queryKey: ["relay-detail", id] });
+      qc.invalidateQueries({ queryKey: ["relays"] });
+      toast("Relais modifié. Le géocodage a été actualisé si nécessaire.");
+    },
+    onError: () => toast("Impossible de modifier le relais."),
+  });
+  const archiveMut = useMutation({
+    mutationFn: () => archiveRelay(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["relay-detail", id] });
+      qc.invalidateQueries({ queryKey: ["relays"] });
+      qc.invalidateQueries({ queryKey: ["relays-map"] });
+      toast("Relais archivé. Les agents associés repassent en vue client.");
+    },
+    onError: () => toast("Impossible d’archiver le relais : vérifiez son stock actif."),
   });
 
   if (isLoading) {
@@ -145,6 +193,21 @@ export default function RelayDetailPage() {
   const stock = data.stock_summary;
   const wallet = data.wallet;
   const coordinates = getRelayCoordinates(relay);
+  const address = typeof relay.address === "object" ? relay.address : undefined;
+
+  function startEditing() {
+    setEditForm({
+      name: relay.name ?? "",
+      phone: relay.phone ?? "",
+      label: address?.label ?? "",
+      city: address?.city ?? relay.city ?? "",
+      district: address?.district ?? "",
+      lat: coordinates?.latitude?.toString() ?? "",
+      lng: coordinates?.longitude?.toString() ?? "",
+      maxCapacity: String(relay.max_capacity ?? 20),
+    });
+    setEditOpen(true);
+  }
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -183,17 +246,69 @@ export default function RelayDetailPage() {
             </div>
           )}
         </div>
-        {!relay.is_verified && (
-          <Button
-            size="sm"
-            disabled={verifyMut.isPending}
-            onClick={() => verifyMut.mutate()}
-          >
-            <CheckCircle2 className="h-4 w-4" />
-            Vérifier
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={startEditing}>Modifier</Button>
+          {!relay.is_verified && (
+            <Button
+              size="sm"
+              disabled={verifyMut.isPending}
+              onClick={() => verifyMut.mutate()}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Vérifier
+            </Button>
+          )}
+          {relay.is_active && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={archiveMut.isPending}
+              onClick={() => {
+                if (window.confirm("Archiver ce relais ? L’action est bloquée si des colis actifs y sont encore associés.")) {
+                  archiveMut.mutate();
+                }
+              }}
+            >
+              {archiveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+              Archiver
+            </Button>
+          )}
+        </div>
       </div>
+
+      {editOpen && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Modifier le relais</CardTitle></CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            {([
+              ["name", "Nom du relais"],
+              ["phone", "Téléphone"],
+              ["label", "Adresse"],
+              ["city", "Ville"],
+              ["district", "Quartier"],
+              ["maxCapacity", "Capacité maximale"],
+              ["lat", "Latitude"],
+              ["lng", "Longitude"],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="space-y-1 text-sm">
+                <span className="font-medium">{label}</span>
+                <Input
+                  value={editForm[field]}
+                  inputMode={field === "lat" || field === "lng" || field === "maxCapacity" ? "decimal" : undefined}
+                  onChange={(event) => setEditForm((current) => ({ ...current, [field]: event.target.value }))}
+                />
+              </label>
+            ))}
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button disabled={updateMut.isPending} onClick={() => updateMut.mutate()}>
+                {updateMut.isPending && <Loader2 className="animate-spin" />}
+                Enregistrer
+              </Button>
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Annuler</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

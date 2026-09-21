@@ -119,28 +119,38 @@ async def _fetch_payouts(now: datetime) -> list[dict[str, Any]]:
 
 async def _fetch_applications(now: datetime) -> list[dict[str, Any]]:
     sla = DEFAULT_SLAS["application"]
-    cursor = db.users.find(
+    cursor = db.applications.find(
+        {"status": "pending"},
         {
-            "role": UserRole.CLIENT.value,
-            "kyc_status": {"$in": ["pending", "verified"]},
+            "_id": 0,
+            "application_id": 1,
+            "user_id": 1,
+            "user_name": 1,
+            "user_phone": 1,
+            "type": 1,
+            "status": 1,
+            "created_at": 1,
+            "updated_at": 1,
         },
-        {"_id": 0, "user_id": 1, "full_name": 1, "name": 1, "phone": 1, "kyc_status": 1, "created_at": 1, "updated_at": 1},
-    ).sort("updated_at", 1)
+    ).sort("created_at", 1)
     items: list[dict[str, Any]] = []
-    async for u in cursor:
-        ref_date = u.get("updated_at") or u.get("created_at")
+    async for application in cursor:
+        ref_date = application.get("created_at") or application.get("updated_at")
         age_h = _age_hours(ref_date, now)
         items.append({
-            "id": u["user_id"],
-            "user_id": u["user_id"],
-            "full_name": u.get("full_name") or u.get("name"),
-            "phone": u.get("phone"),
-            "kyc_status": u.get("kyc_status"),
+            "id": application["application_id"],
+            "application_id": application["application_id"],
+            "user_id": application.get("user_id"),
+            "full_name": application.get("user_name") or application.get("user_phone"),
+            "phone": application.get("user_phone"),
+            "application_type": application.get("type"),
+            "status": application.get("status"),
             "submitted_at": ref_date,
             "age_hours": round(age_h, 2),
             "urgency": _urgency(age_h, sla),
             "href": "/dashboard/applications",
         })
+    await _enrich_user_names(items, "user_id", "full_name")
     return items
 
 
@@ -337,6 +347,37 @@ async def _fetch_disputes(now: datetime) -> list[dict[str, Any]]:
     return items
 
 
+async def _fetch_security_events(admin_id: str, now: datetime) -> list[dict[str, Any]]:
+    cursor = db.admin_events.find(
+        {
+            "event_type": "security_gps_blocked",
+            "read_by": {"$ne": admin_id},
+        },
+        {"_id": 0},
+    ).sort("created_at", -1).limit(200)
+    items: list[dict[str, Any]] = []
+    async for event in cursor:
+        metadata = event.get("metadata") or {}
+        created_at = event.get("created_at")
+        age_h = _age_hours(created_at, now)
+        items.append({
+            "id": event.get("event_id"),
+            "event_id": event.get("event_id"),
+            "driver_id": metadata.get("driver_id"),
+            "parcel_id": metadata.get("parcel_id"),
+            "reason": metadata.get("reason"),
+            "distance_m": metadata.get("distance_m"),
+            "created_at": created_at,
+            "message": event.get("message"),
+            "age_hours": round(age_h, 2),
+            "urgency": "critical",
+            "href": event.get("href") or "/dashboard/audit-log",
+        })
+    await _enrich_user_names(items, "driver_id", "driver_name")
+    await _enrich_parcel_tracking(items)
+    return items
+
+
 # ── Endpoint principal ──────────────────────────────────────────────────────
 
 @router.get("/action-center", summary="Centre d'action admin : compteurs + items urgents")
@@ -361,6 +402,7 @@ async def admin_action_center(_admin=Depends(require_admin_dep)):
     payment_blocked = await _fetch_payment_blocked(now)
     support = await _fetch_support(now)
     disputes = await _fetch_disputes(now)
+    security = await _fetch_security_events(_admin_id(_admin), now)
 
     def _pack(items: list[dict[str, Any]], label: str, href: str) -> dict[str, Any]:
         items_sorted = sorted(items, key=lambda x: x["age_hours"], reverse=True)
@@ -382,6 +424,7 @@ async def admin_action_center(_admin=Depends(require_admin_dep)):
         "payment_blocked": _pack(payment_blocked, "Paiements bloqués", "/dashboard/parcels?payment_blocked=true"),
         "support": _pack(support, "Support WhatsApp", "/dashboard/support"),
         "disputes": _pack(disputes, "Litiges ouverts", "/dashboard/parcels?status=disputed"),
+        "security": _pack(security, "Alertes sécurité livreurs", "/dashboard/audit-log?search=SECURITY_GPS_BLOCKED"),
     }
 
     total = sum(c["count"] for c in categories.values())

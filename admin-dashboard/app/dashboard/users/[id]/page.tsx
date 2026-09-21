@@ -1369,17 +1369,25 @@ export default function UserDetailPage() {
             <h3 className="mb-4 text-lg font-semibold">Changer le rôle</h3>
             <div className="mb-4 flex flex-wrap gap-2">
               {ROLES.map((r) => (
-                <button
+                (() => {
+                  const incompatible =
+                    (user.role === "driver" && r === "relay_agent") ||
+                    (user.role === "relay_agent" && r === "driver");
+                  return <button
                   key={r}
+                  disabled={incompatible}
                   onClick={() => setSelectedRole(r)}
                   className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                    selectedRole === r
+                    incompatible
+                      ? "cursor-not-allowed border-input bg-muted text-muted-foreground opacity-60"
+                      : selectedRole === r
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-input bg-background hover:bg-accent"
                   }`}
                 >
                   {ROLE_LABELS[r]}
-                </button>
+                </button>;
+                })()
               ))}
             </div>
             <div className="flex justify-end gap-2">

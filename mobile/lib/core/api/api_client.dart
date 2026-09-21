@@ -455,6 +455,9 @@ class ApiClient {
   Future<Response> getAdminAuditLog({int limit = 100}) =>
       _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});
 
+  Future<Response> getAdminActionCenter() =>
+      _dio.get(ApiEndpoints.adminActionCenter);
+
   Future<Response> reassignMission(
     String id,
     String driverId, {
@@ -480,7 +483,27 @@ class ApiClient {
         queryParameters: {'new_status': status, 'notes': notes},
       );
 
-  Future<Response> getAdminRelays() => _dio.get(ApiEndpoints.adminRelays);
+  Future<Response> getAdminRelays({
+    int skip = 0,
+    int limit = 100,
+    String? search,
+  }) =>
+      _dio.get(
+        ApiEndpoints.adminRelays,
+        queryParameters: {
+          'skip': skip,
+          'limit': limit,
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        },
+      );
+
+  Future<Response> geocodeMissingAdminRelays({int limit = 100}) => _dio.post(
+        ApiEndpoints.adminRelayGeocodeMissing,
+        queryParameters: {'limit': limit},
+      );
+
+  Future<Response> archiveAdminRelay(String id) =>
+      _dio.post(ApiEndpoints.adminRelayArchive(id));
 
   Future<Response> verifyRelay(String id) =>
       _dio.put(ApiEndpoints.relayVerify(id));
@@ -603,9 +626,20 @@ class ApiClient {
   }
 
   // ─── Admin — Utilisateurs ─────────────────────────────────────────────────
-  Future<Response> getAdminUsers({int skip = 0, int limit = 100}) => _dio.get(
+  Future<Response> getAdminUsers({
+    int skip = 0,
+    int limit = 100,
+    String? search,
+    String? role,
+  }) =>
+      _dio.get(
         ApiEndpoints.adminUsers,
-        queryParameters: {'skip': skip, 'limit': limit},
+        queryParameters: {
+          'skip': skip,
+          'limit': limit,
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (role != null && role.isNotEmpty && role != 'all') 'role': role,
+        },
       );
 
   Future<Response> getAdminUsersOverview() =>

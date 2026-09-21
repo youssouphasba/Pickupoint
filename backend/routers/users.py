@@ -26,6 +26,7 @@ from core.security import hash_password, verify_password
 from core.utils import normalize_phone
 from database import db, get_db
 from models.common import UserRole
+from models.delivery import MissionStatus
 from models.user import FavoriteAddress, ProfileUpdate, User
 from services.parcel_service import _record_event
 from services.referral_service import ensure_referral_record_for_user, refresh_referral_progress, upsert_referral_record
@@ -388,9 +389,77 @@ async def change_role(
     role: UserRole,
     _admin=Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
 ):
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "role": 1, "relay_point_id": 1},
+    )
+    if not user:
+        raise not_found_exception("Utilisateur")
+
+    current_role = user.get("role")
+    if current_role == UserRole.DRIVER.value and role == UserRole.RELAY_AGENT:
+        raise bad_request_exception(
+            "Un livreur ne peut pas être converti en agent relais sans quitter d'abord son rôle de livreur."
+        )
+    if current_role == UserRole.RELAY_AGENT.value and role == UserRole.DRIVER:
+        raise bad_request_exception(
+            "Un agent relais ne peut pas être converti en livreur sans quitter d'abord son rôle d'agent relais."
+        )
+
+    if current_role == UserRole.DRIVER.value and role != UserRole.DRIVER:
+        active_missions = await db.delivery_missions.count_documents({
+            "driver_id": user_id,
+            "status": {
+                "$nin": [
+                    MissionStatus.COMPLETED.value,
+                    MissionStatus.FAILED.value,
+                    MissionStatus.CANCELLED.value,
+                ]
+            },
+        })
+        if active_missions:
+            raise bad_request_exception(
+                "Impossible de retirer le rôle livreur tant qu'une mission est active."
+            )
+
+    if current_role == UserRole.RELAY_AGENT.value and role != UserRole.RELAY_AGENT:
+        relay_id = user.get("relay_point_id")
+        if relay_id:
+            active_stock = await db.parcels.count_documents({
+                "status": {
+                    "$in": [
+                        "dropped_at_origin_relay",
+                        "in_transit",
+                        "at_destination_relay",
+                        "available_at_relay",
+                        "out_for_delivery",
+                        "redirected_to_relay",
+                        "incident_reported",
+                        "suspended",
+                    ]
+                },
+                "$or": [
+                    {"origin_relay_id": relay_id},
+                    {"destination_relay_id": relay_id},
+                    {"redirect_relay_id": relay_id},
+                    {"transit_relay_id": relay_id},
+                ],
+            })
+            if active_stock:
+                raise bad_request_exception(
+                    "Impossible de retirer le rôle agent relais tant que des colis actifs sont associés à son relais."
+                )
+
+    updates = {
+        "role": role.value,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if role != UserRole.RELAY_AGENT:
+        updates["relay_point_id"] = None
+
     result = await db.users.update_one(
         {"user_id": user_id},
-        {"$set": {"role": role.value, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": updates},
     )
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
@@ -1150,6 +1219,16 @@ async def assign_relay_point(
     relay = await db.relay_points.find_one({"relay_id": relay_id})
     if not relay:
         raise not_found_exception("Point relais")
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "role": 1},
+    )
+    if not user:
+        raise not_found_exception("Utilisateur")
+    if user.get("role") == UserRole.DRIVER.value:
+        raise bad_request_exception(
+            "Un livreur ne peut pas être associé à un point relais."
+        )
     result = await db.users.update_one(
         {"user_id": user_id},
         {"$set": {

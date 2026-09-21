@@ -4,10 +4,11 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { fetchAuditLog } from "@/lib/api";
-import { DataTable } from "@/components/data-table";
+import { DataTable, ServerPagination } from "@/components/data-table";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 type AuditEvent = {
   event_type: string;
@@ -30,6 +31,11 @@ const EVENT_TONES: Record<string, "default" | "info" | "success" | "warning" | "
   USER_BANNED: "danger",
   USER_UNBANNED: "success",
   USER_ROLE_CHANGED: "warning",
+  SECURITY_GPS_BLOCKED: "danger",
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  SECURITY_GPS_BLOCKED: "BLOCAGE SÉCURITÉ GPS",
 };
 
 function fmtDate(iso?: string) {
@@ -40,15 +46,21 @@ function fmtDate(iso?: string) {
 
 export default function AuditLogPage() {
   const [dateRange, setDateRange] = React.useState<DateRange>({});
+  const [serverSearch, setServerSearch] = React.useState("");
+  const [page, setPage] = React.useState(0);
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["audit-log", dateRange.from ?? "", dateRange.to ?? ""],
+    queryKey: ["audit-log", dateRange.from ?? "", dateRange.to ?? "", serverSearch, page],
     queryFn: () =>
       fetchAuditLog({
-        limit: 500,
+        limit: 100,
+        offset: page * 100,
+        search: serverSearch.trim() || undefined,
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
+    refetchInterval: 60_000,
   });
+  React.useEffect(() => setPage(0), [serverSearch, dateRange.from, dateRange.to]);
 
   const events: AuditEvent[] = data?.events ?? [];
 
@@ -70,9 +82,7 @@ export default function AuditLogPage() {
         accessorKey: "event_type",
         cell: ({ getValue }) => {
           const t = getValue() as string;
-          return (
-            <Badge tone={EVENT_TONES[t] ?? "default"}>{t.replace(/_/g, " ")}</Badge>
-          );
+          return <Badge tone={EVENT_TONES[t] ?? "default"}>{EVENT_LABELS[t] ?? t.replace(/_/g, " ")}</Badge>;
         },
       },
       {
@@ -126,6 +136,13 @@ export default function AuditLogPage() {
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
+      <Input
+        value={serverSearch}
+        onChange={(event) => setServerSearch(event.target.value)}
+        placeholder="Rechercher côté serveur : action, acteur, colis…"
+        className="max-w-xl"
+      />
+
       {isLoading && (
         <div className="flex h-40 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -137,18 +154,21 @@ export default function AuditLogPage() {
         </div>
       )}
       {data && (
-        <DataTable
-          columns={columns}
-          data={events}
-          searchPlaceholder="Événement, acteur, tracking code, notes…"
-          globalFilterFn={(e, q) =>
-            (e.event_type ?? "").toLowerCase().includes(q) ||
-            (e.actor_name ?? "").toLowerCase().includes(q) ||
-            (e.actor_id ?? "").toLowerCase().includes(q) ||
-            (e.tracking_code ?? "").toLowerCase().includes(q) ||
-            (e.notes ?? "").toLowerCase().includes(q)
-          }
-        />
+        <>
+          <DataTable
+            columns={columns}
+            data={events}
+            searchPlaceholder="Filtrer la page…"
+            globalFilterFn={(e, q) =>
+              (e.event_type ?? "").toLowerCase().includes(q) ||
+              (e.actor_name ?? "").toLowerCase().includes(q) ||
+              (e.actor_id ?? "").toLowerCase().includes(q) ||
+              (e.tracking_code ?? "").toLowerCase().includes(q) ||
+              (e.notes ?? "").toLowerCase().includes(q)
+            }
+          />
+          <ServerPagination page={page} total={data.total} pageSize={100} onPageChange={setPage} />
+        </>
       )}
     </div>
   );

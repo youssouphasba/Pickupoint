@@ -75,6 +75,7 @@ export default function TargetedNotificationsPage() {
   const { toast } = useToast();
   const [role, setRole] = React.useState("all");
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [sendEntireRole, setSendEntireRole] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [category, setCategory] = React.useState<
@@ -85,6 +86,7 @@ export default function TargetedNotificationsPage() {
     queryKey: ["notification-users", role],
     queryFn: () =>
       fetchUsers({ limit: 500, role: role === "all" ? undefined : role }),
+    refetchInterval: 60_000,
   });
   const historyQuery = useQuery({
     queryKey: ["notification-broadcasts"],
@@ -105,7 +107,8 @@ export default function TargetedNotificationsPage() {
         title: title.trim(),
         body: body.trim(),
         category,
-        user_ids: Array.from(selectedIds),
+        user_ids: sendEntireRole ? [] : Array.from(selectedIds),
+        ...(sendEntireRole && role !== "all" ? { role: role as "client" | "driver" | "relay_agent" | "admin" | "superadmin" } : {}),
       }),
     onSuccess: (result) => {
       toast(
@@ -113,6 +116,7 @@ export default function TargetedNotificationsPage() {
       );
       historyQuery.refetch();
       setSelectedIds(new Set());
+      setSendEntireRole(false);
       setTitle("");
       setBody("");
     },
@@ -216,7 +220,7 @@ export default function TargetedNotificationsPage() {
   );
 
   const canSend =
-    selectedIds.size > 0 &&
+    (selectedIds.size > 0 || (sendEntireRole && role !== "all")) &&
     title.trim().length >= 2 &&
     body.trim().length >= 3 &&
     !sendMut.isPending;
@@ -260,6 +264,22 @@ export default function TargetedNotificationsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {role !== "all" && (
+              <label className="flex items-start gap-2 rounded-md border bg-muted/20 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={sendEntireRole}
+                  onChange={(event) => setSendEntireRole(event.target.checked)}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  <span className="block font-medium">Notifier tout le rôle</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Envoie à tous les comptes éligibles, même au-delà des utilisateurs chargés dans la liste.
+                  </span>
+                </span>
+              </label>
+            )}
 
             {isLoading && (
               <div className="flex h-40 items-center justify-center">

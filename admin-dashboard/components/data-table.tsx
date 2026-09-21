@@ -184,3 +184,42 @@ export function DataTable<TData>({
     </div>
   );
 }
+
+export function ServerPagination({
+  page,
+  total,
+  pageSize,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+      <span>
+        Page {page + 1} / {pageCount} · {total} résultat{total > 1 ? "s" : ""}
+      </span>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 0}
+        >
+          Précédent
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= pageCount - 1}
+        >
+          Suivant
+        </Button>
+      </div>
+    </div>
+  );
+}
