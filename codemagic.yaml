@@ -226,6 +226,7 @@ workflows:
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
+        LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
         IOS_BUILD_NAME: "1.0.25"
         IOS_BUILD_NUMBER: "44"
     cache:
@@ -297,6 +298,7 @@ workflows:
             exit 1
           fi
           app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
+          app-store-connect fetch-signing-files "$LIVE_ACTIVITY_BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
           keychain add-certificates
 
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
@@ -354,6 +356,7 @@ workflows:
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
+        LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
         SHOREBIRD_IOS_RELEASE_VERSION: "1.0.23+42"
     cache:
       cache_paths:
@@ -426,6 +429,7 @@ workflows:
             exit 1
           fi
           app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
+          app-store-connect fetch-signing-files "$LIVE_ACTIVITY_BUNDLE_ID" --type IOS_APP_STORE --create --certificate-key @env:CERTIFICATE_PRIVATE_KEY
           keychain add-certificates
 
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
