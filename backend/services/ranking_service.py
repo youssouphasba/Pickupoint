@@ -12,6 +12,65 @@ logger = logging.getLogger(__name__)
 MONTHLY_DRIVER_GOAL = 20
 
 
+async def compute_driver_delivery_duration_stats(driver_id: str) -> dict[str, dict[str, int | str | None]]:
+    missions = await db.delivery_missions.find(
+        {
+            "driver_id": driver_id,
+            "status": "completed",
+            "assigned_at": {"$ne": None},
+            "started_at": {"$ne": None},
+            "completed_at": {"$ne": None},
+        },
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "assigned_at": 1,
+            "started_at": 1,
+            "completed_at": 1,
+        },
+    ).to_list(None)
+    parcel_ids = [mission.get("parcel_id") for mission in missions if mission.get("parcel_id")]
+    parcels = await db.parcels.find(
+        {"parcel_id": {"$in": parcel_ids}},
+        {"_id": 0, "parcel_id": 1, "delivery_mode": 1},
+    ).to_list(None)
+    mode_by_parcel_id = {
+        parcel.get("parcel_id"): parcel.get("delivery_mode")
+        for parcel in parcels
+        if parcel.get("parcel_id") and parcel.get("delivery_mode")
+    }
+    durations_by_mode: dict[str, list[tuple[int, int]]] = {}
+    for mission in missions:
+        mode = mode_by_parcel_id.get(mission.get("parcel_id"))
+        if not mode:
+            continue
+        assigned_at = mission.get("assigned_at")
+        started_at = mission.get("started_at")
+        completed_at = mission.get("completed_at")
+        if not all(isinstance(value, datetime) for value in (assigned_at, started_at, completed_at)):
+            continue
+        before_pickup_seconds = int((started_at - assigned_at).total_seconds())
+        delivery_seconds = int((completed_at - started_at).total_seconds())
+        if before_pickup_seconds < 0 or delivery_seconds < 0:
+            continue
+        durations_by_mode.setdefault(mode, []).append(
+            (before_pickup_seconds, delivery_seconds)
+        )
+
+    result: dict[str, dict[str, int | str | None]] = {}
+    for mode, durations in durations_by_mode.items():
+        before_pickup = [item[0] for item in durations]
+        delivery = [item[1] for item in durations]
+        result[mode] = {
+            "sample_count": len(durations),
+            "average_before_pickup_seconds": round(sum(before_pickup) / len(before_pickup)),
+            "average_delivery_seconds": round(sum(delivery) / len(delivery)),
+            "fastest_delivery_seconds": min(delivery),
+            "slowest_delivery_seconds": max(delivery),
+        }
+    return result
+
+
 async def compute_driver_stats_for_period(period: str) -> list[dict]:
     year, month = map(int, period.split("-"))
     start = datetime(year, month, 1, tzinfo=timezone.utc)

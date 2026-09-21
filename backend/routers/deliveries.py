@@ -2423,10 +2423,13 @@ def _driver_motivation_message(stat: dict, missing_top3: int, monthly_goal: int)
 
 async def _format_driver_ranking(stat: dict, current_user: dict, podium_stats: list[dict]) -> dict:
     rewards = await get_performance_rewards_settings()
+    from services.ranking_service import compute_driver_delivery_duration_stats
+
     monthly_goal = rewards["driver"]["monthly_goal_deliveries"]
     activity = await _driver_month_activity(current_user["user_id"], stat["period"])
     general = await _driver_general_position(current_user["user_id"])
     history = await _driver_month_history(current_user["user_id"], stat["period"])
+    duration_stats = await compute_driver_delivery_duration_stats(current_user["user_id"])
     success = int(stat.get("deliveries_success") or 0)
     rank = int(stat.get("rank") or 0)
     top3_success = [
@@ -2471,6 +2474,7 @@ async def _format_driver_ranking(stat: dict, current_user: dict, podium_stats: l
         "total_ranked_drivers": len(podium_stats),
         "general_ranking": general,
         "monthly_history": history,
+        "delivery_duration_stats": duration_stats,
         "message": _driver_motivation_message(stat, missing_top3, monthly_goal),
         "last_updated_at": datetime.now(timezone.utc),
     }

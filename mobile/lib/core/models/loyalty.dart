@@ -72,6 +72,7 @@ class DriverRanking {
   final int totalRankedDrivers;
   final GeneralDriverRanking generalRanking;
   final List<DriverMonthlyHistoryEntry> monthlyHistory;
+  final Map<String, DriverDeliveryDurationStats> deliveryDurationStats;
   final String message;
   final DateTime? lastUpdatedAt;
   final bool isMe;
@@ -96,6 +97,7 @@ class DriverRanking {
     required this.totalRankedDrivers,
     required this.generalRanking,
     required this.monthlyHistory,
+    required this.deliveryDurationStats,
     required this.message,
     this.lastUpdatedAt,
     required this.isMe,
@@ -140,11 +142,50 @@ class DriverRanking {
           .whereType<Map<String, dynamic>>()
           .map(DriverMonthlyHistoryEntry.fromJson)
           .toList(),
+      deliveryDurationStats:
+          (json['delivery_duration_stats'] as Map? ?? const {}).map(
+        (key, value) => MapEntry(
+          key.toString(),
+          DriverDeliveryDurationStats.fromJson(
+            Map<String, dynamic>.from(value as Map),
+          ),
+        ),
+      ),
       message: json['message'] as String? ?? '',
       lastUpdatedAt: json['last_updated_at'] != null
           ? DateTime.tryParse(json['last_updated_at'] as String)
           : null,
       isMe: json['is_me'] ?? false,
+    );
+  }
+}
+
+class DriverDeliveryDurationStats {
+  final int sampleCount;
+  final int averageBeforePickupSeconds;
+  final int averageDeliverySeconds;
+  final int fastestDeliverySeconds;
+  final int slowestDeliverySeconds;
+
+  const DriverDeliveryDurationStats({
+    required this.sampleCount,
+    required this.averageBeforePickupSeconds,
+    required this.averageDeliverySeconds,
+    required this.fastestDeliverySeconds,
+    required this.slowestDeliverySeconds,
+  });
+
+  factory DriverDeliveryDurationStats.fromJson(Map<String, dynamic> json) {
+    return DriverDeliveryDurationStats(
+      sampleCount: (json['sample_count'] as num?)?.toInt() ?? 0,
+      averageBeforePickupSeconds:
+          (json['average_before_pickup_seconds'] as num?)?.toInt() ?? 0,
+      averageDeliverySeconds:
+          (json['average_delivery_seconds'] as num?)?.toInt() ?? 0,
+      fastestDeliverySeconds:
+          (json['fastest_delivery_seconds'] as num?)?.toInt() ?? 0,
+      slowestDeliverySeconds:
+          (json['slowest_delivery_seconds'] as num?)?.toInt() ?? 0,
     );
   }
 }

@@ -18,6 +18,7 @@ class DriverPerformanceScreen extends ConsumerWidget {
     }
     final transactionsAsync =
         ref.watch(relayTransactionsProvider(_currentMonthPeriod()));
+    final rankingAsync = ref.watch(rankingProvider);
 
     // XP progress
     const xpPerLevel = 100;
@@ -188,10 +189,153 @@ class DriverPerformanceScreen extends ConsumerWidget {
               Colors.orange,
               subtitle: 'Missions, bonus et pourboires',
             ),
+            const SizedBox(height: 16),
+            _buildDeliveryDurationSection(rankingAsync),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildDeliveryDurationSection(
+    AsyncValue<DriverRanking?> rankingAsync,
+  ) {
+    return rankingAsync.when(
+      data: (ranking) {
+        final stats = ranking?.deliveryDurationStats ?? const {};
+        const modes = <String, String>{
+          'home_to_home': 'Domicile → domicile',
+          'home_to_relay': 'Domicile → relais',
+          'relay_to_home': 'Relais → domicile',
+          'relay_to_relay': 'Relais → relais',
+        };
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Temps par type de livraison',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Calculé sur les missions terminées et correctement horodatées.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 12),
+            ...modes.entries.map(
+              (entry) => _buildDeliveryDurationCard(
+                entry.value,
+                stats[entry.key],
+              ),
+            ),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildDeliveryDurationCard(
+    String modeLabel,
+    DriverDeliveryDurationStats? stats,
+  ) {
+    final hasData = stats != null && stats.sampleCount > 0;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.route_outlined, color: Colors.blue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  modeLabel,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              Text(
+                hasData
+                    ? '${stats.sampleCount} missions'
+                    : 'Pas encore de données',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+          if (hasData) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildDurationMetric(
+                  'Avant collecte',
+                  stats.averageBeforePickupSeconds,
+                  Icons.login_outlined,
+                ),
+                _buildDurationMetric(
+                  'Livraison moyenne',
+                  stats.averageDeliverySeconds,
+                  Icons.local_shipping_outlined,
+                ),
+                _buildDurationMetric(
+                  'Plus rapide',
+                  stats.fastestDeliverySeconds,
+                  Icons.speed_outlined,
+                ),
+                _buildDurationMetric(
+                  'Plus lente',
+                  stats.slowestDeliverySeconds,
+                  Icons.hourglass_bottom_outlined,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDurationMetric(String label, int seconds, IconData icon) {
+    return SizedBox(
+      width: 145,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.blueGrey),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style:
+                        TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                Text(
+                  _formatDuration(seconds),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDuration(int seconds) {
+    final duration = Duration(seconds: seconds);
+    if (duration.inHours > 0) {
+      return '${duration.inHours} h ${duration.inMinutes.remainder(60)} min';
+    }
+    return '${duration.inMinutes} min';
   }
 
   Widget _buildBadgeItem(String slug) {
