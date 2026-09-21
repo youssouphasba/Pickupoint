@@ -172,7 +172,11 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
 
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
-    return
+    if current_user.get("role") != UserRole.DRIVER.value:
+        return
+    for mission in missions:
+        if mission.get("started_at") is None:
+            mission["recipient_phone"] = None
 
 
 def _is_generic_location_label(value: object) -> bool:
@@ -826,7 +830,8 @@ async def my_missions(
             auto_release_minutes=auto_release_minutes,
         )
     await _attach_commission_requirements(missions)
-    
+    _mask_recipient_phone_for_driver(missions, current_user)
+
     return {"missions": missions}
 
 
@@ -1180,6 +1185,8 @@ async def get_mission(
         recipient_user = await db.users.find_one({"user_id": recipient_uid}, {"profile_picture_url": 1})
         if recipient_user:
             mission["recipient_photo_url"] = recipient_user.get("profile_picture_url")
+
+    _mask_recipient_phone_for_driver([mission], current_user)
 
     return mission
 
