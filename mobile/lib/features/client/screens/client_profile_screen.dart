@@ -568,6 +568,14 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
           key: _referralKey,
           child: _buildActionCard([
             ListTile(
+              leading: const Icon(Icons.insights_outlined),
+              title: const Text('Mes statistiques'),
+              subtitle: const Text('Activité, délais et dépenses'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/client/statistics'),
+            ),
+            const Divider(height: 1),
+            ListTile(
               leading: const Icon(Icons.history),
               title: const Text('Historique de fidélité'),
               trailing: const Icon(Icons.chevron_right),

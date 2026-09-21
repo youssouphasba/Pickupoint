@@ -22,6 +22,7 @@ import '../../features/client/screens/confirm_location_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
+import '../../features/client/screens/client_statistics_screen.dart';
 import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
 import '../../shared/notifications/notifications_inbox_screen.dart';
@@ -586,6 +587,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/client/loyalty-history',
               builder: (_, __) => const ClientLoyaltyHistoryScreen()),
+          GoRoute(
+              path: '/client/statistics',
+              builder: (_, __) => const ClientStatisticsScreen()),
           GoRoute(
               path: '/client/favorites',
               builder: (_, __) => const FavoriteAddressesScreen()),

@@ -1050,6 +1050,66 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         **user_parcel_query,
         "status": "cancelled",
     })
+    user_parcels = await db.parcels.find(
+        user_parcel_query,
+        {
+            "_id": 0,
+            "parcel_id": 1,
+            "sender_user_id": 1,
+            "delivery_mode": 1,
+            "created_at": 1,
+            "paid_price": 1,
+        },
+    ).to_list(length=None)
+    parcel_ids = [parcel.get("parcel_id") for parcel in user_parcels if parcel.get("parcel_id")]
+    delivered_events = await db.parcel_events.find(
+        {
+            "parcel_id": {"$in": parcel_ids},
+            "event_type": "STATUS_CHANGED",
+            "to_status": "delivered",
+        },
+        {"_id": 0, "parcel_id": 1, "created_at": 1},
+    ).sort("created_at", 1).to_list(length=None)
+    delivered_at_by_parcel = {}
+    for event in delivered_events:
+        parcel_id = event.get("parcel_id")
+        if parcel_id and parcel_id not in delivered_at_by_parcel:
+            delivered_at_by_parcel[parcel_id] = event.get("created_at")
+
+    mode_counts = {}
+    durations_by_mode = {}
+    for parcel in user_parcels:
+        mode = parcel.get("delivery_mode")
+        if mode:
+            mode_counts[mode] = mode_counts.get(mode, 0) + 1
+        delivered_at = delivered_at_by_parcel.get(parcel.get("parcel_id"))
+        created_at = parcel.get("created_at")
+        if not mode or not isinstance(created_at, datetime) or not isinstance(delivered_at, datetime):
+            continue
+        duration_seconds = int((delivered_at - created_at).total_seconds())
+        if duration_seconds < 0:
+            continue
+        durations_by_mode.setdefault(mode, []).append(duration_seconds)
+
+    delivery_duration_stats = {
+        mode: {
+            "sample_count": len(durations),
+            "average_seconds": round(sum(durations) / len(durations)),
+            "fastest_seconds": min(durations),
+            "slowest_seconds": max(durations),
+        }
+        for mode, durations in durations_by_mode.items()
+    }
+    all_delivery_durations = [
+        duration
+        for durations in durations_by_mode.values()
+        for duration in durations
+    ]
+    sent_with_price = [
+        float(parcel.get("paid_price") or 0)
+        for parcel in user_parcels
+        if parcel.get("sender_user_id") == user_id and parcel.get("paid_price") is not None
+    ]
 
     return {
         "parcels_sent": sent_count,
@@ -1069,6 +1129,12 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         "client_monthly_goal": client_goal,
         "client_goal_progress": round(min(month_sent / max(client_goal, 1), 1), 3),
         "loyalty_points_per_delivery": points_per_delivery,
+        "client_mode_counts": mode_counts,
+        "client_delivery_duration_stats": delivery_duration_stats,
+        "client_average_delivery_seconds": round(sum(all_delivery_durations) / len(all_delivery_durations)) if all_delivery_durations else None,
+        "client_fastest_delivery_seconds": min(all_delivery_durations) if all_delivery_durations else None,
+        "client_slowest_delivery_seconds": max(all_delivery_durations) if all_delivery_durations else None,
+        "client_average_spent_xof": round(sum(sent_with_price) / len(sent_with_price), 2) if sent_with_price else 0,
     }
 
 
