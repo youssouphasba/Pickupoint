@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/relay_point.dart';
@@ -17,10 +18,13 @@ class AdminRelaysScreen extends ConsumerStatefulWidget {
 class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
   final _searchCtrl = TextEditingController();
   String _filter = 'all';
+  GoogleMapController? _mapController;
+  String? _lastMapSignature;
 
   @override
   void dispose() {
     _searchCtrl.dispose();
+    _mapController?.dispose();
     super.dispose();
   }
 
@@ -68,6 +72,11 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _RelaySummaryRow(relays: relays),
               ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildRelayMap(context, filtered),
+              ),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 padding:
@@ -109,6 +118,151 @@ class _AdminRelaysScreenState extends ConsumerState<AdminRelaysScreen> {
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, __) => Center(child: Text(friendlyError(e))),
+      ),
+    );
+  }
+
+  Widget _buildRelayMap(BuildContext context, List<RelayPoint> relays) {
+    final locatedRelays = relays
+        .where((relay) => relay.lat != null && relay.lng != null)
+        .toList();
+    if (locatedRelays.isEmpty) {
+      return Container(
+        height: 120,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Text('Aucun relais géolocalisé dans cette sélection.'),
+      );
+    }
+
+    final signature = locatedRelays.map((relay) => relay.id).join('|');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || signature == _lastMapSignature) return;
+      _lastMapSignature = signature;
+      _fitRelayBounds(locatedRelays);
+    });
+
+    final first = locatedRelays.first;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 300,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(first.lat!, first.lng!),
+            zoom: locatedRelays.length == 1 ? 14 : 10,
+          ),
+          markers: locatedRelays.map((relay) {
+            return Marker(
+              markerId: MarkerId(relay.id),
+              position: LatLng(relay.lat!, relay.lng!),
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                relay.isActive
+                    ? BitmapDescriptor.hueOrange
+                    : BitmapDescriptor.hueAzure,
+              ),
+              infoWindow: InfoWindow(
+                title: relay.name,
+                snippet: relay.addressLabel.isNotEmpty
+                    ? relay.addressLabel
+                    : relay.city,
+                onTap: () => _openRelayDetails(context, relay),
+              ),
+              onTap: () => _openRelayDetails(context, relay),
+            );
+          }).toSet(),
+          onMapCreated: (controller) {
+            _mapController = controller;
+            _fitRelayBounds(locatedRelays);
+          },
+          mapToolbarEnabled: true,
+          zoomControlsEnabled: true,
+          myLocationButtonEnabled: false,
+          compassEnabled: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _fitRelayBounds(List<RelayPoint> relays) async {
+    if (_mapController == null || relays.isEmpty) return;
+    final points =
+        relays.map((relay) => LatLng(relay.lat!, relay.lng!)).toList();
+    final latitudes = points.map((point) => point.latitude);
+    final longitudes = points.map((point) => point.longitude);
+    final bounds = LatLngBounds(
+      southwest: LatLng(latitudes.reduce((a, b) => a < b ? a : b),
+          longitudes.reduce((a, b) => a < b ? a : b)),
+      northeast: LatLng(latitudes.reduce((a, b) => a > b ? a : b),
+          longitudes.reduce((a, b) => a > b ? a : b)),
+    );
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, 48),
+      );
+    } catch (_) {}
+  }
+
+  void _openRelayDetails(BuildContext context, RelayPoint relay) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(relay.name,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(relay.addressLabel.isEmpty
+                  ? relay.city
+                  : '${relay.addressLabel}, ${relay.city}'),
+              if (relay.phone.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(relay.phone),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                children: [
+                  _StatusChip(
+                    label: relay.isActive ? 'Actif' : 'Inactif',
+                    color: relay.isActive ? Colors.green : Colors.grey,
+                  ),
+                  _StatusChip(
+                    label: relay.isVerified ? 'Vérifié' : 'À vérifier',
+                    color: relay.isVerified ? Colors.blue : Colors.orange,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            AdminRelayDetailScreen(relayId: relay.id),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Ouvrir la fiche du relais'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
