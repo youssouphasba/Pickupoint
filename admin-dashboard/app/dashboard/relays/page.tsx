@@ -408,6 +408,7 @@ function RelayMap({ relays }: { relays: AdminRelay[] }) {
     [relays],
   );
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+  const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "denkma-relays-map";
   const center = points[0] ?? {
     latitude: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LAT ?? "14.7167"),
     longitude: Number(process.env.NEXT_PUBLIC_DEFAULT_MAP_LNG ?? "-17.4677"),
@@ -429,6 +430,7 @@ function RelayMap({ relays }: { relays: AdminRelay[] }) {
         <div className="h-[420px] overflow-hidden rounded-lg border">
           <APIProvider apiKey={apiKey}>
             <GoogleMap
+              mapId={mapId}
               defaultCenter={{ lat: center.latitude, lng: center.longitude }}
               defaultZoom={11}
               gestureHandling="greedy"

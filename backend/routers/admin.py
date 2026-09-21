@@ -72,6 +72,7 @@ from services.wallet_service import (
     debit_wallet_allow_negative,
     record_wallet_transaction,
 )
+from services.admin_analytics_service import build_admin_analytics
 
 router = APIRouter()
 
@@ -5524,6 +5525,22 @@ async def update_referral_settings(
     }
 
 
+@router.get("/analytics/overview", summary="Analyses opérationnelles complètes")
+async def get_admin_analytics_overview(
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    _admin=Depends(require_admin_dep),
+):
+    if from_date or to_date:
+        start, end = parse_date_range(from_date, to_date)
+        if start is None or end is None:
+            raise bad_request_exception("Intervalle de dates invalide")
+    else:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=30)
+    return await build_admin_analytics(start, end)
+
+
 @router.get("/finance/overview", summary="Vue d'ensemble finance")
 async def get_finance_overview(
     period: Optional[str] = Query(None, description="Format YYYY-MM"),
@@ -5569,12 +5586,12 @@ async def get_finance_overview(
             ParcelStatus.CANCELLED.value: "Annul?",
             ParcelStatus.EXPIRED.value: "Expir?",
             MissionStatus.PENDING.value: "Disponible",
-            MissionStatus.ACCEPTED.value: "Accept?e",
-            MissionStatus.PICKED_UP.value: "Colis récupéré",
-            MissionStatus.DELIVERED.value: "Mission termin?e",
-            MissionStatus.CANCELLED.value: "Mission annul?e",
-            MissionStatus.RETURNED.value: "Mission retourn?e",
-            MissionStatus.FAILED.value: "Mission ?chou?e",
+            MissionStatus.ASSIGNED.value: "Assignée",
+            MissionStatus.IN_PROGRESS.value: "Colis récupéré",
+            MissionStatus.COMPLETED.value: "Mission terminée",
+            MissionStatus.CANCELLED.value: "Mission annulée",
+            "returned": "Mission retournée",
+            MissionStatus.FAILED.value: "Mission échouée",
         }
         return mapping.get(value or "", value or "-")
 

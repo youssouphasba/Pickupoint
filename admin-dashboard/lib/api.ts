@@ -681,6 +681,14 @@ export async function fetchFleetLive() {
 
 // ───────────────────────── Finance ─────────────────────────
 
+export async function fetchAdminAnalytics(params: {
+  from_date?: string;
+  to_date?: string;
+}) {
+  const { data } = await api.get("/api/admin/analytics/overview", { params });
+  return data;
+}
+
 export async function fetchFinanceReconciliation() {
   const { data } = await api.get("/api/admin/finance/reconciliation");
   return data;

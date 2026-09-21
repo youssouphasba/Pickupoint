@@ -23,6 +23,7 @@ import {
   Settings,
   Bell,
   Trophy,
+  BarChart3,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ const items: Item[] = [
   { href: "/dashboard/relays", label: "Relais", Icon: Store },
   { href: "/dashboard/drivers", label: "Livreurs", Icon: Truck },
   { href: "/dashboard/performances", label: "Performances", Icon: Trophy },
+  { href: "/dashboard/analytics", label: "Analyses", Icon: BarChart3 },
   { href: "/dashboard/fleet", label: "Flotte live", Icon: Map },
   { href: "/dashboard/promotions", label: "Promotions", Icon: Tag },
   { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },
