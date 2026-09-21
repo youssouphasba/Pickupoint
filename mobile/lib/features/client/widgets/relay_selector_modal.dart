@@ -9,7 +9,9 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class RelaySelectorModal extends ConsumerStatefulWidget {
-  const RelaySelectorModal({super.key});
+  const RelaySelectorModal({super.key, this.consultative = false});
+
+  final bool consultative;
 
   @override
   ConsumerState<RelaySelectorModal> createState() => _RelaySelectorModalState();
@@ -93,11 +95,12 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         });
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = friendlyError(e);
           _isLoading = false;
         });
+      }
     }
   }
 
@@ -121,7 +124,50 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   }
 
   void _selectRelay(RelayPoint relay) {
-    Navigator.of(context).pop(relay); // Renvoie le relais sélectionné
+    if (!widget.consultative) {
+      Navigator.of(context).pop(relay);
+      return;
+    }
+
+    final area = _relayArea(relay);
+    final hours = _relayOpeningHours(relay);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(relay.name,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold)),
+              if (relay.addressLabel.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(relay.addressLabel.trim()),
+              ],
+              if (area.isNotEmpty)
+                Text(area, style: const TextStyle(color: Colors.blueGrey)),
+              if (relay.phone.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(relay.phone.trim()),
+              ],
+              if (hours != null) ...[
+                const SizedBox(height: 8),
+                Text('Horaires : $hours',
+                    style: const TextStyle(color: Colors.green)),
+              ],
+              if (relay.description?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 8),
+                Text(relay.description!.trim()),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   String _relayArea(RelayPoint relay) {
@@ -129,7 +175,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     for (final value in [relay.district, relay.city]) {
       final normalized = value?.trim() ?? '';
       if (normalized.isNotEmpty &&
-          !parts.any((part) => part.toLowerCase() == normalized.toLowerCase())) {
+          !parts
+              .any((part) => part.toLowerCase() == normalized.toLowerCase())) {
         parts.add(normalized);
       }
     }
@@ -142,7 +189,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     final general = hours['general']?.toString().trim();
     if (general != null && general.isNotEmpty) return general;
     final entries = hours.entries
-        .map((entry) => MapEntry(entry.key.trim(), entry.value.toString().trim()))
+        .map((entry) =>
+            MapEntry(entry.key.trim(), entry.value.toString().trim()))
         .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
         .map((entry) => '${entry.key}: ${entry.value}')
         .toList();
@@ -152,10 +200,14 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: const BoxDecoration(
+      height: widget.consultative
+          ? double.infinity
+          : MediaQuery.of(context).size.height * 0.9,
+      decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: widget.consultative
+            ? BorderRadius.zero
+            : const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         children: [
@@ -175,9 +227,13 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Choisir un relais',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Text(
+                  widget.consultative ? 'Points relais' : 'Choisir un relais',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context)),
@@ -272,8 +328,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                                       Text(
                                         'Horaires : $hours',
                                         style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.green),
+                                            fontSize: 12, color: Colors.green),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),

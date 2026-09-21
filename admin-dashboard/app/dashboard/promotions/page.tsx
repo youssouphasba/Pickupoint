@@ -4,6 +4,12 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchReferralStats,
+  fetchPromotions,
+  createPromotion,
+  deletePromotion,
+  updatePromotion,
+  fetchPromotionStats,
+  AdminPromotionPayload,
   fetchInAppCampaigns,
   createInAppCampaign,
   uploadInAppCampaignImage,
@@ -25,6 +31,72 @@ import { useToast } from "@/components/ui/toaster";
 import { Loader2, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+const PROMO_TYPES = [
+  { value: "percentage", label: "Pourcentage" },
+  { value: "fixed_amount", label: "Montant fixe" },
+  { value: "free_delivery", label: "Livraison gratuite" },
+  { value: "express_upgrade", label: "Express offert" },
+] as const;
+
+const PROMO_TARGETS = [
+  { value: "all", label: "Tous les clients" },
+  { value: "first_delivery", label: "Première livraison" },
+  { value: "tier_silver", label: "Fidélité Silver+" },
+  { value: "tier_gold", label: "Fidélité Gold" },
+  { value: "delivery_mode", label: "Mode de livraison" },
+] as const;
+
+function PromotionManager() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const promotions = useQuery({ queryKey: ["admin-promotions"], queryFn: () => fetchPromotions(false) });
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const stats = useQuery({ queryKey: ["admin-promotion-stats", selectedId], queryFn: () => fetchPromotionStats(selectedId!), enabled: Boolean(selectedId) });
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const now = React.useMemo(() => new Date(), []);
+  const [form, setForm] = React.useState<AdminPromotionPayload>({
+    title: "",
+    description: "",
+    promo_type: "percentage",
+    value: 10,
+    target: "all",
+    delivery_mode: null,
+    target_user_ids: null,
+    min_amount: null,
+    max_uses_total: null,
+    max_uses_per_user: 1,
+    promo_code: "",
+    start_date: toDateTimeLocal(now),
+    end_date: toDateTimeLocal(new Date(now.getTime() + 7 * 24 * 60 * 60_000)),
+    is_active: true,
+  });
+  const createMut = useMutation({ mutationFn: () => createPromotion({ ...form, promo_code: form.promo_code?.trim() || null, delivery_mode: form.target === "delivery_mode" ? form.delivery_mode : null, start_date: fromDateTimeLocal(form.start_date), end_date: fromDateTimeLocal(form.end_date) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-promotions"] }); toast("Promotion créée."); setForm((current) => ({ ...current, title: "", description: "", promo_code: "" })); } });
+  const updateMut = useMutation({ mutationFn: () => updatePromotion(editingId!, { title: form.title, description: form.description, value: form.value, min_amount: form.min_amount, max_uses_total: form.max_uses_total, max_uses_per_user: form.max_uses_per_user, end_date: fromDateTimeLocal(form.end_date) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-promotions"] }); toast("Promotion modifiée."); setEditingId(null); } });
+  const toggleMut = useMutation({ mutationFn: ({ id, active }: { id: string; active: boolean }) => updatePromotion(id, { is_active: active }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-promotions"] }); toast("Promotion mise à jour."); } });
+  const deleteMut = useMutation({ mutationFn: deletePromotion, onSuccess: (data) => { qc.invalidateQueries({ queryKey: ["admin-promotions"] }); toast(data.message); } });
+  const canCreate = form.title.trim().length >= 2 && new Date(form.end_date).getTime() > new Date(form.start_date).getTime() && (form.target !== "delivery_mode" || Boolean(form.delivery_mode));
+
+  return <section className="space-y-4">
+    <div><h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Promotions commerciales</h2><p className="mt-1 text-sm text-muted-foreground">Réductions appliquées au prix de livraison, avec quotas et historique.</p></div>
+    <Card><CardHeader><CardTitle className="text-base">Créer une promotion</CardTitle></CardHeader><CardContent className="grid gap-4 lg:grid-cols-3">
+      <Input placeholder="Titre de la promotion" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+      <Input placeholder="Code promo optionnel" value={form.promo_code ?? ""} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} />
+      <select value={form.promo_type} onChange={(e) => setForm({ ...form, promo_type: e.target.value as AdminPromotionPayload["promo_type"], value: e.target.value === "percentage" ? 10 : 0 })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">{PROMO_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select>
+      <textarea className="min-h-20 rounded-md border border-input bg-background px-3 py-2 text-sm lg:col-span-3" placeholder="Description" value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      {form.promo_type === "percentage" || form.promo_type === "fixed_amount" ? <Input type="number" min={0} max={form.promo_type === "percentage" ? 100 : 1000000} placeholder={form.promo_type === "percentage" ? "Pourcentage" : "Montant XOF"} value={form.value} onChange={(e) => setForm({ ...form, value: Number(e.target.value) })} /> : <div className="flex items-center rounded-md border border-dashed px-3 text-sm text-muted-foreground">Aucune réduction monétaire</div>}
+      <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value, delivery_mode: e.target.value === "delivery_mode" ? "home_to_home" : null })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">{PROMO_TARGETS.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select>
+      {form.target === "delivery_mode" ? <select value={form.delivery_mode ?? "home_to_home"} onChange={(e) => setForm({ ...form, delivery_mode: e.target.value })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="home_to_home">Domicile → domicile</option><option value="home_to_relay">Domicile → relais</option><option value="relay_to_home">Relais → domicile</option><option value="relay_to_relay">Relais → relais</option></select> : <div />}
+      <Input type="number" min={0} placeholder="Montant minimum XOF" value={form.min_amount ?? ""} onChange={(e) => setForm({ ...form, min_amount: e.target.value ? Number(e.target.value) : null })} />
+      <Input type="number" min={1} placeholder="Quota total" value={form.max_uses_total ?? ""} onChange={(e) => setForm({ ...form, max_uses_total: e.target.value ? Number(e.target.value) : null })} />
+      <Input type="number" min={1} placeholder="Quota par client" value={form.max_uses_per_user} onChange={(e) => setForm({ ...form, max_uses_per_user: Math.max(1, Number(e.target.value)) })} />
+      <Input type="datetime-local" value={form.start_date.slice(0, 16)} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+      <Input type="datetime-local" value={form.end_date.slice(0, 16)} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+      <div className="flex gap-2"><Button disabled={!canCreate || createMut.isPending || updateMut.isPending} onClick={() => editingId ? updateMut.mutate() : createMut.mutate()}>{createMut.isPending || updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{editingId ? "Enregistrer" : "Créer"}</Button>{editingId ? <Button variant="outline" onClick={() => setEditingId(null)}>Annuler</Button> : null}</div>
+    </CardContent></Card>
+    <div className="grid gap-4 lg:grid-cols-2">{promotions.data?.promotions.map((promo) => { const expired = new Date(promo.end_date).getTime() < Date.now(); return <Card key={promo.promo_id}><CardContent className="space-y-3 p-5"><div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{promo.title}</div><div className="text-sm text-muted-foreground">{promo.description || "Sans description"}</div></div><Badge tone={promo.is_active && !expired ? "success" : "default"}>{expired ? "Expirée" : promo.is_active ? "Active" : "Inactive"}</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div><div className="text-xs text-muted-foreground">Avantage</div><div className="font-medium">{promo.promo_type === "percentage" ? `${promo.value}%` : promo.promo_type === "fixed_amount" ? `${xof.format(promo.value)} XOF` : PROMO_TYPES.find((type) => type.value === promo.promo_type)?.label}</div></div><div><div className="text-xs text-muted-foreground">Utilisations</div><div className="font-medium">{promo.uses_count}{promo.max_uses_total ? ` / ${promo.max_uses_total}` : ""}</div></div></div><div className="flex flex-wrap gap-2 text-xs"><Badge>{promo.promo_code || "Automatique"}</Badge><Badge>{PROMO_TARGETS.find((target) => target.value === promo.target)?.label ?? promo.target}</Badge><Badge>Jusqu’au {new Date(promo.end_date).toLocaleDateString("fr-FR")}</Badge></div><div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="outline" onClick={() => { setEditingId(promo.promo_id); setForm({ ...promo, start_date: toDateTimeLocal(new Date(promo.start_date)), end_date: toDateTimeLocal(new Date(promo.end_date)) }); }}>Modifier</Button><Button size="sm" variant="outline" onClick={() => setSelectedId(selectedId === promo.promo_id ? null : promo.promo_id)}>Statistiques</Button><Button size="sm" variant="outline" onClick={() => toggleMut.mutate({ id: promo.promo_id, active: !promo.is_active })}>{promo.is_active ? "Désactiver" : "Activer"}</Button><Button size="sm" variant="outline" onClick={() => { if (window.confirm("Supprimer ou désactiver cette promotion ?")) deleteMut.mutate(promo.promo_id); }}><Trash2 className="h-4 w-4" />Supprimer</Button></div>{selectedId === promo.promo_id && stats.data ? <div className="rounded-md bg-muted/50 p-3 text-sm"><div className="grid grid-cols-2 gap-2"><span>Utilisations : <strong>{stats.data.uses}</strong></span><span>Clients uniques : <strong>{stats.data.unique_users}</strong></span><span>Remises : <strong>{xof.format(stats.data.discount_total_xof)} XOF</strong></span><span>CA associé : <strong>{xof.format(stats.data.revenue_total_xof)} XOF</strong></span></div><div className="mt-3 max-h-40 overflow-y-auto border-t pt-2">{stats.data.history?.map((item: any) => <div key={item.use_id} className="flex justify-between border-b py-1 text-xs"><span>{item.tracking_code || item.parcel_id}</span><span>{xof.format(item.discount_xof)} XOF</span></div>)}</div></div> : null}</CardContent></Card>; })}</div>
+  </section>;
+}
 
 const METRIC_LABELS: Record<string, string> = {
   sent_parcels: "Colis créés",
@@ -94,6 +166,7 @@ function CampaignsSection() {
     cta_label: "Voir",
     image_url: "",
     target_roles: ["all"],
+    placements: ["home"],
     action_type: "internal_route",
     action_value: "/client/create",
     start_date: toDateTimeLocal(now),
@@ -201,9 +274,16 @@ function CampaignsSection() {
               </Button>
             </label>
           </div>
-          <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
+      <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
             {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+      </select>
+      <select
+        value={form.placements[0] ?? "home"}
+        onChange={(e) => setForm({ ...form, placements: [e.target.value] })}
+        className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+      >
+        <option value="home">Accueil</option>
+      </select>
           <select
             value={form.action_type}
             onChange={(e) => setForm({ ...form, action_type: e.target.value as "internal_route" | "external_url", action_value: e.target.value === "external_url" ? "https://" : "/client/create" })}
@@ -249,6 +329,15 @@ function CampaignsSection() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Prévisualisation mobile</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CampaignPreview form={form} />
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-2">
         {campaigns.isLoading && (
           <Card>
@@ -263,6 +352,23 @@ function CampaignsSection() {
             campaign={campaign}
             onToggle={() => updateMut.mutate({ id: campaign.campaign_id, body: { is_active: !campaign.is_active } })}
             onDelete={() => deleteMut.mutate(campaign.campaign_id)}
+            onEdit={() => {
+              setForm({
+                title: campaign.title,
+                body: campaign.body,
+                cta_label: campaign.cta_label,
+                image_url: campaign.image_url ?? "",
+                target_roles: campaign.target_roles,
+                placements: campaign.placements ?? ["home"],
+                action_type: campaign.action_type,
+                action_value: campaign.action_value,
+                start_date: toDateTimeLocal(new Date(campaign.start_date)),
+                end_date: toDateTimeLocal(new Date(campaign.end_date)),
+                priority: campaign.priority,
+                is_active: campaign.is_active,
+              });
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
           />
         ))}
       </div>
@@ -270,9 +376,35 @@ function CampaignsSection() {
   );
 }
 
-function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaign; onToggle: () => void; onDelete: () => void }) {
+function CampaignPreview({ form }: { form: InAppCampaignPayload }) {
+  return (
+    <div className="mx-auto max-w-md rounded-[22px] border bg-muted/30 p-4 shadow-sm">
+      <div className="mb-3 text-xs font-medium text-muted-foreground">Accueil client</div>
+      <div className="flex min-h-24 items-start gap-3 rounded-2xl bg-blue-700 p-4 text-white shadow-md">
+        {form.image_url ? (
+          <img src={form.image_url} alt="" className="h-14 w-14 rounded-xl object-cover" />
+        ) : (
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/20 text-xl">📣</div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-1 font-bold">{form.title || "Titre de la campagne"}</div>
+          <div className="mt-1 line-clamp-2 text-xs">{form.body || "Le message de la campagne apparaîtra ici."}</div>
+          <div className="mt-3 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-blue-700">
+            {form.cta_label || "Voir"}
+          </div>
+        </div>
+        <span className="text-lg leading-none">⌄</span>
+      </div>
+    </div>
+  );
+}
+
+function CampaignCard({ campaign, onToggle, onDelete, onEdit }: { campaign: InAppCampaign; onToggle: () => void; onDelete: () => void; onEdit: () => void }) {
   const ctr = campaign.impressions_count > 0 ? Math.round((campaign.clicks_count / campaign.impressions_count) * 100) : 0;
-  const expired = new Date(campaign.end_date).getTime() < Date.now();
+  const now = Date.now();
+  const start = new Date(campaign.start_date).getTime();
+  const expired = new Date(campaign.end_date).getTime() < now;
+  const scheduled = start > now;
   const roleLabel = campaign.target_roles.includes("all")
     ? "Tous"
     : campaign.target_roles.map((role) => campaignRoleOptions.find((o) => o.value === role)?.label ?? role).join(", ");
@@ -285,8 +417,8 @@ function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaig
             <div className="font-semibold">{campaign.title}</div>
             <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{campaign.body}</div>
           </div>
-          <Badge tone={campaign.is_active && !expired ? "success" : "default"}>
-            {campaign.is_active && !expired ? "Active" : expired ? "Expirée" : "Inactive"}
+          <Badge tone={campaign.is_active && !expired && !scheduled ? "success" : "default"}>
+            {scheduled ? "Programmée" : expired ? "Expirée" : campaign.is_active ? "Active" : "Inactive"}
           </Badge>
         </div>
         <div className="grid grid-cols-3 gap-3 text-sm">
@@ -300,6 +432,7 @@ function CampaignCard({ campaign, onToggle, onDelete }: { campaign: InAppCampaig
           <Badge>Priorité {campaign.priority}</Badge>
         </div>
         <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onEdit}>Modifier</Button>
           <Button size="sm" variant="outline" onClick={onToggle}>{campaign.is_active ? "Désactiver" : "Activer"}</Button>
           <Button size="sm" variant="outline" onClick={onDelete}>
             <Trash2 className="h-4 w-4" />
@@ -527,6 +660,8 @@ export default function PromotionsPage() {
           Contrôler la livraison express et les programmes de parrainage.
         </p>
       </div>
+
+      <PromotionManager />
 
       <CampaignsSection />
 

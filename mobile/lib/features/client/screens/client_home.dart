@@ -65,16 +65,17 @@ class _ClientHomeState extends ConsumerState<ClientHome>
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Mes colis'),
+          title: const Text('Denkma'),
           actions: [
             const AccountSwitcherButton(),
             const NotificationsBellButton(route: '/client/notifications'),
             IconButton(
-              icon: const Icon(Icons.handshake_outlined),
               tooltip: 'Devenir partenaire',
+              icon: const Icon(Icons.handshake_outlined),
               onPressed: () => context.push('/client/partnership'),
             ),
             IconButton(
+              tooltip: 'Se déconnecter',
               icon: const Icon(Icons.logout),
               onPressed: () => _logout(context, ref),
             ),
@@ -112,8 +113,6 @@ class _ClientHomeState extends ConsumerState<ClientHome>
         ),
         body: Column(
           children: [
-            const NotificationPermissionBanner(),
-            const CampaignBanner(role: 'client'),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () => ref.refresh(parcelsProvider.future),
@@ -130,6 +129,12 @@ class _ClientHomeState extends ConsumerState<ClientHome>
                           emptyTitle: 'Aucun colis en cours',
                           emptySubtitle:
                               'Vos envois et réceptions actifs apparaîtront ici.',
+                          header: _ClientHomeHeader(
+                            activeCount: active.length,
+                            onSend: () => context.push('/client/create'),
+                            onStats: () => context.push('/client/statistics'),
+                            onRelay: () => context.push('/client/relays'),
+                          ),
                         ),
                         _ParcelList(
                           parcels: done,
@@ -209,16 +214,393 @@ class _ClientHomeState extends ConsumerState<ClientHome>
   }
 }
 
+class _ClientWelcomeSection extends StatelessWidget {
+  const _ClientWelcomeSection({
+    required this.activeCount,
+    required this.onSend,
+    required this.onStats,
+    required this.onRelay,
+  });
+
+  final int activeCount;
+  final VoidCallback onSend;
+  final VoidCallback onStats;
+  final VoidCallback onRelay;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  colors.primary,
+                  colors.primary.withValues(alpha: 0.82)
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: colors.primary.withValues(alpha: 0.22),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Envoyez. Suivez. Recevez.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          height: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        activeCount == 0
+                            ? 'Votre prochaine livraison commence ici.'
+                            : '$activeCount livraison${activeCount > 1 ? 's' : ''} en cours',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.local_shipping_outlined,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.add_box_outlined,
+                  label: 'Envoyer',
+                  color: colors.primary,
+                  onTap: onSend,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.insights_outlined,
+                  label: 'Stats',
+                  color: Colors.teal.shade700,
+                  onTap: onStats,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _QuickAction(
+                  icon: Icons.storefront_outlined,
+                  label: 'Relais',
+                  color: Colors.deepOrange.shade700,
+                  onTap: onRelay,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 23),
+              const SizedBox(height: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.grey.shade800,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeliveryModesGuide extends StatelessWidget {
+  const _DeliveryModesGuide();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 82,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+        scrollDirection: Axis.horizontal,
+        children: [
+          _ModeCard(
+            icon: Icons.home_outlined,
+            title: 'Domicile → domicile',
+            subtitle: 'Simple et direct',
+            color: Color(0xFF1A73E8),
+            steps: [
+              'Choisissez le mode domicile → domicile.',
+              'Capturez la position de départ.',
+              'Indiquez le nom et le numéro du destinataire.',
+              'Le destinataire peut confirmer sa position dans l’application ou via le lien WhatsApp.',
+              'Vérifiez le récapitulatif puis confirmez l’envoi.',
+            ],
+          ),
+          _ModeCard(
+            icon: Icons.home_work_outlined,
+            title: 'Domicile → relais',
+            subtitle: 'Retrait flexible',
+            color: Color(0xFF00897B),
+            steps: [
+              'Choisissez le mode domicile → relais.',
+              'Capturez la position de départ.',
+              'Recherchez et choisissez le relais de retrait.',
+              'Indiquez les informations du destinataire.',
+              'Vérifiez le récapitulatif puis confirmez l’envoi.',
+            ],
+          ),
+          _ModeCard(
+            icon: Icons.storefront_outlined,
+            title: 'Relais → domicile',
+            subtitle: 'Livraison à la porte',
+            color: Color(0xFFE65100),
+            steps: [
+              'Choisissez le relais de départ.',
+              'Indiquez le nom et le numéro du destinataire.',
+              'Le destinataire peut confirmer sa position dans l’application ou via le lien WhatsApp.',
+              'Vérifiez le récapitulatif puis confirmez l’envoi.',
+            ],
+          ),
+          _ModeCard(
+            icon: Icons.swap_horiz,
+            title: 'Relais → relais',
+            subtitle: 'Pratique et économique',
+            color: Color(0xFF6A1B9A),
+            steps: [
+              'Choisissez le relais de départ.',
+              'Choisissez le relais de retrait.',
+              'Indiquez les informations du destinataire.',
+              'Vérifiez le récapitulatif puis confirmez l’envoi.',
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.steps,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final List<String> steps;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () => _showModeExplanation(context, title, subtitle, steps),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 190,
+          margin: const EdgeInsets.only(right: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 3),
+                    Text(subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey.shade600)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientHomeHeader extends StatelessWidget {
+  const _ClientHomeHeader({
+    required this.activeCount,
+    required this.onSend,
+    required this.onStats,
+    required this.onRelay,
+  });
+
+  final int activeCount;
+  final VoidCallback onSend;
+  final VoidCallback onStats;
+  final VoidCallback onRelay;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const NotificationPermissionBanner(),
+        _ClientWelcomeSection(
+          activeCount: activeCount,
+          onSend: onSend,
+          onStats: onStats,
+          onRelay: onRelay,
+        ),
+        const CampaignBanner(role: 'client'),
+        const _DeliveryModesGuide(),
+      ],
+    );
+  }
+}
+
+void _showModeExplanation(
+  BuildContext context,
+  String title,
+  String subtitle,
+  List<String> steps,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (_) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Text(subtitle, style: TextStyle(color: Colors.grey.shade700)),
+              const SizedBox(height: 18),
+              ...steps.asMap().entries.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                              radius: 12,
+                              child: Text('${entry.key + 1}',
+                                  style: const TextStyle(fontSize: 12))),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(entry.value)),
+                        ],
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _ParcelList extends StatelessWidget {
   const _ParcelList({
     required this.parcels,
     required this.emptyTitle,
     required this.emptySubtitle,
+    this.header,
   });
 
   final List<Parcel> parcels;
   final String emptyTitle;
   final String emptySubtitle;
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +608,7 @@ class _ParcelList extends StatelessWidget {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          if (header != null) header!,
           const SizedBox(height: 80),
           EmptyStateView(
             icon: Icons.inventory_2_outlined,
@@ -237,21 +620,26 @@ class _ParcelList extends StatelessWidget {
     }
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: parcels.length,
+      itemCount: parcels.length + (header == null ? 0 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: Duration(milliseconds: 260 + (index.clamp(0, 5) * 35)),
-        curve: Curves.easeOutCubic,
-        builder: (context, value, child) => Opacity(
-          opacity: value,
-          child: Transform.translate(
-            offset: Offset(0, 16 * (1 - value)),
-            child: child,
+      itemBuilder: (_, index) {
+        if (header != null && index == 0) return header!;
+        final parcelIndex = header == null ? index : index - 1;
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration:
+              Duration(milliseconds: 260 + (parcelIndex.clamp(0, 5) * 35)),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) => Opacity(
+            opacity: value,
+            child: Transform.translate(
+              offset: Offset(0, 16 * (1 - value)),
+              child: child,
+            ),
           ),
-        ),
-        child: _ParcelCard(parcel: parcels[index]),
-      ),
+          child: _ParcelCard(parcel: parcels[parcelIndex]),
+        );
+      },
     );
   }
 }

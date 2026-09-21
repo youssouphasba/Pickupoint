@@ -13,6 +13,7 @@ import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/pin_login_screen.dart';
 import '../../features/auth/screens/setup_profile_screen.dart';
 import '../../features/client/screens/client_home.dart';
+import '../../features/client/screens/relay_directory_screen.dart';
 import '../../features/client/models/create_parcel_prefill.dart';
 import '../../features/client/providers/create_parcel_prefill_provider.dart';
 import '../../features/client/screens/create_parcel_screen.dart';
@@ -590,6 +591,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/client/statistics',
               builder: (_, __) => const ClientStatisticsScreen()),
+          GoRoute(
+              path: '/client/relays',
+              builder: (_, __) => const RelayDirectoryScreen()),
           GoRoute(
               path: '/client/favorites',
               builder: (_, __) => const FavoriteAddressesScreen()),

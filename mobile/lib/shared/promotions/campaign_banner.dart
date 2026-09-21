@@ -8,9 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/in_app_campaign.dart';
 
-final activeCampaignsProvider =
-    FutureProvider.family<List<InAppCampaign>,
-        ({String role, String placement})>((ref, key) async {
+final activeCampaignsProvider = FutureProvider.family<List<InAppCampaign>,
+    ({String role, String placement})>((ref, key) async {
   final api = ref.watch(apiClientProvider);
   final response = await api.getActiveCampaigns(
     role: key.role,
@@ -43,6 +42,7 @@ class CampaignBanner extends ConsumerStatefulWidget {
 class _CampaignBannerState extends ConsumerState<CampaignBanner> {
   final Set<String> _seen = {};
   final Set<String> _expanded = {};
+  final Set<String> _dismissed = {};
   final PageController _pageController = PageController();
   Timer? _autoTimer;
   int _index = 0;
@@ -65,14 +65,17 @@ class _CampaignBannerState extends ConsumerState<CampaignBanner> {
     );
     return campaignsAsync.maybeWhen(
       data: (campaigns) {
-        if (campaigns.isEmpty) {
+        final visibleCampaigns = campaigns
+            .where((campaign) => !_dismissed.contains(campaign.id))
+            .toList();
+        if (visibleCampaigns.isEmpty) {
           return const SizedBox.shrink();
         }
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _syncCampaigns(campaigns);
+          _syncCampaigns(visibleCampaigns);
         });
-        final safeIndex = _index.clamp(0, campaigns.length - 1);
-        final campaign = campaigns[safeIndex];
+        final safeIndex = _index.clamp(0, visibleCampaigns.length - 1);
+        final campaign = visibleCampaigns[safeIndex];
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _markImpression(campaign.id);
         });
@@ -84,19 +87,24 @@ class _CampaignBannerState extends ConsumerState<CampaignBanner> {
               AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
-                height: _expanded.contains(campaign.id) ? 258 : 126,
+                height: _expanded.contains(campaign.id) ? 232 : 108,
                 child: PageView.builder(
                   controller: _pageController,
-                  itemCount: campaigns.length,
+                  itemCount: visibleCampaigns.length,
                   onPageChanged: (page) {
                     setState(() => _index = page);
-                    _markImpression(campaigns[page].id);
+                    _markImpression(visibleCampaigns[page].id);
                   },
                   itemBuilder: (context, page) {
-                    final item = campaigns[page];
+                    final item = visibleCampaigns[page];
                     return _CampaignCard(
                       campaign: item,
                       expanded: _expanded.contains(item.id),
+                      onDismiss: () => setState(() {
+                        _dismissed.add(item.id);
+                        _expanded.remove(item.id);
+                        _index = 0;
+                      }),
                       onToggle: () {
                         setState(() {
                           if (_expanded.contains(item.id)) {
@@ -111,12 +119,12 @@ class _CampaignBannerState extends ConsumerState<CampaignBanner> {
                   },
                 ),
               ),
-              if (campaigns.length > 1) ...[
+              if (visibleCampaigns.length > 1) ...[
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    for (var i = 0; i < campaigns.length; i++)
+                    for (var i = 0; i < visibleCampaigns.length; i++)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
                         width: i == safeIndex ? 18 : 7,
@@ -217,12 +225,14 @@ class _CampaignCard extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.onOpen,
+    required this.onDismiss,
   });
 
   final InAppCampaign campaign;
   final bool expanded;
   final VoidCallback onToggle;
   final VoidCallback onOpen;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -316,16 +326,28 @@ class _CampaignCard extends StatelessWidget {
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: expanded ? 'Réduire' : 'Lire la suite',
-                  onPressed: onToggle,
-                  icon: Icon(
-                    expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    color: Colors.white,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Masquer cette campagne',
+                      onPressed: onDismiss,
+                      icon: const Icon(Icons.close,
+                          color: Colors.white, size: 18),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: expanded ? 'Réduire' : 'Lire la suite',
+                      onPressed: onToggle,
+                      icon: Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up
+                            : Icons.keyboard_arrow_down,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
                 if (!expanded)
                   ConstrainedBox(

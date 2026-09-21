@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -263,6 +264,7 @@ async def get_campaign_image(filename: str):
 @router.get("/campaigns/active", response_model=dict)
 async def active_campaigns(
     role: Optional[str] = Query(None),
+    placement: str = Query("home", min_length=2, max_length=60),
     current_user: dict = Depends(get_current_user),
 ):
     notification_prefs = current_user.get("notification_prefs") or {}
@@ -274,13 +276,27 @@ async def active_campaigns(
         requested_role = current_user.get("role") or UserRole.CLIENT.value
 
     now = datetime.now(timezone.utc)
+    normalized_placement = placement.strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{2,60}", normalized_placement):
+        raise HTTPException(status_code=400, detail="Emplacement invalide")
     query = {
         "is_active": True,
         "start_date": {"$lte": now},
         "end_date": {"$gte": now},
-        "$or": [
-            {"target_roles": CampaignTargetRole.ALL.value},
-            {"target_roles": requested_role},
+        "$and": [
+            {
+                "$or": [
+                    {"target_roles": CampaignTargetRole.ALL.value},
+                    {"target_roles": requested_role},
+                ]
+            },
+            {
+                "$or": [
+                    {"placements": "all"},
+                    {"placements": normalized_placement},
+                    {"placements": {"$exists": False}},
+                ]
+            },
         ],
     }
     campaigns = await db.in_app_campaigns.find(query).sort(

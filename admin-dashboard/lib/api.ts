@@ -1032,7 +1032,7 @@ export type InAppCampaignPayload = {
   cta_label: string;
   image_url?: string | null;
   target_roles: string[];
-  placements?: string[];
+  placements: string[];
   action_type: "internal_route" | "external_url";
   action_value: string;
   start_date: string;
