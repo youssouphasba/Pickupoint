@@ -91,7 +91,8 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_isValid || _rawNumber.isEmpty) {
+    final phone = normalizePhone(_fullPhone);
+    if (!_isValid || _rawNumber.isEmpty || !isSupportedPhone(phone)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Numéro invalide pour le pays sélectionné.'),
@@ -99,8 +100,6 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
       );
       return;
     }
-    final phone = _fullPhone;
-
     setState(() => _isLoading = true);
 
     try {
@@ -438,7 +437,9 @@ class _PhoneScreenState extends ConsumerState<PhoneScreen> {
                             setState(() {
                               _rawNumber = phone.number;
                               _countryCode = phone.countryCode;
-                              _isValid = phone.isValidNumber();
+                              _isValid = isSupportedPhone(
+                                normalizePhone(phone.completeNumber),
+                              );
                             });
                           },
                           onCountryChanged: (country) {

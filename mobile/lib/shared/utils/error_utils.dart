@@ -59,6 +59,8 @@ String _firebaseMessage(String code, String? fallback) {
       return 'Numéro de téléphone invalide.';
     case 'quota-exceeded':
       return 'Limite de SMS atteinte. Réessayez plus tard.';
+    case 'internal-error':
+      return 'Le service de vérification est momentanément indisponible. Vérifiez le numéro et réessayez dans quelques instants.';
     case 'user-disabled':
       return 'Ce compte a été désactivé.';
     case 'credential-already-in-use':

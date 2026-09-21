@@ -95,7 +95,12 @@ def is_supported_phone(phone: str | None) -> bool:
     normalized = normalize_phone(phone)
     if not normalized.startswith("+"):
         return False
-    return any(normalized.startswith(f"+{code}") for code in SUPPORTED_COUNTRY_CODES)
+    digits = re.sub(r"\D", "", normalized)
+    return (
+        len(digits) == 12 and digits.startswith("221")
+    ) or (
+        len(digits) == 11 and digits.startswith("33")
+    )
 
 
 def phones_match(left: str | None, right: str | None) -> bool:
