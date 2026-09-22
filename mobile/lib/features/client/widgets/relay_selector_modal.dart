@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -20,10 +22,12 @@ class RelaySelectorModal extends ConsumerStatefulWidget {
 class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   GoogleMapController? _mapController;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchTimer;
 
   List<RelayPoint> _allRelays = [];
   List<RelayPoint> _filteredRelays = [];
   bool _isLoading = true;
+  bool _isSearching = false;
   String? _error;
   Position? _currentPosition;
 
@@ -38,6 +42,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -105,11 +110,13 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   }
 
   void _filterRelays(String query) {
-    if (query.isEmpty) {
+    _searchTimer?.cancel();
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
       setState(() => _filteredRelays = _allRelays);
       return;
     }
-    final q = query.toLowerCase();
+    final q = normalizedQuery.toLowerCase();
     setState(() {
       _filteredRelays = _allRelays
           .where((r) =>
@@ -121,6 +128,52 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
               r.city.toLowerCase().contains(q))
           .toList();
     });
+    if (normalizedQuery.length < 2) return;
+    _searchTimer = Timer(const Duration(milliseconds: 350), () {
+      _searchRelays(normalizedQuery);
+    });
+  }
+
+  Future<void> _searchRelays(String query) async {
+    if (!mounted) return;
+    setState(() => _isSearching = true);
+    try {
+      final response = await ref.read(apiClientProvider).getRelayPoints(
+        params: {'search': query, 'limit': 200},
+      );
+      final data = response.data as Map<String, dynamic>;
+      final results = (data['relay_points'] as List? ?? [])
+          .map((item) => RelayPoint.fromJson(item as Map<String, dynamic>))
+          .toList();
+      if (!mounted || _searchController.text.trim() != query) return;
+      setState(() => _filteredRelays = results);
+      final first = results.firstWhere(
+        (relay) => relay.lat != null && relay.lng != null,
+        orElse: () => results.isEmpty
+            ? const RelayPoint(
+                id: '',
+                name: '',
+                phone: '',
+                addressLabel: '',
+                city: '',
+                agentId: '',
+              )
+            : results.first,
+      );
+      if (first.id.isNotEmpty && first.lat != null && first.lng != null) {
+        await _mapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(LatLng(first.lat!, first.lng!), 13),
+        );
+      }
+    } catch (_) {
+      if (mounted && _searchController.text.trim() == query) {
+        setState(() => _filteredRelays = []);
+      }
+    } finally {
+      if (mounted && _searchController.text.trim() == query) {
+        setState(() => _isSearching = false);
+      }
+    }
   }
 
   void _selectRelay(RelayPoint relay) {
@@ -249,6 +302,16 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
               decoration: InputDecoration(
                 hintText: 'Rechercher par nom, quartier...',
                 prefixIcon: const Icon(Icons.search),
+                suffixIcon: _isSearching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),

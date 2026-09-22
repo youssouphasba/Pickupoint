@@ -2,6 +2,7 @@
 Router relay_points : gestion des points relais.
 """
 import uuid
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -63,6 +64,7 @@ def _period_bounds(period: Optional[str] = None) -> tuple[str, datetime, datetim
 async def list_relay_points(
     request: Request,
     city: Optional[str] = None,
+    search: Optional[str] = None,
     is_active: bool = True,
     skip: int = 0,
     limit: int = 50,
@@ -70,6 +72,15 @@ async def list_relay_points(
     query = {"is_active": is_active}
     if city:
         query["address.city"] = city
+    if search and search.strip():
+        tokens = [token for token in re.split(r"[\s,_-]+", search.strip()) if token]
+        pattern = ".*" + ".*".join(re.escape(token) for token in tokens) + ".*"
+        query["$or"] = [
+            {"name": {"$regex": pattern, "$options": "i"}},
+            {"address.city": {"$regex": pattern, "$options": "i"}},
+            {"address.district": {"$regex": pattern, "$options": "i"}},
+            {"address.label": {"$regex": pattern, "$options": "i"}},
+        ]
         
     cursor = db.relay_points.find(query, {"_id": 0}).skip(skip).limit(limit)
     relays = await cursor.to_list(length=limit)
