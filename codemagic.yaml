@@ -198,11 +198,11 @@ workflows:
           if [ -n "${SHOREBIRD_FLUTTER_VERSION:-}" ]; then
             shorebird patch android \
               --flutter-version="$SHOREBIRD_FLUTTER_VERSION" \
-              --release-version "$SHOREBIRD_ANDROID_RELEASE_VERSION" \
+              --release-version latest \
               -- --no-tree-shake-icons
           else
             shorebird patch android \
-              --release-version "$SHOREBIRD_ANDROID_RELEASE_VERSION" \
+              --release-version latest \
               -- --no-tree-shake-icons
           fi
 
