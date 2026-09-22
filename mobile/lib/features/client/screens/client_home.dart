@@ -261,13 +261,19 @@ class _ClientWelcomeSection extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Envoyez. Suivez. Recevez.',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
+                      const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Envoyez. Suivez. Recevez.',
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 7),
@@ -619,25 +625,33 @@ class _ParcelList extends StatelessWidget {
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.zero,
       itemCount: parcels.length + (header == null ? 0 : 1),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (_, index) {
         if (header != null && index == 0) return header!;
         final parcelIndex = header == null ? index : index - 1;
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration:
-              Duration(milliseconds: 260 + (parcelIndex.clamp(0, 5) * 35)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) => Opacity(
-            opacity: value,
-            child: Transform.translate(
-              offset: Offset(0, 16 * (1 - value)),
-              child: child,
-            ),
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            parcelIndex == 0 ? 16 : 0,
+            16,
+            0,
           ),
-          child: _ParcelCard(parcel: parcels[parcelIndex]),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration:
+                Duration(milliseconds: 260 + (parcelIndex.clamp(0, 5) * 35)),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) => Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, 16 * (1 - value)),
+                child: child,
+              ),
+            ),
+            child: _ParcelCard(parcel: parcels[parcelIndex]),
+          ),
         );
       },
     );

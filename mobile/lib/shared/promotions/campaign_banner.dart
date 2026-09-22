@@ -114,6 +114,7 @@ class _CampaignBannerState extends ConsumerState<CampaignBanner> {
                           }
                         });
                       },
+                      onOpenDetails: () => _openCampaignDetails(context, item),
                       onOpen: () => _openCampaign(context, item),
                     );
                   },
@@ -217,6 +218,15 @@ class _CampaignBannerState extends ConsumerState<CampaignBanner> {
       );
     }
   }
+
+  void _openCampaignDetails(BuildContext context, InAppCampaign campaign) {
+    final route = switch (widget.role) {
+      'driver' => '/driver/campaign',
+      'relay_agent' => '/relay/campaign',
+      _ => '/client/campaign',
+    };
+    context.push(route, extra: campaign);
+  }
 }
 
 class _CampaignCard extends StatelessWidget {
@@ -224,6 +234,7 @@ class _CampaignCard extends StatelessWidget {
     required this.campaign,
     required this.expanded,
     required this.onToggle,
+    required this.onOpenDetails,
     required this.onOpen,
     required this.onDismiss,
   });
@@ -231,6 +242,7 @@ class _CampaignCard extends StatelessWidget {
   final InAppCampaign campaign;
   final bool expanded;
   final VoidCallback onToggle;
+  final VoidCallback onOpenDetails;
   final VoidCallback onOpen;
   final VoidCallback onDismiss;
 
@@ -339,7 +351,7 @@ class _CampaignCard extends StatelessWidget {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       tooltip: expanded ? 'Réduire' : 'Lire la suite',
-                      onPressed: onToggle,
+                      onPressed: onOpenDetails,
                       icon: Icon(
                         expanded
                             ? Icons.keyboard_arrow_up

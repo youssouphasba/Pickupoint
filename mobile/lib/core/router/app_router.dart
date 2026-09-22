@@ -62,6 +62,8 @@ import '../../features/admin/screens/admin_global_audit_screen.dart';
 import '../../features/admin/screens/admin_legal_list_screen.dart';
 import '../../features/admin/screens/admin_legal_edit_screen.dart';
 import '../../shared/screens/legal_document_screen.dart';
+import '../../shared/promotions/campaign_detail_screen.dart';
+import '../../core/models/in_app_campaign.dart';
 
 // Import temporaire des écrans vides pour que ça compile
 // Nous les créerons plus tard dans les dossiers features/
@@ -595,6 +597,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               path: '/client/relays',
               builder: (_, __) => const RelayDirectoryScreen()),
           GoRoute(
+              path: '/client/campaign',
+              builder: (_, state) => CampaignDetailScreen(
+                    campaign: state.extra as InAppCampaign,
+                    role: 'client',
+                  )),
+          GoRoute(
               path: '/client/favorites',
               builder: (_, __) => const FavoriteAddressesScreen()),
           GoRoute(
@@ -614,6 +622,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __, child) => RelayShell(child: child),
         routes: [
           GoRoute(path: '/relay', builder: (_, __) => const RelayHome()),
+          GoRoute(
+              path: '/relay/campaign',
+              builder: (_, state) => CampaignDetailScreen(
+                    campaign: state.extra as InAppCampaign,
+                    role: 'relay_agent',
+                  )),
           GoRoute(
               path: '/relay/profile',
               builder: (_, state) => RelayProfileScreen(
@@ -652,6 +666,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               unavailableMissionId: state.uri.queryParameters['unavailable'],
             ),
           ),
+          GoRoute(
+              path: '/driver/campaign',
+              builder: (_, state) => CampaignDetailScreen(
+                    campaign: state.extra as InAppCampaign,
+                    role: 'driver',
+                  )),
           GoRoute(
               path: '/driver/mission/:id',
               builder: (_, s) => MissionDetailScreen(
