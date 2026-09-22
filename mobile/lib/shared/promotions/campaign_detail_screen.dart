@@ -74,8 +74,7 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
                   ),
                 ),
               ),
-            if (campaign.imageUrl != null || campaign.videoUrl != null)
-              const SizedBox(height: 20),
+            if (campaign.imageUrl != null) const SizedBox(height: 20),
             Text(
               campaign.title,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
