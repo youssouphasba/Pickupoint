@@ -38,17 +38,33 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
             children: [
               _buildBalanceCard(context, walletAsync),
               const SizedBox(height: 32),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Dernières transactions',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  SizedBox(width: 180, child: _buildPeriodFilter()),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 380;
+                  final title = const Text(
+                    'Dernières transactions',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  );
+                  final filter = SizedBox(
+                    width: compact ? constraints.maxWidth : 180,
+                    child: _buildPeriodFilter(),
+                  );
+                  return compact
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            title,
+                            const SizedBox(height: 10),
+                            filter,
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(child: title),
+                            filter,
+                          ],
+                        );
+                },
               ),
               const SizedBox(height: 16),
               _buildTransactionsList(transactionsAsync),

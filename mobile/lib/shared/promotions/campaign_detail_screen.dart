@@ -63,13 +63,15 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (campaign.imageUrl != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.network(
-                  campaign.imageUrl!,
-                  width: double.infinity,
-                  height: 220,
-                  fit: BoxFit.cover,
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.network(
+                    campaign.imageUrl!,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
             if (campaign.imageUrl != null || campaign.videoUrl != null)

@@ -332,6 +332,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
 
   // ── Onglet 1 : Caméra ─────────────────────────────────────────────────────
   Widget _buildCameraTab() {
+    final scanSize =
+        (MediaQuery.sizeOf(context).width * 0.72).clamp(180.0, 260.0);
     return Stack(children: [
       MobileScanner(
         onDetect: (capture) {
@@ -343,8 +345,8 @@ class _ScanInScreenState extends ConsumerState<ScanInScreen>
       // Viseur
       Center(
         child: Container(
-          width: 260,
-          height: 260,
+          width: scanSize,
+          height: scanSize,
           decoration: BoxDecoration(
             border: Border.all(
               color: _scanPaused ? Colors.orange : Colors.green,

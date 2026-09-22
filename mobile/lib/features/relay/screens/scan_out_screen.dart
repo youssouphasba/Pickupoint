@@ -188,6 +188,8 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
   }
 
   Widget _buildCameraTab() {
+    final scanSize =
+        (MediaQuery.sizeOf(context).width * 0.72).clamp(180.0, 260.0);
     return Stack(children: [
       MobileScanner(
         onDetect: (capture) {
@@ -198,8 +200,8 @@ class _ScanOutScreenState extends ConsumerState<ScanOutScreen>
       ),
       Center(
         child: Container(
-          width: 260,
-          height: 260,
+          width: scanSize,
+          height: scanSize,
           decoration: BoxDecoration(
             border: Border.all(
               color: _scanPaused ? Colors.blue : Colors.orange,
@@ -513,8 +515,10 @@ class _PinScannerSheetState extends State<_PinScannerSheet> {
                 ),
                 Center(
                   child: Container(
-                    width: 200,
-                    height: 200,
+                    width: (MediaQuery.sizeOf(context).width * 0.58)
+                        .clamp(160.0, 200.0),
+                    height: (MediaQuery.sizeOf(context).width * 0.58)
+                        .clamp(160.0, 200.0),
                     decoration: BoxDecoration(
                       border: Border.all(
                         color: _detected ? Colors.green : Colors.orange,
