@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -57,8 +56,7 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final campaign = widget.campaign;
-    final showVideo = defaultTargetPlatform == TargetPlatform.iOS &&
-        campaign.videoUrl != null;
+    final showVideo = campaign.videoUrl != null;
     return Scaffold(
       appBar: AppBar(title: const Text('Campagne')),
       body: SingleChildScrollView(

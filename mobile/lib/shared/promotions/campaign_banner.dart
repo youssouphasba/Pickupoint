@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -271,8 +270,7 @@ class _CampaignCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (defaultTargetPlatform == TargetPlatform.iOS &&
-                campaign.videoUrl != null) ...[
+            if (campaign.videoUrl != null) ...[
               CampaignVideoPreview(url: campaign.videoUrl!),
               const SizedBox(width: 12),
             ] else if (campaign.imageUrl != null) ...[
