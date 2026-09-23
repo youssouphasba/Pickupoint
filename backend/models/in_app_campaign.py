@@ -44,6 +44,7 @@ class InAppCampaignCreate(BaseModel):
     body: str
     cta_label: str = "Voir"
     image_url: Optional[HttpUrl] = None
+    video_url: Optional[HttpUrl] = None
     target_roles: List[CampaignTargetRole] = Field(
         default_factory=lambda: [CampaignTargetRole.ALL]
     )
@@ -86,6 +87,7 @@ class InAppCampaignUpdate(BaseModel):
     body: Optional[str] = None
     cta_label: Optional[str] = None
     image_url: Optional[HttpUrl] = None
+    video_url: Optional[HttpUrl] = None
     target_roles: Optional[List[CampaignTargetRole]] = None
     action_type: Optional[CampaignActionType] = None
     action_value: Optional[str] = None

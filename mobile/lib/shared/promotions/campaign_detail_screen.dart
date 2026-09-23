@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/in_app_campaign.dart';
+import 'campaign_banner.dart';
 
 class CampaignDetailScreen extends ConsumerStatefulWidget {
   const CampaignDetailScreen({
@@ -55,6 +57,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final campaign = widget.campaign;
+    final showVideo = defaultTargetPlatform == TargetPlatform.iOS &&
+        campaign.videoUrl != null;
     return Scaffold(
       appBar: AppBar(title: const Text('Campagne')),
       body: SingleChildScrollView(
@@ -62,7 +66,9 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (campaign.imageUrl != null)
+            if (showVideo)
+              CampaignVideoPreview(url: campaign.videoUrl!)
+            else if (campaign.imageUrl != null)
               AspectRatio(
                 aspectRatio: 16 / 9,
                 child: ClipRRect(
@@ -74,7 +80,8 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
                   ),
                 ),
               ),
-            if (campaign.imageUrl != null) const SizedBox(height: 20),
+            if (showVideo || campaign.imageUrl != null)
+              const SizedBox(height: 20),
             Text(
               campaign.title,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(

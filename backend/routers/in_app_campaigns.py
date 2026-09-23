@@ -26,7 +26,9 @@ from models.in_app_campaign import (
 router = APIRouter(tags=["In-app Campaigns"])
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 MAX_CAMPAIGN_IMAGE_SIZE = 4 * 1024 * 1024
+MAX_CAMPAIGN_VIDEO_SIZE = 12 * 1024 * 1024
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_EXTENSIONS = {".mp4", ".webm"}
 
 
 def _campaign_images_bucket() -> AsyncIOMotorGridFSBucket:
@@ -47,6 +49,8 @@ def _campaign_payload(campaign: InAppCampaign) -> dict:
     payload["action_type"] = campaign.action_type.value
     if payload.get("image_url") is not None:
         payload["image_url"] = str(payload["image_url"])
+    if payload.get("video_url") is not None:
+        payload["video_url"] = str(payload["video_url"])
     return payload
 
 
@@ -88,6 +92,14 @@ def _validate_campaign_image(file: UploadFile, content: bytes) -> tuple[str, str
     if not detected_ext:
         raise bad_request_exception("Image invalide ou format non reconnu")
     return detected_ext, _image_content_type(detected_ext)
+
+
+def _validate_campaign_video(file: UploadFile) -> tuple[str, str]:
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    content_type = (file.content_type or "").lower()
+    if ext not in VIDEO_EXTENSIONS or content_type not in {"video/mp4", "video/webm"}:
+        raise bad_request_exception("Format vidéo non supporté (.mp4 ou .webm uniquement)")
+    return ext, {".mp4": "video/mp4", ".webm": "video/webm"}[ext]
 
 
 def _allowed_view_roles(user: dict) -> set[str]:
@@ -190,6 +202,8 @@ async def update_campaign(
         raise HTTPException(status_code=400, detail="Aucun champ a mettre a jour")
     if "image_url" in updates and updates["image_url"] is not None:
         updates["image_url"] = str(updates["image_url"])
+    if "video_url" in updates and updates["video_url"] is not None:
+        updates["video_url"] = str(updates["video_url"])
     if "target_roles" in updates and updates["target_roles"] is not None:
         updates["target_roles"] = [
             role.value if hasattr(role, "value") else role
@@ -244,6 +258,29 @@ async def upload_campaign_image(
     )
     return {
         "image_url": f"{settings.BASE_URL.rstrip('/')}/api/campaigns/assets/{filename}",
+        "filename": filename,
+    }
+
+
+@router.post("/admin/campaigns/video", response_model=dict)
+async def upload_campaign_video(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_admin),
+):
+    content = await _read_upload_bytes(file, MAX_CAMPAIGN_VIDEO_SIZE)
+    ext, content_type = _validate_campaign_video(file)
+    filename = f"campaign_{uuid.uuid4().hex}{ext}"
+    await _campaign_images_bucket().upload_from_stream(
+        filename,
+        content,
+        metadata={
+            "content_type": content_type,
+            "uploaded_by": current_user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        },
+    )
+    return {
+        "video_url": f"{settings.BASE_URL.rstrip('/')}/api/campaigns/assets/{filename}",
         "filename": filename,
     }
 

@@ -227,8 +227,8 @@ workflows:
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
         LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
-        IOS_BUILD_NAME: "1.0.26"
-        IOS_BUILD_NUMBER: "46"
+        IOS_BUILD_NAME: "1.0.27"
+        IOS_BUILD_NUMBER: "47"
     cache:
       cache_paths:
         - $HOME/.pub-cache

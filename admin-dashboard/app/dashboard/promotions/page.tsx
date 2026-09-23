@@ -13,6 +13,7 @@ import {
   fetchInAppCampaigns,
   createInAppCampaign,
   uploadInAppCampaignImage,
+  uploadInAppCampaignVideo,
   updateInAppCampaign,
   deleteInAppCampaign,
   fetchSettings,
@@ -55,6 +56,7 @@ function PromotionManager() {
   const stats = useQuery({ queryKey: ["admin-promotion-stats", selectedId], queryFn: () => fetchPromotionStats(selectedId!), enabled: Boolean(selectedId) });
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const now = React.useMemo(() => new Date(), []);
+  const [editingCampaignId, setEditingCampaignId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<AdminPromotionPayload>({
     title: "",
     description: "",
@@ -165,6 +167,7 @@ function CampaignsSection() {
     body: "",
     cta_label: "Voir",
     image_url: "",
+    video_url: "",
     target_roles: ["all"],
     placements: ["home"],
     action_type: "internal_route",
@@ -180,12 +183,13 @@ function CampaignsSection() {
       createInAppCampaign({
         ...form,
         image_url: form.image_url?.trim() || null,
+        video_url: form.video_url?.trim() || null,
         start_date: fromDateTimeLocal(form.start_date),
         end_date: fromDateTimeLocal(form.end_date),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
-      setForm((current) => ({ ...current, title: "", body: "", image_url: "" }));
+      setForm((current) => ({ ...current, title: "", body: "", image_url: "", video_url: "" }));
       toast("Campagne in-app créée.");
     },
   });
@@ -193,8 +197,16 @@ function CampaignsSection() {
   const imageMut = useMutation({
     mutationFn: uploadInAppCampaignImage,
     onSuccess: (data) => {
-      setForm((current) => ({ ...current, image_url: data.image_url }));
+      setForm((current) => ({ ...current, image_url: data.image_url, video_url: "" }));
       toast("Image importée.");
+    },
+  });
+
+  const videoMut = useMutation({
+    mutationFn: uploadInAppCampaignVideo,
+    onSuccess: (data) => {
+      setForm((current) => ({ ...current, video_url: data.video_url, image_url: "" }));
+      toast("Vidéo importée.");
     },
   });
 
@@ -204,6 +216,7 @@ function CampaignsSection() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
       toast("Campagne mise à jour.");
+      setEditingCampaignId(null);
     },
   });
 
@@ -254,7 +267,7 @@ function CampaignsSection() {
             onChange={(e) => setForm({ ...form, body: e.target.value })}
           />
           <div className="space-y-2">
-            <Input placeholder="Image URL optionnelle" value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
+            <Input placeholder="Image URL optionnelle" value={form.image_url ?? ""} onChange={(e) => setForm({ ...form, image_url: e.target.value, video_url: "" })} />
             <label className="inline-flex">
               <input
                 type="file"
@@ -273,6 +286,26 @@ function CampaignsSection() {
                 </span>
               </Button>
             </label>
+            <Input placeholder="URL vidéo optionnelle" value={form.video_url ?? ""} onChange={(e) => setForm({ ...form, video_url: e.target.value, image_url: "" })} />
+            <label className="inline-flex">
+              <input
+                type="file"
+                accept="video/mp4,video/webm"
+                className="sr-only"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.currentTarget.value = "";
+                  if (file) videoMut.mutate(file);
+                }}
+              />
+              <Button type="button" variant="outline" disabled={videoMut.isPending} asChild>
+                <span>
+                  {videoMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Importer une vidéo
+                </span>
+              </Button>
+            </label>
+            <p className="text-xs text-muted-foreground">MP4 ou WebM, 12 Mo maximum. La vidéo sera chargée uniquement après appui dans l’application.</p>
           </div>
       <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
             {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -322,10 +355,29 @@ function CampaignsSection() {
               De 0 à 10. Plus le chiffre est élevé, plus la campagne passe devant.
             </p>
           </div>
-          <Button disabled={!canCreate || createMut.isPending} onClick={() => createMut.mutate()}>
-            {createMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Créer la campagne
+          <Button
+            disabled={!canCreate || createMut.isPending || updateMut.isPending}
+            onClick={() => {
+              if (editingCampaignId) {
+                updateMut.mutate({
+                  id: editingCampaignId,
+                  body: {
+                    ...form,
+                    image_url: form.image_url?.trim() || null,
+                    video_url: form.video_url?.trim() || null,
+                    start_date: fromDateTimeLocal(form.start_date),
+                    end_date: fromDateTimeLocal(form.end_date),
+                  },
+                });
+              } else {
+                createMut.mutate();
+              }
+            }}
+          >
+            {createMut.isPending || updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingCampaignId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {editingCampaignId ? "Enregistrer" : "Créer la campagne"}
           </Button>
+          {editingCampaignId ? <Button variant="outline" onClick={() => setEditingCampaignId(null)}>Annuler</Button> : null}
         </CardContent>
       </Card>
 
@@ -353,11 +405,13 @@ function CampaignsSection() {
             onToggle={() => updateMut.mutate({ id: campaign.campaign_id, body: { is_active: !campaign.is_active } })}
             onDelete={() => deleteMut.mutate(campaign.campaign_id)}
             onEdit={() => {
+              setEditingCampaignId(campaign.campaign_id);
               setForm({
                 title: campaign.title,
                 body: campaign.body,
                 cta_label: campaign.cta_label,
                 image_url: campaign.image_url ?? "",
+                video_url: campaign.video_url ?? "",
                 target_roles: campaign.target_roles,
                 placements: campaign.placements ?? ["home"],
                 action_type: campaign.action_type,
@@ -381,7 +435,9 @@ function CampaignPreview({ form }: { form: InAppCampaignPayload }) {
     <div className="mx-auto max-w-md rounded-[22px] border bg-muted/30 p-4 shadow-sm">
       <div className="mb-3 text-xs font-medium text-muted-foreground">Accueil client</div>
       <div className="flex min-h-24 items-start gap-3 rounded-2xl bg-blue-700 p-4 text-white shadow-md">
-        {form.image_url ? (
+        {form.video_url ? (
+          <video src={form.video_url} controls className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+        ) : form.image_url ? (
           <img src={form.image_url} alt="" className="h-14 w-14 rounded-xl object-cover" />
         ) : (
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/20 text-xl">📣</div>

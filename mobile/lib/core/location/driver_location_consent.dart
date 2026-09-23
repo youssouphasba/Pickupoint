@@ -187,8 +187,8 @@ class DriverLocationConsent {
       final returned = await _offerSettings(
         context,
         title: 'Autoriser la position',
-        message:
-            'Ouvrez Autorisations, puis Localisation, et autorisez l’accès à votre position.',
+        message: 'Ouvrez « Autorisations de l’application », appuyez sur '
+            '« Position », puis autorisez l’accès à votre position.',
         open: Geolocator.openAppSettings,
       );
       if (!returned) return false;
@@ -205,7 +205,8 @@ class DriverLocationConsent {
         context,
         title: 'Position en arrière-plan',
         message: 'Pour recevoir les courses proches en arrière-plan, ouvrez '
-            'Autorisations > Localisation et choisissez Toujours autoriser.',
+            '« Autorisations de l’application » > « Position » et choisissez '
+            '« Toujours autoriser ».',
         open: Geolocator.openAppSettings,
       );
       if (returned) permission = await Geolocator.checkPermission();

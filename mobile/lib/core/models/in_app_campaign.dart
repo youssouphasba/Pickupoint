@@ -15,6 +15,7 @@ class InAppCampaign {
     required this.impressionsCount,
     required this.clicksCount,
     this.imageUrl,
+    this.videoUrl,
   });
 
   final String id;
@@ -22,6 +23,7 @@ class InAppCampaign {
   final String body;
   final String ctaLabel;
   final String? imageUrl;
+  final String? videoUrl;
   final List<String> targetRoles;
   final List<String> placements;
   final String actionType;
@@ -40,6 +42,7 @@ class InAppCampaign {
       body: json['body']?.toString() ?? '',
       ctaLabel: json['cta_label']?.toString() ?? 'Voir',
       imageUrl: json['image_url']?.toString(),
+      videoUrl: json['video_url']?.toString(),
       targetRoles: (json['target_roles'] as List? ?? const [])
           .map((value) => value.toString())
           .toList(),

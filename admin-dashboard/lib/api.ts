@@ -356,11 +356,25 @@ export type AdminPayout = {
   destination?: string | null;
   status: string;
   created_at?: string;
+  updated_at?: string;
+  approved_at?: string;
+  rejected_at?: string;
+  sent_at?: string;
+  approved_by?: string;
+  rejected_by?: string;
+  sent_by?: string;
+  rejection_reason?: string;
+  transfer_reference?: string;
+  transfer_note?: string;
+  user_name?: string;
+  user_phone?: string;
+  user_role?: string;
 };
 
 export async function fetchPendingPayouts(params?: {
   from_date?: string;
   to_date?: string;
+  status?: "pending" | "approved" | "rejected";
 }) {
   const { data } = await api.get<{ payouts: AdminPayout[] }>(
     "/api/admin/wallets/payouts",
@@ -369,10 +383,10 @@ export async function fetchPendingPayouts(params?: {
   return data;
 }
 
-export async function approvePayout(payoutId: string, note?: string) {
+export async function approvePayout(payoutId: string, reference: string, note?: string) {
   const { data } = await api.put(
     `/api/admin/wallets/payouts/${payoutId}/approve`,
-    note ? { note } : {},
+    { reference, ...(note ? { note } : {}) },
   );
   return data;
 }
@@ -572,6 +586,52 @@ export function getRelayCoordinates(relay: AdminRelay) {
   return { latitude, longitude };
 }
 
+export type AdminPromotion = {
+  promo_id: string;
+  title: string;
+  description?: string;
+  promo_type: "percentage" | "fixed_amount" | "free_delivery" | "express_upgrade";
+  value: number;
+  target: string;
+  delivery_mode?: string | null;
+  target_user_ids?: string[] | null;
+  min_amount?: number | null;
+  max_uses_total?: number | null;
+  max_uses_per_user: number;
+  promo_code?: string | null;
+  start_date: string;
+  end_date: string;
+  is_active: boolean;
+  uses_count: number;
+};
+
+export type AdminPromotionPayload = Omit<AdminPromotion, "promo_id" | "uses_count">;
+
+export async function fetchPromotions(activeOnly = false) {
+  const { data } = await api.get<{ promotions: AdminPromotion[] }>("/api/admin/promotions", { params: { active_only: activeOnly } });
+  return data;
+}
+
+export async function createPromotion(payload: AdminPromotionPayload) {
+  const { data } = await api.post("/api/admin/promotions", payload);
+  return data;
+}
+
+export async function updatePromotion(promoId: string, payload: Partial<AdminPromotionPayload>) {
+  const { data } = await api.put(`/api/admin/promotions/${promoId}`, payload);
+  return data;
+}
+
+export async function deletePromotion(promoId: string) {
+  const { data } = await api.delete(`/api/admin/promotions/${promoId}`);
+  return data;
+}
+
+export async function fetchPromotionStats(promoId: string) {
+  const { data } = await api.get(`/api/admin/promotions/${promoId}/stats`);
+  return data;
+}
+
 export function getRelayAddressLabel(relay: AdminRelay) {
   if (typeof relay.address === "string") return relay.address;
   if (!relay.address) return null;
@@ -689,8 +749,11 @@ export async function fetchAdminAnalytics(params: {
   return data;
 }
 
-export async function fetchFinanceReconciliation() {
-  const { data } = await api.get("/api/admin/finance/reconciliation");
+export async function fetchFinanceReconciliation(params?: {
+  from_date?: string;
+  to_date?: string;
+}) {
+  const { data } = await api.get("/api/admin/finance/reconciliation", { params });
   return data;
 }
 
@@ -1013,6 +1076,7 @@ export type InAppCampaign = {
   body: string;
   cta_label: string;
   image_url?: string | null;
+  video_url?: string | null;
   target_roles: string[];
   placements?: string[];
   action_type: "internal_route" | "external_url";
@@ -1031,6 +1095,7 @@ export type InAppCampaignPayload = {
   body: string;
   cta_label: string;
   image_url?: string | null;
+  video_url?: string | null;
   target_roles: string[];
   placements: string[];
   action_type: "internal_route" | "external_url";
@@ -1059,6 +1124,17 @@ export async function uploadInAppCampaignImage(file: File) {
   formData.append("file", file);
   const { data } = await api.post<{ image_url: string; filename: string }>(
     "/api/admin/campaigns/image",
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  );
+  return data;
+}
+
+export async function uploadInAppCampaignVideo(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const { data } = await api.post<{ video_url: string; filename: string }>(
+    "/api/admin/campaigns/video",
     formData,
     { headers: { "Content-Type": "multipart/form-data" } },
   );

@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/auth/auth_provider.dart';
 import '../../core/models/in_app_campaign.dart';
@@ -269,7 +271,11 @@ class _CampaignCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (campaign.imageUrl != null) ...[
+            if (defaultTargetPlatform == TargetPlatform.iOS &&
+                campaign.videoUrl != null) ...[
+              CampaignVideoPreview(url: campaign.videoUrl!),
+              const SizedBox(width: 12),
+            ] else if (campaign.imageUrl != null) ...[
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Image.network(
@@ -353,9 +359,7 @@ class _CampaignCard extends StatelessWidget {
                       tooltip: expanded ? 'Réduire' : 'Lire la suite',
                       onPressed: onOpenDetails,
                       icon: Icon(
-                        expanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
+                        Icons.keyboard_arrow_down,
                         color: Colors.white,
                       ),
                     ),
@@ -381,6 +385,81 @@ class _CampaignCard extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class CampaignVideoPreview extends StatefulWidget {
+  const CampaignVideoPreview({required this.url});
+
+  final String url;
+
+  @override
+  State<CampaignVideoPreview> createState() => _CampaignVideoPreviewState();
+}
+
+class _CampaignVideoPreviewState extends State<CampaignVideoPreview> {
+  Future<void> _play() async {
+    final controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    try {
+      await controller.initialize();
+    } catch (_) {
+      await controller.dispose();
+      return;
+    }
+    await controller.play();
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(controller),
+              ValueListenableBuilder<VideoPlayerValue>(
+                valueListenable: controller,
+                builder: (_, value, __) => IconButton.filled(
+                  onPressed: () =>
+                      value.isPlaying ? controller.pause() : controller.play(),
+                  icon: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
+                ),
+              ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await controller.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: 58,
+        height: 58,
+        child: Material(
+          color: Colors.white.withValues(alpha: 0.18),
+          child: InkWell(
+            onTap: _play,
+            child: const Icon(Icons.play_arrow, color: Colors.white, size: 30),
+          ),
         ),
       ),
     );

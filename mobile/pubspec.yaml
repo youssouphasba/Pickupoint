@@ -1,7 +1,7 @@
 name: pickupoint
 description: Plateforme livraison & points relais — Sénégal
 publish_to: none
-version: 1.0.26+46
+version: 1.0.27+47
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -61,6 +61,7 @@ dependencies:
   # Messagerie vocale colis
   record: ^5.1.0
   audioplayers: ^6.0.0
+  video_player: ^2.9.2
   path_provider: ^2.1.0
   flutter_webrtc: ^1.4.1
 
