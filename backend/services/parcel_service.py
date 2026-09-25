@@ -59,7 +59,14 @@ def build_location_area_label(location: Optional[dict], fallback: Optional[str] 
     return _clean_text(fallback) or "Zone non précisée"
 
 
-def ensure_live_location_accuracy(accuracy: Optional[float], *, context: str) -> None:
+def ensure_live_location_accuracy(
+    accuracy: Optional[float],
+    *,
+    context: str,
+    source: str = "gps",
+) -> None:
+    if source == "manual":
+        return
     max_accuracy = float(settings.STRICT_GPS_MAX_ACCURACY_METERS)
     if accuracy is None:
         raise bad_request_exception(
@@ -817,6 +824,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         ensure_live_location_accuracy(
             data.origin_location.geopin.accuracy,
             context="la collecte du colis",
+            source=data.origin_location.geopin.source,
         )
 
     quote_req = ParcelQuote(

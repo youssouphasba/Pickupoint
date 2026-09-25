@@ -505,6 +505,7 @@ async def quote_parcel(
         ensure_live_location_accuracy(
             body.origin_location.geopin.accuracy,
             context="la collecte du colis",
+            source=body.origin_location.geopin.source,
         )
     sender_tier = "bronze"
     is_frequent = False

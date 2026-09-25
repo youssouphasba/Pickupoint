@@ -447,6 +447,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
             'lat': _originLat,
             'lng': _originLng,
             'accuracy': _originAccuracy,
+            'source': _originWasAdjusted ? 'manual' : 'gps',
           }
         };
       }

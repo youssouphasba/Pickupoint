@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -54,6 +54,7 @@ class GeoPin(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lng: float = Field(..., ge=-180, le=180)
     accuracy: Optional[float] = Field(None, ge=0, le=10000)
+    source: Literal["gps", "manual"] = "gps"
 
 
 class Address(BaseModel):
