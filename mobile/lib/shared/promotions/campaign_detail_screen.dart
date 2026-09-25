@@ -58,7 +58,7 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
     final campaign = widget.campaign;
     final showVideo = campaign.videoUrl != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Campagne')),
+      appBar: AppBar(title: const Text('Communication')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
         child: Column(
