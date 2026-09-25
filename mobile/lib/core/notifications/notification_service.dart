@@ -233,13 +233,21 @@ class NotificationService {
       _activeDriverMissionDeadline = null;
       return;
     }
+    final now = DateTime.now();
+    final isPickupCountdown = pickupConfirmationDeadline != null &&
+        pickupConfirmationDeadline.isAfter(now);
+    final isPickupExpired = pickupConfirmationDeadline != null &&
+        !pickupConfirmationDeadline.isAfter(now);
     if (_activeDriverMissionNotificationId == missionId &&
-        _activeDriverMissionDeadline == pickupConfirmationDeadline) {
+        _activeDriverMissionDeadline == pickupConfirmationDeadline &&
+        !isPickupExpired) {
       return;
     }
-    final isPickupCountdown = pickupConfirmationDeadline != null;
     final referenceTime =
         (pickupConfirmationDeadline ?? assignedAt).millisecondsSinceEpoch;
+    final timeoutAfter = isPickupCountdown
+        ? pickupConfirmationDeadline.difference(now).inMilliseconds
+        : null;
     final data = <String, dynamic>{
       'event_type': 'mission_detail',
       'ref_type': 'mission',
@@ -247,12 +255,16 @@ class NotificationService {
       'target_view': 'driver',
     };
     try {
-      final notificationTitle = isPickupCountdown
-          ? '⏳ 30 min pour récupérer le colis'
-          : '⏱️ Mission en cours${trackingCode == null ? '' : ' · $trackingCode'}';
-      final notificationBody = isPickupCountdown
-          ? 'Le compte à rebours est visible à droite. Confirmez la récupération avant son expiration.'
-          : 'Le chronomètre est actif depuis l’acceptation de la mission.';
+      final notificationTitle = isPickupExpired
+          ? '⚠️ Délai de récupération dépassé'
+          : isPickupCountdown
+              ? '⏳ 30 min pour récupérer le colis'
+              : '⏱️ Mission en cours${trackingCode == null ? '' : ' · $trackingCode'}';
+      final notificationBody = isPickupExpired
+          ? 'La mission doit être actualisée dans Denkma.'
+          : isPickupCountdown
+              ? 'Le compte à rebours est visible à droite. Confirmez la récupération avant son expiration.'
+              : 'Le chronomètre est actif depuis l’acceptation de la mission.';
       await _localNotifs.show(
         notificationId,
         notificationTitle,
@@ -266,27 +278,38 @@ class NotificationService {
             priority: Priority.high,
             category: AndroidNotificationCategory.service,
             icon: 'ic_notification_logo',
-            ongoing: true,
-            autoCancel: false,
+            ongoing: !isPickupExpired,
+            autoCancel: isPickupExpired,
             onlyAlertOnce: true,
             playSound: false,
             enableVibration: false,
-            showWhen: true,
-            when: referenceTime,
-            usesChronometer: true,
+            showWhen: !isPickupExpired,
+            when: isPickupExpired ? null : referenceTime,
+            timeoutAfter: timeoutAfter,
+            usesChronometer: !isPickupExpired,
             chronometerCountDown: isPickupCountdown,
             subText:
-                isPickupCountdown ? 'Délai de 30 minutes' : 'Mission active',
-            ticker: isPickupCountdown
-                ? 'Compte à rebours de récupération actif'
-                : 'Mission livreur active',
+                isPickupExpired
+                    ? 'Mission à actualiser'
+                    : isPickupCountdown
+                        ? 'Délai de 30 minutes'
+                        : 'Mission active',
+            ticker: isPickupExpired
+                ? 'Délai de récupération dépassé'
+                : isPickupCountdown
+                    ? 'Compte à rebours de récupération actif'
+                    : 'Mission livreur active',
             styleInformation: BigTextStyleInformation(
-              isPickupCountdown
-                  ? 'Le compte à rebours reste visible à droite pendant la navigation. Confirmez la récupération avant son expiration.'
-                  : 'Le chronomètre suit le temps depuis l’acceptation de la mission.',
-              contentTitle: isPickupCountdown
-                  ? '⏳ Récupération à confirmer'
-                  : '⏱️ Mission livreur en cours',
+              isPickupExpired
+                  ? 'Le délai de récupération est dépassé. Ouvrez Denkma pour actualiser la mission.'
+                  : isPickupCountdown
+                      ? 'Le compte à rebours reste visible à droite pendant la navigation. Confirmez la récupération avant son expiration.'
+                      : 'Le chronomètre suit le temps depuis l’acceptation de la mission.',
+              contentTitle: isPickupExpired
+                  ? '⚠️ Récupération à actualiser'
+                  : isPickupCountdown
+                      ? '⏳ Récupération à confirmer'
+                      : '⏱️ Mission livreur en cours',
               summaryText: 'Denkma',
             ),
           ),
