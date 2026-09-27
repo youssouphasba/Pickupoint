@@ -507,6 +507,22 @@ class _DriverHomeState extends ConsumerState<DriverHome>
             ),
           ),
           actions: [
+            IconButton(
+              icon: _gpsLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.my_location),
+              tooltip: 'Actualiser ma position',
+              onPressed: _gpsLoading
+                  ? null
+                  : () => _prepareLocationAccess(userInitiated: true),
+            ),
             // Toggle disponibilité
             Padding(
               padding: const EdgeInsets.only(left: 2),

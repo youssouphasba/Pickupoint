@@ -404,8 +404,14 @@ async def admin_action_center(_admin=Depends(require_admin_dep)):
     disputes = await _fetch_disputes(now)
     security = await _fetch_security_events(_admin_id(_admin), now)
 
-    def _pack(items: list[dict[str, Any]], label: str, href: str) -> dict[str, Any]:
-        items_sorted = sorted(items, key=lambda x: x["age_hours"], reverse=True)
+    def _pack(
+        items: list[dict[str, Any]],
+        label: str,
+        href: str,
+        *,
+        newest_first: bool = False,
+    ) -> dict[str, Any]:
+        items_sorted = sorted(items, key=lambda x: x["age_hours"], reverse=not newest_first)
         return {
             "label": label,
             "href": href,
@@ -422,7 +428,12 @@ async def admin_action_center(_admin=Depends(require_admin_dep)):
         "anomalies": _pack(anomalies, "Anomalies flotte", "/dashboard/anomalies"),
         "stale_parcels": _pack(stale, "Colis stagnants", "/dashboard/stale"),
         "payment_blocked": _pack(payment_blocked, "Paiements bloqués", "/dashboard/parcels?payment_blocked=true"),
-        "support": _pack(support, "Support WhatsApp", "/dashboard/support"),
+        "support": _pack(
+            support,
+            "Support WhatsApp",
+            "/dashboard/support",
+            newest_first=True,
+        ),
         "disputes": _pack(disputes, "Litiges ouverts", "/dashboard/parcels?status=disputed"),
         "security": _pack(security, "Alertes sécurité livreurs", "/dashboard/audit-log?search=SECURITY_GPS_BLOCKED"),
     }

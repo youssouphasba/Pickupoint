@@ -1429,7 +1429,11 @@ async def accept_mission(
         await db.users.update_one(
             {"user_id": current_user["user_id"]},
             {"$set": {
-                "last_driver_location": {"lat": body.lat, "lng": body.lng},
+                "last_driver_location": {
+                    "lat": body.lat,
+                    "lng": body.lng,
+                    "accuracy": body.accuracy,
+                },
                 "last_driver_location_at": now,
                 "updated_at": now,
             }},
@@ -1527,7 +1531,11 @@ async def _update_driver_presence_location(
         {"user_id": current_user["user_id"]},
         {
             "$set": {
-                "last_driver_location": {"lat": body.lat, "lng": body.lng},
+                "last_driver_location": {
+                    "lat": body.lat,
+                    "lng": body.lng,
+                    "accuracy": body.accuracy,
+                },
                 "last_driver_location_at": now,
                 "updated_at": now,
             }
@@ -1671,7 +1679,11 @@ async def update_location(
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
         {"$set": {
-            "last_driver_location": {"lat": body.lat, "lng": body.lng},
+            "last_driver_location": {
+                "lat": body.lat,
+                "lng": body.lng,
+                "accuracy": body.accuracy,
+            },
             "last_driver_location_at": now,
             "updated_at": now
         }}

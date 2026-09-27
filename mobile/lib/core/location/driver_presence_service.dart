@@ -24,12 +24,14 @@ class DriverPresenceService {
   DriverPresenceService(this._ref);
 
   static const _updateInterval = Duration(seconds: 15);
+  static const _heartbeatInterval = Duration(seconds: 30);
 
   final Ref _ref;
   final _positionController = StreamController<Position>.broadcast();
   StreamSubscription<Position>? _subscription;
   Future<Position>? _freshPositionRequest;
   DateTime? _lastUpload;
+  Timer? _heartbeatTimer;
   bool _started = false;
   bool _starting = false;
 
@@ -134,6 +136,10 @@ class DriverPresenceService {
       _subscription = Geolocator.getPositionStream(
         locationSettings: settings,
       ).listen(_uploadPosition);
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+        unawaited(_uploadFreshPosition());
+      });
       await _uploadFreshPosition();
     } finally {
       _starting = false;
@@ -173,6 +179,8 @@ class DriverPresenceService {
   }
 
   Future<void> _stop() async {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     await _subscription?.cancel();
     _subscription = null;
     _lastUpload = null;

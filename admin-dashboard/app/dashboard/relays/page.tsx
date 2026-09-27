@@ -8,18 +8,20 @@ import { ColumnDef } from "@tanstack/react-table";
 import {
   AdminRelay,
   createRelayPoint,
+  fetchAddressSuggestions,
   fetchRelays,
   fetchRelayStats,
   getRelayAddressLabel,
   getRelayCoordinates,
   geocodeMissingRelays,
+  reverseGeocodeAddress,
   verifyRelay,
 } from "@/lib/api";
 import { DataTable, ServerPagination } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CheckCircle2, Eye, Loader2, Map as MapIcon, RefreshCw } from "lucide-react";
+import { CheckCircle2, Eye, Loader2, Map as MapIcon, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/toaster";
 
@@ -32,8 +34,58 @@ type RelayRow = AdminRelay & {
 };
 
 type SelectedRelay = { relay: AdminRelay; latitude: number; longitude: number } | null;
+type RelayLocation = { lat: number; lng: number } | null;
 
 const xof = new Intl.NumberFormat("fr-FR");
+const RELAY_MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID ?? "denkma-relay-create-map";
+
+function RelayLocationPicker({
+  location,
+  onChange,
+}: {
+  location: RelayLocation;
+  onChange: (location: { lat: number; lng: number }) => void;
+}) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
+  if (!location) {
+    return (
+      <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
+        Choisis une adresse pour afficher sa position sur la carte.
+      </div>
+    );
+  }
+  if (!apiKey) {
+    return <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Carte indisponible : clé Google Maps absente.</div>;
+  }
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <APIProvider apiKey={apiKey}>
+        <GoogleMap
+          mapId={RELAY_MAP_ID}
+          center={location}
+          zoom={16}
+          gestureHandling="greedy"
+          className="h-64"
+          disableDefaultUI
+          zoomControl
+        >
+          <AdvancedMarker
+            position={location}
+            draggable
+            title="Déplacer pour corriger la position"
+            onDragEnd={(event) => {
+              const lat = event.latLng?.lat();
+              const lng = event.latLng?.lng();
+              if (lat !== undefined && lng !== undefined) onChange({ lat, lng });
+            }}
+          >
+            <Pin background="#2563eb" borderColor="#1d4ed8" glyphColor="#ffffff" />
+          </AdvancedMarker>
+        </GoogleMap>
+      </APIProvider>
+    </div>
+  );
+}
 
 function currentPeriod() {
   const date = new Date();
@@ -54,6 +106,14 @@ export default function RelaysPage() {
     lng: "",
     maxCapacity: "20",
   });
+  const [addressSuggestions, setAddressSuggestions] = React.useState<Awaited<ReturnType<typeof fetchAddressSuggestions>>>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = React.useState(false);
+  const [locationSource, setLocationSource] = React.useState<"address" | "manual" | null>(null);
+  const location = React.useMemo<RelayLocation>(() => {
+    const lat = Number(createForm.lat);
+    const lng = Number(createForm.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  }, [createForm.lat, createForm.lng]);
   const searchParams = useSearchParams();
   const activeOnly = searchParams.get("active") === "true";
   const [period, setPeriod] = React.useState(currentPeriod);
@@ -122,12 +182,66 @@ export default function RelaysPage() {
     onSuccess: () => {
       setCreateOpen(false);
       setCreateForm({ name: "", phone: "", label: "", city: "", district: "", lat: "", lng: "", maxCapacity: "20" });
+      setLocationSource(null);
+      setAddressSuggestions([]);
       qc.invalidateQueries({ queryKey: ["relays"] });
       qc.invalidateQueries({ queryKey: ["relays-map"] });
       toast("Relais créé. L’adresse a été géocodée si nécessaire.");
     },
     onError: () => toast("Impossible de créer le relais."),
   });
+
+  React.useEffect(() => {
+    const query = createForm.label.trim();
+    if (query.length < 3 || locationSource === "address") {
+      if (locationSource !== "address") setAddressSuggestions([]);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        setAddressSuggestions(await fetchAddressSuggestions(query));
+      } catch {
+        setAddressSuggestions([]);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [createForm.label, locationSource]);
+
+  const selectAddressSuggestion = (suggestion: Awaited<ReturnType<typeof fetchAddressSuggestions>>[number]) => {
+    const city = suggestion.subtitle?.split(",", 1)[0]?.trim();
+    setCreateForm((current) => ({
+      ...current,
+      label: suggestion.label,
+      ...(city && !current.city.trim() ? { city } : {}),
+      lat: String(suggestion.lat),
+      lng: String(suggestion.lng),
+    }));
+    setLocationSource("address");
+    setAddressSuggestions([]);
+  };
+
+  const moveRelayLocation = async ({ lat, lng }: { lat: number; lng: number }) => {
+    setCreateForm((current) => ({ ...current, lat: String(lat), lng: String(lng) }));
+    setLocationSource("manual");
+    try {
+      const address = await reverseGeocodeAddress(lat, lng);
+      if (address) {
+        setCreateForm((current) => ({
+          ...current,
+          label: address.formatted_address ?? current.label,
+          city: address.city ?? current.city,
+          district: address.district ?? current.district,
+          lat: String(lat),
+          lng: String(lng),
+        }));
+      }
+    } catch {
+      toast("La position est enregistrée, mais l’adresse n’a pas pu être actualisée.");
+    }
+  };
 
   React.useEffect(() => setPage(0), [activeOnly, serverSearch]);
 
@@ -317,28 +431,69 @@ export default function RelaysPage() {
             {([
               ["name", "Nom du relais"],
               ["phone", "Téléphone"],
-              ["label", "Adresse"],
               ["city", "Ville"],
               ["district", "Quartier"],
               ["maxCapacity", "Capacité maximale"],
-              ["lat", "Latitude (facultative)"],
-              ["lng", "Longitude (facultative)"],
             ] as const).map(([field, label]) => (
               <label key={field} className="space-y-1 text-sm">
                 <span className="font-medium">{label}</span>
                 <Input
                   value={createForm[field]}
-                  inputMode={field === "lat" || field === "lng" || field === "maxCapacity" ? "decimal" : undefined}
+                  inputMode={field === "maxCapacity" ? "decimal" : undefined}
                   onChange={(event) => setCreateForm((current) => ({ ...current, [field]: event.target.value }))}
                 />
               </label>
             ))}
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Si les coordonnées sont vides, le backend tente automatiquement le géocodage de l’adresse.
-          </p>
+          <div className="relative mt-4">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Adresse du relais</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={createForm.label}
+                  placeholder="Commence à saisir une adresse complète…"
+                  className="pl-9"
+                  onChange={(event) => {
+                    const label = event.target.value;
+                    setCreateForm((current) => ({ ...current, label, lat: "", lng: "" }));
+                    setLocationSource(null);
+                  }}
+                />
+              </div>
+            </label>
+            {(suggestionsLoading || addressSuggestions.length > 0) && (
+              <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-background shadow-lg">
+                {suggestionsLoading && <div className="p-3 text-sm text-muted-foreground">Recherche d’adresses…</div>}
+                {!suggestionsLoading && addressSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.place_id ?? `${suggestion.lat}-${suggestion.lng}`}
+                    type="button"
+                    className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted"
+                    onClick={() => selectAddressSuggestion(suggestion)}
+                  >
+                    <div className="font-medium">{suggestion.label}</div>
+                    {suggestion.subtitle && <div className="text-xs text-muted-foreground">{suggestion.subtitle}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-4 space-y-2">
+            <RelayLocationPicker location={location} onChange={moveRelayLocation} />
+            {location ? (
+              <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-900">
+                {locationSource === "manual"
+                  ? "Position corrigée manuellement. L’adresse a été actualisée si Google a trouvé une correspondance."
+                  : "Position trouvée automatiquement. Déplace le marqueur si nécessaire pour la corriger."}
+                <div className="mt-1 font-mono">{location.lat.toFixed(6)}, {location.lng.toFixed(6)}</div>
+              </div>
+            ) : (
+              <p className="text-xs text-amber-700">Sélectionne une suggestion pour éviter une position approximative.</p>
+            )}
+          </div>
           <div className="mt-4 flex gap-2">
-            <Button disabled={createMut.isPending} onClick={() => createMut.mutate()}>
+            <Button disabled={createMut.isPending || !location} onClick={() => createMut.mutate()}>
               {createMut.isPending && <Loader2 className="animate-spin" />}
               Créer le relais
             </Button>

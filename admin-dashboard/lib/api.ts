@@ -702,6 +702,31 @@ export async function geocodeMissingRelays(limit = 100) {
   return data;
 }
 
+export type AddressSuggestion = {
+  label: string;
+  subtitle?: string | null;
+  lat: number;
+  lng: number;
+  place_id?: string | null;
+};
+
+export async function fetchAddressSuggestions(query: string) {
+  const { data } = await api.get<{ suggestions: AddressSuggestion[] }>(
+    "/api/geo/address-suggestions",
+    { params: { q: query, limit: 6 } },
+  );
+  return data.suggestions;
+}
+
+export async function reverseGeocodeAddress(lat: number, lng: number) {
+  const { data } = await api.get<{ address: {
+    formatted_address?: string | null;
+    city?: string | null;
+    district?: string | null;
+  } | null }>("/api/geo/reverse", { params: { lat, lng } });
+  return data.address;
+}
+
 // ───────────────────────── Drivers ─────────────────────────
 
 export async function fetchDrivers(params?: { active?: boolean }) {

@@ -14,14 +14,16 @@ import {
 } from "@vis.gl/react-google-maps";
 import { fetchFleetLive } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, MapPin, Navigation, Phone, RadioTower } from "lucide-react";
+import { Loader2, MapPin, Navigation, Phone, RadioTower, RefreshCw } from "lucide-react";
 
 type GeoPoint = {
   lat?: number;
   lng?: number;
   latitude?: number;
   longitude?: number;
+  accuracy?: number;
 };
 
 type FleetMission = {
@@ -148,7 +150,7 @@ export default function FleetPage() {
   const [selectedPin, setSelectedPin] = useState<SelectedPin>(null);
   const [hoveredPin, setHoveredPin] = useState<SelectedPin>(null);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["fleet-live"],
     queryFn: fetchFleetLive,
     refetchInterval: 15_000,
@@ -223,8 +225,20 @@ export default function FleetPage() {
             Cliquez sur un marqueur pour voir le livreur, la course et l’état du signal.
           </p>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {totalVisible} résultat{totalVisible > 1 ? "s" : ""}
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-muted-foreground">
+            {totalVisible} résultat{totalVisible > 1 ? "s" : ""}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Actualiser les positions"
+          >
+            <RefreshCw className={isFetching ? "animate-spin" : undefined} />
+            Actualiser
+          </Button>
         </div>
       </div>
 
@@ -486,6 +500,9 @@ function MissionCard({ mission }: { mission: FleetMission }) {
               Aucune position
             </span>
           )}
+          {mission.driver_location?.accuracy != null && (
+            <span>Précision ±{Math.round(mission.driver_location.accuracy)} m</span>
+          )}
           {mission.route_summary?.speed_kmh != null && (
             <span className="inline-flex items-center gap-1">
               <Navigation className="h-3.5 w-3.5" />
@@ -573,6 +590,9 @@ function IdleDriverCard({ driver }: { driver: IdleDriver }) {
               <RadioTower className="h-3.5 w-3.5" />
               Aucune position
             </span>
+          )}
+          {driver.driver_location?.accuracy != null && (
+            <span>Précision ±{Math.round(driver.driver_location.accuracy)} m</span>
           )}
         </div>
 

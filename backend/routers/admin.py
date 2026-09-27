@@ -1001,7 +1001,11 @@ def _normalize_geopin(value: dict | None) -> dict | None:
     if lat is None or lng is None:
         return None
     try:
-        return {"lat": float(lat), "lng": float(lng)}
+        normalized = {"lat": float(lat), "lng": float(lng)}
+        accuracy = value.get("accuracy")
+        if accuracy is not None:
+            normalized["accuracy"] = float(accuracy)
+        return normalized
     except (TypeError, ValueError):
         return None
 
