@@ -98,6 +98,9 @@ async def create_indexes():
             IndexModel([("parcel_id", 1)]),
             IndexModel([("created_at", 1)]),
         ],
+        "mission_gps_points": [
+            IndexModel([("mission_id", ASCENDING), ("ts", ASCENDING), ("driver_id", ASCENDING)], unique=True),
+        ],
         "delivery_missions": [
             IndexModel([("mission_id", 1)], unique=True),
             IndexModel([("driver_id", 1)]),

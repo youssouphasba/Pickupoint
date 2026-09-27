@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # MongoDB
     MONGO_URL: str = "mongodb://localhost:27017"
     DB_NAME: str = "Pickupoint"
+    GPS_TRACE_GAP_SECONDS: int = 180
+    GPS_TRACE_MAX_SPEED_KMH: float = 160
 
     # JWT
     JWT_SECRET: str = "changeme_minimum_32_chars_here_please"

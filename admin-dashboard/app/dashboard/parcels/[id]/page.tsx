@@ -9,6 +9,7 @@ import {
   Map,
   Pin,
   Polyline,
+  useMap,
 } from "@vis.gl/react-google-maps";
 import {
   api,
@@ -139,6 +140,17 @@ type ParcelMission = {
   completed_at?: string;
   encoded_polyline?: string;
   gps_trail?: GeoPoint[];
+  trace_summary?: {
+    segments: GeoPoint[][];
+    gaps: { start: string; end: string; reason: string }[];
+    recorded_distance_meters: number;
+    gap_threshold_seconds: number;
+  };
+  duration_summary?: {
+    assigned_to_pickup_seconds?: number;
+    pickup_to_completion_seconds?: number;
+    assigned_to_completion_seconds?: number;
+  };
   pickup?: { label?: string | null; geopin?: GeoPoint | null };
   delivery?: { label?: string | null; geopin?: GeoPoint | null };
   route_summary?: {
@@ -153,8 +165,32 @@ function readLatLng(point?: GeoPoint | null) {
   if (!point) return null;
   const lat = point.lat ?? point.latitude;
   const lng = point.lng ?? point.longitude;
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { lat, lng };
+}
+
+function TraceBounds({ points }: { points: { lat: number; lng: number }[] }) {
+  const map = useMap();
+  const boundsKey = JSON.stringify(points);
+  React.useEffect(() => {
+    const positions = JSON.parse(boundsKey) as { lat: number; lng: number }[];
+    if (!map || positions.length === 0) return;
+    const bounds = new google.maps.LatLngBounds();
+    positions.forEach((point) => bounds.extend(point));
+    if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+      map.setCenter(positions[0]);
+      map.setZoom(16);
+    } else {
+      map.fitBounds(bounds, 48);
+    }
+  }, [map, boundsKey]);
+  return null;
+}
+
+function traceDuration(seconds?: number) {
+  if (seconds == null) return "—";
+  const minutes = Math.floor(seconds / 60);
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`;
 }
 
 function missionRouteLabel(mission: ParcelMission, index: number) {
@@ -460,6 +496,8 @@ export default function ParcelDetailPage() {
     [];
   const selectedDriver = readLatLng(selectedRouteMission?.driver_location);
   const selectedPickup = readLatLng(selectedRouteMission?.pickup?.geopin);
+  const traceSummary = selectedRouteMission?.trace_summary;
+  const traceSegments = traceSummary?.segments.map((segment) => segment.map(readLatLng).filter((point): point is { lat: number; lng: number } => point !== null)) ?? [selectedTrail];
   const selectedDelivery = readLatLng(selectedRouteMission?.delivery?.geopin);
   const driverToPickupDistance = distanceBetweenMeters(
     selectedDriver,
@@ -889,24 +927,17 @@ export default function ParcelDetailPage() {
                       gestureHandling="greedy"
                       disableDefaultUI={false}
                     >
-                      {selectedRouteMission?.encoded_polyline && (
+                      <TraceBounds points={[...selectedTrail, selectedPickup, selectedDelivery, selectedDriver].filter((point): point is { lat: number; lng: number } => point !== null)} />
+                      {traceSegments.filter((segment) => segment.length > 2).map((segment, index) => (
                         <Polyline
-                          encodedPath={selectedRouteMission.encoded_polyline}
-                          strokeColor="#64748b"
-                          strokeOpacity={0.45}
-                          strokeWeight={4}
-                          zIndex={10}
-                        />
-                      )}
-                      {selectedTrail.length > 1 && (
-                        <Polyline
-                          path={selectedTrail}
+                          key={index}
+                          path={segment}
                           strokeColor="#0f766e"
                           strokeOpacity={0.95}
                           strokeWeight={5}
                           zIndex={20}
                         />
-                      )}
+                      ))}
                       {selectedPickup && (
                         <AdvancedMarker position={selectedPickup}>
                           <Pin
@@ -938,7 +969,24 @@ export default function ParcelDetailPage() {
                   </APIProvider>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">Parcours enregistré de la collecte à la livraison. Trait vert : positions GPS successives · Orange : collecte · Vert : livraison · Bleu : dernière position. La distance est une estimation entre les points GPS, hors interruptions.</p>
+              {!traceSegments.some((segment) => segment.length > 2) && <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">Données GPS insuffisantes pour afficher le parcours effectué. Les repères indiquent les lieux, pas le chemin emprunté.</p>}
+              {traceSummary && traceSummary.gaps.length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                  <p>{traceSummary.gaps.length} interruption(s) ou anomalie(s). Les portions concernées ne sont pas reliées sur la carte.</p>
+                  <details><summary className="cursor-pointer">Voir les interruptions</summary>
+                    <ul className="mt-2 max-h-40 overflow-auto">{traceSummary.gaps.map((gap, index) => <li key={index}>{gap.reason} : {formatDate(gap.start)} → {formatDate(gap.end)}</li>)}</ul>
+                  </details>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">L’historique peut être partiel pour les anciennes missions ou en cas de perte du signal. Une absence de déplacement GPS ne prouve pas un arrêt.</p>
               <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <Row label="Distance GPS enregistrée" value={traceSegments.some((segment) => segment.length > 2) && traceSummary ? formatDistanceMeters(traceSummary.recorded_distance_meters) : "—"} />
+                <Row label="Avant collecte" value={traceDuration(selectedRouteMission?.duration_summary?.assigned_to_pickup_seconds)} />
+                <Row label="Collecte → livraison" value={traceDuration(selectedRouteMission?.duration_summary?.pickup_to_completion_seconds)} />
+                <Row label="Durée totale" value={traceDuration(selectedRouteMission?.duration_summary?.assigned_to_completion_seconds)} />
+                <Row label="Acceptation" value={formatDate(selectedRouteMission?.assigned_at)} />
+                <Row label="Collecte" value={formatDate(selectedRouteMission?.started_at)} />
                 <Row
                   label="Livreur"
                   value={selectedRouteMission?.driver_name ?? "—"}

@@ -845,92 +845,131 @@ class DriverShell extends ConsumerStatefulWidget {
   ConsumerState<DriverShell> createState() => _DriverShellState();
 }
 
-class _DriverShellState extends ConsumerState<DriverShell> {
+class _DriverShellState extends ConsumerState<DriverShell>
+    with WidgetsBindingObserver {
+  static const _trackingInterval = Duration(seconds: 5);
+  int _trackingGeneration = 0;
+  String? _requestedMissionId;
+  bool _trackingStarting = false;
   StreamSubscription<Position>? _positionStream;
   DateTime? _lastBackendUpdate;
   String? _trackingMissionId;
   bool _locationConsentPrepared = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      ref.invalidate(myMissionsProvider);
+      setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
+    _trackingGeneration++;
+    WidgetsBinding.instance.removeObserver(this);
     _positionStream?.cancel();
     super.dispose();
   }
 
   Future<void> _syncDriverTracking(String? missionId) async {
     if (!mounted) return;
-    if (missionId == _trackingMissionId) return;
+    if (missionId == _trackingMissionId && _positionStream != null) return;
+    if (_trackingStarting && missionId == _requestedMissionId) return;
+    final generation = ++_trackingGeneration;
+    _requestedMissionId = missionId;
+    _trackingStarting = true;
 
-    await _positionStream?.cancel();
-    _positionStream = null;
-    _trackingMissionId = null;
-    _lastBackendUpdate = null;
+    try {
+      await _positionStream?.cancel();
+      if (!mounted || generation != _trackingGeneration) return;
+      _positionStream = null;
+      _trackingMissionId = null;
+      _lastBackendUpdate = null;
 
-    if (missionId == null || missionId.isEmpty) {
-      return;
-    }
-
-    if (!await DriverLocationConsent.hasAccepted()) return;
-    final permission = await Geolocator.checkPermission();
-    final hasRequiredPermission =
-        defaultTargetPlatform == TargetPlatform.android
-            ? permission == LocationPermission.always
-            : permission == LocationPermission.always;
-    if (!hasRequiredPermission) {
-      return;
-    }
-    _trackingMissionId = missionId;
-
-    final LocationSettings locationSettings;
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-        intervalDuration: const Duration(seconds: 15),
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'Denkma suit votre livraison',
-          notificationText:
-              'Votre position est partagée en continu pendant la course.',
-          enableWakeLock: true,
-        ),
-      );
-    } else if (defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS) {
-      locationSettings = AppleSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 10,
-        activityType: ActivityType.automotiveNavigation,
-        pauseLocationUpdatesAutomatically: false,
-        showBackgroundLocationIndicator: true,
-        allowBackgroundLocationUpdates: true,
-      );
-    } else {
-      locationSettings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      );
-    }
-
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen((position) async {
-      final now = DateTime.now();
-      if (_trackingMissionId == null) return;
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return;
-      if (_lastBackendUpdate != null &&
-          now.difference(_lastBackendUpdate!).inSeconds <= 30) {
+      if (missionId == null || missionId.isEmpty) {
         return;
       }
-      _lastBackendUpdate = now;
-      try {
-        await ref.read(apiClientProvider).updateLocation(_trackingMissionId!, {
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'accuracy': position.accuracy,
-        });
-      } catch (_) {}
-    });
+
+      if (!await DriverLocationConsent.hasAccepted()) return;
+      final permission = await Geolocator.checkPermission();
+      if (!mounted || generation != _trackingGeneration) return;
+      final hasRequiredPermission =
+          defaultTargetPlatform == TargetPlatform.android
+              ? permission == LocationPermission.always
+              : permission == LocationPermission.always;
+      if (!hasRequiredPermission) {
+        return;
+      }
+      _trackingMissionId = missionId;
+
+      final LocationSettings locationSettings;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        locationSettings = AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+          intervalDuration: _trackingInterval,
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationTitle: 'Denkma suit votre livraison',
+            notificationText:
+                'Votre position est partagée en continu pendant la course.',
+            enableWakeLock: true,
+          ),
+        );
+      } else if (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        locationSettings = AppleSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 10,
+          activityType: ActivityType.automotiveNavigation,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: true,
+          allowBackgroundLocationUpdates: true,
+        );
+      } else {
+        locationSettings = const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        );
+      }
+
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: locationSettings,
+      ).listen((position) async {
+        final now = DateTime.now();
+        if (!mounted || generation != _trackingGeneration) return;
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) return;
+        if (_lastBackendUpdate != null &&
+            now.difference(_lastBackendUpdate!) < _trackingInterval) {
+          return;
+        }
+        _lastBackendUpdate = now;
+        try {
+          if (!mounted || generation != _trackingGeneration) return;
+          await ref.read(apiClientProvider).updateLocation(missionId, {
+            'lat': position.latitude,
+            'lng': position.longitude,
+            'accuracy': position.accuracy,
+          });
+        } catch (_) {
+          if (generation == _trackingGeneration) _lastBackendUpdate = null;
+        }
+      }, onError: (Object error) {
+        if (!mounted || generation != _trackingGeneration) return;
+        _positionStream?.cancel();
+        _positionStream = null;
+        _trackingMissionId = null;
+      });
+    } finally {
+      if (generation == _trackingGeneration) _trackingStarting = false;
+    }
   }
 
   Future<void> _prepareLocationConsent() async {
@@ -961,8 +1000,9 @@ class _DriverShellState extends ConsumerState<DriverShell> {
     );
     String? activeMissionId;
     for (final mission in myMissions) {
-      if (mission.status == 'in_progress' ||
-          mission.status == 'incident_reported') {
+      if (mission.startedAt != null &&
+          (mission.status == 'in_progress' ||
+              mission.status == 'incident_reported')) {
         activeMissionId = mission.id;
         break;
       }

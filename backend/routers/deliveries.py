@@ -17,6 +17,7 @@ from config import settings
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
 from database import db
+from services.mission_trace import archive_position, load_trace, timestamp
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
@@ -1654,7 +1655,17 @@ async def update_location(
     mission_query = {"mission_id": mission_id}
     if not is_admin:
         mission_query["driver_id"] = current_user["user_id"]
-    await db.delivery_missions.update_one(mission_query, update_query)
+    location_result = await db.delivery_missions.update_one(mission_query, update_query)
+    if (location_result.matched_count and mission.get("started_at")
+            and not mission.get("completed_at")
+            and mission.get("status") in {"in_progress", "incident_reported"}):
+        if not mission.get("gps_archive_initialized"):
+            for old_point in mission.get("gps_trail") or []:
+                if (timestamp(old_point.get("ts")) is not None
+                        and timestamp(old_point["ts"]) >= timestamp(mission["started_at"])):
+                    await archive_position(mission_id, old_point, mission.get("driver_id"))
+            await db.delivery_missions.update_one(mission_query, {"$set": {"gps_archive_initialized": True}})
+        await archive_position(mission_id, driver_loc, mission.get("driver_id"))
     
     # ── Mettre à jour la position globale du livreur (pour le dispatch/heatmap) ──
     await db.users.update_one(
@@ -2269,10 +2280,10 @@ async def get_gps_trail(
         UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
-    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0, "gps_trail": 1})
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0, "gps_trail": 1, "mission_id": 1, "started_at": 1, "completed_at": 1, "driver_id": 1})
     if not mission:
         raise not_found_exception("Mission")
-    trail = mission.get("gps_trail", [])
+    trail = await load_trace(mission)
     return {"trail": trail, "count": len(trail)}
 
 
