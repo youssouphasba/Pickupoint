@@ -317,15 +317,16 @@ def _attach_pickup_confirmation_window(
         mission["pickup_confirmation_remaining_seconds"] = None
         return
 
-    deadline_at = assigned_at + timedelta(minutes=auto_release_minutes)
-    mission["pickup_confirmation_deadline_at"] = deadline_at.isoformat()
-
     if (
         mission.get("status") != MissionStatus.ASSIGNED.value
         or mission.get("started_at") is not None
     ):
+        mission["pickup_confirmation_deadline_at"] = None
         mission["pickup_confirmation_remaining_seconds"] = None
         return
+
+    deadline_at = assigned_at + timedelta(minutes=auto_release_minutes)
+    mission["pickup_confirmation_deadline_at"] = deadline_at.isoformat()
 
     reference_now = _as_aware_utc(now) or datetime.now(timezone.utc)
     remaining_seconds = max(
@@ -1621,6 +1622,7 @@ async def update_location(
     last_eta_update = _as_aware_utc(mission.get("eta_updated_at"))
     route_status = mission.get("status")
     eta_target_status = mission.get("eta_target_status")
+    previous_eta_target_status = eta_target_status
     should_update_eta = (
         route_status in {MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value}
         and (
@@ -1646,7 +1648,7 @@ async def update_location(
             })
             if eta_data.get("encoded_polyline"):
                 update_query["$set"]["encoded_polyline"] = eta_data["encoded_polyline"]
-        else:
+        elif previous_eta_target_status != route_status:
             update_query["$unset"] = {"eta_seconds": "", "eta_text": "", "distance_text": "", "encoded_polyline": ""}
 
     # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
