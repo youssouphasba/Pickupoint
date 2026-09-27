@@ -192,6 +192,7 @@ export default function FinancePage() {
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
       }),
+    retry: 2,
   });
 
   const recon = useQuery({
@@ -200,10 +201,12 @@ export default function FinancePage() {
       ...(dateRange.from ? { from_date: dateRange.from } : {}),
       ...(dateRange.to ? { to_date: dateRange.to } : {}),
     }),
+    retry: 2,
   });
 
   const loading = overview.isLoading || recon.isLoading;
-  const error = overview.isError || recon.isError;
+  const overviewError = overview.isError;
+  const reconciliationError = recon.isError;
   const data = overview.data as any;
   const issues = [
     "wallet_pending_mismatches",
@@ -251,9 +254,15 @@ export default function FinancePage() {
         </div>
       ) : null}
 
-      {error ? (
+      {overviewError ? (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Impossible de charger les données finance pour le moment.
+          Impossible de charger la synthèse financière pour le moment. Réessayez dans quelques instants.
+        </div>
+      ) : null}
+
+      {!overviewError && reconciliationError ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          La synthèse est disponible, mais le contrôle de cohérence financière est temporairement indisponible.
         </div>
       ) : null}
 
