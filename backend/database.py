@@ -174,6 +174,9 @@ async def create_indexes():
             IndexModel([("campaign_id", 1), ("event_type", 1)]),
             IndexModel([("created_at", -1)]),
         ],
+        "heatmap_geocode_cache": [
+            IndexModel([("cache_key", 1)], unique=True),
+        ],
         "referrals": [
             IndexModel([("referral_id", 1)], unique=True),
             IndexModel([("sponsor_user_id", 1)]),

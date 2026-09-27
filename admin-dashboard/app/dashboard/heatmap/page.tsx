@@ -41,6 +41,9 @@ type HeatmapHotspot = {
   lat: number;
   lng: number;
   label?: string;
+  geocoded_address?: string | null;
+  geocoded_city?: string | null;
+  geocoded_district?: string | null;
   count: number;
   type_counts?: Partial<Record<HeatmapPointType, number>>;
   parcels?: HeatmapParcel[];
@@ -164,6 +167,9 @@ function HeatmapPopup({ hotspot }: { hotspot: HeatmapHotspot }) {
     <div className="min-w-[260px] space-y-3 p-1 text-sm">
       <div>
         <div className="font-semibold text-slate-950">{label}</div>
+        {hotspot.geocoded_address ? (
+          <div className="mt-1 text-xs text-slate-600">{hotspot.geocoded_address}</div>
+        ) : null}
         <div className="mt-1 text-xs text-slate-500">
           {formatCoordinate(hotspot.lat)}, {formatCoordinate(hotspot.lng)}
         </div>
@@ -456,6 +462,11 @@ export default function HeatmapPage() {
                             <h3 className="mt-2 text-base font-semibold">
                               {label}
                             </h3>
+                            {hotspot.geocoded_address ? (
+                              <div className="mt-1 text-sm text-muted-foreground">
+                                {hotspot.geocoded_address}
+                              </div>
+                            ) : null}
                             <div className="mt-1 text-xs text-muted-foreground">
                               {formatCoordinate(hotspot.lat)},{" "}
                               {formatCoordinate(hotspot.lng)}

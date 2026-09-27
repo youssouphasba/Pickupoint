@@ -1,6 +1,7 @@
 """
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
+import asyncio
 import mimetypes
 import uuid
 from calendar import monthrange
@@ -25,6 +26,7 @@ from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
 from services.parcel_service import (
+    _enrich_location_from_geopin,
     _record_event,
     get_assigned_mission_auto_release_minutes,
     get_delivery_dispatch_settings,
@@ -68,6 +70,7 @@ from services.performance_rewards_service import (
     set_performance_rewards_settings,
 )
 from services.relay_geocoding_service import geocode_relay_address
+from services.google_maps_service import reverse_geocode
 from services.wallet_service import (
     credit_wallet,
     compute_delivery_commission_breakdown,
@@ -1104,6 +1107,20 @@ async def _load_relay_lookup(relay_ids: list[str]) -> dict[str, dict[str, Any]]:
 
 
 async def _enrich_parcel_addresses(parcel: dict) -> dict[str, dict[str, Any]]:
+    updates: dict[str, dict[str, Any]] = {}
+    for field in ("origin_location", "delivery_address"):
+        address = parcel.get(field)
+        if isinstance(address, dict) and isinstance(address.get("geopin"), dict):
+            if not address.get("formatted_address"):
+                enriched = await _enrich_location_from_geopin(address) or address
+                parcel[field] = enriched
+                if enriched != address:
+                    updates[field] = enriched
+    if updates and parcel.get("parcel_id"):
+        await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"]},
+            {"$set": updates},
+        )
     parcel["origin_address_label"] = _address_label(parcel.get("origin_location"))
     parcel["destination_address_label"] = _address_label(parcel.get("delivery_address"))
     relay_ids = [
@@ -1131,14 +1148,20 @@ def _build_location_snapshot(
     geopin: dict | None,
     source_type: str,
     relay: dict | None = None,
+    address: dict | None = None,
 ) -> dict | None:
     if not geopin:
         return None
+    address_label = _address_label(address)
     snapshot = {
-        "label": label or "Point inconnu",
+        "label": label or address_label or "Point inconnu",
         "geopin": geopin,
         "source_type": source_type,
     }
+    if address_label:
+        snapshot["address_label"] = address_label
+    if isinstance(address, dict):
+        snapshot["address"] = address
     relay_data = _relay_snapshot(relay)
     if relay_data:
         snapshot["relay"] = relay_data
@@ -1154,6 +1177,11 @@ def _resolve_mission_pickup(parcel: dict, mission: dict, relay_lookup: dict[str,
         pickup_geopin = _normalize_address_geopin(pickup_relay.get("address"))
     if pickup_relay and not pickup_label:
         pickup_label = _relay_label(pickup_relay)
+    pickup_address = (
+        (pickup_relay or {}).get("address")
+        if pickup_relay
+        else parcel.get("origin_location")
+    )
     if not pickup_geopin:
         origin_address = parcel.get("origin_location")
         pickup_geopin = _normalize_address_geopin(origin_address)
@@ -1165,6 +1193,7 @@ def _resolve_mission_pickup(parcel: dict, mission: dict, relay_lookup: dict[str,
         geopin=pickup_geopin,
         source_type=source_type,
         relay=pickup_relay,
+        address=pickup_address,
     )
 
 
@@ -1181,6 +1210,11 @@ def _resolve_mission_delivery(parcel: dict, mission: dict, relay_lookup: dict[st
         delivery_geopin = _normalize_address_geopin(delivery_relay.get("address"))
     if delivery_relay and not delivery_label:
         delivery_label = _relay_label(delivery_relay)
+    delivery_address_data = (
+        (delivery_relay or {}).get("address")
+        if delivery_relay
+        else parcel.get("delivery_address") or mission.get("delivery_address")
+    )
     if not delivery_geopin:
         delivery_address = parcel.get("delivery_address") or mission.get("delivery_address")
         delivery_geopin = _normalize_address_geopin(delivery_address)
@@ -1192,6 +1226,7 @@ def _resolve_mission_delivery(parcel: dict, mission: dict, relay_lookup: dict[st
         geopin=delivery_geopin,
         source_type=source_type,
         relay=delivery_relay,
+        address=delivery_address_data,
     )
 
 
@@ -3725,6 +3760,40 @@ async def get_heatmap_data_rich(
         reverse=True,
     )[:limit]
 
+    geocode_keys = {
+        f"{round(float(item['lat']), 3)}:{round(float(item['lng']), 3)}"
+        for item in top_hotspots
+    }
+    cached_geocodes = await db.heatmap_geocode_cache.find(
+        {"cache_key": {"$in": sorted(geocode_keys)}},
+        {"_id": 0},
+    ).to_list(length=len(geocode_keys))
+    geocode_lookup = {item["cache_key"]: item for item in cached_geocodes}
+    geocode_semaphore = asyncio.Semaphore(5)
+
+    async def geocode_hotspot(item: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+        key = f"{round(float(item['lat']), 3)}:{round(float(item['lng']), 3)}"
+        if key in geocode_lookup:
+            return key, geocode_lookup[key]
+        async with geocode_semaphore:
+            result = await reverse_geocode(float(item["lat"]), float(item["lng"]))
+        if result:
+            cached = {"cache_key": key, "lat": item["lat"], "lng": item["lng"], **result}
+            await db.heatmap_geocode_cache.update_one(
+                {"cache_key": key},
+                {"$set": cached},
+                upsert=True,
+            )
+            return key, cached
+        return key, None
+
+    geocoded_hotspots = await asyncio.gather(*(geocode_hotspot(item) for item in top_hotspots))
+    for item, (key, geocode) in zip(top_hotspots, geocoded_hotspots):
+        if geocode:
+            item["geocoded_address"] = geocode.get("formatted_address")
+            item["geocoded_city"] = geocode.get("city")
+            item["geocoded_district"] = geocode.get("district")
+
     return {"points": points, "summary": summary, "top_hotspots": top_hotspots}
 
 
@@ -3737,6 +3806,7 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
     if not parcel:
         raise not_found_exception("Colis")
     await _restore_admin_parcel_phones([parcel])
+    await _enrich_parcel_addresses(parcel)
 
     if parcel.get("sender_user_id") and not parcel.get("sender_name"):
         sender = await db.users.find_one({"user_id": parcel["sender_user_id"]}, {"_id": 0, "name": 1})

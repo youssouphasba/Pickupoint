@@ -151,8 +151,16 @@ type ParcelMission = {
     pickup_to_completion_seconds?: number;
     assigned_to_completion_seconds?: number;
   };
-  pickup?: { label?: string | null; geopin?: GeoPoint | null };
-  delivery?: { label?: string | null; geopin?: GeoPoint | null };
+  pickup?: {
+    label?: string | null;
+    address_label?: string | null;
+    geopin?: GeoPoint | null;
+  };
+  delivery?: {
+    label?: string | null;
+    address_label?: string | null;
+    geopin?: GeoPoint | null;
+  };
   route_summary?: {
     gps_points_count?: number;
     distance_text?: string;
@@ -990,6 +998,22 @@ export default function ParcelDetailPage() {
                 <Row
                   label="Livreur"
                   value={selectedRouteMission?.driver_name ?? "—"}
+                />
+                <Row
+                  label="Adresse de collecte"
+                  value={
+                    selectedRouteMission?.pickup?.address_label ??
+                    selectedRouteMission?.pickup?.label ??
+                    "—"
+                  }
+                />
+                <Row
+                  label="Adresse de livraison"
+                  value={
+                    selectedRouteMission?.delivery?.address_label ??
+                    selectedRouteMission?.delivery?.label ??
+                    "—"
+                  }
                 />
                 <Row label="Etat GPS" value={selectedRouteSignal.label} />
                 <Row

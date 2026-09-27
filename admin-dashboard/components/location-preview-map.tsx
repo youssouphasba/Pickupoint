@@ -5,6 +5,8 @@ type GeoPoint = {
   lng?: number | null;
   latitude?: number | null;
   longitude?: number | null;
+  address_label?: string | null;
+  formatted_address?: string | null;
 };
 
 type LocationPreviewMapProps = {
@@ -60,8 +62,8 @@ export function LocationPreviewMap({
         referrerPolicy="no-referrer-when-downgrade"
       />
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span>
-          {lat.toFixed(5)}, {lng.toFixed(5)}
+        <span className="max-w-full">
+          {point?.address_label ?? point?.formatted_address ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`}
         </span>
         <a
           href={openStreetMapUrl}

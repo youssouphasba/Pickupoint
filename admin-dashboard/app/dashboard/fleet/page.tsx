@@ -47,8 +47,16 @@ type FleetMission = {
   sender_name?: string;
   recipient_name?: string;
   recipient_phone?: string;
-  pickup?: { label?: string | null; geopin?: GeoPoint | null };
-  delivery?: { label?: string | null; geopin?: GeoPoint | null };
+  pickup?: {
+    label?: string | null;
+    address_label?: string | null;
+    geopin?: GeoPoint | null;
+  };
+  delivery?: {
+    label?: string | null;
+    address_label?: string | null;
+    geopin?: GeoPoint | null;
+  };
   gps_trail?: GeoPoint[];
   route_summary?: {
     speed_kmh?: number;
@@ -665,10 +673,14 @@ function MissionPopup({
         </div>
       )}
       {mission.pickup?.label && (
-        <div className="text-xs text-slate-600">Depart : {mission.pickup.label}</div>
+        <div className="text-xs text-slate-600">
+          Départ : {mission.pickup.address_label ?? mission.pickup.label}
+        </div>
       )}
       {mission.delivery?.label && (
-        <div className="text-xs text-slate-600">Arrivee : {mission.delivery.label}</div>
+        <div className="text-xs text-slate-600">
+          Arrivée : {mission.delivery.address_label ?? mission.delivery.label}
+        </div>
       )}
       {(mission.eta_text || mission.distance_text) && (
         <div className="text-xs text-slate-600">
