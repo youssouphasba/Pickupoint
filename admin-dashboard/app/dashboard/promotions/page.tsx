@@ -57,7 +57,6 @@ function PromotionManager() {
   const stats = useQuery({ queryKey: ["admin-promotion-stats", selectedId], queryFn: () => fetchPromotionStats(selectedId!), enabled: Boolean(selectedId) });
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const now = React.useMemo(() => new Date(), []);
-  const [editingCampaignId, setEditingCampaignId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<AdminPromotionPayload>({
     title: "",
     description: "",
@@ -163,6 +162,7 @@ function CampaignsSection() {
     queryFn: () => fetchInAppCampaigns(false),
   });
   const now = React.useMemo(() => new Date(), []);
+  const [editingCampaignId, setEditingCampaignId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<InAppCampaignPayload>({
     title: "",
     body: "",
