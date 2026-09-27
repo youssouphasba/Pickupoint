@@ -16,6 +16,7 @@ import {
   uploadInAppCampaignVideo,
   updateInAppCampaign,
   deleteInAppCampaign,
+  notifyInAppCampaign,
   fetchSettings,
   toggleExpress,
   updateLogisticsSettings,
@@ -456,6 +457,11 @@ function CampaignPreview({ form }: { form: InAppCampaignPayload }) {
 }
 
 function CampaignCard({ campaign, onToggle, onDelete, onEdit }: { campaign: InAppCampaign; onToggle: () => void; onDelete: () => void; onEdit: () => void }) {
+  const { toast } = useToast();
+  const notifyMut = useMutation({
+    mutationFn: () => notifyInAppCampaign(campaign.campaign_id),
+    onSuccess: (data) => toast(`Notification envoyée à ${data.matched} utilisateur(s).`),
+  });
   const ctr = campaign.impressions_count > 0 ? Math.round((campaign.clicks_count / campaign.impressions_count) * 100) : 0;
   const now = Date.now();
   const start = new Date(campaign.start_date).getTime();
@@ -488,6 +494,10 @@ function CampaignCard({ campaign, onToggle, onDelete, onEdit }: { campaign: InAp
           <Badge>Priorité {campaign.priority}</Badge>
         </div>
         <div className="flex justify-end gap-2">
+          <Button size="sm" onClick={() => notifyMut.mutate()} disabled={notifyMut.isPending || !campaign.is_active || expired || scheduled}>
+            {notifyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Envoyer la notification
+          </Button>
           <Button size="sm" variant="outline" onClick={onEdit}>Modifier</Button>
           <Button size="sm" variant="outline" onClick={onToggle}>{campaign.is_active ? "Désactiver" : "Activer"}</Button>
           <Button size="sm" variant="outline" onClick={onDelete}>

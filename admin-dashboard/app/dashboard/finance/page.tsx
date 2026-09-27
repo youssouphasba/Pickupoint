@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Clock3, Loader2 } from "lucide-react";
 
 import { fetchFinanceOverview, fetchFinanceReconciliation } from "@/lib/api";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
@@ -53,6 +53,14 @@ function currentMonthRange(): DateRange {
 
 function formatXof(value?: number | null) {
   return `${xof.format(value ?? 0)} XOF`;
+}
+
+function formatDuration(seconds?: number | null) {
+  if (seconds == null) return "—";
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} min`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  return `${hours} h${minutes ? ` ${minutes} min` : ""}`;
 }
 
 function clickableClass(disabled?: boolean) {
@@ -124,6 +132,7 @@ const ISSUE_LABELS: Record<string, string> = {
   negative_wallets: "Soldes négatifs à vérifier",
   payout_ledger_gaps: "Retraits à revoir",
   mission_parcel_mismatches: "Courses à revoir",
+  delivered_unpaid: "Colis livrés non réglés",
 };
 
 function FinanceDetailModal({
@@ -186,8 +195,11 @@ export default function FinancePage() {
   });
 
   const recon = useQuery({
-    queryKey: ["finance-recon"],
-    queryFn: fetchFinanceReconciliation,
+    queryKey: ["finance-recon", dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () => fetchFinanceReconciliation({
+      ...(dateRange.from ? { from_date: dateRange.from } : {}),
+      ...(dateRange.to ? { to_date: dateRange.to } : {}),
+    }),
   });
 
   const loading = overview.isLoading || recon.isLoading;
@@ -198,6 +210,7 @@ export default function FinancePage() {
     "negative_wallets",
     "payout_ledger_gaps",
     "mission_parcel_mismatches",
+    "delivered_unpaid",
   ];
 
   function openDetails(title: string, items: FinanceDetailItem[], description?: string) {
@@ -246,6 +259,23 @@ export default function FinancePage() {
 
       {data ? (
         <>
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Synthèse de trésorerie</h2>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Commission reçue" value={formatXof(data.commissions.platform_received_xof)} hint="Effectivement prélevée" />
+              <StatCard label="À percevoir" value={formatXof(data.commissions.platform_collectable_xof)} hint="Non encore prélevée" />
+              <StatCard label="Dette livreurs" value={formatXof(data.commissions.platform_debt_xof)} hint="Commission à recouvrer" />
+              <StatCard label="Commission offerte" value={formatXof(data.commissions.platform_offered_xof)} hint="Prise en charge par Denkma" />
+            </div>
+            <Card>
+              <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
+                <div><div className="text-xs text-muted-foreground">Recharges Stripe payées</div><div className="mt-1 text-lg font-semibold">{formatXof(data.topups.paid_amount_xof)}</div></div>
+                <div><div className="text-xs text-muted-foreground">Retraits approuvés</div><div className="mt-1 text-lg font-semibold">{formatXof(data.payouts.sent_amount_xof)}</div></div>
+                <div><div className="text-xs text-muted-foreground">Flux wallet brut</div><div className="mt-1 text-lg font-semibold">{formatXof((data.topups.paid_amount_xof ?? 0) - (data.payouts.sent_amount_xof ?? 0))}</div><div className="mt-1 text-xs text-muted-foreground">Recharges moins retraits, hors frais Stripe</div></div>
+              </CardContent>
+            </Card>
+          </section>
+
           <section className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À surveiller</h2>
@@ -399,6 +429,16 @@ export default function FinancePage() {
                   onClick={() => openDetails("Recharges Stripe payées", data.topups.details?.paid ?? [], "Argent encaissé par Denkma avant crédit du solde livreur")}
                 />
                 <StatCard
+                  label="Recharges échouées"
+                  value={formatXof(data.topups.failed_amount_xof)}
+                  hint={`${data.topups.failed_count ?? 0} tentatives`}
+                />
+                <StatCard
+                  label="Remboursements"
+                  value={formatXof(data.topups.refunded_amount_xof)}
+                  hint={`${data.topups.refunded_count ?? 0} remboursements`}
+                />
+                <StatCard
                   label="Retraits en attente"
                   value={`${data.payouts.waiting_count ?? 0}`}
                   hint={formatXof(data.payouts.waiting_amount_xof)}
@@ -437,7 +477,7 @@ export default function FinancePage() {
                 <StatCard
                   label="En attente"
                   value={`${data.payouts.waiting_count ?? 0}`}
-                  hint={formatXof(data.payouts.waiting_amount_xof)}
+                  hint={`${formatXof(data.payouts.waiting_amount_xof)} · âge moyen ${formatDuration(data.payouts.average_pending_age_seconds)}`}
                   onClick={() => openDetails("Retraits en attente", data.payouts.details?.waiting ?? [])}
                 />
                 <StatCard
@@ -453,6 +493,13 @@ export default function FinancePage() {
                   onClick={() => openDetails("Retraits refusés", data.payouts.details?.refused ?? [])}
                 />
               </div>
+              <Card>
+                <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
+                  <div className="flex items-center gap-3"><Clock3 className="h-4 w-4 text-muted-foreground" /><div><div className="text-xs text-muted-foreground">Retrait en attente le plus ancien</div><div className="font-semibold">{formatDuration(data.payouts.oldest_pending_age_seconds)}</div></div></div>
+                  <div className="flex items-center gap-3"><Clock3 className="h-4 w-4 text-muted-foreground" /><div><div className="text-xs text-muted-foreground">Délai moyen de traitement</div><div className="font-semibold">{formatDuration(data.payouts.average_settlement_seconds)}</div></div></div>
+                  <div className="flex items-center gap-3"><Clock3 className="h-4 w-4 text-muted-foreground" /><div><div className="text-xs text-muted-foreground">Portefeuilles bloqués</div><div className="font-semibold">{data.payouts.blocked_wallets ?? 0}</div></div></div>
+                </CardContent>
+              </Card>
             </section>
 
             <section className="space-y-3">
@@ -480,6 +527,20 @@ export default function FinancePage() {
               </Card>
             </section>
           </div>
+
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Flux financiers quotidiens</h2>
+            <Card>
+              <CardContent className="space-y-3 p-5">
+                {(data.daily ?? []).length === 0 ? <div className="text-sm text-muted-foreground">Aucun mouvement financier sur la période.</div> : null}
+                {(data.daily ?? []).map((day: any) => {
+                  const maximum = Math.max(day.topups_xof ?? 0, day.payouts_xof ?? 0, 1);
+                  return <div key={day.date} className="grid grid-cols-[5.5rem_1fr_9rem] items-center gap-3 text-sm"><span className="text-muted-foreground">{day.date}</span><div className="space-y-1"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ((day.topups_xof ?? 0) / maximum) * 100)}%` }} /></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, ((day.payouts_xof ?? 0) / maximum) * 100)}%` }} /></div></div><div className="text-right text-xs"><div className="text-emerald-700">+{formatXof(day.topups_xof)}</div><div className="text-amber-700">−{formatXof(day.payouts_xof)}</div></div></div>;
+                })}
+                {(data.daily ?? []).length > 0 ? <div className="flex gap-4 text-xs text-muted-foreground"><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Recharges payées</span><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-500" />Retraits approuvés</span></div> : null}
+              </CardContent>
+            </Card>
+          </section>
 
           {recon.data ? (
             <section className="space-y-3">

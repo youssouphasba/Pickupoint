@@ -32,12 +32,14 @@ export default function PayoutsPage() {
   const { toast } = useToast();
 
   const [dateRange, setDateRange] = React.useState<DateRange>({});
+  const [statusFilter, setStatusFilter] = React.useState<"pending" | "approved" | "rejected">("pending");
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["payouts", "pending", dateRange.from ?? "", dateRange.to ?? ""],
+    queryKey: ["payouts", statusFilter, dateRange.from ?? "", dateRange.to ?? ""],
     queryFn: () =>
       fetchPendingPayouts({
         ...(dateRange.from ? { from_date: dateRange.from } : {}),
         ...(dateRange.to ? { to_date: dateRange.to } : {}),
+        status: statusFilter,
       }),
     refetchInterval: 30_000,
   });
@@ -81,6 +83,14 @@ export default function PayoutsPage() {
         </Card>
       )}
 
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">Historique des décaissements</div>
+          <div className="text-xs text-muted-foreground">Les demandes sont conservées après l’envoi ou le rejet.</div>
+        </div>
+        <label className="text-sm">Statut<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="mt-1 block h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="pending">En attente</option><option value="approved">Envoyés</option><option value="rejected">Rejetés</option></select></label>
+      </div>
+
       <div className="grid gap-3">
         {payouts.map((p) => (
           <PayoutCard
@@ -96,17 +106,17 @@ export default function PayoutsPage() {
       <ActionModal
         open={!!approveTarget}
         onOpenChange={(o) => !o && setApproveTarget(null)}
-        title={`Valider le décaissement de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
-        description="Note optionnelle (référence de transaction, numéro de virement…)"
-        inputLabel="Note (optionnel)"
+        title={`Confirmer l’envoi Wave de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
+        description="Effectuez d’abord l’envoi manuel via Wave, puis saisissez la référence de transaction."
+        inputLabel="Référence Wave"
         inputPlaceholder="Ex: TX-20260417-001"
-        confirmLabel="Valider le décaissement"
+        confirmLabel="Confirmer l’envoi"
         confirmVariant="default"
-        required={false}
-        onConfirm={async (note) => {
-          await approvePayout(approveTarget!.payout_id, note || undefined);
+        required
+        onConfirm={async (reference) => {
+          await approvePayout(approveTarget!.payout_id, reference);
           invalidate();
-          toast("Décaissement validé avec succès.");
+          toast("Envoi Wave enregistré avec succès.");
           setApproveTarget(null);
         }}
       />
@@ -149,25 +159,28 @@ function PayoutCard({
             <span className="text-lg font-bold">
               {xof.format(payout.amount)} XOF
             </span>
-            <Badge tone="warning">En attente</Badge>
+            <Badge tone={payout.status === "approved" ? "success" : payout.status === "rejected" ? "danger" : "warning"}>{payout.status === "approved" ? "Envoyé" : payout.status === "rejected" ? "Rejeté" : "En attente"}</Badge>
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
             {METHOD_LABELS[payout.method] ?? payout.method}
             {payout.destination ? ` • ${payout.destination}` : ""}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            User #{payout.user_id} • demandé le {formatDate(payout.created_at)}
+            {payout.user_name ?? `User #${payout.user_id}`}{payout.user_phone ? ` • ${payout.user_phone}` : ""} • demandé le {formatDate(payout.created_at)}
+            {payout.sent_at ? ` • envoyé le ${formatDate(payout.sent_at)}` : ""}
+            {payout.transfer_reference ? ` • réf. ${payout.transfer_reference}` : ""}
+            {payout.rejection_reason ? ` • motif : ${payout.rejection_reason}` : ""}
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={onReject}>
+          {payout.status === "pending" ? <Button variant="outline" size="sm" onClick={onReject}>
             <XCircle className="h-4 w-4" />
             Rejeter
-          </Button>
-          <Button size="sm" onClick={onApprove}>
+          </Button> : null}
+          {payout.status === "pending" ? <Button size="sm" onClick={onApprove}>
             <CheckCircle2 className="h-4 w-4" />
-            Valider
-          </Button>
+            Confirmer l’envoi
+          </Button> : null}
         </div>
       </CardContent>
     </Card>

@@ -18,6 +18,7 @@ import {
   Flame,
   History,
   Scale,
+  UserRoundCog,
   LogOut,
   MessageCircle,
   Settings,
@@ -64,12 +65,13 @@ const items: Item[] = [
   { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },
   { href: "/dashboard/finance", label: "Finance", Icon: Banknote },
   { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle, badge: "anomalies" },
-  { href: "/dashboard/audit-log?search=SECURITY_GPS_BLOCKED", label: "Sécurité livreurs", Icon: AlertTriangle, badge: "security" },
+  { href: "/dashboard/security", label: "Sécurité livreurs", Icon: AlertTriangle, badge: "security" },
   { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle, badge: "support" },
   { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock, badge: "stale_parcels" },
   { href: "/dashboard/heatmap", label: "Heatmap", Icon: Flame },
   { href: "/dashboard/audit-log", label: "Audit log", Icon: History },
   { href: "/dashboard/legal", label: "Juridique", Icon: Scale },
+  { href: "/dashboard/privacy-requests", label: "Demandes de données", Icon: UserRoundCog },
 ];
 
 function SidebarBadge({ category }: { category?: ActionCategory }) {

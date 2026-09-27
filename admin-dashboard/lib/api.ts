@@ -43,6 +43,43 @@ export async function logout() {
   await api.post("/api/admin/auth/logout").catch(() => {});
 }
 
+export type PrivacyRequest = {
+  request_id: string;
+  user_id: string;
+  user_name?: string | null;
+  user_phone?: string | null;
+  request_type: string;
+  message?: string | null;
+  status: string;
+  admin_response?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  completed_at?: string | null;
+};
+
+export async function fetchPrivacyRequests(params?: {
+  status?: string;
+  request_type?: string;
+  search?: string;
+}) {
+  const { data } = await api.get<{ requests: PrivacyRequest[]; total: number }>(
+    "/api/admin/privacy-requests",
+    { params },
+  );
+  return data;
+}
+
+export async function updatePrivacyRequest(
+  requestId: string,
+  body: { status: string; admin_response?: string },
+) {
+  const { data } = await api.patch<{ request: PrivacyRequest }>(
+    `/api/admin/privacy-requests/${requestId}`,
+    body,
+  );
+  return data;
+}
+
 // ───────────────────────── Users ─────────────────────────
 
 export type AdminUser = {
@@ -1197,6 +1234,25 @@ export async function updateLegalDoc(
 ) {
   const { data } = await api.put(`/api/legal/${docType}`, body);
   return data;
+}
+
+export async function notifyInAppCampaign(campaignId: string) {
+  const { data } = await api.post(`/api/admin/campaigns/${campaignId}/notify`);
+  return data as { matched: number; sent: number; push_sent: number; in_app_sent: number };
+}
+
+export async function fetchLegalReadingStats(docType: string, search?: string) {
+  const { data } = await api.get(`/api/legal/admin/${docType}/reading-stats`, {
+    params: search?.trim() ? { search: search.trim() } : undefined,
+  });
+  return data as {
+    document_type: string;
+    document_version: string;
+    total_users: number;
+    read_count: number;
+    unread_count: number;
+    users: Array<{ user_id: string; name?: string; phone?: string; role?: string; has_read: boolean }>;
+  };
 }
 
 // ───────────────────────── Rewards ─────────────────────────

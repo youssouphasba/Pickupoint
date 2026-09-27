@@ -410,16 +410,16 @@ function RowActions({
         <ActionModal
           open={approveOpen}
           onOpenChange={setApproveOpen}
-          title={`Valider le retrait de ${xof.format(asNumber(item.amount))} XOF`}
-          description="Note optionnelle (référence de transaction, commentaire...)."
-          inputLabel="Note"
+          title={`Confirmer l’envoi Wave de ${xof.format(asNumber(item.amount))} XOF`}
+          description="Effectuez l’envoi manuel via Wave, puis saisissez la référence de transaction."
+          inputLabel="Référence Wave"
           inputPlaceholder="Ex: TX-20260620-001"
-          confirmLabel="Valider le retrait"
-          required={false}
-          onConfirm={async (note) => {
-            await approvePayout(String(item.payout_id), note || undefined);
+          confirmLabel="Confirmer l’envoi"
+          required
+          onConfirm={async (reference) => {
+            await approvePayout(String(item.payout_id), reference);
             invalidate();
-            toast("Retrait validé.");
+            toast("Envoi Wave enregistré.");
           }}
         />
         <ActionModal

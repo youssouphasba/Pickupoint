@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchLegalDoc, updateLegalDoc } from "@/lib/api";
+import { fetchLegalDoc, updateLegalDoc, fetchLegalReadingStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toaster";
-import { Loader2, Pencil, Save, X } from "lucide-react";
+import { Loader2, Pencil, Save, X, Search, CheckCircle2, Circle } from "lucide-react";
 
 const DOC_TYPES = [
   { key: "privacy_policy", label: "Politique de confidentialité" },
@@ -67,6 +67,7 @@ function LegalDocEditor({ docType }: { docType: string }) {
   const [editing, setEditing] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [content, setContent] = React.useState("");
+  const [readerSearch, setReaderSearch] = React.useState("");
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["legal", docType],
@@ -87,6 +88,12 @@ function LegalDocEditor({ docType }: { docType: string }) {
       setEditing(false);
       toast("Document juridique sauvegardé.");
     },
+  });
+
+  const reading = useQuery({
+    queryKey: ["legal-reading", docType, readerSearch],
+    queryFn: () => fetchLegalReadingStats(docType, readerSearch),
+    refetchInterval: 60_000,
   });
 
   if (isLoading) {
@@ -174,6 +181,17 @@ function LegalDocEditor({ docType }: { docType: string }) {
             )}
           </div>
         )}
+      </CardContent>
+      <CardContent className="border-t">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Suivi de lecture</h2>
+            <p className="text-sm text-muted-foreground">Les utilisateurs sont informés, mais aucune nouvelle acceptation n’est demandée.</p>
+          </div>
+          <div className="flex items-center gap-2 text-sm"><span className="text-green-700">{reading.data?.read_count ?? 0} lus</span><span className="text-amber-700">{reading.data?.unread_count ?? 0} non lus</span></div>
+        </div>
+        <div className="relative mb-3 max-w-md"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input value={readerSearch} onChange={(event) => setReaderSearch(event.target.value)} placeholder="Rechercher un utilisateur…" className="pl-9" /></div>
+        {reading.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <div className="max-h-64 space-y-1 overflow-y-auto">{(reading.data?.users ?? []).map((user) => <div key={user.user_id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"><span className={user.has_read ? "text-green-600" : "text-amber-600"}>{user.has_read ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}</span><span className="flex-1">{user.name || "Utilisateur"}<span className="ml-2 text-xs text-muted-foreground">{user.phone || ""}</span></span><span className="text-xs text-muted-foreground">{user.has_read ? "Lu" : "Non lu"}</span></div>)}</div>}
       </CardContent>
     </Card>
   );
