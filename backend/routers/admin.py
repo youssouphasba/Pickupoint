@@ -486,6 +486,11 @@ class AdminDecisionRequest(BaseModel):
     reason: str = Field(..., min_length=3, max_length=300)
 
 
+class PayoutConfirmRequest(BaseModel):
+    reference: str = Field(..., min_length=3, max_length=120)
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
 class AdminPinResetRequest(BaseModel):
     new_pin: str = Field(..., min_length=4, max_length=4)
     reason: str = Field(..., min_length=3, max_length=300)
@@ -2043,18 +2048,33 @@ async def admin_drivers(
 async def admin_pending_payouts(
     from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    status: Optional[str] = Query(None, pattern="^(pending|approved|rejected)$"),
     _admin=Depends(require_admin_dep),
 ):
-    query: dict = {"status": "pending"}
+    query: dict = {"status": status or "pending"}
     query.update(date_range_query(from_date, to_date, field="created_at"))
     cursor = db.payout_requests.find(query, {"_id": 0}).sort("created_at", 1)
-    return {"payouts": await cursor.to_list(length=200)}
+    payouts = await cursor.to_list(length=200)
+    user_ids = sorted({str(payout.get("user_id") or payout.get("owner_id") or "") for payout in payouts if payout.get("user_id") or payout.get("owner_id")})
+    users = await db.users.find(
+        {"user_id": {"$in": user_ids or ["__none__"]}},
+        {"_id": 0, "user_id": 1, "name": 1, "full_name": 1, "phone": 1, "role": 1},
+    ).to_list(length=len(user_ids) or 1)
+    users_by_id = {str(user.get("user_id")): user for user in users}
+    for payout in payouts:
+        user = users_by_id.get(str(payout.get("user_id") or payout.get("owner_id") or ""))
+        if user:
+            payout["user_name"] = user.get("full_name") or user.get("name") or user.get("phone")
+            payout["user_phone"] = user.get("phone")
+            payout["user_role"] = user.get("role")
+    return {"payouts": payouts}
 
 
 @router.put("/wallets/payouts/{payout_id}/approve", summary="Valider retrait")
 @limiter.limit("10/minute")
 async def approve_payout(
     payout_id: str,
+    body: PayoutConfirmRequest,
     request: Request,
     _admin=Depends(require_admin_dep),
 ):
@@ -2082,6 +2102,10 @@ async def approve_payout(
             "status": "approved",
             "approved_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
             "approved_at": now,
+            "sent_at": now,
+            "sent_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
+            "transfer_reference": body.reference.strip(),
+            "transfer_note": body.note.strip() if body.note else None,
             "updated_at": now,
         }},
     )
@@ -2136,6 +2160,8 @@ async def approve_payout(
                     "status": "approved",
                     "approved_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
                     "approved_at": now,
+                    "sent_at": now,
+                    "transfer_reference": body.reference.strip(),
                 },
                 "wallet": _pick_snapshot(wallet_after, [
                     "balance",
@@ -4071,7 +4097,12 @@ async def get_finance_monthly_summary(
 
 
 @router.get("/finance/reconciliation", summary="Rapport de reconciliation finance et operations")
-async def get_finance_reconciliation(_admin=Depends(require_admin_dep)):
+async def get_finance_reconciliation(
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
+    to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
+    _admin=Depends(require_admin_dep),
+):
+    period_query = date_range_query(from_date, to_date, field="created_at") if from_date or to_date else {}
     wallets = await db.wallets.find(
         {},
         {
@@ -4086,7 +4117,7 @@ async def get_finance_reconciliation(_admin=Depends(require_admin_dep)):
         },
     ).to_list(length=2000)
     payouts = await db.payout_requests.find(
-        {},
+        period_query,
         {
             "_id": 0,
             "payout_id": 1,
@@ -4101,7 +4132,7 @@ async def get_finance_reconciliation(_admin=Depends(require_admin_dep)):
         },
     ).to_list(length=5000)
     txs = await db.wallet_transactions.find(
-        {"reference": {"$ne": None}},
+        {**period_query, "reference": {"$ne": None}},
         {
             "_id": 0,
             "wallet_id": 1,
@@ -4224,6 +4255,7 @@ async def get_finance_reconciliation(_admin=Depends(require_admin_dep)):
     ).to_list(length=100)
 
     return {
+        "period": {"from": from_date, "to": to_date},
         "summary": {
             "wallets_checked": len(wallets),
             "payouts_checked": len(payouts),
@@ -5720,11 +5752,12 @@ async def get_finance_overview(
             "method": 1,
             "destination": 1,
             "created_at": 1,
+            "updated_at": 1,
         },
     ).to_list(length=5000)
 
     topup_docs = await db.wallet_topups.find(
-        {"paid_at": date_query, "status": "paid"},
+        {"$or": [{"paid_at": date_query}, {"created_at": date_query}]},
         {
             "_id": 0,
             "topup_id": 1,
@@ -5733,6 +5766,8 @@ async def get_finance_overview(
             "provider": 1,
             "status": 1,
             "paid_at": 1,
+            "created_at": 1,
+            "failure_reason": 1,
         },
     ).to_list(length=5000)
 
@@ -6086,12 +6121,24 @@ async def get_finance_overview(
     payouts_refused_count = 0
     payouts_refused_amount_xof = 0.0
     payout_details = {"waiting": [], "sent": [], "refused": []}
+    pending_payout_age_seconds = []
+    payout_settlement_seconds = []
+    now_utc = datetime.now(timezone.utc)
 
     for payout in payout_docs:
         amount = float(payout.get("amount", 0.0) or 0.0)
         status = str(payout.get("status") or "pending")
         user = user_by_id.get(str(payout.get("user_id") or ""))
         item = _payout_detail(payout, user)
+        created_at = payout.get("created_at")
+        if status not in {"approved", "rejected"} and isinstance(created_at, datetime):
+            age = (now_utc - created_at).total_seconds()
+            if age >= 0:
+                pending_payout_age_seconds.append(int(age))
+        if status in {"approved", "rejected"} and isinstance(created_at, datetime) and isinstance(payout.get("updated_at"), datetime):
+            delay = (payout["updated_at"] - created_at).total_seconds()
+            if delay >= 0:
+                payout_settlement_seconds.append(int(delay))
         if status == "approved":
             payouts_sent_count += 1
             payouts_sent_amount_xof += amount
@@ -6108,12 +6155,16 @@ async def get_finance_overview(
     stripe_topups_count = 0
     stripe_topups_amount_xof = 0.0
     stripe_topup_items = []
+    topup_statuses: dict[str, dict[str, float | int]] = defaultdict(lambda: {"count": 0, "amount_xof": 0.0})
     for topup in topup_docs:
-        stripe_topups_count += 1
-        stripe_topups_amount_xof += float(topup.get("amount") or 0.0)
-        stripe_topup_items.append(
-            _topup_detail(topup, user_by_id.get(str(topup.get("owner_id") or "")))
-        )
+        status = str(topup.get("status") or "unknown").lower()
+        amount = float(topup.get("amount") or 0.0)
+        topup_statuses[status]["count"] += 1
+        topup_statuses[status]["amount_xof"] += amount
+        if status == "paid":
+            stripe_topups_count += 1
+            stripe_topups_amount_xof += amount
+            stripe_topup_items.append(_topup_detail(topup, user_by_id.get(str(topup.get("owner_id") or ""))))
 
     driver_wallets = 0
     relay_wallets = 0
@@ -6186,6 +6237,22 @@ async def get_finance_overview(
                 "items": [],
             }
         )
+
+    failed_topups = topup_statuses.get("failed", {"count": 0, "amount_xof": 0})
+    refunded_topups = topup_statuses.get("refunded", {"count": 0, "amount_xof": 0})
+    daily_finance: dict[str, dict[str, float]] = defaultdict(lambda: {"topups_xof": 0.0, "payouts_xof": 0.0})
+    for topup in topup_docs:
+        if str(topup.get("status") or "").lower() != "paid":
+            continue
+        occurred_at = topup.get("paid_at") or topup.get("created_at")
+        if isinstance(occurred_at, datetime):
+            daily_finance[occurred_at.date().isoformat()]["topups_xof"] += float(topup.get("amount") or 0.0)
+    for payout in payout_docs:
+        if str(payout.get("status") or "") != "approved":
+            continue
+        occurred_at = payout.get("updated_at") or payout.get("created_at")
+        if isinstance(occurred_at, datetime):
+            daily_finance[occurred_at.date().isoformat()]["payouts_xof"] += float(payout.get("amount") or 0.0)
 
     return {
         "period": period,
@@ -6272,6 +6339,9 @@ async def get_finance_overview(
             "refused_count": payouts_refused_count,
             "refused_amount_xof": round(payouts_refused_amount_xof, 2),
             "blocked_wallets": blocked_wallets,
+            "average_pending_age_seconds": round(sum(pending_payout_age_seconds) / len(pending_payout_age_seconds)) if pending_payout_age_seconds else None,
+            "oldest_pending_age_seconds": max(pending_payout_age_seconds) if pending_payout_age_seconds else None,
+            "average_settlement_seconds": round(sum(payout_settlement_seconds) / len(payout_settlement_seconds)) if payout_settlement_seconds else None,
             "details": {
                 "waiting": _limited(payout_details["waiting"]),
                 "sent": _limited(payout_details["sent"]),
@@ -6281,10 +6351,19 @@ async def get_finance_overview(
         "topups": {
             "paid_count": stripe_topups_count,
             "paid_amount_xof": round(stripe_topups_amount_xof, 2),
+            "statuses": {status: {"count": int(values["count"]), "amount_xof": round(float(values["amount_xof"]), 2)} for status, values in topup_statuses.items()},
+            "failed_count": int(failed_topups["count"]),
+            "failed_amount_xof": round(float(failed_topups["amount_xof"]), 2),
+            "refunded_count": int(refunded_topups["count"]),
+            "refunded_amount_xof": round(float(refunded_topups["amount_xof"]), 2),
             "details": {
                 "paid": _limited(stripe_topup_items),
             },
         },
+        "daily": [
+            {"date": date, **{key: round(value, 2) for key, value in values.items()}}
+            for date, values in sorted(daily_finance.items())
+        ],
         "wallets": {
             "driver_wallets": driver_wallets,
             "relay_wallets": relay_wallets,

@@ -1037,11 +1037,15 @@ async def confirm_pickup(
     # Vérification proximité : driver doit être proche du point de collecte (< 500m)
     if not is_debug_simulation:
         from services.pricing_service import _haversine_km
-        pickup_geopin = None
+        pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
         mode = parcel.get("delivery_mode", "")
         if mode.startswith("home_to"):
             # Collecte chez l'expéditeur
-            pickup_geopin = (parcel.get("pickup_address") or {}).get("geopin")
+            pickup_geopin = (
+                pickup_geopin
+                or _normalize_geopin(parcel.get("origin_location"))
+                or _normalize_geopin(parcel.get("pickup_address"))
+            )
         else:
             # Collecte au relais d'origine
             origin_relay_id = parcel.get("origin_relay_id")

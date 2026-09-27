@@ -96,6 +96,18 @@ class Settings(BaseSettings):
     STRICT_GPS_MAX_ACCURACY_METERS: float = 60.0
     ASSIGNED_MISSION_AUTO_RELEASE_MINUTES: int = 30
     PUBLIC_TRACKING_RETENTION_DAYS: int = 30
+    DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES: int = 5
+    DRIVER_LOCATION_PURGE_AFTER_HOURS: int = 24
+    OPERATIONAL_DATA_RETENTION_DAYS: int = 1095
+    GPS_TRACE_RETENTION_DAYS: int = 365
+    NOTIFICATION_RETENTION_DAYS: int = 365
+    CAMPAIGN_EVENT_RETENTION_DAYS: int = 730
+    SUPPORT_RETENTION_DAYS: int = 1095
+    AUDIT_LOG_RETENTION_DAYS: int = 730
+    TECHNICAL_LOG_RETENTION_DAYS: int = 365
+    PROOF_MEDIA_RETENTION_DAYS: int = 365
+    CAMPAIGN_MEDIA_ORPHAN_GRACE_DAYS: int = 30
+    KYC_RETENTION_DAYS: int = 1825
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15
@@ -124,6 +136,24 @@ class Settings(BaseSettings):
             raise ValueError("ASSIGNED_MISSION_AUTO_RELEASE_MINUTES must be >= 5")
         if self.PUBLIC_TRACKING_RETENTION_DAYS < 1:
             raise ValueError("PUBLIC_TRACKING_RETENTION_DAYS must be >= 1")
+        if self.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES < 1:
+            raise ValueError("DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES must be >= 1")
+        if self.DRIVER_LOCATION_PURGE_AFTER_HOURS < 1:
+            raise ValueError("DRIVER_LOCATION_PURGE_AFTER_HOURS must be >= 1")
+        retention_settings = (
+            "OPERATIONAL_DATA_RETENTION_DAYS",
+            "GPS_TRACE_RETENTION_DAYS",
+            "NOTIFICATION_RETENTION_DAYS",
+            "CAMPAIGN_EVENT_RETENTION_DAYS",
+            "SUPPORT_RETENTION_DAYS",
+            "AUDIT_LOG_RETENTION_DAYS",
+            "TECHNICAL_LOG_RETENTION_DAYS",
+            "PROOF_MEDIA_RETENTION_DAYS",
+            "CAMPAIGN_MEDIA_ORPHAN_GRACE_DAYS",
+            "KYC_RETENTION_DAYS",
+        )
+        if any(getattr(self, key) < 1 for key in retention_settings):
+            raise ValueError("Retention settings must be >= 1")
 
         if is_prod and self.WHATSAPP_ACCESS_TOKEN and not self.WHATSAPP_APP_SECRET:
             raise ValueError("WHATSAPP_APP_SECRET must be configured in production when WhatsApp webhooks are enabled")

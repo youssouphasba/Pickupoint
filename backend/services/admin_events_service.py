@@ -36,6 +36,9 @@ class AdminEventType:
     MISSION_RELEASED = "mission_released"
     RELAY_ARCHIVED = "relay_archived"
     SECURITY_GPS_BLOCKED = "security_gps_blocked"
+    PROMOTION_CREATED = "promotion_created"
+    PROMOTION_UPDATED = "promotion_updated"
+    PROMOTION_DISABLED = "promotion_disabled"
 
 
 # Sévérité : critical → rouge + son, warning → orange, info → gris.
@@ -54,6 +57,9 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     AdminEventType.MISSION_RELEASED: "info",
     AdminEventType.RELAY_ARCHIVED: "warning",
     AdminEventType.SECURITY_GPS_BLOCKED: "critical",
+    AdminEventType.PROMOTION_CREATED: "info",
+    AdminEventType.PROMOTION_UPDATED: "info",
+    AdminEventType.PROMOTION_DISABLED: "warning",
 }
 
 

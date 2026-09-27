@@ -371,7 +371,7 @@ async def _fetch_security_events(admin_id: str, now: datetime) -> list[dict[str,
             "message": event.get("message"),
             "age_hours": round(age_h, 2),
             "urgency": "critical",
-            "href": event.get("href") or "/dashboard/audit-log",
+            "href": event.get("href") or "/dashboard/security",
         })
     await _enrich_user_names(items, "driver_id", "driver_name")
     await _enrich_parcel_tracking(items)
@@ -435,7 +435,7 @@ async def admin_action_center(_admin=Depends(require_admin_dep)):
             newest_first=True,
         ),
         "disputes": _pack(disputes, "Litiges ouverts", "/dashboard/parcels?status=disputed"),
-        "security": _pack(security, "Alertes sécurité livreurs", "/dashboard/audit-log?search=SECURITY_GPS_BLOCKED"),
+        "security": _pack(security, "Alertes sécurité livreurs", "/dashboard/security"),
     }
 
     total = sum(c["count"] for c in categories.values())

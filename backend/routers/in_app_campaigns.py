@@ -22,6 +22,7 @@ from models.in_app_campaign import (
     InAppCampaignCreate,
     InAppCampaignUpdate,
 )
+from services.notification_service import send_targeted_notifications
 
 router = APIRouter(tags=["In-app Campaigns"])
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
@@ -340,6 +341,50 @@ async def active_campaigns(
         [("priority", -1), ("created_at", -1)]
     ).to_list(10)
     return {"campaigns": [_clean(c) for c in campaigns]}
+
+
+@router.get("/campaigns/{campaign_id}", response_model=dict)
+async def get_campaign(
+    campaign_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campagne introuvable")
+    allowed_roles = _allowed_view_roles(current_user)
+    target_roles = set(campaign.get("target_roles") or [CampaignTargetRole.ALL.value])
+    if CampaignTargetRole.ALL.value not in target_roles and not target_roles.intersection(allowed_roles):
+        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
+    return {"campaign": _clean(campaign)}
+
+
+@router.post("/admin/campaigns/{campaign_id}/notify", response_model=dict)
+async def notify_campaign(
+    campaign_id: str,
+    current_user: dict = Depends(require_admin),
+):
+    campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campagne introuvable")
+    target_roles = set(campaign.get("target_roles") or [CampaignTargetRole.ALL.value])
+    query = {"is_active": True, "is_banned": {"$ne": True}, "role": {"$nin": [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]}, "notification_prefs.promotions": {"$ne": False}}
+    if CampaignTargetRole.ALL.value not in target_roles:
+        query["role"] = {"$in": list(target_roles)}
+    users = await db.users.find(query, {"_id": 0, "user_id": 1}).to_list(length=100000)
+    user_ids = [user["user_id"] for user in users]
+    if not user_ids:
+        raise bad_request_exception("Aucun utilisateur éligible pour cette campagne")
+    result = await send_targeted_notifications(
+        user_ids=user_ids,
+        title=campaign["title"],
+        body=campaign["body"],
+        category="promotions",
+        ref_type="campaign",
+        ref_id=campaign_id,
+        metadata={"campaign_id": campaign_id, "source": "campaign_manager", "admin_user_id": current_user.get("user_id")},
+        dedupe_key=f"campaign_notification:{campaign_id}:{uuid.uuid4().hex[:8]}",
+    )
+    return {"ok": True, "campaign_id": campaign_id, "matched": len(user_ids), **result}
 
 
 @router.post("/campaigns/{campaign_id}/impression", response_model=dict)

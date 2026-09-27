@@ -144,6 +144,12 @@ async def create_indexes():
                 partialFilterExpression={"dedupe_key": {"$type": "string"}},
             ),
         ],
+        "privacy_requests": [
+            IndexModel([("request_id", 1)], unique=True),
+            IndexModel([("user_id", 1), ("created_at", -1)]),
+            IndexModel([("status", 1), ("created_at", -1)]),
+            IndexModel([("request_type", 1), ("status", 1)]),
+        ],
         "notification_broadcasts": [
             IndexModel([("broadcast_id", 1)], unique=True),
             IndexModel([("created_at", -1)]),
@@ -189,6 +195,10 @@ async def create_indexes():
         ],
         "legal_contents": [
             IndexModel([("document_type", 1)], unique=True),
+        ],
+        "legal_document_views": [
+            IndexModel([("user_id", 1), ("document_type", 1), ("document_version", 1)], unique=True),
+            IndexModel([("document_type", 1), ("viewed_at", -1)]),
         ],
     }
 

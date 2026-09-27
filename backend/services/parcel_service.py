@@ -464,8 +464,9 @@ def resolve_delivery_dispatch_state(
 async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5) -> list[str]:
     """Trouve les X livreurs les plus proches actifs récemment."""
     from models.common import UserRole
-    # Actif depuis < 30 min et disponible
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES
+    )
     
     cursor = db.users.find({
         "role": UserRole.DRIVER.value,
@@ -493,7 +494,9 @@ async def _find_candidate_drivers_within_radius(
 ) -> list[str]:
     from models.common import UserRole
 
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        minutes=settings.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES
+    )
     cursor = db.users.find(
         {
             "role": UserRole.DRIVER.value,

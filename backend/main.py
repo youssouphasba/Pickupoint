@@ -17,7 +17,7 @@ from database import connect_db, close_db, db
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Routers
-from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, in_app_campaigns, legal, app_settings, geo, notifications as notifications_router
+from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, in_app_campaigns, legal, app_settings, geo, notifications as notifications_router, privacy
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -335,6 +335,46 @@ async def _expire_stale_parcels():
         logger.error("Erreur job expiration colis : %s", exc)
 
 
+async def _purge_expired_driver_locations():
+    """Supprime les coordonnées de présence devenues inutiles pour le dispatch."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            hours=settings.DRIVER_LOCATION_PURGE_AFTER_HOURS
+        )
+        active_mission_driver_ids = await db.delivery_missions.distinct(
+            "driver_id",
+            {"status": {"$in": ["assigned", "in_progress", "incident_reported"]}},
+        )
+        query = {
+            "role": "driver",
+            "last_driver_location": {"$exists": True, "$ne": None},
+            "last_driver_location_at": {"$lt": cutoff},
+        }
+        if active_mission_driver_ids:
+            query["user_id"] = {"$nin": active_mission_driver_ids}
+        result = await db.users.update_many(
+            query,
+            {"$unset": {"last_driver_location": ""}},
+        )
+        if result.modified_count:
+            logger.info(
+                "Coordonnées de présence livreur supprimées après expiration : %s",
+                result.modified_count,
+            )
+    except Exception as exc:
+        logger.error("Erreur purge des positions livreurs : %s", exc)
+
+
+async def _purge_expired_data():
+    try:
+        from services.data_retention_service import purge_expired_data
+
+        summary = await purge_expired_data()
+        logger.info("Purge des données expirées terminée : %s", summary)
+    except Exception as exc:
+        logger.error("Erreur purge des données expirées : %s", exc)
+
+
 async def _admin_anomaly_notifier_loop() -> None:
     """
     Alimente la cloche admin avec les anomalies flotte et colis stagnants.
@@ -461,6 +501,8 @@ async def _admin_anomaly_notifier_loop() -> None:
 scheduler = AsyncIOScheduler()
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
+scheduler.add_job(_purge_expired_driver_locations, "interval", hours=1)
+scheduler.add_job(_purge_expired_data, "interval", hours=24)
 
 
 @asynccontextmanager
@@ -576,6 +618,7 @@ app.include_router(promotions.router, prefix="/api/admin", tags=["Promotions Adm
 app.include_router(in_app_campaigns.router, prefix="/api", tags=["In-app Campaigns"])
 app.include_router(applications.router, prefix="/api/applications", tags=["Applications"])
 app.include_router(notifications_router.router, prefix="/api/notifications", tags=["Notifications"])
+app.include_router(privacy.router, prefix="/api", tags=["Privacy"])
 
 
 ASSETLINKS_PAYLOAD = [
