@@ -19,6 +19,7 @@ from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from core.security import hash_password
 from database import db
+from services.mission_trace import load_trace, summarize_trace
 from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
@@ -3783,7 +3784,8 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
                 mission["driver_photo_url"] = driver.get("profile_picture_url")
         mission["pickup"] = _resolve_mission_pickup(parcel, mission, relay_lookup)
         mission["delivery"] = _resolve_mission_delivery(parcel, mission, relay_lookup)
-        mission["gps_trail"] = _normalize_trail(mission.get("gps_trail"))
+        mission["gps_trail"] = await load_trace(mission)
+        mission["trace_summary"] = summarize_trace(mission["gps_trail"])
         mission["duration_summary"] = _mission_duration_summary(mission, now=now)
         mission["route_summary"] = _mission_route_summary(
             mission,
