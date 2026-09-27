@@ -50,6 +50,17 @@ const AUDIO_MIME_PREFERENCES = [
 ];
 
 function supportErrorMessage(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+      return "L'accès au micro est refusé. Autorisez le microphone pour admin.denkma.com dans les paramètres du navigateur, puis rechargez la page.";
+    }
+    if (error.name === "NotFoundError") {
+      return "Aucun microphone n'est disponible sur cet appareil.";
+    }
+    if (error.name === "SecurityError") {
+      return "L'enregistrement vocal est bloqué par les paramètres de sécurité du navigateur.";
+    }
+  }
   if (error && typeof error === "object" && "response" in error) {
     const response = (error as { response?: { data?: { detail?: string; message?: string; error?: string } } }).response;
     return (
@@ -231,7 +242,11 @@ export default function WhatsAppSupportPage() {
     setSupportError(null);
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setSupportError("L'enregistrement vocal n'est pas disponible dans ce navigateur.");
+      setSupportError(
+        window.isSecureContext
+          ? "L'enregistrement vocal n'est pas disponible dans ce navigateur ou aucun microphone n'est détecté."
+          : "L'enregistrement vocal nécessite une connexion HTTPS sécurisée.",
+      );
       return;
     }
 
