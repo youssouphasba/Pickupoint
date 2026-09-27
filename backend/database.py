@@ -106,6 +106,7 @@ async def create_indexes():
             IndexModel([("driver_id", 1)]),
             IndexModel([("parcel_id", 1)]),
             IndexModel([("status", 1)]),
+            IndexModel([("created_at", 1)]),
         ],
         "pricing_zones": [
             IndexModel([("zone_id", 1)], unique=True),
@@ -129,11 +130,14 @@ async def create_indexes():
             IndexModel([("topup_id", 1)], unique=True),
             IndexModel([("owner_id", 1)]),
             IndexModel([("provider_session_id", 1)]),
+            IndexModel([("created_at", 1)]),
+            IndexModel([("paid_at", 1)]),
         ],
         "payout_requests": [
             IndexModel([("payout_id", 1)], unique=True),
             IndexModel([("wallet_id", 1)]),
             IndexModel([("status", 1)]),
+            IndexModel([("created_at", 1)]),
         ],
         "notifications": [
             IndexModel([("user_id", 1)]),
