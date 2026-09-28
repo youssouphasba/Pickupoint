@@ -23,7 +23,6 @@ import '../../features/client/screens/confirm_location_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
-import '../../features/client/screens/my_data_screen.dart';
 import '../../features/client/screens/client_statistics_screen.dart';
 import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
@@ -321,7 +320,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = auth?.status == AuthStatus.authenticated;
       final isAuthRoute = state.fullPath?.startsWith('/auth') ?? false;
       final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
-      final isDataRoute = state.fullPath == '/my-data';
       final isLocationConfirmationRoute =
           state.fullPath?.startsWith('/confirm/') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
@@ -405,7 +403,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (isLegalRoute) {
         return null; // autoriser l'accès aux CGU/Privacy à tout moment
       }
-      if (isDataRoute) return isLoggedIn ? null : '/auth/phone';
       if (isLocationConfirmationRoute) return null;
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
       if (isLoggedIn && isAuthRoute) {
@@ -436,10 +433,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           path: '/legal/:docType',
           builder: (_, s) =>
               LegalDocumentScreen(docType: s.pathParameters['docType']!)),
-      GoRoute(
-        path: '/my-data',
-        builder: (_, __) => const MyDataScreen(),
-      ),
       GoRoute(
         path: '/confirm/:token',
         builder: (_, s) => ConfirmLocationScreen(
