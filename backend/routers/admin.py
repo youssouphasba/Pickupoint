@@ -89,6 +89,81 @@ router = APIRouter()
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 
 
+def _mission_reconciliation_detail(
+    mission: dict,
+    parcel: Optional[dict],
+    driver: Optional[dict],
+) -> dict:
+    mission_status = str(mission.get("status") or "")
+    parcel_status = str((parcel or {}).get("status") or "")
+    driver_id = str(mission.get("driver_id") or "")
+
+    if not parcel:
+        reason_code = "parcel_missing"
+        reason = "Le colis lié à cette mission est introuvable."
+        recommendation = (
+            "Annuler la mission orpheline afin qu’elle ne soit plus proposée aux livreurs."
+        )
+    elif not parcel_status:
+        reason_code = "parcel_status_missing"
+        reason = "Le colis existe, mais son statut est absent ou invalide."
+        recommendation = "Ouvrir le colis et corriger son statut avant de modifier la mission."
+    else:
+        reason_code = "parcel_not_active"
+        reason = (
+            f"La mission est encore {mission_status}, alors que le colis est {parcel_status}."
+        )
+        recommendation = (
+            "Clôturer la mission comme terminée."
+            if parcel_status == ParcelStatus.DELIVERED.value
+            else "Annuler la mission devenue inactive."
+        )
+
+    resolution_type = None
+    resolution_label = None
+    if parcel_status == ParcelStatus.DELIVERED.value:
+        resolution_type = "complete"
+        resolution_label = "Clôturer la mission"
+    elif mission_status == MissionStatus.PENDING.value and not driver_id and (
+        not parcel
+        or parcel_status
+        in {
+            ParcelStatus.CANCELLED.value,
+            ParcelStatus.EXPIRED.value,
+            ParcelStatus.RETURNED.value,
+        }
+    ):
+        resolution_type = "cancel"
+        resolution_label = "Annuler la mission orpheline"
+
+    driver_name = str((driver or {}).get("name") or (driver or {}).get("full_name") or "").strip()
+    driver_phone = str((driver or {}).get("phone") or "").strip()
+    return {
+        "mission_id": mission.get("mission_id"),
+        "parcel_id": mission.get("parcel_id"),
+        "tracking_code": (parcel or {}).get("tracking_code"),
+        "delivery_mode": (parcel or {}).get("delivery_mode"),
+        "mission_status": mission_status or None,
+        "parcel_status": parcel_status or None,
+        "driver_id": mission.get("driver_id"),
+        "driver_name": driver_name or None,
+        "driver_phone": driver_phone or None,
+        "reason_code": reason_code,
+        "reason": reason,
+        "recommendation": recommendation,
+        "financial_impact": (
+            "Aucun livreur attribué : aucune commission ne devrait être engagée."
+            if not driver_id
+            else "Un livreur est lié à la mission : vérifier sa commission avant toute correction manuelle."
+        ),
+        "can_auto_resolve": resolution_type is not None,
+        "resolution_type": resolution_type,
+        "resolution_label": resolution_label,
+        "created_at": mission.get("created_at"),
+        "updated_at": mission.get("updated_at"),
+    }
+
+
 @router.post("/parcels/{parcel_id}/relay-settlement", summary="Valider un règlement relais")
 async def update_relay_settlement(
     parcel_id: str,
@@ -4370,7 +4445,15 @@ async def get_finance_reconciliation(
 
     active_missions = await db.delivery_missions.find(
         {"status": {"$in": ["pending", "assigned", "in_progress"]}},
-        {"_id": 0, "mission_id": 1, "parcel_id": 1, "status": 1, "driver_id": 1, "updated_at": 1},
+        {
+            "_id": 0,
+            "mission_id": 1,
+            "parcel_id": 1,
+            "status": 1,
+            "driver_id": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        },
     ).to_list(length=1000)
     active_parcel_statuses = {
         ParcelStatus.CREATED.value,
@@ -4388,20 +4471,42 @@ async def get_finance_reconciliation(
         parcel_ids = [mission["parcel_id"] for mission in active_missions if mission.get("parcel_id")]
         parcels = await db.parcels.find(
             {"parcel_id": {"$in": parcel_ids}},
-            {"_id": 0, "parcel_id": 1, "status": 1, "payment_status": 1, "payment_override": 1, "updated_at": 1},
+            {
+                "_id": 0,
+                "parcel_id": 1,
+                "tracking_code": 1,
+                "delivery_mode": 1,
+                "status": 1,
+                "payment_status": 1,
+                "payment_override": 1,
+                "updated_at": 1,
+            },
         ).to_list(length=len(parcel_ids))
         parcel_map = {parcel["parcel_id"]: parcel for parcel in parcels}
+        driver_ids = {
+            str(mission.get("driver_id"))
+            for mission in active_missions
+            if mission.get("driver_id")
+        }
+        drivers = (
+            await db.users.find(
+                {"user_id": {"$in": sorted(driver_ids)}},
+                {"_id": 0, "user_id": 1, "name": 1, "full_name": 1, "phone": 1},
+            ).to_list(length=len(driver_ids))
+            if driver_ids
+            else []
+        )
+        driver_map = {str(driver["user_id"]): driver for driver in drivers}
         for mission in active_missions:
             parcel = parcel_map.get(mission.get("parcel_id"))
             if not parcel or parcel.get("status") not in active_parcel_statuses:
-                mission_parcel_mismatches.append({
-                    "mission_id": mission.get("mission_id"),
-                    "parcel_id": mission.get("parcel_id"),
-                    "mission_status": mission.get("status"),
-                    "parcel_status": parcel.get("status") if parcel else None,
-                    "driver_id": mission.get("driver_id"),
-                    "updated_at": mission.get("updated_at"),
-                })
+                mission_parcel_mismatches.append(
+                    _mission_reconciliation_detail(
+                        mission,
+                        parcel,
+                        driver_map.get(str(mission.get("driver_id") or "")),
+                    )
+                )
 
     delivered_unpaid = await db.parcels.find(
         {
@@ -4443,6 +4548,113 @@ async def get_finance_reconciliation(
         "payout_ledger_gaps": payout_ledger_gaps[:20],
         "mission_parcel_mismatches": mission_parcel_mismatches[:20],
         "delivered_unpaid": delivered_unpaid[:20],
+    }
+
+
+@router.post(
+    "/finance/reconciliation/missions/{mission_id}/resolve",
+    summary="Corriger une incohérence entre mission et colis",
+)
+async def resolve_finance_mission_mismatch(
+    mission_id: str,
+    admin_user=Depends(require_admin_dep),
+):
+    mission = await db.delivery_missions.find_one(
+        {"mission_id": mission_id},
+        {"_id": 0},
+    )
+    if not mission:
+        raise not_found_exception("Mission")
+    if mission.get("status") not in {
+        MissionStatus.PENDING.value,
+        MissionStatus.ASSIGNED.value,
+        MissionStatus.IN_PROGRESS.value,
+    }:
+        raise bad_request_exception("Cette mission est déjà clôturée")
+
+    parcel = await db.parcels.find_one(
+        {"parcel_id": mission.get("parcel_id")},
+        {"_id": 0, "parcel_id": 1, "tracking_code": 1, "status": 1},
+    )
+    parcel_status = str((parcel or {}).get("status") or "")
+    now = datetime.now(timezone.utc)
+
+    if parcel_status == ParcelStatus.DELIVERED.value:
+        target_status = MissionStatus.COMPLETED.value
+        resolution = "mission_completed_from_delivered_parcel"
+        message = "Mission clôturée car le colis est déjà livré."
+    elif (
+        mission.get("status") == MissionStatus.PENDING.value
+        and not mission.get("driver_id")
+        and (
+            not parcel
+            or parcel_status
+            in {
+                ParcelStatus.CANCELLED.value,
+                ParcelStatus.EXPIRED.value,
+                ParcelStatus.RETURNED.value,
+            }
+        )
+    ):
+        target_status = MissionStatus.CANCELLED.value
+        resolution = "orphan_or_inactive_parcel_mission_cancelled"
+        message = "Mission orpheline annulée."
+    else:
+        raise bad_request_exception(
+            "Cette incohérence nécessite une vérification manuelle du colis et de la commission du livreur."
+        )
+
+    result = await db.delivery_missions.update_one(
+        {
+            "mission_id": mission_id,
+            "status": mission.get("status"),
+        },
+        {
+            "$set": {
+                "status": target_status,
+                "completed_at": now,
+                "updated_at": now,
+                "is_broadcast": False,
+                "ping_expires_at": None,
+                "reconciliation_resolution": resolution,
+                "reconciliation_resolved_at": now,
+                "reconciliation_resolved_by": admin_user.get("user_id"),
+                **(
+                    {"failure_reason": "orphan_or_inactive_parcel"}
+                    if target_status == MissionStatus.CANCELLED.value
+                    else {}
+                ),
+            }
+        },
+    )
+    if result.modified_count != 1:
+        raise bad_request_exception(
+            "La mission a été modifiée entre-temps. Actualisez la page avant de réessayer."
+        )
+
+    await record_admin_event(
+        AdminEventType.MISSION_RELEASED,
+        title="Incohérence mission-colis corrigée",
+        message=message,
+        href=(
+            f"/dashboard/parcels/{mission.get('parcel_id')}"
+            if parcel
+            else "/dashboard/finance"
+        ),
+        metadata={
+            "mission_id": mission_id,
+            "parcel_id": mission.get("parcel_id"),
+            "previous_status": mission.get("status"),
+            "new_status": target_status,
+            "resolution": resolution,
+            "admin_id": admin_user.get("user_id"),
+        },
+    )
+    return {
+        "ok": True,
+        "mission_id": mission_id,
+        "status": target_status,
+        "message": message,
     }
 
 

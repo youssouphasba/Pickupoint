@@ -1066,6 +1066,13 @@ export async function updateRelaySettlement(
   return data;
 }
 
+export async function resolveFinanceMissionMismatch(missionId: string) {
+  const { data } = await api.post(
+    `/api/admin/finance/reconciliation/missions/${encodeURIComponent(missionId)}/resolve`,
+  );
+  return data;
+}
+
 // ───────────────────────── Mission actions ─────────────────────────
 
 export async function reassignMission(

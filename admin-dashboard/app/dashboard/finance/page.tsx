@@ -2,12 +2,17 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Loader2 } from "lucide-react";
 
-import { fetchFinanceOverview, fetchFinanceReconciliation } from "@/lib/api";
+import {
+  fetchFinanceOverview,
+  fetchFinanceReconciliation,
+  resolveFinanceMissionMismatch,
+} from "@/lib/api";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -26,6 +31,12 @@ type FinanceDetailItem = {
   status?: string;
   amount_xof?: number;
   meta?: string;
+  problem?: string;
+  recommendation?: string;
+  financialImpact?: string;
+  href?: string;
+  actionId?: string;
+  actionLabel?: string;
 };
 
 type DetailModalState = {
@@ -62,6 +73,30 @@ function formatDuration(seconds?: number | null) {
   const minutes = Math.round((seconds % 3600) / 60);
   return `${hours} h${minutes ? ` ${minutes} min` : ""}`;
 }
+
+function formatDate(value?: unknown) {
+  if (!value) return "Date inconnue";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "Date inconnue";
+  return new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+const MISSION_STATUS_LABELS: Record<string, string> = {
+  pending: "En attente d’un livreur",
+  assigned: "Livreur attribué",
+  in_progress: "Collecte ou livraison en cours",
+};
+
+const PARCEL_STATUS_LABELS: Record<string, string> = {
+  delivered: "Livré",
+  cancelled: "Annulé",
+  expired: "Expiré",
+  returned: "Retourné",
+  delivery_failed: "Échec de livraison",
+};
 
 function clickableClass(disabled?: boolean) {
   return disabled ? "" : "cursor-pointer transition-transform hover:-translate-y-0.5";
@@ -135,6 +170,14 @@ const ISSUE_LABELS: Record<string, string> = {
   delivered_unpaid: "Colis livrés non réglés",
 };
 
+const ISSUE_DESCRIPTIONS: Record<string, string> = {
+  wallet_pending_mismatches: "Le montant réservé ne correspond pas aux retraits en attente.",
+  negative_wallets: "Un solde disponible ou réservé est inférieur à zéro.",
+  payout_ledger_gaps: "Un retrait ne possède pas l’écriture de portefeuille attendue.",
+  mission_parcel_mismatches: "Une mission active ne correspond plus à un colis actif.",
+  delivered_unpaid: "Un colis livré reste signalé comme non réglé.",
+};
+
 function issueDetailItems(key: string, items: Record<string, unknown>[]): FinanceDetailItem[] {
   return items.map((item) => {
     const value = (field: string) => String(item[field] ?? "—");
@@ -144,50 +187,88 @@ function issueDetailItems(key: string, items: Record<string, unknown>[]): Financ
     };
 
     if (key === "wallet_pending_mismatches") {
+      const ownerId = value("owner_id");
+      const actual = value("wallet_pending");
+      const expected = value("expected_pending");
       return {
         id: value("wallet_id"),
-        title: value("owner_id"),
-        subtitle: `Portefeuille ${value("wallet_id")}`,
-        status: `Attendu : ${value("expected_pending")} XOF`,
+        title: "Montant réservé incohérent",
+        subtitle: `Compte ${ownerId} · Portefeuille ${value("wallet_id")}`,
+        status: `Attendu : ${expected} XOF`,
         amount_xof: amount("wallet_pending"),
-        meta: `Montant actuellement en attente : ${value("wallet_pending")} XOF`,
+        meta: `Montant actuellement réservé : ${actual} XOF`,
+        problem: `Le portefeuille réserve ${actual} XOF, alors que les retraits en attente représentent ${expected} XOF.`,
+        recommendation: "Vérifier les retraits du compte avant de corriger le montant réservé.",
+        href: ownerId !== "—" ? `/dashboard/users/${encodeURIComponent(ownerId)}` : undefined,
       };
     }
     if (key === "negative_wallets") {
+      const ownerId = value("owner_id");
       return {
         id: value("wallet_id"),
-        title: value("owner_id"),
-        subtitle: `Portefeuille ${value("wallet_id")}`,
+        title: "Solde négatif",
+        subtitle: `Compte ${ownerId} · Portefeuille ${value("wallet_id")}`,
         status: `Solde : ${value("balance")} XOF`,
         amount_xof: amount("balance"),
         meta: `En attente : ${value("pending")} XOF`,
+        problem: "Le solde disponible ou le montant réservé est inférieur à zéro.",
+        recommendation: "Contrôler les débits, remboursements et commissions de ce compte avant tout ajustement.",
+        href: ownerId !== "—" ? `/dashboard/users/${encodeURIComponent(ownerId)}` : undefined,
       };
     }
     if (key === "payout_ledger_gaps") {
+      const ownerId = value("owner_id");
+      const expectedType = value("expected_tx_type");
+      const transactionLabel: Record<string, string> = {
+        pending: "réservation du montant",
+        debit: "débit après envoi",
+        credit: "remboursement après refus",
+      };
       return {
         id: value("payout_id"),
-        title: `Retrait ${value("payout_id")}`,
-        subtitle: `Utilisateur : ${value("owner_id")}`,
-        status: value("status"),
+        title: "Écriture de retrait manquante",
+        subtitle: `Retrait ${value("payout_id")} · Compte ${ownerId}`,
+        status: `Retrait : ${value("status")}`,
         amount_xof: amount("amount"),
-        meta: `Transaction attendue : ${value("expected_tx_type")}`,
+        meta: `Écriture attendue : ${transactionLabel[expectedType] ?? expectedType}`,
+        problem: "Le statut du retrait ne correspond à aucune écriture dans le portefeuille.",
+        recommendation: "Vérifier le retrait et son historique avant de recréer ou régulariser l’écriture.",
+        href: ownerId !== "—" ? `/dashboard/users/${encodeURIComponent(ownerId)}` : undefined,
       };
     }
     if (key === "mission_parcel_mismatches") {
+      const missionId = value("mission_id");
+      const parcelId = value("parcel_id");
+      const trackingCode = value("tracking_code");
+      const parcelExists = value("reason_code") !== "parcel_missing";
+      const driverName = value("driver_name");
+      const driverPhone = value("driver_phone");
+      const driver = driverName !== "—"
+        ? `${driverName}${driverPhone !== "—" ? ` · ${driverPhone}` : ""}`
+        : "Aucun livreur attribué";
       return {
-        id: value("mission_id"),
-        title: `Mission ${value("mission_id")}`,
-        subtitle: `Colis : ${value("parcel_id")}`,
-        status: `Mission : ${value("mission_status")}`,
-        meta: `Statut du colis : ${value("parcel_status")} · Livreur : ${value("driver_id")}`,
+        id: missionId,
+        title: trackingCode !== "—" ? trackingCode : "Mission sans colis exploitable",
+        subtitle: `Mission ${missionId} · Référence colis ${parcelId}`,
+        status: MISSION_STATUS_LABELS[value("mission_status")] ?? value("mission_status"),
+        meta: `${parcelExists ? `Colis : ${PARCEL_STATUS_LABELS[value("parcel_status")] ?? value("parcel_status")}` : "Colis introuvable"} · ${driver} · Mise à jour ${formatDate(item.updated_at)}`,
+        problem: value("reason"),
+        recommendation: value("recommendation"),
+        financialImpact: value("financial_impact"),
+        href: parcelExists ? `/dashboard/parcels/${encodeURIComponent(parcelId)}` : undefined,
+        actionId: item.can_auto_resolve === true ? missionId : undefined,
+        actionLabel: item.can_auto_resolve === true ? value("resolution_label") : undefined,
       };
     }
     return {
       id: value("parcel_id"),
       title: value("tracking_code") === "—" ? value("parcel_id") : value("tracking_code"),
       subtitle: `Colis : ${value("parcel_id")}`,
-      status: `Paiement : ${value("payment_status")}`,
-      meta: `Payeur : ${value("who_pays")}`,
+      status: `Paiement : ${value("payment_status") === "paid" ? "Réglé" : "Non réglé"}`,
+      meta: `Payeur prévu : ${value("who_pays") === "sender" ? "Expéditeur" : "Destinataire"}`,
+      problem: "Le colis est livré, mais le règlement n’est pas confirmé dans le suivi.",
+      recommendation: "Vérifier qui a encaissé le paiement, puis confirmer ou régulariser le règlement dans la fiche du colis.",
+      href: `/dashboard/parcels/${encodeURIComponent(value("parcel_id"))}`,
     };
   });
 }
@@ -196,10 +277,16 @@ function FinanceDetailModal({
   open,
   onOpenChange,
   state,
+  onResolve,
+  resolvingId,
+  actionError,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: DetailModalState;
+  onResolve: (missionId: string) => void;
+  resolvingId?: string;
+  actionError?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -218,6 +305,43 @@ function FinanceDetailModal({
                       <div className="truncate text-sm font-semibold">{item.title || "Élément"}</div>
                       {item.subtitle ? <div className="mt-1 text-sm text-muted-foreground">{item.subtitle}</div> : null}
                       {item.meta ? <div className="mt-2 text-xs text-muted-foreground">{item.meta}</div> : null}
+                      {item.problem ? (
+                        <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                          <span className="font-semibold">Problème : </span>{item.problem}
+                        </div>
+                      ) : null}
+                      {item.recommendation ? (
+                        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                          <span className="font-semibold">Que faire : </span>{item.recommendation}
+                        </div>
+                      ) : null}
+                      {item.financialImpact ? (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground">Impact financier : </span>{item.financialImpact}
+                        </div>
+                      ) : null}
+                      {item.href || item.actionId ? (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {item.href ? (
+                            <Button asChild size="sm" variant="outline">
+                              <Link href={item.href}>Voir le colis</Link>
+                            </Button>
+                          ) : null}
+                          {item.actionId ? (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={resolvingId === item.actionId}
+                              onClick={() => onResolve(item.actionId!)}
+                            >
+                              {resolvingId === item.actionId ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : null}
+                              {item.actionLabel ?? "Corriger"}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="text-right">
                       {typeof item.amount_xof === "number" ? <div className="text-sm font-semibold">{formatXof(item.amount_xof)}</div> : null}
@@ -226,6 +350,11 @@ function FinanceDetailModal({
                   </div>
                 </div>
               ))}
+              {actionError ? (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {actionError}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
@@ -238,9 +367,70 @@ function FinanceDetailModal({
   );
 }
 
+function ReconciliationSection({
+  data,
+  keys,
+  onOpen,
+}: {
+  data: Record<string, any> | undefined;
+  keys: string[];
+  onOpen: (title: string, items: FinanceDetailItem[], description?: string) => void;
+}) {
+  if (!data) return null;
+  const entries = keys
+    .map((key) => ({ key, items: (data[key] ?? []) as Record<string, unknown>[] }))
+    .filter(({ items }) => items.length > 0);
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          À traiter maintenant
+        </h2>
+        {entries.length === 0 ? <Badge tone="success">Aucune incohérence</Badge> : null}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Contrôles entre les colis, les missions, les portefeuilles et les retraits. Ouvrez une carte pour voir le problème et l’action recommandée.
+      </p>
+      {entries.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {entries.map(({ key, items }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onOpen(
+                ISSUE_LABELS[key] ?? key,
+                issueDetailItems(key, items),
+                ISSUE_DESCRIPTIONS[key] ?? "Éléments du contrôle de cohérence",
+              )}
+              className="block h-full text-left transition-transform hover:-translate-y-0.5"
+            >
+              <Card className="h-full">
+                <CardContent className="p-5">
+                  <div className="text-sm font-semibold">{ISSUE_LABELS[key] ?? key}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{ISSUE_DESCRIPTIONS[key]}</div>
+                  <div className="mt-3"><Badge tone="warning">{items.length} à vérifier</Badge></div>
+                </CardContent>
+              </Card>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="p-5 text-sm text-muted-foreground">
+            Les données financières et opérationnelles contrôlées sont cohérentes sur la période.
+          </CardContent>
+        </Card>
+      )}
+    </section>
+  );
+}
+
 export default function FinancePage() {
   const [dateRange, setDateRange] = React.useState<DateRange>(() => currentMonthRange());
   const [detailModal, setDetailModal] = React.useState<DetailModalState>(null);
+  const [actionError, setActionError] = React.useState<string>();
+  const queryClient = useQueryClient();
 
   const overview = useQuery({
     queryKey: ["finance-overview", dateRange.from ?? "", dateRange.to ?? ""],
@@ -261,6 +451,23 @@ export default function FinancePage() {
     retry: 2,
   });
 
+  const resolveMismatch = useMutation({
+    mutationFn: resolveFinanceMissionMismatch,
+    onSuccess: async () => {
+      setActionError(undefined);
+      setDetailModal(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["finance-recon"] }),
+        queryClient.invalidateQueries({ queryKey: ["finance-overview"] }),
+      ]);
+    },
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail;
+      setActionError(detail ?? "La correction n’a pas pu être appliquée. Actualisez puis réessayez.");
+    },
+  });
+
   const loading = overview.isLoading || recon.isLoading;
   const overviewError = overview.isError;
   const reconciliationError = recon.isError;
@@ -274,7 +481,17 @@ export default function FinancePage() {
   ];
 
   function openDetails(title: string, items: FinanceDetailItem[], description?: string) {
+    setActionError(undefined);
     setDetailModal({ title, items, description });
+  }
+
+  function resolveMissionMismatch(missionId: string) {
+    const confirmed = window.confirm(
+      "Confirmer la correction ? Cette action clôturera uniquement la mission incohérente. Le colis et les écritures financières ne seront pas supprimés.",
+    );
+    if (!confirmed) return;
+    setActionError(undefined);
+    resolveMismatch.mutate(missionId);
   }
 
   return (
@@ -303,6 +520,9 @@ export default function FinancePage() {
           if (!open) setDetailModal(null);
         }}
         state={detailModal}
+        onResolve={resolveMissionMismatch}
+        resolvingId={resolveMismatch.isPending ? resolveMismatch.variables : undefined}
+        actionError={actionError}
       />
 
       {loading ? (
@@ -367,6 +587,12 @@ export default function FinancePage() {
               </div>
             ) : null}
           </section>
+
+          <ReconciliationSection
+            data={recon.data as Record<string, any> | undefined}
+            keys={issues}
+            onOpen={openDetails}
+          />
 
           <section className="space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Paiements colis</h2>
@@ -616,33 +842,6 @@ export default function FinancePage() {
             </Card>
           </section>
 
-          {recon.data ? (
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Points à vérifier</h2>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                {issues.map((key) => {
-                  const items = recon.data?.[key] ?? [];
-                  const count = items.length ?? 0;
-                  if (count === 0) return null;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => openDetails(ISSUE_LABELS[key] ?? key, issueDetailItems(key, items), "Éléments du contrôle de cohérence")}
-                      className="block text-left transition-transform hover:-translate-y-0.5"
-                    >
-                      <Card>
-                        <CardContent className="p-5">
-                          <div className="text-sm font-medium">{ISSUE_LABELS[key] ?? key}</div>
-                          <div className="mt-2"><Badge tone="warning">{count}</Badge></div>
-                        </CardContent>
-                      </Card>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
         </>
       ) : null}
     </div>
