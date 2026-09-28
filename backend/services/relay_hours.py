@@ -32,7 +32,7 @@ _DAY_ALIASES = {
 def _parse_time(value: Any) -> time | None:
     if not isinstance(value, str):
         return None
-    match = re.fullmatch(r"\s*(\d{1,2})(?::|h)?(\d{2})?\s*", value.lower())
+    match = re.fullmatch(r"\s*(\d{1,2})(?:(?::|h)(\d{1,2})?)?\s*", value.lower())
     if not match:
         return None
     hour = int(match.group(1))
@@ -58,9 +58,9 @@ def _parse_range(value: Any) -> tuple[time, time] | None:
 
 def _legacy_days(value: str) -> set[str]:
     normalized = value.casefold()
-    if "lun-sam" in normalized or "lun–sam" in normalized:
+    if re.search(r"lun\s*[-–]\s*sam", normalized):
         return {day for day, _ in RELAY_DAYS[:-1]}
-    if "lun-ven" in normalized or "lun–ven" in normalized:
+    if re.search(r"lun\s*[-–]\s*ven", normalized):
         return {day for day, _ in RELAY_DAYS[:5]}
     return {day for day, _ in RELAY_DAYS}
 
@@ -110,6 +110,18 @@ def normalize_opening_hours(value: Any) -> Any:
     return normalized or None
 
 
+def has_enabled_opening_day(value: Any) -> bool:
+    schedule = normalize_opening_hours(value)
+    if isinstance(schedule, str):
+        return _parse_range(schedule) is not None
+    if not isinstance(schedule, dict):
+        return False
+    return any(
+        isinstance(schedule.get(day), dict) and schedule[day].get("enabled") is True
+        for day, _ in RELAY_DAYS
+    )
+
+
 def relay_open_status(relay: dict, now: datetime | None = None) -> dict[str, Any]:
     raw = relay.get("opening_hours")
     if not raw:
@@ -126,11 +138,13 @@ def relay_open_status(relay: dict, now: datetime | None = None) -> dict[str, Any
             return {"is_open": False, "known": True, "label": f"Fermé le {day_label}"}
         start, end = parsed
         is_open = _is_between(local_now.time(), start, end)
-        return {
-            "is_open": is_open,
-            "known": True,
-            "label": f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}",
-        }
+        if is_open:
+            label = f"Ouvert · ferme à {end.strftime('%H:%M')}"
+        elif local_now.time() < start:
+            label = f"Fermé · ouvre à {start.strftime('%H:%M')}"
+        else:
+            label = "Fermé pour aujourd'hui"
+        return {"is_open": is_open, "known": True, "label": label}
 
     day_key, day_label = RELAY_DAYS[local_now.weekday()]
     entry = (schedule or {}).get(day_key)
@@ -141,14 +155,18 @@ def relay_open_status(relay: dict, now: datetime | None = None) -> dict[str, Any
     if not start or not end:
         return {"is_open": False, "known": True, "label": f"Fermé le {day_label}"}
     is_open = _is_between(local_now.time(), start, end)
-    return {
-        "is_open": is_open,
-        "known": True,
-        "label": f"Ouvert {start.strftime('%H:%M')}–{end.strftime('%H:%M')}" if is_open else f"Fermé jusqu'à {start.strftime('%H:%M')}",
-    }
+    if is_open:
+        label = f"Ouvert · ferme à {end.strftime('%H:%M')}"
+    elif local_now.time() < start:
+        label = f"Fermé · ouvre à {start.strftime('%H:%M')}"
+    else:
+        label = "Fermé pour aujourd'hui"
+    return {"is_open": is_open, "known": True, "label": label}
 
 
 def _is_between(current: time, start: time, end: time) -> bool:
-    if start <= end:
-        return start <= current <= end
-    return current >= start or current <= end
+    if start < end:
+        return start <= current < end
+    if start > end:
+        return current >= start or current < end
+    return False

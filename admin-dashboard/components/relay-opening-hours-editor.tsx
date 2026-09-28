@@ -27,14 +27,21 @@ function emptyHours(): RelayOpeningHours {
 
 function parseLegacy(value: string): RelayOpeningHours {
   const result = emptyHours();
-  const range = value.match(/(\d{1,2}(?::\d{2})?|\d{1,2}h)\s*[-–]\s*(\d{1,2}(?::\d{2})?|\d{1,2}h)/i);
+  const range = value.match(/(\d{1,2}(?:(?::|h)\d{0,2})?)\s*[-–]\s*(\d{1,2}(?:(?::|h)\d{0,2})?)/i);
   if (!range) return result;
-  const open = range[1].replace("h", ":").replace(/:$/, ":00");
-  const close = range[2].replace("h", ":").replace(/:$/, ":00");
+  const normalizeTime = (time: string) => {
+    let normalized = time.toLowerCase().replace("h", ":");
+    if (!normalized.includes(":")) normalized += ":00";
+    if (normalized.endsWith(":")) normalized += "00";
+    const [hour, minute] = normalized.split(":");
+    return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+  };
+  const open = normalizeTime(range[1]);
+  const close = normalizeTime(range[2]);
   const normalized = value.toLowerCase();
-  const count = normalized.includes("lun-sam") || normalized.includes("lun–sam")
+  const count = /lun\s*[-–]\s*sam/.test(normalized)
     ? 6
-    : normalized.includes("lun-ven") || normalized.includes("lun–ven") ? 5 : 7;
+    : /lun\s*[-–]\s*ven/.test(normalized) ? 5 : 7;
   RELAY_DAYS.slice(0, count).forEach(([day]) => {
     result[day] = { enabled: true, open, close };
   });
@@ -46,6 +53,13 @@ export function normalizeRelayOpeningHours(value: unknown): RelayOpeningHours {
   const result = emptyHours();
   if (!value || typeof value !== "object") return result;
   const source = value as Record<string, unknown>;
+  const legacyGeneral = source.general;
+  if (typeof legacyGeneral === "string") {
+    const legacy = parseLegacy(legacyGeneral);
+    RELAY_DAYS.forEach(([day]) => {
+      result[day] = legacy[day];
+    });
+  }
   RELAY_DAYS.forEach(([day]) => {
     const raw = source[day];
     if (!raw || typeof raw !== "object") return;

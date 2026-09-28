@@ -111,6 +111,16 @@ def _allowed_view_roles(user: dict) -> set[str]:
     return allowed
 
 
+def _campaign_targets_user(campaign: dict, user: dict) -> bool:
+    target_roles = set(
+        campaign.get("target_roles") or [CampaignTargetRole.ALL.value]
+    )
+    return (
+        CampaignTargetRole.ALL.value in target_roles
+        or bool(target_roles.intersection(_allowed_view_roles(user)))
+    )
+
+
 def _validate_action(action_type: str, action_value: str) -> None:
     value = action_value.strip()
     if action_type == CampaignActionType.INTERNAL_ROUTE.value:
@@ -351,9 +361,7 @@ async def get_campaign(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
-    allowed_roles = _allowed_view_roles(current_user)
-    target_roles = set(campaign.get("target_roles") or [CampaignTargetRole.ALL.value])
-    if CampaignTargetRole.ALL.value not in target_roles and not target_roles.intersection(allowed_roles):
+    if not _campaign_targets_user(campaign, current_user):
         raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
     return {"campaign": _clean(campaign)}
 
@@ -366,6 +374,15 @@ async def notify_campaign(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
+    now = datetime.now(timezone.utc)
+    if (
+        not campaign.get("is_active", False)
+        or campaign.get("start_date") is None
+        or campaign.get("end_date") is None
+        or campaign["start_date"] > now
+        or campaign["end_date"] < now
+    ):
+        raise bad_request_exception("Seule une campagne active peut être envoyée")
     target_roles = set(campaign.get("target_roles") or [CampaignTargetRole.ALL.value])
     query = {"is_active": True, "is_banned": {"$ne": True}, "role": {"$nin": [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]}, "notification_prefs.promotions": {"$ne": False}}
     if CampaignTargetRole.ALL.value not in target_roles:
@@ -396,6 +413,8 @@ async def mark_campaign_impression(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
+    if not _campaign_targets_user(campaign, current_user):
+        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
     requested_role = (role or current_user.get("role") or UserRole.CLIENT.value).strip()
     if requested_role not in _allowed_view_roles(current_user):
         requested_role = current_user.get("role") or UserRole.CLIENT.value
@@ -417,6 +436,8 @@ async def mark_campaign_click(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
+    if not _campaign_targets_user(campaign, current_user):
+        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
     requested_role = (role or current_user.get("role") or UserRole.CLIENT.value).strip()
     if requested_role not in _allowed_view_roles(current_user):
         requested_role = current_user.get("role") or UserRole.CLIENT.value

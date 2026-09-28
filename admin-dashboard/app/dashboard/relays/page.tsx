@@ -116,6 +116,10 @@ export default function RelaysPage() {
     const lng = Number(createForm.lng);
     return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
   }, [createForm.lat, createForm.lng]);
+  const hasOpeningDay = React.useMemo(
+    () => Object.values(createForm.openingHours).some((entry) => entry.enabled),
+    [createForm.openingHours],
+  );
   const searchParams = useSearchParams();
   const activeOnly = searchParams.get("active") === "true";
   const [period, setPeriod] = React.useState(currentPeriod);
@@ -310,9 +314,14 @@ export default function RelaysPage() {
         header: "Horaires",
         cell: ({ row }) => (
           <div className="flex flex-col gap-1 text-xs">
-            <Badge tone={row.original.is_open === false ? "danger" : "success"}>
-              {row.original.is_open === false ? "Fermé" : "Ouvert"}
+            <Badge tone={row.original.opening_status?.known === false ? "warning" : row.original.is_open === false ? "danger" : "success"}>
+              {row.original.opening_status?.known === false ? "À compléter" : row.original.is_open === false ? "Fermé" : "Ouvert"}
             </Badge>
+            {row.original.opening_status?.label && (
+              <span className="text-xs text-muted-foreground">
+                {row.original.opening_status.label}
+              </span>
+            )}
             <span className="max-w-56 text-muted-foreground">
               {formatRelayOpeningHours(row.original.opening_hours)}
             </span>
@@ -514,9 +523,14 @@ export default function RelaysPage() {
               value={createForm.openingHours}
               onChange={(openingHours) => setCreateForm((current) => ({ ...current, openingHours }))}
             />
+            {!hasOpeningDay && (
+              <p className="mt-2 text-xs text-amber-700">
+                Sélectionnez au moins un jour d’ouverture pour créer le relais.
+              </p>
+            )}
           </div>
           <div className="mt-4 flex gap-2">
-            <Button disabled={createMut.isPending || !location} onClick={() => createMut.mutate()}>
+            <Button disabled={createMut.isPending || !location || !hasOpeningDay} onClick={() => createMut.mutate()}>
               {createMut.isPending && <Loader2 className="animate-spin" />}
               Créer le relais
             </Button>

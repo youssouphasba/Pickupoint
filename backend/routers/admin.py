@@ -71,7 +71,7 @@ from services.performance_rewards_service import (
     set_performance_rewards_settings,
 )
 from services.relay_geocoding_service import geocode_relay_address
-from services.relay_hours import relay_open_status
+from services.relay_hours import has_enabled_opening_day, relay_open_status
 from services.google_maps_service import reverse_geocode
 from services.wallet_service import (
     credit_wallet,
@@ -2003,6 +2003,24 @@ async def admin_geocode_missing_relays(
 
 @router.put("/relay-points/{relay_id}/verify", summary="Valider un relais")
 async def verify_relay(relay_id: str, _admin=Depends(require_admin_dep)):
+    relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+    if not relay:
+        raise not_found_exception("Point relais")
+    geopin = ((relay.get("address") or {}).get("geopin") or {})
+    if geopin.get("lat") is None or geopin.get("lng") is None:
+        raise bad_request_exception("Définissez la position exacte du relais avant de le vérifier.")
+    if not has_enabled_opening_day(relay.get("opening_hours")):
+        raise bad_request_exception("Définissez au moins un jour d’ouverture avant de vérifier le relais.")
+    owner = await db.users.find_one(
+        {"user_id": relay.get("owner_user_id")},
+        {"_id": 0, "role": 1, "relay_point_id": 1},
+    )
+    if (
+        not owner
+        or owner.get("role") != UserRole.RELAY_AGENT.value
+        or owner.get("relay_point_id") != relay_id
+    ):
+        raise bad_request_exception("Rattachez d’abord le compte du responsable à ce relais.")
     result = await db.relay_points.update_one(
         {"relay_id": relay_id},
         {"$set": {"is_verified": True, "updated_at": datetime.now(timezone.utc)}},
@@ -5758,7 +5776,7 @@ async def get_admin_analytics_overview(
 @router.get("/finance/overview", summary="Vue d'ensemble finance")
 async def get_finance_overview(
     period: Optional[str] = Query(None, description="Format YYYY-MM"),
-    from_date: Optional[str] = Query(None, description="Date d?but YYYY-MM-DD (UTC)"),
+    from_date: Optional[str] = Query(None, description="Date début YYYY-MM-DD (UTC)"),
     to_date: Optional[str] = Query(None, description="Date fin YYYY-MM-DD (UTC)"),
     _admin=Depends(require_admin_dep),
 ):
@@ -5784,19 +5802,19 @@ async def get_finance_overview(
 
     def _status_label(value: str) -> str:
         mapping = {
-            ParcelStatus.CREATED.value: "Cr??",
-            ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value: "D?pos? au relais de d?part",
+            ParcelStatus.CREATED.value: "Créé",
+            ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value: "Déposé au relais de départ",
             ParcelStatus.IN_TRANSIT.value: "En transit",
-            ParcelStatus.AT_DESTINATION_RELAY.value: "Au relais d'arriv?e",
+            ParcelStatus.AT_DESTINATION_RELAY.value: "Au relais d'arrivée",
             ParcelStatus.AVAILABLE_AT_RELAY.value: "Disponible au relais",
             ParcelStatus.OUT_FOR_DELIVERY.value: "En livraison",
             ParcelStatus.REDIRECTED_TO_RELAY.value: "Redirig? vers relais",
             ParcelStatus.SUSPENDED.value: "Suspendu",
             ParcelStatus.DISPUTED.value: "En litige",
-            ParcelStatus.INCIDENT_REPORTED.value: "Incident signal?",
+            ParcelStatus.INCIDENT_REPORTED.value: "Incident signalé",
             ParcelStatus.RETURNED.value: "Retourn?",
-            ParcelStatus.DELIVERY_FAILED.value: "?chec de livraison",
-            ParcelStatus.DELIVERED.value: "Livr?",
+            ParcelStatus.DELIVERY_FAILED.value: "Échec de livraison",
+            ParcelStatus.DELIVERED.value: "Livré",
             ParcelStatus.CANCELLED.value: "Annul?",
             ParcelStatus.EXPIRED.value: "Expir?",
             MissionStatus.PENDING.value: "Disponible",
@@ -5849,7 +5867,7 @@ async def get_finance_overview(
         return _parcel_detail(
             parcel,
             amount_xof=amount_xof,
-            status="Vers?" if paid else "? verser",
+            status="Versé" if paid else "À verser",
             meta=f"Part relais {side}",
         )
 
@@ -5871,7 +5889,7 @@ async def get_finance_overview(
             "subtitle": f"Recharge {provider}",
             "status": "Payée",
             "amount_xof": round(float(topup.get("amount") or 0.0), 2),
-            "meta": "Solde cr?dit?",
+            "meta": "Solde crédité",
         }
 
     def _limited(items: list[dict], limit: int = 30) -> list[dict]:
@@ -6153,19 +6171,19 @@ async def get_finance_overview(
                 ref = f"relay_origin_commission:{parcel_id}"
                 if ref in relay_credit_refs:
                     relay_already_sent_xof += relay_credit_refs[ref]
-                    relay_sent_items.append(_relay_detail(parcel, amount_xof=origin_due, side="d?part", paid=True))
+                    relay_sent_items.append(_relay_detail(parcel, amount_xof=origin_due, side="départ", paid=True))
                 else:
                     relay_missing_parcel_ids.add(parcel_id)
-                    relay_due_items.append(_relay_detail(parcel, amount_xof=origin_due, side="d?part", paid=False))
+                    relay_due_items.append(_relay_detail(parcel, amount_xof=origin_due, side="départ", paid=False))
 
             if destination_due > 0:
                 ref = f"relay_destination_commission:{parcel_id}"
                 if ref in relay_credit_refs:
                     relay_already_sent_xof += relay_credit_refs[ref]
-                    relay_sent_items.append(_relay_detail(parcel, amount_xof=destination_due, side="arriv?e", paid=True))
+                    relay_sent_items.append(_relay_detail(parcel, amount_xof=destination_due, side="arrivée", paid=True))
                 else:
                     relay_missing_parcel_ids.add(parcel_id)
-                    relay_due_items.append(_relay_detail(parcel, amount_xof=destination_due, side="arriv?e", paid=False))
+                    relay_due_items.append(_relay_detail(parcel, amount_xof=destination_due, side="arrivée", paid=False))
 
     total_commission_xof = 0.0
     platform_commission_xof = 0.0
@@ -6410,7 +6428,7 @@ async def get_finance_overview(
     if relay_missing_parcel_ids:
         alerts.append(
             {
-                "label": "Commissions relais encore ? verser",
+                "label": "Commissions relais encore à verser",
                 "value": len(relay_missing_parcel_ids),
                 "tone": "warning",
                 "items": _limited(relay_due_items),

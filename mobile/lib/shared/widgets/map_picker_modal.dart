@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../core/api/api_endpoints.dart';
+import '../../core/models/user.dart';
 
 class MapPickerResult {
   final LatLng position;
@@ -19,11 +20,13 @@ class MapPickerResult {
 class MapPickerModal extends StatefulWidget {
   final String title;
   final LatLng? initialPosition;
+  final List<FavoriteAddress> favoriteAddresses;
 
   const MapPickerModal({
     super.key,
     this.title = 'Choisir une position',
     this.initialPosition,
+    this.favoriteAddresses = const [],
   });
 
   @override
@@ -199,6 +202,19 @@ class _MapPickerModalState extends State<MapPickerModal> {
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(pos, 16));
   }
 
+  void _selectFavorite(FavoriteAddress favorite) {
+    final pos = LatLng(favorite.lat, favorite.lng);
+    _searchCtrl.text = favorite.address;
+    _searchFocus.unfocus();
+    setState(() {
+      _suggestions = [];
+      _selectedPosition = pos;
+      _selectedAddress = favorite.address;
+      _selectedAddressForPosition = pos;
+    });
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(pos, 16));
+  }
+
   Future<String?> _reverseGeocode(LatLng pos) async {
     try {
       final res = await _dio.get(
@@ -321,6 +337,69 @@ class _MapPickerModalState extends State<MapPickerModal> {
                     ),
                   ),
                 ),
+                if (widget.favoriteAddresses.isNotEmpty)
+                  SizedBox(
+                    height: 94,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(20, 0, 20, 2),
+                          child: Text(
+                            'Mes adresses favorites',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(20, 2, 20, 10),
+                            scrollDirection: Axis.horizontal,
+                            itemCount: widget.favoriteAddresses.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 8),
+                            itemBuilder: (context, index) {
+                              final favorite = widget.favoriteAddresses[index];
+                              return ActionChip(
+                                avatar: const Icon(
+                                  Icons.bookmark_outline,
+                                  size: 18,
+                                ),
+                                label: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 170),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        favorite.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Text(
+                                        favorite.address,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                onPressed: () => _selectFavorite(favorite),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 Expanded(
                   child: Stack(
                     children: [

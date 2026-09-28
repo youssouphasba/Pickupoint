@@ -62,6 +62,7 @@ import '../../features/admin/screens/admin_global_audit_screen.dart';
 import '../../features/admin/screens/admin_legal_list_screen.dart';
 import '../../features/admin/screens/admin_legal_edit_screen.dart';
 import '../../shared/screens/legal_document_screen.dart';
+import '../../shared/screens/my_data_screen.dart';
 import '../../shared/promotions/campaign_detail_screen.dart';
 import '../../shared/promotions/campaign_detail_by_id_screen.dart';
 import '../../core/models/in_app_campaign.dart';
@@ -433,6 +434,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           path: '/legal/:docType',
           builder: (_, s) =>
               LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+      GoRoute(path: '/my-data', builder: (_, __) => const MyDataScreen()),
       GoRoute(
         path: '/confirm/:token',
         builder: (_, s) => ConfirmLocationScreen(

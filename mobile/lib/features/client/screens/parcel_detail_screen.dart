@@ -19,12 +19,12 @@ import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../../core/location/fresh_position_helper.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../../../shared/widgets/relay_opening_hours_editor.dart';
+import '../../../shared/widgets/map_picker_modal.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({
@@ -615,14 +615,29 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
       _confirmLocationStatus = null;
     });
     try {
-      final pos = await FreshPositionHelper.getStrictFreshPosition(
-        context: 'la confirmation de votre adresse',
+      final user = ref.read(authProvider).valueOrNull?.user;
+      final selected = await showModalBottomSheet<MapPickerResult>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => MapPickerModal(
+          title: 'Choisir votre position de livraison',
+          initialPosition:
+              parcel.deliveryLat != null && parcel.deliveryLng != null
+                  ? LatLng(parcel.deliveryLat!, parcel.deliveryLng!)
+                  : null,
+          favoriteAddresses: user?.favoriteAddresses ?? const [],
+        ),
       );
+      if (!mounted || selected == null) return;
       final api = ref.read(apiClientProvider);
       final body = <String, dynamic>{
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-        'accuracy': pos.accuracy,
+        'lat': selected.position.latitude,
+        'lng': selected.position.longitude,
+        'accuracy': null,
+        'source': 'manual',
+        if ((selected.address ?? '').trim().isNotEmpty)
+          'label': selected.address!.trim(),
       };
       final response = await api.updateDeliveryAddress(widget.id, body);
       final data = response.data as Map<String, dynamic>;
@@ -642,7 +657,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
         );
         setState(() {
           _confirmLocationStatus = 'Position confirmée avec succès.';
-          _confirmLocationAccuracy = pos.accuracy;
+          _confirmLocationAccuracy = null;
           _confirmLocationUpdatedAt = now;
         });
         await ActionFeedback.confirm();

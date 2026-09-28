@@ -116,6 +116,17 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate() || _relay == null) return;
+    if (!_openingHours.values.any(
+      (entry) => entry is Map && entry['enabled'] == true,
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sélectionnez au moins un jour d’ouverture.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     try {
       final api = ref.read(apiClientProvider);
@@ -399,7 +410,8 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                                 const SizedBox(height: 12),
                                 RelayOpeningHoursEditor(
                                   value: _openingHours,
-                                  onChanged: (value) => setState(() => _openingHours = value),
+                                  onChanged: (value) =>
+                                      setState(() => _openingHours = value),
                                 ),
                                 const SizedBox(height: 12),
                                 TextFormField(

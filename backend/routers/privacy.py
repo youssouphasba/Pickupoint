@@ -4,6 +4,7 @@ from io import BytesIO
 from typing import Literal, Optional
 import json
 from uuid import uuid4
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -65,10 +66,22 @@ def _safe_parcel(parcel: dict, user_id: str) -> dict:
     }
 
 
+def _user_parcel_query(user: dict) -> dict:
+    user_id = user["user_id"]
+    clauses = [
+        {"sender_user_id": user_id},
+        {"recipient_user_id": user_id},
+    ]
+    phone = str(user.get("phone") or "").strip()
+    if phone:
+        clauses.append({"recipient_phone": phone})
+    return {"$or": clauses}
+
+
 async def _build_export(user: dict) -> dict:
     user_id = user["user_id"]
     parcels = await db.parcels.find(
-        {"$or": [{"sender_user_id": user_id}, {"recipient_user_id": user_id}, {"recipient_phone": user.get("phone")} ]},
+        _user_parcel_query(user),
         {"_id": 0},
         sort=[("created_at", -1)],
     ).to_list(length=5000)
@@ -86,8 +99,9 @@ async def _build_export(user: dict) -> dict:
 @router.get("/users/me/data-summary", summary="Résumé de mes données")
 async def get_my_data_summary(current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
+    parcel_query = _user_parcel_query(current_user)
     parcels = await db.parcels.find(
-        {"$or": [{"sender_user_id": user_id}, {"recipient_user_id": user_id}, {"recipient_phone": current_user.get("phone")} ]},
+        parcel_query,
         {"_id": 0, "parcel_id": 1, "tracking_code": 1, "delivery_mode": 1, "status": 1, "created_at": 1, "updated_at": 1},
         sort=[("created_at", -1)],
         limit=10,
@@ -96,7 +110,7 @@ async def get_my_data_summary(current_user: dict = Depends(get_current_user)):
     open_count = await db.privacy_requests.count_documents({"user_id": user_id, "status": {"$in": ["pending", "in_progress"]}})
     return {
         "profile": _safe_profile(current_user),
-        "parcel_count": await db.parcels.count_documents({"$or": [{"sender_user_id": user_id}, {"recipient_user_id": user_id}, {"recipient_phone": current_user.get("phone")} ]}),
+        "parcel_count": await db.parcels.count_documents(parcel_query),
         "recent_parcels": parcels,
         "privacy_request_count": request_count,
         "open_privacy_request_count": open_count,
@@ -123,7 +137,7 @@ def _pdf_value(value) -> str:
         return ", ".join(_pdf_value(item) for item in value)
     if hasattr(value, "isoformat"):
         return value.isoformat()
-    return str(value)
+    return escape(str(value))
 
 
 def _build_pdf(export: dict) -> bytes:

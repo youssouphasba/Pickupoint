@@ -361,6 +361,7 @@ def _build_confirmed_location_payload(
             "lat": payload.lat,
             "lng": payload.lng,
             "accuracy": payload.accuracy,
+            "source": payload.source,
         },
         "source": source,
         "confirmed": True,
@@ -596,9 +597,20 @@ async def create_parcel_endpoint(
     if selected_relay_ids:
         relays = await db.relay_points.find(
             {"relay_id": {"$in": list(selected_relay_ids)}, "is_active": True},
-            {"_id": 0, "relay_id": 1, "name": 1, "opening_hours": 1},
+            {
+                "_id": 0,
+                "relay_id": 1,
+                "name": 1,
+                "opening_hours": 1,
+                "max_capacity": 1,
+                "current_load": 1,
+            },
         ).to_list(length=len(selected_relay_ids))
         for relay in relays:
+            if int(relay.get("current_load") or 0) >= int(relay.get("max_capacity") or 20):
+                raise bad_request_exception(
+                    f"Le relais {relay.get('name', '')} est complet. Choisissez un autre relais."
+                )
             opening_status = relay_open_status(relay)
             if not opening_status["is_open"]:
                 raise bad_request_exception(
@@ -1102,6 +1114,7 @@ async def preview_delivery_address_change(
     ensure_live_location_accuracy(
         payload.accuracy,
         context="la mise à jour de l'adresse de livraison",
+        source=payload.source,
     )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     return {"ok": True, **preview}
@@ -1126,6 +1139,7 @@ async def apply_delivery_address_change(
     ensure_live_location_accuracy(
         payload.accuracy,
         context="la mise à jour de l'adresse de livraison",
+        source=payload.source,
     )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     if preview["requires_acceptance"] and not payload.accept_surcharge:
@@ -1211,6 +1225,7 @@ async def update_delivery_address(
     ensure_live_location_accuracy(
         payload.accuracy,
         context="la mise à jour de l'adresse de livraison",
+        source=payload.source,
     )
     preview = await preview_address_change(parcel, payload.lat, payload.lng, payload.accuracy)
     if preview["requires_acceptance"]:

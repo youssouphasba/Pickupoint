@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -247,6 +247,7 @@ class LocationConfirmPayload(BaseModel):
     district: Optional[str] = Field(default=None, max_length=120)
     city: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
+    source: Literal["gps", "manual"] = "gps"
 
     @field_validator("label", "district", "city", "notes")
     @classmethod
@@ -263,6 +264,7 @@ class AddressChangePreviewRequest(BaseModel):
     district: Optional[str] = Field(default=None, max_length=120)
     city: Optional[str] = Field(default=None, max_length=120)
     notes: Optional[str] = Field(default=None, max_length=500)
+    source: Literal["gps", "manual"] = "gps"
 
     @field_validator("label", "district", "city", "notes")
     @classmethod

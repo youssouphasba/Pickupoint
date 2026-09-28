@@ -19,7 +19,7 @@ from database import db
 from models.common import UserRole, GeoPin, clean_optional_text
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.notification_service import notify_application_result
-from services.relay_hours import normalize_opening_hours
+from services.relay_hours import has_enabled_opening_day, normalize_opening_hours
 
 router = APIRouter()
 
@@ -198,6 +198,8 @@ async def apply_relay(
     body: RelayApplicationCreate,
     current_user: dict = Depends(get_current_user),
 ):
+    if not has_enabled_opening_day(body.opening_hours):
+        raise bad_request_exception("Sélectionnez au moins un jour et définissez ses horaires d’ouverture.")
     existing = await db.applications.find_one({
         "user_id": current_user["user_id"],
         "type": "relay",

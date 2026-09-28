@@ -533,11 +533,14 @@ async def _require_active_relay(relay_id: Optional[str], field_name: str) -> Opt
         return None
 
     relay = await db.relay_points.find_one(
-        {"relay_id": relay_id, "is_active": True},
+        {"relay_id": relay_id, "is_active": True, "is_verified": True},
         {"_id": 0},
     )
     if not relay:
-        raise bad_request_exception(f"{field_name} invalide ou inactif")
+        raise bad_request_exception(f"{field_name} invalide, inactif ou non vérifié")
+
+    if int(relay.get("current_load") or 0) >= int(relay.get("max_capacity") or 20):
+        raise bad_request_exception(f"{field_name} complet")
 
     geopin = ((relay.get("address") or {}).get("geopin") or {})
     if geopin.get("lat") is None or geopin.get("lng") is None:

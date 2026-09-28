@@ -7,6 +7,11 @@ final legalContentProvider =
   final client = ref.read(apiClientProvider);
   final apiDocType = docType == 'privacy' ? 'privacy_policy' : docType;
   final res = await client.getLegal(apiDocType);
-  await client.markLegalViewed(apiDocType);
+  final auth = ref.read(authProvider).valueOrNull;
+  if (auth?.isAuthenticated == true) {
+    try {
+      await client.markLegalViewed(apiDocType);
+    } catch (_) {}
+  }
   return LegalContent.fromJson(res.data);
 });

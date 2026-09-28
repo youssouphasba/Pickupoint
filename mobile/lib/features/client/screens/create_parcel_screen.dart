@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../models/create_parcel_prefill.dart';
@@ -259,10 +258,12 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   void _nextStep() {
     if (!_validateCurrentStep()) return;
     if (_currentStep < 2) {
-      _pageController.nextPage(
+      _pageController
+          .nextPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
-      ).then((_) {
+      )
+          .then((_) {
         if (_currentStep == 1) _scrollTo(_step2PrimaryActionKey);
       });
       setState(() => _currentStep++);
@@ -354,18 +355,33 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   Future<void> _captureOriginGPS() async {
     setState(() => _gpsLoading = true);
     try {
-      final pos = await FreshPositionHelper.getStrictFreshPosition(
-        context: 'la création de la course',
+      final result = await showModalBottomSheet<MapPickerResult>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => MapPickerModal(
+          title: 'Choisir la position de collecte',
+          initialPosition: _originLat != null && _originLng != null
+              ? LatLng(_originLat!, _originLng!)
+              : null,
+          favoriteAddresses: _originFavoriteAddresses,
+        ),
       );
+      if (!mounted || result == null) return;
       setState(() {
-        _originLat = pos.latitude;
-        _originLng = pos.longitude;
-        _originAccuracy = pos.accuracy;
-        _originAddress = null;
-        _originWasAdjusted = false;
+        _originLat = result.position.latitude;
+        _originLng = result.position.longitude;
+        _originAccuracy = null;
+        _originAddress = result.address;
+        _originWasAdjusted = true;
       });
       _scrollTo(_destinationSectionKey);
-      await _loadOriginAddress(pos.latitude, pos.longitude);
+      if ((result.address ?? '').trim().isEmpty) {
+        await _loadOriginAddress(
+          result.position.latitude,
+          result.position.longitude,
+        );
+      }
     } catch (e) {
       _showError(friendlyError(e));
     } finally {
@@ -382,9 +398,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       final rawData = response.data;
       final data = rawData is Map ? Map<String, dynamic>.from(rawData) : null;
       final rawAddress = data?['address'];
-      final address = rawAddress is Map
-          ? Map<String, dynamic>.from(rawAddress)
-          : null;
+      final address =
+          rawAddress is Map ? Map<String, dynamic>.from(rawAddress) : null;
       final formatted = address?['formatted_address']?.toString().trim();
       if (mounted && formatted != null && formatted.isNotEmpty) {
         setState(() => _originAddress = formatted);
@@ -404,6 +419,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       builder: (_) => MapPickerModal(
         title: 'Vérifier la position de collecte',
         initialPosition: LatLng(_originLat!, _originLng!),
+        favoriteAddresses: _originFavoriteAddresses,
       ),
     );
     if (!mounted || result == null) return;
@@ -415,7 +431,20 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       _originAddressLoading = true;
       _originWasAdjusted = true;
     });
-    await _loadOriginAddress(result.position.latitude, result.position.longitude);
+    if ((result.address ?? '').trim().isEmpty) {
+      await _loadOriginAddress(
+        result.position.latitude,
+        result.position.longitude,
+      );
+    } else if (mounted) {
+      setState(() => _originAddressLoading = false);
+    }
+  }
+
+  List<FavoriteAddress> get _originFavoriteAddresses {
+    if (_initiatedBy != _InitiatedBy.sender) return const [];
+    return ref.read(authProvider).valueOrNull?.user?.favoriteAddresses ??
+        const [];
   }
 
   // ── Devis ────────────────────────────────────────────────────────────────────
@@ -443,6 +472,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       Map<String, dynamic>? originLocation;
       if (_originMode == _OriginMode.gps && _originLat != null) {
         originLocation = {
+          if ((_originAddress ?? '').trim().isNotEmpty)
+            'label': _originAddress!.trim(),
           'geopin': {
             'lat': _originLat,
             'lng': _originLng,
@@ -879,7 +910,7 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
                             : const Icon(Icons.my_location),
                         label: Text(_gpsLoading
                             ? 'Localisation…'
-                            : 'Détecter ma position'),
+                            : 'Choisir ma position'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
@@ -1041,7 +1072,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildFavoriteSelector(),
           if (_destMode == _DestMode.home) ...[
             _buildHomeDeliveryHelp(isReverse),
             const SizedBox(height: 20),
@@ -1187,10 +1217,10 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
           ],
 
           TextField(
-            key: _originMode == _OriginMode.relay ||
-                    _destMode == _DestMode.relay
-                ? _step2RecipientInfoKey
-                : _step2PrimaryActionKey,
+            key:
+                _originMode == _OriginMode.relay || _destMode == _DestMode.relay
+                    ? _step2RecipientInfoKey
+                    : _step2PrimaryActionKey,
             controller: _recipientNameController,
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
@@ -1466,90 +1496,6 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
       'home_to_home' => 'Domicile → Domicile',
       _ => _deliveryMode,
     };
-  }
-
-  Future<void> _onFavoriteTap(FavoriteAddress fav) async {
-    if (_currentStep != 1) return;
-    if (_originMode != _OriginMode.gps) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Les favoris servent à indiquer votre point de départ. Choisissez "Domicile" comme origine.'),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      _originLat = fav.lat;
-      _originLng = fav.lng;
-      _originAccuracy = 0;
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Favori "${fav.name}" appliqué à l\'origine')),
-    );
-  }
-
-  Widget _buildFavoriteSelector() {
-    final user = ref.watch(authProvider).valueOrNull?.user;
-    final favorites = user?.favoriteAddresses ?? [];
-    if (favorites.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(Icons.bookmark_outline, 'Utiliser un favori'),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 100,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: favorites.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final fav = favorites[index];
-              return InkWell(
-                onTap: () => _onFavoriteTap(fav),
-                child: Container(
-                  width: 140,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.place, color: Colors.blue, size: 20),
-                      const SizedBox(height: 4),
-                      Text(
-                        fav.name,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        fav.address,
-                        style:
-                            const TextStyle(fontSize: 10, color: Colors.grey),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-        const Divider(),
-      ],
-    );
   }
 
   Widget _sectionTitle(IconData icon, String title) {

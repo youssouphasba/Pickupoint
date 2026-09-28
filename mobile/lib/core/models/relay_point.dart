@@ -16,6 +16,7 @@ class RelayPoint {
     this.isVerified = false,
     this.isActive = true,
     this.isOpen = true,
+    this.openingStatusKnown = false,
     this.openingStatusLabel,
   });
 
@@ -35,6 +36,7 @@ class RelayPoint {
   final bool isVerified;
   final bool isActive;
   final bool isOpen;
+  final bool openingStatusKnown;
   final String? openingStatusLabel;
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
@@ -46,7 +48,8 @@ class RelayPoint {
               'label': rawAddress.trim(),
           };
     final rawGeopin = addr['geopin'];
-    final geopin = rawGeopin is Map ? Map<String, dynamic>.from(rawGeopin) : null;
+    final geopin =
+        rawGeopin is Map ? Map<String, dynamic>.from(rawGeopin) : null;
     final rawOpeningHours = json['opening_hours'];
     final addressLabel = [
       addr['label'],
@@ -82,8 +85,16 @@ class RelayPoint {
       currentStock: json['current_load'] as int? ?? 0,
       isVerified: json['is_verified'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
-      isOpen: json['is_open'] as bool? ?? (json['opening_status'] is Map ? json['opening_status']['is_open'] as bool? ?? true : true),
-      openingStatusLabel: json['opening_status'] is Map ? json['opening_status']['label']?.toString() : null,
+      isOpen: json['is_open'] as bool? ??
+          (json['opening_status'] is Map
+              ? json['opening_status']['is_open'] as bool? ?? true
+              : true),
+      openingStatusKnown: json['opening_status'] is Map
+          ? json['opening_status']['known'] as bool? ?? false
+          : false,
+      openingStatusLabel: json['opening_status'] is Map
+          ? json['opening_status']['label']?.toString()
+          : null,
     );
   }
 

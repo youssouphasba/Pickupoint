@@ -114,19 +114,19 @@ const campaignRoleOptions = [
 ];
 
 const internalRoutes = [
-  { value: "/client/create", label: "Cr?er un colis" },
+  { value: "/client/create", label: "Créer un colis" },
   { value: "/client/profile", label: "Profil client" },
   { value: "/client/profile?section=stats", label: "Profil client - KPIs" },
-  { value: "/client/profile?section=loyalty", label: "Profil client - fid?lit?" },
-  { value: "/client/profile?section=settings", label: "Profil client - pr?f?rences" },
+  { value: "/client/profile?section=loyalty", label: "Profil client - fidélité" },
+  { value: "/client/profile?section=settings", label: "Profil client - préférences" },
   { value: "/client/profile?section=referral", label: "Profil client - parrainage" },
   { value: "/client/profile?section=support", label: "Profil client - support" },
-  { value: "/client/loyalty-history", label: "Historique fid?lit? client" },
+  { value: "/client/loyalty-history", label: "Historique fidélité client" },
   { value: "/client/partnership", label: "Devenir partenaire" },
   { value: "/driver/performance", label: "Performance livreur" },
   { value: "/driver/wallet", label: "Solde livreur" },
   { value: "/driver/profile", label: "Profil livreur" },
-  { value: "/driver/profile?section=identity", label: "Profil livreur - identit?" },
+  { value: "/driver/profile?section=identity", label: "Profil livreur - identité" },
   { value: "/driver/profile?section=referral", label: "Profil livreur - parrainage" },
   { value: "/driver/profile?section=kyc", label: "Profil livreur - documents" },
   { value: "/driver/profile?section=notifications", label: "Profil livreur - notifications" },
@@ -135,7 +135,7 @@ const internalRoutes = [
   { value: "/relay/wallet", label: "Solde relais" },
   { value: "/relay/profile?section=identity", label: "Profil relais - compte agent" },
   { value: "/relay/profile?section=info", label: "Profil relais - fiche publique" },
-  { value: "/relay/profile?section=operations", label: "Profil relais - op?rationnel" },
+  { value: "/relay/profile?section=operations", label: "Profil relais - opérationnel" },
   { value: "/relay/profile?section=support", label: "Profil relais - support" },
 ];
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -31,6 +32,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   bool _isSearching = false;
   String? _error;
   Position? _currentPosition;
+  BitmapDescriptor? _relayMarkerIcon;
 
   // Dakar centroid (Utilisé par défaut si on n'a pas la position)
   static const LatLng _dakarCenter = LatLng(14.6928, -17.4467);
@@ -50,6 +52,11 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
   Future<void> _initLocationAndFetch() async {
     try {
+      _relayMarkerIcon = await _buildRelayMarkerIcon();
+    } catch (e) {
+      debugPrint('Relay marker error: $e');
+    }
+    try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (serviceEnabled) {
         LocationPermission permission = await Geolocator.checkPermission();
@@ -64,10 +71,43 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         }
       }
     } catch (e) {
-      debugPrint("Location error: $e");
+      debugPrint('Location error: $e');
     }
 
     await _fetchRelays();
+  }
+
+  Future<BitmapDescriptor> _buildRelayMarkerIcon() async {
+    const size = 96.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final background = ui.Paint()..color = const Color(0xFF1976D2);
+    final foreground = ui.Paint()
+      ..color = Colors.white
+      ..style = ui.PaintingStyle.fill;
+    canvas.drawCircle(const ui.Offset(size / 2, size / 2), 44, background);
+    final storefront = ui.Path()
+      ..moveTo(25, 43)
+      ..lineTo(71, 43)
+      ..lineTo(66, 30)
+      ..lineTo(30, 30)
+      ..close();
+    canvas.drawPath(storefront, foreground);
+    canvas.drawRect(const ui.Rect.fromLTWH(30, 43, 36, 27), foreground);
+    final door = ui.Paint()..color = const Color(0xFF1976D2);
+    canvas.drawRect(const ui.Rect.fromLTWH(44, 53, 12, 17), door);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    if (data == null) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    }
+    return BitmapDescriptor.bytes(
+      data.buffer.asUint8List(),
+      width: 48,
+      height: 48,
+    );
   }
 
   Future<void> _fetchRelays() async {
@@ -179,9 +219,21 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
   void _selectRelay(RelayPoint relay) {
     if (!widget.consultative) {
+      if (relay.isFull) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${relay.name} est complet. Choisissez un autre relais.',
+            ),
+          ),
+        );
+        return;
+      }
       if (!relay.isOpen) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${relay.name} est fermé. ${relay.openingStatusLabel ?? 'Choisissez un autre relais.'}')),
+          SnackBar(
+              content: Text(
+                  '${relay.name} est fermé. ${relay.openingStatusLabel ?? 'Choisissez un autre relais.'}')),
         );
         return;
       }
@@ -191,6 +243,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
     final area = _relayArea(relay);
     final hours = _relayOpeningHours(relay);
+    final distance = _relayDistance(relay);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -205,43 +258,60 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-              Text(relay.name,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold)),
-              if (relay.addressLabel.trim().isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(relay.addressLabel.trim()),
-              ],
-              if (area.isNotEmpty)
-                Text(area, style: const TextStyle(color: Colors.blueGrey)),
-              if (relay.phone.trim().isNotEmpty) ...[
+                Text(relay.name,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold)),
+                if (relay.addressLabel.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(relay.addressLabel.trim()),
+                ],
+                if (area.isNotEmpty)
+                  Text(area, style: const TextStyle(color: Colors.blueGrey)),
+                if (relay.phone.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(relay.phone.trim()),
+                ],
+                if (distance != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.near_me_outlined,
+                          size: 18, color: Colors.blueGrey),
+                      const SizedBox(width: 6),
+                      Text('Depuis ma position : $distance'),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 8),
-                Text(relay.phone.trim()),
-              ],
-              if (hours != null) ...[
+                Text(
+                  'Places disponibles : ${relay.availableSlots.clamp(0, relay.capacity)}',
+                  style: const TextStyle(color: Colors.blueGrey),
+                ),
+                if (hours != null) ...[
+                  const SizedBox(height: 8),
+                  const Text('Horaires d’ouverture',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  ...relayOpeningHoursLines(relay.openingHours).map(
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(line),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
-                const Text('Horaires d’ouverture',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                ...relayOpeningHoursLines(relay.openingHours).map(
-                  (line) => Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(line),
+                Text(
+                  relay.openingStatusLabel ??
+                      (relay.isOpen ? 'Ouvert maintenant' : 'Fermé maintenant'),
+                  style: TextStyle(
+                    color: _relayStatusColor(relay),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
-              const SizedBox(height: 8),
-              Text(
-                relay.isOpen ? 'Ouvert maintenant' : 'Fermé maintenant',
-                style: TextStyle(
-                  color: relay.isOpen ? Colors.green : Colors.red,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (relay.description?.trim().isNotEmpty == true) ...[
-                const SizedBox(height: 8),
-                Text(relay.description!.trim()),
-              ],
+                if (relay.description?.trim().isNotEmpty == true) ...[
+                  const SizedBox(height: 8),
+                  Text(relay.description!.trim()),
+                ],
               ],
             ),
           ),
@@ -267,6 +337,24 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     final hours = relay.openingHours;
     if (hours == null || hours.isEmpty) return null;
     return relayOpeningHoursSummary(hours);
+  }
+
+  String? _relayDistance(RelayPoint relay) {
+    final position = _currentPosition;
+    if (position == null || relay.lat == null || relay.lng == null) return null;
+    final meters = Geolocator.distanceBetween(
+      position.latitude,
+      position.longitude,
+      relay.lat!,
+      relay.lng!,
+    );
+    if (meters < 1000) return '${meters.round()} m';
+    return '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
+  }
+
+  Color _relayStatusColor(RelayPoint relay) {
+    if (!relay.openingStatusKnown) return Colors.orange.shade800;
+    return relay.isOpen ? Colors.green : Colors.red;
   }
 
   @override
@@ -365,6 +453,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                           separatorBuilder: (_, __) => const Divider(height: 1),
                           itemBuilder: (context, i) {
                             final r = _filteredRelays[i];
+                            final distance = _relayDistance(r);
                             return ListTile(
                               leading: Container(
                                 padding: const EdgeInsets.all(8),
@@ -384,6 +473,15 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    if (distance != null)
+                                      Text(
+                                        'À $distance de ma position',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
                                     if (address.isNotEmpty &&
                                         address.toLowerCase() !=
                                             area.toLowerCase())
@@ -406,6 +504,13 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                                         r.phone,
                                         style: const TextStyle(fontSize: 12),
                                       ),
+                                    Text(
+                                      'Places disponibles : ${r.availableSlots.clamp(0, r.capacity)}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.blueGrey,
+                                      ),
+                                    ),
                                     if (hours != null)
                                       Text(
                                         'Horaires : $hours',
@@ -415,12 +520,13 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     Text(
-                                      r.isOpen
-                                          ? 'Ouvert maintenant'
-                                          : 'Fermé maintenant${r.openingStatusLabel == null ? '' : ' · ${r.openingStatusLabel}'}',
+                                      r.openingStatusLabel ??
+                                          (r.isOpen
+                                              ? 'Ouvert maintenant'
+                                              : 'Fermé maintenant'),
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: r.isOpen ? Colors.green : Colors.red,
+                                        color: _relayStatusColor(r),
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -514,8 +620,9 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
           Marker(
             markerId: MarkerId(r.id),
             position: LatLng(r.lat!, r.lng!),
-            icon:
-                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            icon: _relayMarkerIcon ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueAzure),
             onTap: () => _selectRelay(r),
           ),
         );
@@ -538,8 +645,8 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
         }
       },
       markers: markers,
-      myLocationEnabled: true,
-      myLocationButtonEnabled: true,
+      myLocationEnabled: _currentPosition != null,
+      myLocationButtonEnabled: _currentPosition != null,
       zoomControlsEnabled: true,
       mapToolbarEnabled: true,
       gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{

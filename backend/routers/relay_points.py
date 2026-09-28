@@ -9,13 +9,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 
 from core.dependencies import get_current_user, require_role
-from core.exceptions import not_found_exception, forbidden_exception
+from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
 from database import db
 from models.common import UserRole
 from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
 from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
-from services.relay_hours import normalize_opening_hours, relay_open_status
+from services.relay_hours import has_enabled_opening_day, normalize_opening_hours, relay_open_status
 from services.wallet_service import build_relay_financial_summary
 
 router = APIRouter()
@@ -78,7 +78,7 @@ async def list_relay_points(
     skip: int = 0,
     limit: int = 50,
 ):
-    query = {"is_active": is_active}
+    query = {"is_active": is_active, "is_verified": True}
     if city:
         query["address.city"] = city
     if search and search.strip():
@@ -114,6 +114,7 @@ async def nearby_relay_points(
     delta = radius_km / 111.0  # ~1 degré = 111 km
     query = {
         "is_active": True,
+        "is_verified": True,
         "address.geopin.lat": {"$gte": lat - delta, "$lte": lat + delta},
         "address.geopin.lng": {"$gte": lng - delta, "$lte": lng + delta},
     }
@@ -291,6 +292,9 @@ async def create_relay_point(
     body: RelayPointCreate,
     current_user: dict = Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
 ):
+    opening_hours = normalize_opening_hours(body.opening_hours)
+    if not has_enabled_opening_day(opening_hours):
+        raise bad_request_exception("Sélectionnez au moins un jour et définissez ses horaires d’ouverture.")
     now = datetime.now(timezone.utc)
     address = await geocode_relay_address(body.address)
     relay_doc = {
@@ -303,7 +307,7 @@ async def create_relay_point(
         "phone":             body.phone,
         "max_capacity":      body.max_capacity,
         "current_load":      0,
-        "opening_hours":     normalize_opening_hours(body.opening_hours),
+        "opening_hours":     opening_hours,
         "zone_ids":          [],
         "coverage_radius_km": 5.0,
         "is_active":         True,
@@ -340,6 +344,8 @@ async def update_relay_point(
     updates = body.model_dump(exclude_none=True)
     if "opening_hours" in updates:
         updates["opening_hours"] = normalize_opening_hours(updates["opening_hours"])
+        if not has_enabled_opening_day(updates["opening_hours"]):
+            raise bad_request_exception("Sélectionnez au moins un jour et définissez ses horaires d’ouverture.")
     if "address" in updates:
         updates["address"] = (await geocode_relay_address(body.address)).model_dump()
     if updates:

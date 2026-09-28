@@ -124,6 +124,10 @@ export default function RelayDetailPage() {
     maxCapacity: "",
     openingHours: {} as RelayOpeningHours,
   });
+  const hasEditOpeningDay = React.useMemo(
+    () => Object.values(editForm.openingHours).some((entry) => entry.enabled),
+    [editForm.openingHours],
+  );
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["relay-detail", id],
@@ -231,6 +235,9 @@ export default function RelayDetailPage() {
             ) : (
               <Badge tone="warning">Non vérifié</Badge>
             )}
+            <Badge tone={relay.opening_status?.known === false ? "warning" : relay.is_open === false ? "danger" : "success"}>
+              {relay.opening_status?.known === false ? "Horaires à compléter" : relay.is_open === false ? "Fermé" : "Ouvert"}
+            </Badge>
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
             {relay.city ?? ""} {getRelayAddressLabel(relay) ? `— ${getRelayAddressLabel(relay)}` : ""} •
@@ -308,9 +315,14 @@ export default function RelayDetailPage() {
                 value={editForm.openingHours}
                 onChange={(openingHours) => setEditForm((current) => ({ ...current, openingHours }))}
               />
+              {!hasEditOpeningDay && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Sélectionnez au moins un jour d’ouverture avant d’enregistrer.
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
-              <Button disabled={updateMut.isPending} onClick={() => updateMut.mutate()}>
+              <Button disabled={updateMut.isPending || !hasEditOpeningDay} onClick={() => updateMut.mutate()}>
                 {updateMut.isPending && <Loader2 className="animate-spin" />}
                 Enregistrer
               </Button>
@@ -337,7 +349,8 @@ export default function RelayDetailPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">Horaires</CardTitle></CardHeader>
         <CardContent className="text-sm">
-          {formatRelayOpeningHours(relay.opening_hours)}
+          <div>{relay.opening_status?.label ?? "Horaires non renseignés"}</div>
+          <div className="mt-1 text-muted-foreground">{formatRelayOpeningHours(relay.opening_hours)}</div>
         </CardContent>
       </Card>
 

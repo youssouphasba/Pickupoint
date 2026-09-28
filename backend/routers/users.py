@@ -23,7 +23,7 @@ from core.dependencies import get_current_user, require_role
 from core.exceptions import bad_request_exception, forbidden_exception, not_found_exception
 from core.limiter import limiter
 from core.security import hash_password, verify_password
-from core.utils import normalize_phone
+from core.utils import normalize_phone, phones_match
 from database import db, get_db
 from models.common import UserRole
 from models.delivery import MissionStatus
@@ -1221,13 +1221,18 @@ async def assign_relay_point(
         raise not_found_exception("Point relais")
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"_id": 0, "role": 1},
+        {"_id": 0, "role": 1, "phone": 1, "relay_point_id": 1},
     )
     if not user:
         raise not_found_exception("Utilisateur")
     if user.get("role") == UserRole.DRIVER.value:
         raise bad_request_exception(
             "Un livreur ne peut pas être associé à un point relais."
+        )
+    linked_relay_id = user.get("relay_point_id")
+    if linked_relay_id and linked_relay_id != relay_id:
+        raise bad_request_exception(
+            "Cet utilisateur est déjà associé à un autre point relais."
         )
     result = await db.users.update_one(
         {"user_id": user_id},
@@ -1240,12 +1245,48 @@ async def assign_relay_point(
     if result.matched_count == 0:
         raise not_found_exception("Utilisateur")
 
+    current_owner = await db.users.find_one(
+        {"user_id": relay.get("owner_user_id")},
+        {"_id": 0, "role": 1},
+    )
+    owner_is_admin_placeholder = (
+        not current_owner
+        or current_owner.get("role") in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    )
+    transfer_ownership = relay.get("owner_user_id") == user_id or (
+        owner_is_admin_placeholder
+        and phones_match(user.get("phone"), relay.get("phone"))
+    )
+    if transfer_ownership:
+        await db.relay_points.update_one(
+            {"relay_id": relay_id},
+            {
+                "$set": {
+                    "owner_user_id": user_id,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                "$pull": {"agent_user_ids": user_id},
+            },
+        )
+    else:
+        await db.relay_points.update_one(
+            {"relay_id": relay_id},
+            {
+                "$addToSet": {"agent_user_ids": user_id},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+            },
+        )
+
     await _record_event(
         event_type="USER_RELAY_ASSIGNED",
         actor_id=_admin.get("user_id") if isinstance(_admin, dict) else "admin",
         actor_role="admin",
         notes=f"Agent {user_id} lie au relais {relay_id}",
-        metadata={"target_user_id": user_id, "relay_id": relay_id},
+        metadata={
+            "target_user_id": user_id,
+            "relay_id": relay_id,
+            "ownership_transferred": transfer_ownership,
+        },
     )
 
     return {"message": f"Agent {user_id} lie au relais {relay_id}"}

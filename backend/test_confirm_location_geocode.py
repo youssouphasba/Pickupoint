@@ -10,7 +10,9 @@ from routers.confirm import (
     _relay_picker_page,
 )
 from config import settings
-from services.parcel_service import build_location_area_label
+from models.parcel import LocationConfirmPayload
+from routers.parcels import _build_confirmed_location_payload
+from services.parcel_service import build_location_area_label, ensure_live_location_accuracy
 
 
 class ConfirmLocationGeocodeTests(unittest.TestCase):
@@ -95,6 +97,29 @@ class ConfirmLocationGeocodeTests(unittest.TestCase):
         )
 
         self.assertEqual(label, "10 Rue de Rivoli, 75004 Paris, France")
+
+    def test_manual_favorite_location_keeps_its_label_without_gps_accuracy(self):
+        payload = LocationConfirmPayload(
+            lat=14.7167,
+            lng=-17.4677,
+            accuracy=None,
+            label="Maison, Dakar",
+            source="manual",
+        )
+
+        ensure_live_location_accuracy(
+            payload.accuracy,
+            context="la mise à jour de l'adresse de livraison",
+            source=payload.source,
+        )
+        location = _build_confirmed_location_payload(
+            payload,
+            source="app_recipient",
+        )
+
+        self.assertEqual(location["label"], "Maison, Dakar")
+        self.assertEqual(location["geopin"]["source"], "manual")
+        self.assertIsNone(location["geopin"]["accuracy"])
 
 
 if __name__ == "__main__":
