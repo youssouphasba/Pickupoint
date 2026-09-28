@@ -135,6 +135,63 @@ const ISSUE_LABELS: Record<string, string> = {
   delivered_unpaid: "Colis livrés non réglés",
 };
 
+function issueDetailItems(key: string, items: Record<string, unknown>[]): FinanceDetailItem[] {
+  return items.map((item) => {
+    const value = (field: string) => String(item[field] ?? "—");
+    const amount = (field: string) => {
+      const numeric = Number(item[field]);
+      return Number.isFinite(numeric) ? numeric : undefined;
+    };
+
+    if (key === "wallet_pending_mismatches") {
+      return {
+        id: value("wallet_id"),
+        title: value("owner_id"),
+        subtitle: `Portefeuille ${value("wallet_id")}`,
+        status: `Attendu : ${value("expected_pending")} XOF`,
+        amount_xof: amount("wallet_pending"),
+        meta: `Montant actuellement en attente : ${value("wallet_pending")} XOF`,
+      };
+    }
+    if (key === "negative_wallets") {
+      return {
+        id: value("wallet_id"),
+        title: value("owner_id"),
+        subtitle: `Portefeuille ${value("wallet_id")}`,
+        status: `Solde : ${value("balance")} XOF`,
+        amount_xof: amount("balance"),
+        meta: `En attente : ${value("pending")} XOF`,
+      };
+    }
+    if (key === "payout_ledger_gaps") {
+      return {
+        id: value("payout_id"),
+        title: `Retrait ${value("payout_id")}`,
+        subtitle: `Utilisateur : ${value("owner_id")}`,
+        status: value("status"),
+        amount_xof: amount("amount"),
+        meta: `Transaction attendue : ${value("expected_tx_type")}`,
+      };
+    }
+    if (key === "mission_parcel_mismatches") {
+      return {
+        id: value("mission_id"),
+        title: `Mission ${value("mission_id")}`,
+        subtitle: `Colis : ${value("parcel_id")}`,
+        status: `Mission : ${value("mission_status")}`,
+        meta: `Statut du colis : ${value("parcel_status")} · Livreur : ${value("driver_id")}`,
+      };
+    }
+    return {
+      id: value("parcel_id"),
+      title: value("tracking_code") === "—" ? value("parcel_id") : value("tracking_code"),
+      subtitle: `Colis : ${value("parcel_id")}`,
+      status: `Paiement : ${value("payment_status")}`,
+      meta: `Payeur : ${value("who_pays")}`,
+    };
+  });
+}
+
 function FinanceDetailModal({
   open,
   onOpenChange,
@@ -563,7 +620,7 @@ export default function FinancePage() {
                     <button
                       key={key}
                       type="button"
-                      onClick={() => openDetails(ISSUE_LABELS[key] ?? key, items, "Éléments du contrôle de cohérence")}
+                      onClick={() => openDetails(ISSUE_LABELS[key] ?? key, issueDetailItems(key, items), "Éléments du contrôle de cohérence")}
                       className="block text-left transition-transform hover:-translate-y-0.5"
                     >
                       <Card>

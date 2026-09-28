@@ -63,6 +63,7 @@ from services.notification_service import notify_quote_finalized, notify_relay_a
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.wallet_service import credit_wallet, debit_wallet
 from services.google_maps_service import reverse_geocode
+from services.relay_hours import relay_open_status
 from config import UPLOADS_DIR, settings
 
 router = APIRouter()
@@ -583,6 +584,27 @@ async def create_parcel_endpoint(
     body: ParcelCreate,
     current_user: dict = Depends(get_current_user),
 ):
+    selected_relay_ids = {
+        relay_id
+        for relay_id in (
+            body.origin_relay_id,
+            body.destination_relay_id,
+            body.transit_relay_id,
+        )
+        if relay_id
+    }
+    if selected_relay_ids:
+        relays = await db.relay_points.find(
+            {"relay_id": {"$in": list(selected_relay_ids)}, "is_active": True},
+            {"_id": 0, "relay_id": 1, "name": 1, "opening_hours": 1},
+        ).to_list(length=len(selected_relay_ids))
+        for relay in relays:
+            opening_status = relay_open_status(relay)
+            if not opening_status["is_open"]:
+                raise bad_request_exception(
+                    f"Le relais {relay.get('name', '')} est fermé. "
+                    "Choisissez un autre relais ou réessayez pendant ses horaires d'ouverture."
+                )
     parcel = await create_parcel(
         body,
         sender_user_id=current_user["user_id"],

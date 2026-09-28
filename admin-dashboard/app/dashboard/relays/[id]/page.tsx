@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
+import { RelayOpeningHoursEditor, formatRelayOpeningHours, type RelayOpeningHours } from "@/components/relay-opening-hours-editor";
 import { formatDate } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -121,6 +122,7 @@ export default function RelayDetailPage() {
     lat: "",
     lng: "",
     maxCapacity: "",
+    openingHours: {} as RelayOpeningHours,
   });
 
   const { data, isLoading, isError } = useQuery({
@@ -143,6 +145,7 @@ export default function RelayDetailPage() {
       name: editForm.name.trim(),
       phone: editForm.phone.trim(),
       max_capacity: Number(editForm.maxCapacity),
+      opening_hours: editForm.openingHours,
       address: {
         label: editForm.label.trim() || undefined,
         city: editForm.city.trim() || undefined,
@@ -205,6 +208,7 @@ export default function RelayDetailPage() {
       lat: coordinates?.latitude?.toString() ?? "",
       lng: coordinates?.longitude?.toString() ?? "",
       maxCapacity: String(relay.max_capacity ?? 20),
+      openingHours: relay.opening_hours ?? {},
     });
     setEditOpen(true);
   }
@@ -299,6 +303,12 @@ export default function RelayDetailPage() {
                 />
               </label>
             ))}
+            <div className="sm:col-span-2">
+              <RelayOpeningHoursEditor
+                value={editForm.openingHours}
+                onChange={(openingHours) => setEditForm((current) => ({ ...current, openingHours }))}
+              />
+            </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Button disabled={updateMut.isPending} onClick={() => updateMut.mutate()}>
                 {updateMut.isPending && <Loader2 className="animate-spin" />}
@@ -321,6 +331,13 @@ export default function RelayDetailPage() {
               : null}
             title={`Localisation de ${relay.name}`}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Horaires</CardTitle></CardHeader>
+        <CardContent className="text-sm">
+          {formatRelayOpeningHours(relay.opening_hours)}
         </CardContent>
       </Card>
 
@@ -364,7 +381,7 @@ export default function RelayDetailPage() {
                     <InfoLine label="Adresse" value={applicationData.address_label} />
                     <InfoLine label="Ville" value={applicationData.city} />
                     <InfoLine label="Registre commerce" value={applicationData.business_reg} />
-                    <InfoLine label="Horaires" value={applicationData.opening_hours} />
+                    <InfoLine label="Horaires" value={formatRelayOpeningHours(applicationData.opening_hours)} />
                     <InfoLine label="Message candidat" value={applicationData.message} />
                     <InfoLine label="Note admin" value={application.admin_notes} />
                   </div>

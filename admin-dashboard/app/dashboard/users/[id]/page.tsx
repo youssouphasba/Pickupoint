@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ActionModal, ConfirmModal } from "@/components/action-modal";
 import { LocationPreviewMap } from "@/components/location-preview-map";
+import { formatRelayOpeningHours } from "@/components/relay-opening-hours-editor";
 import { SecureProfileImage } from "@/components/secure-profile-image";
 import { resolveLocationSignal } from "@/lib/location-signal";
 import {
@@ -676,7 +677,7 @@ export default function UserDetailPage() {
                         <InfoLine label="Adresse" value={applicationData.address_label} />
                         <InfoLine label="Ville" value={applicationData.city} />
                         <InfoLine label="Registre commerce" value={applicationData.business_reg} />
-                        <InfoLine label="Horaires" value={applicationData.opening_hours} />
+                        <InfoLine label="Horaires" value={formatRelayOpeningHours(applicationData.opening_hours)} />
                       </>
                     )}
                     <InfoLine label="Message candidat" value={applicationData.message} />
@@ -987,6 +988,24 @@ export default function UserDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {data.relay_link_suggestions?.length > 0 && !data.linked_relay && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <div className="font-medium">Relais trouvé pour ce numéro</div>
+                <div className="mt-1 text-muted-foreground">
+                  Vérifie le relais avant de confirmer le rattachement.
+                </div>
+                <div className="mt-3 space-y-2">
+                  {data.relay_link_suggestions.map((relay: any) => (
+                    <div key={relay.relay_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white p-2">
+                      <span>{relay.name} — {relay.city}</span>
+                      <Button size="sm" onClick={() => relayMut.mutate(relay.relay_id)} disabled={relayMut.isPending}>
+                        Confirmer le rattachement
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {data.linked_relay ? (
               <div className="space-y-1 text-sm">
                 <div className="font-medium">{data.linked_relay.name}</div>

@@ -20,6 +20,7 @@ from core.dependencies import require_role
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from core.security import hash_password
+from core.utils import normalize_phone
 from database import db
 from services.mission_trace import load_trace, summarize_trace
 from models.common import Address, UserRole, ParcelStatus
@@ -70,6 +71,7 @@ from services.performance_rewards_service import (
     set_performance_rewards_settings,
 )
 from services.relay_geocoding_service import geocode_relay_address
+from services.relay_hours import relay_open_status
 from services.google_maps_service import reverse_geocode
 from services.wallet_service import (
     credit_wallet,
@@ -1904,7 +1906,11 @@ async def admin_relay_points(
         .limit(safe_limit)
     )
     total = await db.relay_points.count_documents(query)
-    return {"relay_points": await cursor.to_list(length=safe_limit), "total": total}
+    relays = await cursor.to_list(length=safe_limit)
+    for relay in relays:
+        relay["opening_status"] = relay_open_status(relay)
+        relay["is_open"] = relay["opening_status"]["is_open"]
+    return {"relay_points": relays, "total": total}
 
 
 @router.post("/relay-points/geocode-missing", summary="Géocoder les relais incomplets")
@@ -2609,6 +2615,18 @@ async def admin_user_detail(
         relay_doc = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
         linked_relay = _relay_identity_snapshot(relay_doc)
 
+    relay_link_suggestions = []
+    if not linked_relay and user.get("phone"):
+        user_phone = normalize_phone(user.get("phone"))
+        relay_candidates = await db.relay_points.find(
+            {"is_active": True},
+            {"_id": 0, "relay_id": 1, "name": 1, "phone": 1, "address": 1},
+        ).to_list(length=5000)
+        for relay in relay_candidates:
+            if normalize_phone(relay.get("phone")) != user_phone:
+                continue
+            relay_link_suggestions.append(_relay_identity_snapshot(relay))
+
     wallet = await db.wallets.find_one({"owner_id": user_id}, {"_id": 0})
     active_mission = await db.delivery_missions.find_one(
         {"driver_id": user_id, "status": {"$in": ["assigned", "in_progress"]}},
@@ -2763,6 +2781,7 @@ async def admin_user_detail(
             "relay": relay_performance,
         },
         "linked_relay": linked_relay,
+        "relay_link_suggestions": relay_link_suggestions,
         "wallet": {
             **_pick_snapshot(
                 wallet,
@@ -3979,6 +3998,8 @@ async def admin_relay_point_detail(
     relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
     if not relay:
         raise not_found_exception("Point relais")
+    relay["opening_status"] = relay_open_status(relay)
+    relay["is_open"] = relay["opening_status"]["is_open"]
 
     owner = await db.users.find_one({"user_id": relay.get("owner_user_id")}, {"_id": 0})
     agent_ids = set(relay.get("agent_user_ids") or [])

@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { CheckCircle2, Eye, Loader2, Map as MapIcon, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/components/ui/toaster";
+import { RelayOpeningHoursEditor, formatRelayOpeningHours, type RelayOpeningHours } from "@/components/relay-opening-hours-editor";
 
 type RelayRow = AdminRelay & {
   rank?: number | null;
@@ -105,6 +106,7 @@ export default function RelaysPage() {
     lat: "",
     lng: "",
     maxCapacity: "20",
+    openingHours: {} as RelayOpeningHours,
   });
   const [addressSuggestions, setAddressSuggestions] = React.useState<Awaited<ReturnType<typeof fetchAddressSuggestions>>>([]);
   const [suggestionsLoading, setSuggestionsLoading] = React.useState(false);
@@ -170,6 +172,7 @@ export default function RelaysPage() {
       name: createForm.name.trim(),
       phone: createForm.phone.trim(),
       max_capacity: Number(createForm.maxCapacity),
+      opening_hours: createForm.openingHours,
       address: {
         label: createForm.label.trim() || undefined,
         city: createForm.city.trim() || undefined,
@@ -181,7 +184,7 @@ export default function RelaysPage() {
     }),
     onSuccess: () => {
       setCreateOpen(false);
-      setCreateForm({ name: "", phone: "", label: "", city: "", district: "", lat: "", lng: "", maxCapacity: "20" });
+      setCreateForm({ name: "", phone: "", label: "", city: "", district: "", lat: "", lng: "", maxCapacity: "20", openingHours: {} as RelayOpeningHours });
       setLocationSource(null);
       setAddressSuggestions([]);
       qc.invalidateQueries({ queryKey: ["relays"] });
@@ -301,6 +304,20 @@ export default function RelaysPage() {
           ) : (
             <Badge tone="default">Inactif</Badge>
           ),
+      },
+      {
+        id: "opening_hours",
+        header: "Horaires",
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1 text-xs">
+            <Badge tone={row.original.is_open === false ? "danger" : "success"}>
+              {row.original.is_open === false ? "Fermé" : "Ouvert"}
+            </Badge>
+            <span className="max-w-56 text-muted-foreground">
+              {formatRelayOpeningHours(row.original.opening_hours)}
+            </span>
+          </div>
+        ),
       },
       {
         id: "verified",
@@ -491,6 +508,12 @@ export default function RelaysPage() {
             ) : (
               <p className="text-xs text-amber-700">Sélectionne une suggestion pour éviter une position approximative.</p>
             )}
+          </div>
+          <div className="mt-4">
+            <RelayOpeningHoursEditor
+              value={createForm.openingHours}
+              onChange={(openingHours) => setCreateForm((current) => ({ ...current, openingHours }))}
+            />
           </div>
           <div className="mt-4 flex gap-2">
             <Button disabled={createMut.isPending || !location} onClick={() => createMut.mutate()}>

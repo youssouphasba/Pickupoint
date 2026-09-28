@@ -4,7 +4,7 @@ Workflow : le client soumet → l’administrateur examine les pièces et coordo
 """
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
@@ -19,6 +19,7 @@ from database import db
 from models.common import UserRole, GeoPin, clean_optional_text
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.notification_service import notify_application_result
+from services.relay_hours import normalize_opening_hours
 
 router = APIRouter()
 
@@ -112,10 +113,10 @@ class RelayApplicationCreate(BaseModel):
     city:            str = "Dakar"
     geopin:          GeoPin
     business_reg:    Optional[str] = None
-    opening_hours:   Optional[str] = None
+    opening_hours:   Optional[dict[str, Any] | str] = None
     message:         Optional[str] = None
 
-    @field_validator("business_name", "address_label", "city", "business_reg", "opening_hours", "message")
+    @field_validator("business_name", "address_label", "city", "business_reg", "message")
     @classmethod
     def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
         return clean_optional_text(value)
@@ -438,7 +439,7 @@ async def approve_application(
             "phone":             app["user_phone"],
             "max_capacity":      30,
             "current_load":      0,
-            "opening_hours":     data.get("opening_hours", ""),
+            "opening_hours":     normalize_opening_hours(data.get("opening_hours")),
             "zone_ids":          [],
             "coverage_radius_km": 5.0,
             "is_active":         True,

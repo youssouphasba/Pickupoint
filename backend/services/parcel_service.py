@@ -24,6 +24,7 @@ from services.notification_service import notify_parcel_status_change, notify_de
 from services.payment_service import create_payment_link
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.google_maps_service import reverse_geocode
+from services.relay_hours import relay_open_status
 
 import random
 logger = logging.getLogger(__name__)
@@ -245,32 +246,7 @@ def _time_in_range(now: datetime, value: str) -> bool:
 
 
 def _relay_is_open(relay: dict, now: datetime) -> bool:
-    """Vérifie les horaires quand ils sont renseignés. Les anciens relais sans horaires restent éligibles."""
-    opening_hours = relay.get("opening_hours")
-    if not opening_hours:
-        return True
-
-    if isinstance(opening_hours, dict):
-        keys_by_weekday = [
-            ("mon", "monday", "lun", "lundi"),
-            ("tue", "tuesday", "mar", "mardi"),
-            ("wed", "wednesday", "mer", "mercredi"),
-            ("thu", "thursday", "jeu", "jeudi"),
-            ("fri", "friday", "ven", "vendredi"),
-            ("sat", "saturday", "sam", "samedi"),
-            ("sun", "sunday", "dim", "dimanche"),
-        ]
-        value = None
-        for key in keys_by_weekday[now.weekday()]:
-            value = opening_hours.get(key)
-            if value:
-                break
-        return _time_in_range(now, str(value)) if value else False
-
-    if isinstance(opening_hours, str):
-        return _time_in_range(now, opening_hours)
-
-    return True
+    return bool(relay_open_status(relay, now).get("is_open"))
 
 
 async def find_nearest_relay(lat: float, lng: float) -> Optional[dict]:

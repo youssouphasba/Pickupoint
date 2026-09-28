@@ -15,6 +15,7 @@ from models.common import UserRole
 from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
 from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
+from services.relay_hours import normalize_opening_hours, relay_open_status
 
 router = APIRouter()
 
@@ -30,6 +31,13 @@ async def _get_relay_or_404(relay_id: str) -> dict:
     if not relay:
         raise not_found_exception("Point relais")
     return relay
+
+
+def _with_opening_status(relay: dict) -> dict:
+    result = dict(relay)
+    result["opening_status"] = relay_open_status(relay)
+    result["is_open"] = result["opening_status"]["is_open"]
+    return result
 
 
 def _can_manage_relay(relay: dict, current_user: dict) -> bool:
@@ -84,7 +92,10 @@ async def list_relay_points(
         
     cursor = db.relay_points.find(query, {"_id": 0}).skip(skip).limit(limit)
     relays = await cursor.to_list(length=limit)
-    return {"relay_points": relays, "total": await db.relay_points.count_documents(query)}
+    return {
+        "relay_points": [_with_opening_status(relay) for relay in relays],
+        "total": await db.relay_points.count_documents(query),
+    }
 
 
 @router.get("/nearby", summary="Relais proches d'un geopin")
@@ -112,12 +123,12 @@ async def nearby_relay_points(
     relay_list.sort(
         key=lambda r: _haversine_km(lat, lng, r["address"]["geopin"]["lat"], r["address"]["geopin"]["lng"])
     )
-    return {"relay_points": relay_list[:20]}
+    return {"relay_points": [_with_opening_status(relay) for relay in relay_list[:20]]}
 
 
 @router.get("/{relay_id}", summary="Détail d'un relais")
 async def get_relay_point(relay_id: str):
-    return await _get_relay_or_404(relay_id)
+    return _with_opening_status(await _get_relay_or_404(relay_id))
 
 
 @router.get("/{relay_id}/stock", summary="Colis en stock dans ce relais")
@@ -258,7 +269,7 @@ async def create_relay_point(
         "phone":             body.phone,
         "max_capacity":      body.max_capacity,
         "current_load":      0,
-        "opening_hours":     body.opening_hours,
+        "opening_hours":     normalize_opening_hours(body.opening_hours),
         "zone_ids":          [],
         "coverage_radius_km": 5.0,
         "is_active":         True,
@@ -270,7 +281,7 @@ async def create_relay_point(
         "updated_at":        now,
     }
     await db.relay_points.insert_one(relay_doc)
-    return RelayPoint(**{k: v for k, v in relay_doc.items() if k != "_id"})
+    return _with_opening_status(RelayPoint(**{k: v for k, v in relay_doc.items() if k != "_id"}).model_dump())
 
 
 @router.put("/{relay_id}", summary="Modifier un relais (admin ou owner)")
@@ -284,11 +295,17 @@ async def update_relay_point(
         raise not_found_exception("Point relais")
 
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    is_owner = relay["owner_user_id"] == current_user["user_id"]
-    if not is_admin and not is_owner:
+    is_owner = relay.get("owner_user_id") == current_user.get("user_id")
+    is_agent = (
+        current_user.get("user_id") in (relay.get("agent_user_ids") or [])
+        or current_user.get("relay_point_id") == relay.get("relay_id")
+    )
+    if not is_admin and not is_owner and not is_agent:
         raise forbidden_exception()
 
     updates = body.model_dump(exclude_none=True)
+    if "opening_hours" in updates:
+        updates["opening_hours"] = normalize_opening_hours(updates["opening_hours"])
     if "address" in updates:
         updates["address"] = (await geocode_relay_address(body.address)).model_dump()
     if updates:
@@ -296,4 +313,4 @@ async def update_relay_point(
         await db.relay_points.update_one({"relay_id": relay_id}, {"$set": updates})
 
     updated = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
-    return updated
+    return _with_opening_status(updated)

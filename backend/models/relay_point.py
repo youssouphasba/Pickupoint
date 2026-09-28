@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -17,7 +17,7 @@ class RelayPoint(BaseModel):
     description: Optional[str] = None
     max_capacity: int = 20
     current_load: int = 0
-    opening_hours: Optional[Dict[str, str]] = None
+    opening_hours: Optional[Dict[str, Any] | str] = None
     zone_ids: List[str] = Field(default_factory=list)
     coverage_radius_km: float = 5.0
     is_active: bool = True
@@ -36,7 +36,7 @@ class RelayPointCreate(BaseModel):
     phone: str = Field(..., min_length=8, max_length=32)
     description: Optional[str] = Field(default=None, max_length=1000)
     max_capacity: int = Field(default=20, ge=1, le=10000)
-    opening_hours: Optional[Dict[str, str]] = None
+    opening_hours: Optional[Dict[str, Any] | str] = None
     store_id: Optional[str] = Field(default=None, max_length=120)
 
     @field_validator("name", "phone", "description", "store_id")
@@ -50,7 +50,7 @@ class RelayPointUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=32)
     description: Optional[str] = Field(default=None, max_length=1000)
     max_capacity: Optional[int] = Field(default=None, ge=1, le=10000)
-    opening_hours: Optional[Dict[str, str]] = None
+    opening_hours: Optional[Dict[str, Any] | str] = None
     relay_type: Optional[RelayType] = None
     is_active: Optional[bool] = None
 

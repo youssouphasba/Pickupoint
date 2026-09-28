@@ -609,6 +609,9 @@ export type AdminRelay = {
   is_verified?: boolean;
   max_capacity?: number;
   current_load?: number;
+  opening_hours?: Record<string, unknown> | string | null;
+  is_open?: boolean;
+  opening_status?: { is_open?: boolean; known?: boolean; label?: string };
   agent_user_id?: string | null;
   created_at?: string;
 };
@@ -710,7 +713,7 @@ export async function createRelayPoint(body: {
   relay_type?: string;
   description?: string;
   max_capacity?: number;
-  opening_hours?: Record<string, string>;
+  opening_hours?: Record<string, unknown> | string;
 }) {
   const { data } = await api.post<AdminRelay>("/api/relay-points", body);
   return data;
@@ -721,7 +724,7 @@ export async function updateRelayPoint(relayId: string, body: {
   phone?: string;
   address?: RelayAddressInput;
   max_capacity?: number;
-  opening_hours?: Record<string, string>;
+  opening_hours?: Record<string, unknown> | string;
   is_active?: boolean;
 }) {
   const { data } = await api.put<AdminRelay>(`/api/relay-points/${relayId}`, body);
