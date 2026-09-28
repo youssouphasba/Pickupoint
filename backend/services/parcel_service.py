@@ -18,6 +18,8 @@ from models.parcel import ParcelCreate, ParcelEvent, ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import (
     compute_delivery_commission_breakdown,
+    default_commission_rules,
+    normalize_commission_rules,
     distribute_delivery_revenue,
 )
 from services.notification_service import notify_parcel_status_change, notify_delivery_code
@@ -856,6 +858,9 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     origin_location = await _enrich_location_from_geopin(origin_location)
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     delivery_commissions_enabled = bool(settings_doc.get("delivery_commissions_enabled", True))
+    commission_rules_snapshot = normalize_commission_rules(
+        settings_doc.get("commission_rules") or default_commission_rules()
+    )
 
     parcel_doc = {
         "parcel_id":             parcel_id,
@@ -873,6 +878,7 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "delivery_address":      delivery_address,
         "origin_location":       origin_location,
         "delivery_commissions_enabled": delivery_commissions_enabled,
+        "commission_rules_snapshot": commission_rules_snapshot,
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
@@ -1553,6 +1559,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "sender_name":      parcel.get("sender_name"),
         "recipient_user_id": parcel.get("recipient_user_id"),
         "delivery_commissions_enabled": bool(parcel.get("delivery_commissions_enabled", True)),
+        "commission_rules_snapshot": parcel.get("commission_rules_snapshot"),
         # Pickup
         "pickup_type":      pickup_type,   # 'relay' | 'gps'
         "pickup_relay_id":  pickup_relay_id,

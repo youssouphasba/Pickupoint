@@ -76,6 +76,8 @@ class ApiEndpoints {
   static const relayNearby = '$_base/api/relay-points/nearby';
   static String relayPoint(String id) => '$_base/api/relay-points/$id';
   static String relayStock(String id) => '$_base/api/relay-points/$id/stock';
+  static String relayFinancialAction(String relayId, String parcelId) =>
+      '$_base/api/relay-points/$relayId/parcels/$parcelId/financial-action';
   static String relayHistory(String id) =>
       '$_base/api/relay-points/$id/history';
   static String relayPerformance(String id) =>

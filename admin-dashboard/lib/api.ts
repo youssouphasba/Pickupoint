@@ -908,6 +908,12 @@ export type OperationalSettingsPayload = {
   night_multiplier: number;
   default_distance_km: number;
   redirect_relay_max_distance_km: number;
+  commission_rules: Record<string, {
+    platform_rate: number;
+    origin_relay_rate: number;
+    destination_relay_rate: number;
+    driver_rate: number;
+  }>;
 };
 
 export type AppUpdateSettingsPayload = {
@@ -1049,6 +1055,14 @@ export async function overrideParcelStatus(
 
 export async function fetchParcelAudit(parcelId: string) {
   const { data } = await api.get(`/api/admin/parcels/${parcelId}/audit-rich`);
+  return data;
+}
+
+export async function updateRelaySettlement(
+  parcelId: string,
+  body: { action: string; status: "validated" | "rejected"; relay_id?: string; note?: string },
+) {
+  const { data } = await api.post(`/api/admin/parcels/${parcelId}/relay-settlement`, body);
   return data;
 }
 

@@ -279,6 +279,15 @@ class ApiClient {
   Future<Response> getRelayStock(String id) =>
       _dio.get(ApiEndpoints.relayStock(id));
 
+  Future<Response> declareRelayFinancialAction(
+    String relayId,
+    String parcelId,
+    String action,
+  ) => _dio.post(
+        ApiEndpoints.relayFinancialAction(relayId, parcelId),
+        data: {'action': action},
+      );
+
   Future<Response> getRelayHistory(String id) =>
       _dio.get(ApiEndpoints.relayHistory(id));
 

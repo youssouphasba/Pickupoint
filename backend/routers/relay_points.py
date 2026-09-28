@@ -16,6 +16,7 @@ from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
 from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.relay_hours import normalize_opening_hours, relay_open_status
+from services.wallet_service import build_relay_financial_summary
 
 router = APIRouter()
 
@@ -167,11 +168,44 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
     parcels = await cursor.to_list(length=200)
     # Masquer les codes des colis pas encore physiquement au relais
     for p in parcels:
+        p["relay_financial"] = build_relay_financial_summary(p, relay_id)
         if p.get("status") == "in_transit":
             p.pop("pickup_code", None)
             p.pop("relay_pin", None)
             p.pop("delivery_code", None)
     return {"parcels": parcels}
+
+
+@router.post("/{relay_id}/parcels/{parcel_id}/financial-action", summary="Déclarer une action financière relais")
+async def relay_financial_action(
+    relay_id: str,
+    parcel_id: str,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    relay = await _get_relay_or_404(relay_id)
+    if not _can_manage_relay(relay, current_user):
+        raise forbidden_exception("Accès refusé")
+    action = str(body.get("action") or "").strip()
+    if action not in {"driver_payment", "denkma_payment"}:
+        raise forbidden_exception("Action financière non autorisée")
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    summary = build_relay_financial_summary(parcel, relay_id)
+    allowed = {item["key"] for item in summary["actions"]}
+    if action not in allowed:
+        raise forbidden_exception("Cette action ne concerne pas ce relais")
+    now = datetime.now(timezone.utc)
+    field = "driver_payment_status" if action == "driver_payment" else "denkma_payment_status"
+    update = {
+        f"relay_settlement.{field}": "declared",
+        f"relay_settlement.{field}_declared_at": now,
+        f"relay_settlement.{field}_declared_by": current_user.get("user_id"),
+        "updated_at": now,
+    }
+    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": update})
+    return {"ok": True, "relay_financial": build_relay_financial_summary({**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: "declared"}}, relay_id)}
 
 
 @router.get("/{relay_id}/history", summary="Historique des colis remis par ce relais")

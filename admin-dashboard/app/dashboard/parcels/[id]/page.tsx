@@ -22,6 +22,7 @@ import {
   resolveIncident,
   suspendParcel,
   unsuspendParcel,
+  updateRelaySettlement,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -463,6 +464,15 @@ export default function ParcelDetailPage() {
     },
   });
 
+  const relaySettlementMut = useMutation({
+    mutationFn: (body: { action: string; status: "validated" | "rejected"; relay_id?: string }) =>
+      updateRelaySettlement(id, body),
+    onSuccess: () => {
+      invalidate();
+      toast("Règlement relais mis à jour.");
+    },
+  });
+
   const routeMissions = React.useMemo<ParcelMission[]>(() => {
     const missions = Array.isArray(audit.data?.missions)
       ? audit.data.missions
@@ -552,6 +562,7 @@ export default function ParcelDetailPage() {
   const parcel = data.parcel ?? data;
   const timeline = data.timeline ?? [];
   const parcelPhotoUrl = parcel.parcel_photo_url?.trim();
+  const financial = audit.data?.financial_summary;
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -880,6 +891,34 @@ export default function ParcelDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {financial && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Répartition financière et règlements</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4">
+            <Row label="Prix du colis" value={`${xof.format(Number(financial.quoted_price ?? 0))} XOF`} />
+            <Row label="Denkma" value={`${xof.format(Number(financial.platform_commission_xof ?? 0))} XOF`} />
+            <Row label="Livreur" value={`${xof.format(Number(financial.driver_revenue_xof ?? 0))} XOF`} />
+            <Row label="Commission relais" value={`${xof.format(Number(financial.relay_commission_xof ?? 0))} XOF`} />
+            <Row label="Qui collecte" value={financial.settlement_model === "origin_relay_collects" ? "Relais de départ" : "Livreur"} />
+            <Row label="Solde minimum livreur" value={`${xof.format(Number(financial.wallet_balance_required_xof ?? 0))} XOF`} />
+            {Object.entries(financial.relay_settlement ?? {}).filter(([key]) => key.endsWith("_status")).map(([key, value]) => (
+              <div key={key} className="rounded-md border p-3">
+                <div className="text-muted-foreground">{key.replaceAll("_", " ")}</div>
+                <div className="mt-1 font-medium">{String(value)}</div>
+                {value === "declared" && (
+                  <div className="mt-2 flex gap-2">
+                    <Button size="sm" onClick={() => relaySettlementMut.mutate({ action: key.replace("_status", ""), status: "validated" })}>Valider</Button>
+                    <Button size="sm" variant="outline" onClick={() => relaySettlementMut.mutate({ action: key.replace("_status", ""), status: "rejected" })}>Rejeter</Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

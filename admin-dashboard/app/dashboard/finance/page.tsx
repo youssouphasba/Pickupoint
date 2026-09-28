@@ -531,6 +531,14 @@ export default function FinancePage() {
                     value={formatXof(data.relays.amount_remaining_xof)}
                     onClick={() => openDetails("Relais restant à payer", data.relays.details?.due ?? [])}
                   />
+                  <DetailRow
+                    label="Règlements relais à valider"
+                    value={String((data.relays.settlements?.to_denkma_declared ?? 0) + (data.relays.settlements?.to_relay_declared ?? 0))}
+                  />
+                  <DetailRow
+                    label="Règlements relais validés"
+                    value={String((data.relays.settlements?.to_denkma_validated ?? 0) + (data.relays.settlements?.to_relay_validated ?? 0))}
+                  />
                 </CardContent>
               </Card>
             </section>

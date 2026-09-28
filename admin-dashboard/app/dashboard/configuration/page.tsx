@@ -157,6 +157,7 @@ function buildInitialPayload(settings: any): OperationalSettingsPayload {
       settings?.redirect_relay_max_distance_km,
       1
     ),
+    commission_rules: settings?.commission_rules ?? {},
   };
 }
 
@@ -446,6 +447,55 @@ export default function ConfigurationPage() {
               onChange={(value) => setField(field.key, value)}
             />
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Répartition des commissions</CardTitle>
+          <p className="text-sm text-muted-foreground">Chaque ligne doit totaliser 100 %. Les taux sont conservés sur le colis au moment de sa création.</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {Object.entries(form.commission_rules).map(([mode, rule]) => {
+            const labels: Record<string, string> = {
+              home_to_home: "Domicile → domicile",
+              home_to_relay: "Domicile → relais",
+              relay_to_home: "Relais → domicile",
+              relay_to_relay: "Relais → relais",
+            };
+            const fields = [
+              ["platform_rate", "Denkma"],
+              ["origin_relay_rate", "Relais départ"],
+              ["destination_relay_rate", "Relais arrivée"],
+              ["driver_rate", "Livreur"],
+            ] as const;
+            return (
+              <div key={mode} className="rounded-lg border p-4">
+                <div className="mb-3 font-medium">{labels[mode] ?? mode}</div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {fields.map(([key, label]) => (
+                    <label key={key} className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">{label} (%)</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.1"
+                        value={Number(rule[key] ?? 0) * 100}
+                        onChange={(event) => setForm((current) => current ? {
+                          ...current,
+                          commission_rules: {
+                            ...current.commission_rules,
+                            [mode]: { ...current.commission_rules[mode], [key]: Number(event.target.value) / 100 },
+                          },
+                        } : current)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 

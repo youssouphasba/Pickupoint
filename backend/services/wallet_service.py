@@ -53,9 +53,69 @@ def delivery_commissions_enabled(parcel: dict | None = None, mission: dict | Non
     return bool(raw)
 
 
-def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | None = None) -> dict:
-    from config import settings
+COMMISSION_MODES = (
+    "home_to_home",
+    "home_to_relay",
+    "relay_to_home",
+    "relay_to_relay",
+)
 
+
+def default_commission_rules() -> dict:
+    """Taux par mode. Les valeurs sont des parts du prix total, jamais des montants."""
+    return {
+        "home_to_home": {"platform_rate": 0.15, "origin_relay_rate": 0.0, "destination_relay_rate": 0.0, "driver_rate": 0.85},
+        "home_to_relay": {"platform_rate": 0.15, "origin_relay_rate": 0.0, "destination_relay_rate": 0.15, "driver_rate": 0.70},
+        "relay_to_home": {"platform_rate": 0.15, "origin_relay_rate": 0.15, "destination_relay_rate": 0.0, "driver_rate": 0.70},
+        "relay_to_relay": {"platform_rate": 0.15, "origin_relay_rate": 0.075, "destination_relay_rate": 0.075, "driver_rate": 0.70},
+    }
+
+
+def normalize_commission_rules(raw: dict | None) -> dict:
+    defaults = default_commission_rules()
+    if not isinstance(raw, dict):
+        return defaults
+    normalized = {}
+    for mode in COMMISSION_MODES:
+        source = raw.get(mode) if isinstance(raw.get(mode), dict) else {}
+        values = {
+            key: max(float(source.get(key, fallback)), 0.0)
+            for key, fallback in defaults[mode].items()
+        }
+        total = sum(values.values())
+        if total <= 0:
+            values = defaults[mode].copy()
+        else:
+            values = {key: round(value / total, 8) for key, value in values.items()}
+            values["driver_rate"] = round(1 - sum(value for key, value in values.items() if key != "driver_rate"), 8)
+        normalized[mode] = values
+    return normalized
+
+
+def commission_rules_for(source: dict, mode: str) -> dict:
+    rules = source.get("commission_rules_snapshot") or source.get("commission_rules")
+    if isinstance(rules, dict):
+        return normalize_commission_rules(rules).get(mode, default_commission_rules()[mode])
+    from config import settings
+    legacy = {
+        "platform_rate": float(settings.PLATFORM_RATE or 0),
+        "origin_relay_rate": 0.0,
+        "destination_relay_rate": 0.0,
+        "driver_rate": float(settings.DRIVER_RATE or 0),
+    }
+    if mode == "home_to_home":
+        legacy["driver_rate"] += float(settings.RELAY_RATE or 0)
+    elif mode == "home_to_relay":
+        legacy["destination_relay_rate"] = float(settings.RELAY_RATE or 0)
+    elif mode == "relay_to_home":
+        legacy["origin_relay_rate"] = float(settings.RELAY_RATE or 0)
+    else:
+        legacy["origin_relay_rate"] = float(settings.RELAY_RATE or 0) / 2
+        legacy["destination_relay_rate"] = float(settings.RELAY_RATE or 0) / 2
+    return legacy
+
+
+def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | None = None) -> dict:
     source: dict = {}
     if isinstance(parcel, dict):
         source.update(parcel)
@@ -71,35 +131,14 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
     mode = str(source.get("delivery_mode") or source.get("mode") or "").strip()
 
     commissions_are_enabled = delivery_commissions_enabled(parcel, mission)
-    if commissions_are_enabled:
-        platform_rate = float(settings.PLATFORM_RATE or 0)
-        relay_rate = float(settings.RELAY_RATE or 0)
-        driver_rate = float(settings.DRIVER_RATE or 0)
-    else:
-        platform_rate = 0.0
-        relay_rate = 0.0
-        driver_rate = 1.0
-
+    rules = commission_rules_for(source, mode)
     if not commissions_are_enabled:
-        origin_share_rate = 0.0
-        destination_share_rate = 0.0
-        driver_share_rate = 1.0
-    elif mode == "relay_to_relay":
-        origin_share_rate = relay_rate / 2
-        destination_share_rate = relay_rate / 2
-        driver_share_rate = driver_rate
-    elif mode == "relay_to_home":
-        origin_share_rate = relay_rate
-        destination_share_rate = 0.0
-        driver_share_rate = driver_rate
-    elif mode == "home_to_relay":
-        origin_share_rate = 0.0
-        destination_share_rate = relay_rate
-        driver_share_rate = driver_rate
-    else:
-        origin_share_rate = 0.0
-        destination_share_rate = 0.0
-        driver_share_rate = driver_rate + relay_rate
+        rules = {"platform_rate": 0.0, "origin_relay_rate": 0.0, "destination_relay_rate": 0.0, "driver_rate": 1.0}
+
+    platform_rate = rules["platform_rate"]
+    origin_share_rate = rules["origin_relay_rate"]
+    destination_share_rate = rules["destination_relay_rate"]
+    driver_share_rate = rules["driver_rate"]
 
     platform_commission_xof = round(safe_price * platform_rate, 2)
     origin_relay_commission_xof = round(safe_price * origin_share_rate, 2)
@@ -124,6 +163,49 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         "wallet_balance_required_xof": total_commission_xof,
         "driver_revenue_xof": driver_revenue_xof,
         "driver_revenue_rate": driver_share_rate,
+        "platform_rate": platform_rate,
+        "origin_relay_rate": origin_share_rate,
+        "destination_relay_rate": destination_share_rate,
+        "settlement_model": "origin_relay_collects" if mode == "relay_to_relay" else "driver_collects",
+    }
+
+
+def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:
+    """Résumé opérationnel lisible par le relais pour un colis donné."""
+    breakdown = compute_delivery_commission_breakdown(parcel)
+    mode = str(parcel.get("delivery_mode") or "")
+    is_origin = parcel.get("origin_relay_id") == relay_id
+    is_destination = parcel.get("destination_relay_id") == relay_id or parcel.get("redirect_relay_id") == relay_id
+    roles = [role for role, enabled in (("origin", is_origin), ("destination", is_destination)) if enabled]
+    settlement = parcel.get("relay_settlement") or {}
+    actions = []
+    if mode == "relay_to_relay" and is_origin:
+        actions.extend([
+            {"key": "driver_payment", "label": "Remettre la part du livreur", "amount_xof": breakdown["driver_revenue_xof"], "status": settlement.get("driver_payment_status", "pending")},
+            {"key": "denkma_payment", "label": "Déclarer la part à régler à Denkma", "amount_xof": breakdown["platform_commission_xof"] + breakdown["destination_relay_commission_xof"], "status": settlement.get("denkma_payment_status", "pending")},
+        ])
+    if is_origin and mode == "relay_to_home":
+        actions.append({"key": "driver_payment", "label": "Remettre la part du livreur", "amount_xof": breakdown["driver_revenue_xof"], "status": settlement.get("driver_payment_status", "pending")})
+        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir de Denkma", "amount_xof": breakdown["origin_relay_commission_xof"], "status": settlement.get("origin_relay_payment_status", "pending")})
+    if is_destination and mode == "home_to_relay":
+        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
+    if is_destination and mode == "relay_to_relay":
+        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
+    return {
+        "mode": mode,
+        "roles": roles,
+        "own_commission_xof": round(sum(
+            breakdown[key] for key in ("origin_relay_commission_xof",) if is_origin
+        ) + sum(
+            breakdown[key] for key in ("destination_relay_commission_xof",) if is_destination
+        ), 2),
+        "platform_commission_xof": breakdown["platform_commission_xof"],
+        "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
+        "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
+        "driver_revenue_xof": breakdown["driver_revenue_xof"],
+        "customer_payment_collector": "origin_relay" if mode == "relay_to_relay" else "driver",
+        "settlement_model": breakdown["settlement_model"],
+        "actions": actions,
     }
 
 
@@ -395,7 +477,9 @@ async def distribute_delivery_revenue(parcel: dict):
                 ensure_unique=True,
             )
 
-    if parcel.get("origin_relay_id") and breakdown["origin_relay_commission_xof"] > 0:
+    # En relais -> relais, le relais de départ conserve directement sa part
+    # sur le montant encaissé ; Denkma ne la lui reverse donc pas une seconde fois.
+    if parcel.get("origin_relay_id") and mode != "relay_to_relay" and breakdown["origin_relay_commission_xof"] > 0:
         relay = await db.relay_points.find_one(
             {"relay_id": parcel["origin_relay_id"]}, {"_id": 0}
         )

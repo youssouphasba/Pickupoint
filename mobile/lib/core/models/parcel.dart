@@ -106,6 +106,7 @@ class Parcel {
     this.platformCommissionReceived = false,
     this.platformCommissionDebt = false,
     this.platformCommissionOffered = false,
+    this.relayFinancial,
   });
 
   final String id;
@@ -189,6 +190,7 @@ class Parcel {
   final bool platformCommissionReceived;
   final bool platformCommissionDebt;
   final bool platformCommissionOffered;
+  final Map<String, dynamic>? relayFinancial;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -314,6 +316,9 @@ class Parcel {
           json['platform_commission_debt'] as bool? ?? false,
       platformCommissionOffered:
           json['platform_commission_offered'] as bool? ?? false,
+      relayFinancial: json['relay_financial'] is Map
+          ? Map<String, dynamic>.from(json['relay_financial'] as Map)
+          : null,
     );
   }
 

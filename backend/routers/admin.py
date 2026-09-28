@@ -76,6 +76,9 @@ from services.google_maps_service import reverse_geocode
 from services.wallet_service import (
     credit_wallet,
     compute_delivery_commission_breakdown,
+    build_relay_financial_summary,
+    default_commission_rules,
+    normalize_commission_rules,
     debit_wallet_allow_negative,
     record_wallet_transaction,
 )
@@ -84,6 +87,47 @@ from services.admin_analytics_service import build_admin_analytics
 router = APIRouter()
 
 require_admin_dep = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
+
+
+@router.post("/parcels/{parcel_id}/relay-settlement", summary="Valider un règlement relais")
+async def update_relay_settlement(
+    parcel_id: str,
+    body: dict,
+    admin_user=Depends(require_admin_dep),
+):
+    parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    if not parcel:
+        raise not_found_exception("Colis")
+    action = str(body.get("action") or "").strip()
+    status = str(body.get("status") or "").strip()
+    relay_id = str(body.get("relay_id") or "").strip()
+    if action not in {"denkma_payment", "origin_relay_payment", "destination_relay_payment", "driver_payment"}:
+        raise bad_request_exception("Action de règlement invalide")
+    if status not in {"validated", "rejected"}:
+        raise bad_request_exception("Statut de règlement invalide")
+    if relay_id and relay_id not in {
+        parcel.get("origin_relay_id"), parcel.get("destination_relay_id"), parcel.get("redirect_relay_id")
+    }:
+        raise bad_request_exception("Le relais ne correspond pas au colis")
+    field = {
+        "denkma_payment": "denkma_payment_status",
+        "origin_relay_payment": "origin_relay_payment_status",
+        "destination_relay_payment": "destination_relay_payment_status",
+        "driver_payment": "driver_payment_status",
+    }[action]
+    now = datetime.now(timezone.utc)
+    await db.parcels.update_one(
+        {"parcel_id": parcel_id},
+        {"$set": {
+            f"relay_settlement.{field}": status,
+            f"relay_settlement.{field}_validated_at": now,
+            f"relay_settlement.{field}_validated_by": admin_user.get("user_id"),
+            f"relay_settlement.{field}_note": str(body.get("note") or "").strip() or None,
+            "updated_at": now,
+        }},
+    )
+    updated = {**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: status}}
+    return {"ok": True, "parcel_id": parcel_id, "relay_settlement": updated["relay_settlement"], "relay_financial": build_relay_financial_summary(updated, relay_id) if relay_id else None}
 
 
 async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
@@ -3953,6 +3997,18 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
                 if destination_relay_credit_tx
                 else None
             ),
+            "driver_revenue_xof": commission_breakdown["driver_revenue_xof"],
+            "customer_payment_collector": commission_breakdown["settlement_model"],
+            "settlement_model": commission_breakdown["settlement_model"],
+            "commission_rules": {
+                "platform_rate": commission_breakdown["platform_rate"],
+                "origin_relay_rate": commission_breakdown["origin_relay_rate"],
+                "destination_relay_rate": commission_breakdown["destination_relay_rate"],
+                "driver_rate": commission_breakdown["driver_revenue_rate"],
+            },
+            "relay_settlement": parcel.get("relay_settlement") or {},
+            "origin_relay_financial": build_relay_financial_summary(parcel, parcel.get("origin_relay_id")) if parcel.get("origin_relay_id") else None,
+            "destination_relay_financial": build_relay_financial_summary(parcel, parcel.get("destination_relay_id")) if parcel.get("destination_relay_id") else None,
         },
         "timeline": timeline,
         "missions": missions,
@@ -5096,6 +5152,9 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     return {
         "express_enabled": settings_doc.get("express_enabled", False),
         "delivery_commissions_enabled": bool(settings_doc.get("delivery_commissions_enabled", True)),
+        "commission_rules": normalize_commission_rules(
+            settings_doc.get("commission_rules") or default_commission_rules()
+        ),
         "assigned_mission_auto_release_minutes": await get_assigned_mission_auto_release_minutes(settings_doc),
         "redirect_relay_max_distance_km": settings_doc.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
         "support_whatsapp_phone": settings_doc.get("support_whatsapp_phone") or settings.SUPPORT_WHATSAPP_PHONE,
@@ -5562,6 +5621,30 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
 
     updates["express_enabled"] = bool(body.get("express_enabled", False))
     updates["delivery_commissions_enabled"] = bool(body.get("delivery_commissions_enabled", True))
+    raw_rules = body.get("commission_rules")
+    if raw_rules is None:
+        current_settings = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+        raw_rules = current_settings.get("commission_rules") or default_commission_rules()
+    try:
+        if not isinstance(raw_rules, dict):
+            raise ValueError("Les règles de commission sont invalides")
+        expected_keys = {"platform_rate", "origin_relay_rate", "destination_relay_rate", "driver_rate"}
+        for mode in ("home_to_home", "home_to_relay", "relay_to_home", "relay_to_relay"):
+            rule = raw_rules.get(mode)
+            if not isinstance(rule, dict) or set(rule) != expected_keys:
+                raise ValueError(f"Répartition incomplète pour {mode}")
+            numeric_values = [float(rule[key]) for key in expected_keys]
+            if any(value < 0 or value > 1 for value in numeric_values) or abs(sum(numeric_values) - 1) > 0.0001:
+                raise ValueError(f"La répartition de {mode} doit totaliser 100 %")
+        commission_rules = normalize_commission_rules(raw_rules)
+        for mode, rule in commission_rules.items():
+            if any(value < 0 or value > 1 for value in rule.values()):
+                raise ValueError(f"Taux invalides pour {mode}")
+            if abs(sum(rule.values()) - 1) > 0.0001:
+                raise ValueError(f"La répartition de {mode} doit totaliser 100 %")
+    except (TypeError, ValueError) as exc:
+        raise bad_request_exception(str(exc))
+    updates["commission_rules"] = commission_rules
     updates["updated_at"] = datetime.now(timezone.utc)
 
     await db.app_settings.update_one(
@@ -5599,6 +5682,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
             )
         ),
         "redirect_relay_max_distance_km": after.get("redirect_relay_max_distance_km", settings.REDIRECT_RELAY_MAX_DISTANCE_KM),
+        "commission_rules": normalize_commission_rules(after.get("commission_rules")),
         "pricing": await get_pricing_settings(),
         "message": "Configuration opérationnelle mise à jour",
     }
@@ -5977,6 +6061,14 @@ async def get_finance_overview(
     relay_due_destination_xof = 0.0
     relay_already_sent_xof = 0.0
     relay_missing_parcel_ids: set[str] = set()
+    relay_settlement_summary = {
+        "to_denkma_pending": 0,
+        "to_denkma_declared": 0,
+        "to_denkma_validated": 0,
+        "to_relay_pending": 0,
+        "to_relay_declared": 0,
+        "to_relay_validated": 0,
+    }
 
     for parcel in parcel_docs:
         quoted_price = float(parcel.get("quoted_price", 0.0) or 0.0)
@@ -5986,6 +6078,19 @@ async def get_finance_overview(
         parcel_status = str(parcel.get("status") or "")
         who_pays = str(parcel.get("who_pays") or "sender")
         parcel_id = str(parcel.get("parcel_id") or "")
+        settlement = parcel.get("relay_settlement") or {}
+        settlement_fields = []
+        if parcel.get("delivery_mode") == "relay_to_relay" and parcel.get("origin_relay_id"):
+            settlement_fields.append(("denkma_payment_status", "to_denkma"))
+        if parcel.get("delivery_mode") == "relay_to_home" and parcel.get("origin_relay_id"):
+            settlement_fields.append(("origin_relay_payment_status", "to_relay"))
+        if parcel.get("delivery_mode") in {"home_to_relay", "relay_to_relay"} and parcel.get("destination_relay_id"):
+            settlement_fields.append(("destination_relay_payment_status", "to_relay"))
+        for field, prefix in settlement_fields:
+            status = str(settlement.get(field) or "pending")
+            key = f"{prefix}_{status}"
+            if key in relay_settlement_summary:
+                relay_settlement_summary[key] += 1
 
         expected_amount_xof += quoted_price
 
@@ -6038,7 +6143,7 @@ async def get_finance_overview(
 
         if parcel_status == ParcelStatus.DELIVERED.value:
             breakdown = compute_delivery_commission_breakdown(parcel)
-            origin_due = float(breakdown["origin_relay_commission_xof"] or 0.0)
+            origin_due = 0.0 if parcel.get("delivery_mode") == "relay_to_relay" else float(breakdown["origin_relay_commission_xof"] or 0.0)
             destination_due = float(breakdown["destination_relay_commission_xof"] or 0.0)
             relay_due_origin_xof += origin_due
             relay_due_destination_xof += destination_due
@@ -6418,6 +6523,7 @@ async def get_finance_overview(
             "origin_amount_due_xof": round(relay_due_origin_xof, 2),
             "destination_amount_due_xof": round(relay_due_destination_xof, 2),
             "parcels_waiting_relay_payment": len(relay_missing_parcel_ids),
+            "settlements": relay_settlement_summary,
             "details": {
                 "due": _limited(relay_due_items),
                 "sent": _limited(relay_sent_items),
