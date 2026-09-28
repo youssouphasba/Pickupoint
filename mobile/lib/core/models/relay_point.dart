@@ -15,6 +15,8 @@ class RelayPoint {
     this.currentStock = 0,
     this.isVerified = false,
     this.isActive = true,
+    this.isOpen = true,
+    this.openingStatusLabel,
   });
 
   final String id;
@@ -32,6 +34,8 @@ class RelayPoint {
   final int currentStock;
   final bool isVerified;
   final bool isActive;
+  final bool isOpen;
+  final String? openingStatusLabel;
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
     final rawAddress = json['address'];
@@ -65,7 +69,9 @@ class RelayPoint {
       description: json['description'] as String?,
       openingHours: rawOpeningHours is Map
           ? Map<String, dynamic>.from(rawOpeningHours)
-          : null,
+          : rawOpeningHours is String && rawOpeningHours.trim().isNotEmpty
+              ? {'general': rawOpeningHours.trim()}
+              : null,
       addressLabel: addressLabel,
       city: addr['city'] as String? ?? '',
       district: addr['district'] as String?,
@@ -76,6 +82,8 @@ class RelayPoint {
       currentStock: json['current_load'] as int? ?? 0,
       isVerified: json['is_verified'] as bool? ?? false,
       isActive: json['is_active'] as bool? ?? true,
+      isOpen: json['is_open'] as bool? ?? (json['opening_status'] is Map ? json['opening_status']['is_open'] as bool? ?? true : true),
+      openingStatusLabel: json['opening_status'] is Map ? json['opening_status']['label']?.toString() : null,
     );
   }
 

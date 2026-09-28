@@ -7,6 +7,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 
 final _applicationsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
@@ -238,7 +239,7 @@ class _ApplicationCard extends ConsumerWidget {
               if (geoLabel != null)
                 _row(Icons.gps_fixed, 'Position GPS', geoLabel),
               _row(Icons.access_time_outlined, 'Horaires',
-                  _stringOrDash(data['opening_hours'])),
+                  relayOpeningHoursSummary(data['opening_hours'])),
               if (_stringValue(data['business_reg']).isNotEmpty)
                 _row(Icons.business_outlined, 'Registre commerce',
                     _stringValue(data['business_reg'])),

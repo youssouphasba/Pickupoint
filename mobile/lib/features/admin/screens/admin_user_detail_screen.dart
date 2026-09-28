@@ -16,6 +16,7 @@ import 'admin_parcel_audit_screen.dart';
 import 'admin_relay_detail_screen.dart';
 import 'admin_user_history_screen.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 
 class AdminUserDetailScreen extends ConsumerWidget {
   const AdminUserDetailScreen({super.key, required this.userId});
@@ -1589,7 +1590,10 @@ class _ApplicationCard extends ConsumerWidget {
             _InfoRow('Adresse', _stringOrDash(data['address_label'])),
             _InfoRow('Ville', _stringOrDash(data['city'])),
             _InfoRow('Registre commerce', _stringOrDash(data['business_reg'])),
-            _InfoRow('Horaires', _stringOrDash(data['opening_hours'])),
+            _InfoRow(
+              'Horaires',
+              relayOpeningHoursSummary(data['opening_hours']),
+            ),
             if (data['geopin'] is Map)
               _InfoRow('GPS', _formatGeopin(data['geopin'] as Map)),
           ],

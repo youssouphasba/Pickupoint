@@ -125,6 +125,22 @@ class ApiClient {
 
   Future<Response> deleteAccount() => _dio.delete(ApiEndpoints.deleteAccount);
 
+  Future<Response> getMyDataSummary() => _dio.get(ApiEndpoints.myDataSummary);
+
+  Future<Response> getMyPrivacyRequests() =>
+      _dio.get(ApiEndpoints.myPrivacyRequests);
+
+  Future<Response> createPrivacyRequest(Map<String, dynamic> body) =>
+      _dio.post(ApiEndpoints.myPrivacyRequests, data: body);
+
+  Future<Uint8List> downloadMyData({bool pdf = false}) async {
+    final response = await _dio.get<List<int>>(
+      pdf ? ApiEndpoints.myDataExportPdf : ApiEndpoints.myDataExport,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(response.data ?? const <int>[]);
+  }
+
   Future<Response> getLoyalty() => _dio.get(ApiEndpoints.loyaltyStats);
 
   Future<Response> getFavoriteAddresses() =>
@@ -493,7 +509,8 @@ class ApiClient {
         queryParameters: {
           'skip': skip,
           'limit': limit,
-          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
         },
       );
 
@@ -637,7 +654,8 @@ class ApiClient {
         queryParameters: {
           'skip': skip,
           'limit': limit,
-          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
           if (role != null && role.isNotEmpty && role != 'all') 'role': role,
         },
       );
@@ -791,6 +809,9 @@ class ApiClient {
         queryParameters: {'role': role, 'placement': placement},
       );
 
+  Future<Response> getCampaign(String id) =>
+      _dio.get(ApiEndpoints.campaign(id));
+
   Future<Response> markCampaignImpression(String id, {required String role}) =>
       _dio.post(
         ApiEndpoints.campaignImpression(id),
@@ -818,6 +839,9 @@ class ApiClient {
   // ─── Legal ────────────────────────────────────────────────────────────────
   Future<Response> getLegal(String docType) =>
       _dio.get(ApiEndpoints.legal(docType));
+
+  Future<Response> markLegalViewed(String docType) =>
+      _dio.post(ApiEndpoints.legalView(docType));
 
   Future<Response> updateLegal(String docType, Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.legal(docType), data: body);

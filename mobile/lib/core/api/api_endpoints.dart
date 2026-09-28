@@ -33,6 +33,10 @@ class ApiEndpoints {
   static const profile = '$_base/api/auth/profile';
   static const updateFcm = '$_base/api/users/me/fcm-token';
   static const deleteAccount = '$_base/api/users/me';
+  static const myDataSummary = '$_base/api/users/me/data-summary';
+  static const myDataExport = '$_base/api/users/me/data-export';
+  static const myDataExportPdf = '$_base/api/users/me/data-export.pdf';
+  static const myPrivacyRequests = '$_base/api/users/me/privacy-requests';
   static const updatePin = '$_base/api/users/me/pin';
   static const loyaltyStats = '$_base/api/users/me/loyalty';
   static const userStats = '$_base/api/users/me/stats';
@@ -115,6 +119,7 @@ class ApiEndpoints {
   static const adminPromotions = '$_base/api/admin/promotions';
   static String adminPromotion(String id) => '$_base/api/admin/promotions/$id';
   static const activeCampaigns = '$_base/api/campaigns/active';
+  static String campaign(String id) => '$_base/api/campaigns/$id';
   static String campaignImpression(String id) =>
       '$_base/api/campaigns/$id/impression';
   static String campaignClick(String id) => '$_base/api/campaigns/$id/click';
@@ -232,6 +237,7 @@ class ApiEndpoints {
 
   // ─── Legal ────────────────────────────────────────────────────────────────
   static String legal(String docType) => '$_base/api/legal/$docType';
+  static String legalView(String docType) => '$_base/api/legal/$docType/view';
 
   // ─── Messagerie colis ─────────────────────────────────────────────────────
   static String parcelMessages(String id) => '$_base/api/parcels/$id/messages';

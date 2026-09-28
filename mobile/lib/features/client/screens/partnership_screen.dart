@@ -12,6 +12,7 @@ import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/map_picker_modal.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 
 class PartnershipScreen extends ConsumerStatefulWidget {
   const PartnershipScreen({super.key});
@@ -726,9 +727,9 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
   final _addrCtrl = TextEditingController();
   final _cityCtrl = TextEditingController(text: 'Dakar');
   final _regCtrl = TextEditingController();
-  final _hoursCtrl = TextEditingController(text: 'Lun-Sam 8h-20h');
   final _msgCtrl = TextEditingController();
   LatLng? _selectedLocation;
+  Map<String, dynamic> _openingHours = normalizeRelayOpeningHours(null);
   bool _loading = false;
 
   @override
@@ -737,7 +738,6 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
     _addrCtrl.dispose();
     _cityCtrl.dispose();
     _regCtrl.dispose();
-    _hoursCtrl.dispose();
     _msgCtrl.dispose();
     super.dispose();
   }
@@ -785,8 +785,10 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
           _field(
               _regCtrl, 'Numéro Registre Commerce (optionnel)', Icons.business),
           const SizedBox(height: 16),
-          _field(_hoursCtrl, 'Horaires d\'ouverture *', Icons.access_time,
-              validator: _required),
+          RelayOpeningHoursEditor(
+            value: _openingHours,
+            onChanged: (value) => setState(() => _openingHours = value),
+          ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _msgCtrl,
@@ -928,6 +930,12 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_openingHours.values.any((entry) => entry is Map && entry['enabled'] == true)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sélectionnez au moins un jour d’ouverture.'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
     if (_selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -946,7 +954,7 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
         'city': _cityCtrl.text.trim(),
         'business_reg':
             _regCtrl.text.trim().isEmpty ? null : _regCtrl.text.trim(),
-        'opening_hours': _hoursCtrl.text.trim(),
+        'opening_hours': _openingHours,
         'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
         'geopin': {
           'lat': _selectedLocation!.latitude,

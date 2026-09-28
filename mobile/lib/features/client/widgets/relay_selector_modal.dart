@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/models/relay_point.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -178,6 +179,12 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
 
   void _selectRelay(RelayPoint relay) {
     if (!widget.consultative) {
+      if (!relay.isOpen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${relay.name} est fermé. ${relay.openingStatusLabel ?? 'Choisissez un autre relais.'}')),
+        );
+        return;
+      }
       Navigator.of(context).pop(relay);
       return;
     }
@@ -186,14 +193,18 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
     final hours = _relayOpeningHours(relay);
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.72,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Text(relay.name,
                   style: const TextStyle(
                       fontSize: 20, fontWeight: FontWeight.bold)),
@@ -209,14 +220,30 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
               ],
               if (hours != null) ...[
                 const SizedBox(height: 8),
-                Text('Horaires : $hours',
-                    style: const TextStyle(color: Colors.green)),
+                const Text('Horaires d’ouverture',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                ...relayOpeningHoursLines(relay.openingHours).map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(line),
+                  ),
+                ),
               ],
+              const SizedBox(height: 8),
+              Text(
+                relay.isOpen ? 'Ouvert maintenant' : 'Fermé maintenant',
+                style: TextStyle(
+                  color: relay.isOpen ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               if (relay.description?.trim().isNotEmpty == true) ...[
                 const SizedBox(height: 8),
                 Text(relay.description!.trim()),
               ],
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -239,15 +266,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
   String? _relayOpeningHours(RelayPoint relay) {
     final hours = relay.openingHours;
     if (hours == null || hours.isEmpty) return null;
-    final general = hours['general']?.toString().trim();
-    if (general != null && general.isNotEmpty) return general;
-    final entries = hours.entries
-        .map((entry) =>
-            MapEntry(entry.key.trim(), entry.value.toString().trim()))
-        .where((entry) => entry.key.isNotEmpty && entry.value.isNotEmpty)
-        .map((entry) => '${entry.key}: ${entry.value}')
-        .toList();
-    return entries.isEmpty ? null : entries.join(' · ');
+    return relayOpeningHoursSummary(hours);
   }
 
   @override
@@ -395,6 +414,16 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
+                                    Text(
+                                      r.isOpen
+                                          ? 'Ouvert maintenant'
+                                          : 'Fermé maintenant${r.openingStatusLabel == null ? '' : ' · ${r.openingStatusLabel}'}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: r.isOpen ? Colors.green : Colors.red,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     if (r.description?.trim().isNotEmpty ==
                                         true)
                                       Text(

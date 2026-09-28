@@ -9,6 +9,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
@@ -31,11 +32,11 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-  final _hoursCtrl = TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
   RelayPoint? _relay;
+  Map<String, dynamic> _openingHours = normalizeRelayOpeningHours(null);
 
   @override
   void initState() {
@@ -58,7 +59,6 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _descCtrl.dispose();
-    _hoursCtrl.dispose();
     super.dispose();
   }
 
@@ -102,7 +102,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
       _nameCtrl.text = relay.name;
       _phoneCtrl.text = relay.phone;
       _descCtrl.text = relay.description ?? '';
-      _hoursCtrl.text = relay.openingHours?['general']?.toString() ?? '';
+      _openingHours = normalizeRelayOpeningHours(relay.openingHours);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -123,7 +123,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
         'name': _nameCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
-        'opening_hours': {'general': _hoursCtrl.text.trim()},
+        'opening_hours': _openingHours,
       });
       await _loadRelay();
       ref.invalidate(relayWalletProvider);
@@ -334,198 +334,205 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
                       Container(
                         key: _identityKey,
                         child: _SectionCard(
-                        title: 'Compte agent',
-                        subtitle:
-                            'Informations utiles pour vous identifier et pour le contrôle admin.',
-                        trailing: IconButton(
-                          onPressed: () => _editAgentAccount(user),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                        child: Column(
-                          children: [
-                            _infoRow('Nom', user.fullName ?? user.phone),
-                            _infoRow('Téléphone', user.phone),
-                            _infoRow(
-                              'E-mail',
-                              (user.email ?? '').isEmpty
-                                  ? 'Non renseigné'
-                                  : user.email!,
-                            ),
-                            _infoRow('Rôle', 'Agent relais'),
-                            _infoRow('User ID', user.id),
-                            _infoRow(
-                              'État du compte',
-                              user.isBanned
-                                  ? 'Suspendu'
-                                  : (user.isActive ? 'Actif' : 'Inactif'),
-                            ),
-                            _infoRow('KYC', _kycLabel(user.kycStatus)),
-                            if ((user.bio ?? '').trim().isNotEmpty)
-                              _infoRow('Bio', user.bio!.trim()),
-                          ],
-                        ),
+                          title: 'Compte agent',
+                          subtitle:
+                              'Informations utiles pour vous identifier et pour le contrôle admin.',
+                          trailing: IconButton(
+                            onPressed: () => _editAgentAccount(user),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          child: Column(
+                            children: [
+                              _infoRow('Nom', user.fullName ?? user.phone),
+                              _infoRow('Téléphone', user.phone),
+                              _infoRow(
+                                'E-mail',
+                                (user.email ?? '').isEmpty
+                                    ? 'Non renseigné'
+                                    : user.email!,
+                              ),
+                              _infoRow('Rôle', 'Agent relais'),
+                              _infoRow('User ID', user.id),
+                              _infoRow(
+                                'État du compte',
+                                user.isBanned
+                                    ? 'Suspendu'
+                                    : (user.isActive ? 'Actif' : 'Inactif'),
+                              ),
+                              _infoRow('KYC', _kycLabel(user.kycStatus)),
+                              if ((user.bio ?? '').trim().isNotEmpty)
+                                _infoRow('Bio', user.bio!.trim()),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Container(
                         key: _infoKey,
                         child: _SectionCard(
-                        title: 'Fiche publique du point relais',
-                        subtitle:
-                            'Ces informations sont visibles par les clients lors du choix du relais.',
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            children: [
-                              TextFormField(
-                                controller: _nameCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'Nom du relais',
-                                  border: OutlineInputBorder(),
+                          title: 'Fiche publique du point relais',
+                          subtitle:
+                              'Ces informations sont visibles par les clients lors du choix du relais.',
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: _nameCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nom du relais',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  validator: (value) =>
+                                      value == null || value.trim().isEmpty
+                                          ? 'Nom requis'
+                                          : null,
                                 ),
-                                validator: (value) =>
-                                    value == null || value.trim().isEmpty
-                                        ? 'Nom requis'
-                                        : null,
-                              ),
-                              const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _phoneCtrl,
-                                decoration: const InputDecoration(
-                                  labelText: 'Téléphone de contact',
-                                  border: OutlineInputBorder(),
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: _phoneCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Téléphone de contact',
+                                    border: OutlineInputBorder(),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _hoursCtrl,
-                                maxLines: 2,
-                                decoration: const InputDecoration(
-                                  labelText: 'Horaires d ouverture',
-                                  hintText: 'Ex: Lun-Sam 8h-20h',
-                                  border: OutlineInputBorder(),
+                                const SizedBox(height: 12),
+                                RelayOpeningHoursEditor(
+                                  value: _openingHours,
+                                  onChanged: (value) => setState(() => _openingHours = value),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextFormField(
-                                controller: _descCtrl,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  labelText: 'Instructions ou accès',
-                                  hintText:
-                                      'Repere utile pour les clients et les livreurs',
-                                  border: OutlineInputBorder(),
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: _descCtrl,
+                                  maxLines: 3,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Instructions ou accès',
+                                    hintText:
+                                        'Repere utile pour les clients et les livreurs',
+                                    border: OutlineInputBorder(),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                child: LoadingButton(
-                                  label: 'Enregistrer',
-                                  isLoading: _isSaving,
-                                  onPressed: _save,
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: LoadingButton(
+                                    label: 'Enregistrer',
+                                    isLoading: _isSaving,
+                                    onPressed: _save,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Container(
                         key: _operationsKey,
                         child: _SectionCard(
-                        title: 'Operationnel',
-                        subtitle:
-                            'Vue rapide pour piloter le point relais et vérifier sa capacité.',
-                        child: Column(
-                          children: [
-                            _infoRow('Adresse', _relay!.addressLabel),
-                            _infoRow('Ville', _relay!.city),
-                            _infoRow(
-                              'Capacité',
-                              '${_relay!.currentStock} / ${_relay!.capacity}',
-                            ),
-                            _infoRow(
-                              'Disponibilité',
-                              _relay!.isActive ? 'Active' : 'Inactive',
-                            ),
-                            _infoRow(
-                              'Vérification',
-                              _relay!.isVerified ? 'Vérifié' : 'En attente',
-                            ),
-                            walletAsync.when(
-                              data: (wallet) => _infoRow(
-                                'Solde relais',
-                                formatXof(wallet.balance),
+                          title: 'Operationnel',
+                          subtitle:
+                              'Vue rapide pour piloter le point relais et vérifier sa capacité.',
+                          child: Column(
+                            children: [
+                              _infoRow('Adresse', _relay!.addressLabel),
+                              _infoRow('Ville', _relay!.city),
+                              _infoRow(
+                                'Capacité',
+                                '${_relay!.currentStock} / ${_relay!.capacity}',
                               ),
-                              loading: () => _infoRow(
-                                'Solde relais',
-                                'Chargement...',
+                              _infoRow(
+                                'Disponibilité',
+                                _relay!.isActive ? 'Active' : 'Inactive',
                               ),
-                              error: (_, __) =>
-                                  _infoRow('Solde relais', 'Indisponible'),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () =>
-                                        context.go('/relay/wallet'),
-                                    icon: const Icon(Icons.payments_outlined),
-                                    label: const Text('Gains'),
-                                  ),
+                              _infoRow(
+                                'Vérification',
+                                _relay!.isVerified ? 'Vérifié' : 'En attente',
+                              ),
+                              walletAsync.when(
+                                data: (wallet) => _infoRow(
+                                  'Solde relais',
+                                  formatXof(wallet.balance),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => context.go('/relay'),
-                                    icon:
-                                        const Icon(Icons.inventory_2_outlined),
-                                    label: const Text('Stock'),
-                                  ),
+                                loading: () => _infoRow(
+                                  'Solde relais',
+                                  'Chargement...',
                                 ),
-                              ],
-                            ),
-                          ],
-                        ),
+                                error: (_, __) =>
+                                    _infoRow('Solde relais', 'Indisponible'),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () =>
+                                          context.go('/relay/wallet'),
+                                      icon: const Icon(Icons.payments_outlined),
+                                      label: const Text('Gains'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => context.go('/relay'),
+                                      icon: const Icon(
+                                          Icons.inventory_2_outlined),
+                                      label: const Text('Stock'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Container(
                         key: _supportKey,
                         child: _SectionCard(
-                        title: 'Documents et mentions légales',
-                        subtitle:
-                            'Accès rapide aux documents utiles et aux informations de conformité.',
-                        child: Column(
-                          children: [
-                            const SupportWhatsAppTile(
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            const Divider(height: 1),
-                            const ChangePinTile(
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.privacy_tip_outlined),
-                              title: const Text('Politique de confidentialité'),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.push('/legal/privacy'),
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.gavel_outlined),
-                              title: const Text('Conditions générales'),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.push('/legal/cgu'),
-                            ),
-                          ],
-                        ),
+                          title: 'Documents et mentions légales',
+                          subtitle:
+                              'Accès rapide aux documents utiles et aux informations de conformité.',
+                          child: Column(
+                            children: [
+                              const SupportWhatsAppTile(
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              const Divider(height: 1),
+                              const ChangePinTile(
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              const Divider(height: 1),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading:
+                                    const Icon(Icons.folder_shared_outlined),
+                                title: const Text('Mes données'),
+                                subtitle: const Text(
+                                    'Consulter ou télécharger mes données'),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => context.push('/my-data'),
+                              ),
+                              const Divider(height: 1),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.privacy_tip_outlined),
+                                title:
+                                    const Text('Politique de confidentialité'),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => context.push('/legal/privacy'),
+                              ),
+                              const Divider(height: 1),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.gavel_outlined),
+                                title: const Text('Conditions générales'),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => context.push('/legal/cgu'),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),

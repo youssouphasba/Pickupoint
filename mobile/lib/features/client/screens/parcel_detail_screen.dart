@@ -24,6 +24,7 @@ import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
+import '../../../shared/widgets/relay_opening_hours_editor.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({
@@ -258,7 +259,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                     _hasGeopin(parcel.originLocation)) ...[
                   _buildParcelLocationCard(
                     title: 'Position de collecte',
-                    description: 'Position enregistrée pour récupérer le colis chez l’expéditeur.',
+                    description:
+                        'Position enregistrée pour récupérer le colis chez l’expéditeur.',
                     location: parcel.originLocation!,
                     markerTitle: 'Collecte chez l’expéditeur',
                   ),
@@ -268,7 +270,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                     _hasGeopin(parcel.deliveryLocation)) ...[
                   _buildParcelLocationCard(
                     title: 'Position de livraison',
-                    description: 'Position géocodée confirmée par le destinataire.',
+                    description:
+                        'Position géocodée confirmée par le destinataire.',
                     location: parcel.deliveryLocation!,
                     markerTitle: 'Livraison chez le destinataire',
                   ),
@@ -478,9 +481,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
           SizedBox(
             width: double.infinity,
             child: LoadingButton(
-              label: 'Confirmer / Mettre à jour ma position',
+              label: parcel.deliveryConfirmed
+                  ? 'Mettre à jour ma position'
+                  : 'Confirmer ma position',
               isLoading: _isConfirmingLocation,
-              onPressed: _confirmLocation,
+              onPressed: () => _confirmLocation(parcel),
             ),
           ),
           if (_isConfirmingLocation || _confirmLocationStatus != null) ...[
@@ -582,7 +587,29 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     );
   }
 
-  Future<void> _confirmLocation() async {
+  Future<void> _confirmLocation(Parcel parcel) async {
+    if (parcel.deliveryConfirmed) {
+      final shouldContinue = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Modifier la position ?'),
+          content: const Text(
+            'Une position est déjà confirmée pour ce colis. La nouvelle position remplacera l’ancienne et sera transmise au livreur.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continuer'),
+            ),
+          ],
+        ),
+      );
+      if (shouldContinue != true || !mounted) return;
+    }
     setState(() {
       _isConfirmingLocation = true;
       _confirmLocationStatus = null;
@@ -957,6 +984,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   }
 
   Widget _buildLiveMap(dynamic parcel) {
+    final distanceText = _liveDistanceText ?? parcel.distanceText;
     // Coordonnées destination depuis le colis
     final destLat = _liveDestinationLat ?? (parcel.deliveryLat as double?);
     final destLng = _liveDestinationLng ?? (parcel.deliveryLng as double?);
@@ -1050,7 +1078,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
               ),
             ),
           ),
-          if (_liveDistanceText != null)
+          if (distanceText != null)
             Positioned(
               left: 8,
               bottom: 8,
@@ -1064,7 +1092,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  _liveDistanceText!,
+                  distanceText,
                   style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ),
@@ -1608,9 +1636,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
 
   bool _hasGeopin(Map<String, dynamic>? location) {
     final geopin = location?['geopin'];
-    return geopin is Map &&
-        geopin['lat'] is num &&
-        geopin['lng'] is num;
+    return geopin is Map && geopin['lat'] is num && geopin['lng'] is num;
   }
 
   Widget _buildParcelLocationCard({
@@ -1735,7 +1761,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
               if (accuracy != null) ...[
                 const SizedBox(height: 3),
                 Text('Précision estimée : ±${accuracy.round()} m',
-                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    style:
+                        const TextStyle(fontSize: 12, color: Colors.black54)),
               ],
               const SizedBox(height: 12),
               Expanded(
@@ -1756,8 +1783,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                     zoomControlsEnabled: true,
                     myLocationButtonEnabled: false,
                     mapToolbarEnabled: true,
-                    gestureRecognizers:
-                        <Factory<OneSequenceGestureRecognizer>>{
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
                       Factory<OneSequenceGestureRecognizer>(
                         () => EagerGestureRecognizer(),
                       ),
@@ -1917,9 +1943,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                 ),
             ],
           ),
-          if ((relay.openingHours?['general']?.toString() ?? '')
-              .trim()
-              .isNotEmpty)
+          if (relayOpeningHoursSummary(relay.openingHours) != '-')
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Row(
@@ -1929,7 +1953,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      relay.openingHours!['general'].toString(),
+                      relayOpeningHoursSummary(relay.openingHours),
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.black87,

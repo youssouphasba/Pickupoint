@@ -208,17 +208,20 @@ class NotificationService {
     required String? missionId,
     required String? trackingCode,
     required DateTime? assignedAt,
+    required DateTime? startedAt,
     required DateTime? pickupConfirmationDeadline,
   }) async {
+    final effectivePickupDeadline =
+        startedAt == null ? pickupConfirmationDeadline : null;
     if (Platform.isIOS) {
       try {
-        if (missionId == null || pickupConfirmationDeadline == null) {
+        if (missionId == null || effectivePickupDeadline == null) {
           await _driverMissionActivityChannel.invokeMethod<void>('end');
         } else {
           await _driverMissionActivityChannel.invokeMethod<void>('start', {
             'missionId': missionId,
             'trackingCode': trackingCode ?? '',
-            'deadline': pickupConfirmationDeadline.toUtc().toIso8601String(),
+            'deadline': effectivePickupDeadline.toUtc().toIso8601String(),
           });
         }
       } catch (_) {}
@@ -234,19 +237,19 @@ class NotificationService {
       return;
     }
     final now = DateTime.now();
-    final isPickupCountdown = pickupConfirmationDeadline != null &&
-        pickupConfirmationDeadline.isAfter(now);
-    final isPickupExpired = pickupConfirmationDeadline != null &&
-        !pickupConfirmationDeadline.isAfter(now);
+    final isPickupCountdown =
+        effectivePickupDeadline != null && effectivePickupDeadline.isAfter(now);
+    final isPickupExpired = effectivePickupDeadline != null &&
+        !effectivePickupDeadline.isAfter(now);
     if (_activeDriverMissionNotificationId == missionId &&
-        _activeDriverMissionDeadline == pickupConfirmationDeadline &&
+        _activeDriverMissionDeadline == effectivePickupDeadline &&
         !isPickupExpired) {
       return;
     }
     final referenceTime =
-        (pickupConfirmationDeadline ?? assignedAt).millisecondsSinceEpoch;
+        (effectivePickupDeadline ?? assignedAt).millisecondsSinceEpoch;
     final timeoutAfter = isPickupCountdown
-        ? pickupConfirmationDeadline.difference(now).inMilliseconds
+        ? effectivePickupDeadline.difference(now).inMilliseconds
         : null;
     final data = <String, dynamic>{
       'event_type': 'mission_detail',
@@ -288,12 +291,11 @@ class NotificationService {
             timeoutAfter: timeoutAfter,
             usesChronometer: !isPickupExpired,
             chronometerCountDown: isPickupCountdown,
-            subText:
-                isPickupExpired
-                    ? 'Mission à actualiser'
-                    : isPickupCountdown
-                        ? 'Délai de 30 minutes'
-                        : 'Mission active',
+            subText: isPickupExpired
+                ? 'Mission à actualiser'
+                : isPickupCountdown
+                    ? 'Délai de 30 minutes'
+                    : 'Mission active',
             ticker: isPickupExpired
                 ? 'Délai de récupération dépassé'
                 : isPickupCountdown
@@ -317,7 +319,7 @@ class NotificationService {
         payload: jsonEncode(data),
       );
       _activeDriverMissionNotificationId = missionId;
-      _activeDriverMissionDeadline = pickupConfirmationDeadline;
+      _activeDriverMissionDeadline = effectivePickupDeadline;
     } catch (_) {
       _activeDriverMissionNotificationId = null;
       _activeDriverMissionDeadline = null;

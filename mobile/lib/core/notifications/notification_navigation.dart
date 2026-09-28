@@ -46,6 +46,15 @@ String? notificationRouteFor({
       return '/client/profile?section=application';
   }
 
+  if (type == 'campaign') {
+    if (id.isEmpty) return null;
+    return switch (effectiveRole) {
+      'driver' => '/driver/campaign/$encodedId',
+      'relay_agent' => '/relay/campaign/$encodedId',
+      _ => '/client/campaign/$encodedId',
+    };
+  }
+
   if (id.isEmpty) return null;
 
   if (type == 'mission' && effectiveRole == 'driver') {
