@@ -23,6 +23,7 @@ import '../../features/client/screens/confirm_location_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
+import '../../features/client/screens/my_data_screen.dart';
 import '../../features/client/screens/client_statistics_screen.dart';
 import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
@@ -63,6 +64,7 @@ import '../../features/admin/screens/admin_legal_list_screen.dart';
 import '../../features/admin/screens/admin_legal_edit_screen.dart';
 import '../../shared/screens/legal_document_screen.dart';
 import '../../shared/promotions/campaign_detail_screen.dart';
+import '../../shared/promotions/campaign_detail_by_id_screen.dart';
 import '../../core/models/in_app_campaign.dart';
 
 // Import temporaire des écrans vides pour que ça compile
@@ -319,6 +321,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = auth?.status == AuthStatus.authenticated;
       final isAuthRoute = state.fullPath?.startsWith('/auth') ?? false;
       final isLegalRoute = state.fullPath?.startsWith('/legal') ?? false;
+      final isDataRoute = state.fullPath == '/my-data';
       final isLocationConfirmationRoute =
           state.fullPath?.startsWith('/confirm/') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
@@ -402,6 +405,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       if (isLegalRoute) {
         return null; // autoriser l'accès aux CGU/Privacy à tout moment
       }
+      if (isDataRoute) return isLoggedIn ? null : '/auth/phone';
       if (isLocationConfirmationRoute) return null;
       if (!isLoggedIn && !isAuthRoute) return '/auth/phone';
       if (isLoggedIn && isAuthRoute) {
@@ -432,6 +436,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           path: '/legal/:docType',
           builder: (_, s) =>
               LegalDocumentScreen(docType: s.pathParameters['docType']!)),
+      GoRoute(
+        path: '/my-data',
+        builder: (_, __) => const MyDataScreen(),
+      ),
       GoRoute(
         path: '/confirm/:token',
         builder: (_, s) => ConfirmLocationScreen(
@@ -603,6 +611,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     role: 'client',
                   )),
           GoRoute(
+              path: '/client/campaign/:id',
+              builder: (_, s) => CampaignDetailByIdScreen(
+                  campaignId: s.pathParameters['id']!, role: 'client')),
+          GoRoute(
               path: '/client/favorites',
               builder: (_, __) => const FavoriteAddressesScreen()),
           GoRoute(
@@ -628,6 +640,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     campaign: state.extra as InAppCampaign,
                     role: 'relay_agent',
                   )),
+          GoRoute(
+              path: '/relay/campaign/:id',
+              builder: (_, s) => CampaignDetailByIdScreen(
+                  campaignId: s.pathParameters['id']!, role: 'relay_agent')),
           GoRoute(
               path: '/relay/profile',
               builder: (_, state) => RelayProfileScreen(
@@ -672,6 +688,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     campaign: state.extra as InAppCampaign,
                     role: 'driver',
                   )),
+          GoRoute(
+              path: '/driver/campaign/:id',
+              builder: (_, s) => CampaignDetailByIdScreen(
+                  campaignId: s.pathParameters['id']!, role: 'driver')),
           GoRoute(
               path: '/driver/mission/:id',
               builder: (_, s) => MissionDetailScreen(
@@ -1137,7 +1157,7 @@ class _ShellScaffold extends StatefulWidget {
 class _ShellScaffoldState extends State<_ShellScaffold> {
   DateTime? _lastBackPressAt;
 
-  void _handleBack() {
+  Future<void> _handleBack() async {
     final router = GoRouter.of(context);
     if (router.canPop()) {
       router.pop();
@@ -1156,11 +1176,33 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
       return;
     }
 
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+
     final now = DateTime.now();
     final shouldExit = _lastBackPressAt != null &&
         now.difference(_lastBackPressAt!) < const Duration(seconds: 2);
     if (shouldExit) {
-      SystemNavigator.pop();
+      _lastBackPressAt = null;
+      final shouldClose = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Quitter l’application ?'),
+          content: const Text(
+            'Êtes-vous sûr de vouloir quitter l’application ?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Rester sur l’app'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Quitter'),
+            ),
+          ],
+        ),
+      );
+      if (shouldClose == true) SystemNavigator.pop();
       return;
     }
 
@@ -1181,7 +1223,7 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        _handleBack();
+        unawaited(_handleBack());
       },
       child: Scaffold(
         body: widget.body,

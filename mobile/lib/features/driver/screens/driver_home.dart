@@ -74,7 +74,8 @@ class DriverHome extends ConsumerStatefulWidget {
 }
 
 class _DriverHomeState extends ConsumerState<DriverHome>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   double? _driverLat;
   double? _driverLng;
   bool _gpsLoading = false;
@@ -92,6 +93,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addObserver(this);
     _refreshBackgroundPermission();
     _presencePositionSubscription =
@@ -124,6 +126,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     _refreshTimer?.cancel();
     _gpsRetryTimer?.cancel();
     _presencePositionSubscription?.cancel();
+    _tabController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -135,6 +138,14 @@ class _DriverHomeState extends ConsumerState<DriverHome>
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
       _prepareLocationAccess();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final missions = ref.read(myMissionsProvider).valueOrNull ??
+            const <DeliveryMission>[];
+        if (hasActiveDriverMission(missions) && _tabController.index != 1) {
+          _tabController.animateTo(1);
+        }
+      });
     }
   }
 
@@ -389,6 +400,12 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final myMissionsAsync = ref.watch(myMissionsProvider);
     final myMissions = myMissionsAsync.valueOrNull ?? const <DeliveryMission>[];
     final hasLockedMission = hasActiveDriverMission(myMissions);
+    if (hasLockedMission && _tabController.index != 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _tabController.index == 1) return;
+        _tabController.animateTo(1);
+      });
+    }
     if (myMissionsAsync.hasValue) {
       DeliveryMission? activeMission;
       for (final mission in myMissions) {
@@ -403,8 +420,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
             ref.read(notificationServiceProvider).syncDriverMissionNotification(
                   missionId: activeMission?.id,
                   trackingCode: activeMission?.trackingCode,
-                  assignedAt: activeMission?.assignedAt ??
-                      activeMission?.createdAt,
+                  assignedAt:
+                      activeMission?.assignedAt ?? activeMission?.createdAt,
+                  startedAt: activeMission?.startedAt,
                   pickupConfirmationDeadline:
                       activeMission?.pickupConfirmationDeadlineAt,
                 ));
@@ -427,219 +445,215 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     final locationActionVisible =
         !_backgroundLocationAllowed && !_locationAccessLoading && !_gpsLoading;
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const SizedBox.shrink(),
-          titleSpacing: 0,
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(80),
-            child: Column(
-              children: [
-                Container(
-                  color:
-                      hasGps ? Colors.green.shade700 : Colors.orange.shade700,
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
-                  width: double.infinity,
-                  child: Row(children: [
-                    Icon(
-                      hasGps ? Icons.my_location : Icons.location_off,
-                      size: 14,
+    return Scaffold(
+      appBar: AppBar(
+        title: const SizedBox.shrink(),
+        titleSpacing: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(80),
+          child: Column(
+            children: [
+              Container(
+                color: hasGps ? Colors.green.shade700 : Colors.orange.shade700,
+                padding:
+                    const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
+                width: double.infinity,
+                child: Row(children: [
+                  Icon(
+                    hasGps ? Icons.my_location : Icons.location_off,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      locationMessage,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (locationActionVisible)
+                    TextButton(
+                      onPressed: () => _prepareLocationAccess(
+                        userInitiated: true,
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 30),
+                      ),
+                      child: const Text('Activer « Toujours autoriser »'),
+                    ),
+                ]),
+              ),
+              TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.white,
+                indicatorWeight: 3,
+                labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                labelStyle:
+                    TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                unselectedLabelStyle:
+                    TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                tabs: [
+                  Tab(
+                    height: 46,
+                    child: _CompactTab(
+                      icon: Icons.inbox,
+                      label: 'Disponibles',
+                    ),
+                  ),
+                  Tab(
+                    height: 46,
+                    child: _CompactTab(
+                      icon: Icons.local_shipping,
+                      label: 'Mes missions',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          IconButton(
+            icon: _gpsLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
                       color: Colors.white,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        locationMessage,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (locationActionVisible)
-                      TextButton(
-                        onPressed: () => _prepareLocationAccess(
-                          userInitiated: true,
-                        ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          minimumSize: const Size(0, 30),
-                        ),
-                        child: const Text('Activer « Toujours autoriser »'),
-                      ),
-                  ]),
+                  )
+                : const Icon(Icons.my_location),
+            tooltip: 'Actualiser ma position',
+            onPressed: _gpsLoading
+                ? null
+                : () => _prepareLocationAccess(userInitiated: true),
+          ),
+          // Toggle disponibilité
+          Padding(
+            padding: const EdgeInsets.only(left: 2),
+            child: Tooltip(
+              message: hasLockedMission
+                  ? "Disponibilité verrouillée pendant une course active ou un retour expéditeur."
+                  : 'Activer ou désactiver les nouvelles missions',
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(
+                  Icons.circle,
+                  size: 10,
+                  color: isAvailable ? Colors.green : Colors.grey.shade400,
                 ),
-                const TabBar(
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: Colors.white,
-                  indicatorWeight: 3,
-                  labelPadding: EdgeInsets.symmetric(horizontal: 4),
-                  labelStyle:
-                      TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                  unselectedLabelStyle:
-                      TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                  tabs: [
-                    Tab(
-                      height: 46,
-                      child: _CompactTab(
-                        icon: Icons.inbox,
-                        label: 'Disponibles',
+                const SizedBox(width: 4),
+                _toggling
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : Transform.scale(
+                        scale: 0.78,
+                        child: Switch(
+                          value: isAvailable,
+                          onChanged: hasLockedMission
+                              ? null
+                              : (_) => _toggleAvailability(),
+                          activeThumbColor: Colors.green,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
-                    ),
-                    Tab(
-                      height: 46,
-                      child: _CompactTab(
-                        icon: Icons.local_shipping,
-                        label: 'Mes missions',
-                      ),
+              ]),
+            ),
+          ),
+          if (!hasLockedMission) const AccountSwitcherButton(),
+          const NotificationsBellButton(route: '/driver/notifications'),
+          // Badge Niveau (Phase 8)
+          if (ref.watch(authProvider).value?.user != null)
+            GestureDetector(
+              onTap: () => context.push('/driver/performance'),
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.stars, color: Colors.amber, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${ref.watch(authProvider).value!.user!.level}',
+                      style: const TextStyle(
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12),
                     ),
                   ],
                 ),
+              ),
+            ),
+          IconButton(
+            icon: Icon(
+              hasLockedMission ? Icons.lock_outline : Icons.logout,
+            ),
+            tooltip: hasLockedMission
+                ? 'Déconnexion bloquée pendant une course active'
+                : 'Se déconnecter',
+            onPressed: hasLockedMission
+                ? null
+                : () => ref.read(authProvider.notifier).logout(),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          const NotificationPermissionBanner(),
+          const CampaignBanner(role: 'driver'),
+          Expanded(
+            child: Stack(
+              children: [
+                TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _MissionsList(
+                      asyncValue: availableAsync,
+                      isAvailable: true,
+                      driverLoc: _driverLoc,
+                      ensureGpsReady: _ensureGpsReady,
+                      backgroundLocationAllowed: _backgroundLocationAllowed,
+                      onEnableBackgroundLocation: () =>
+                          _prepareLocationAccess(userInitiated: true),
+                    ),
+                    _MissionsList(
+                      asyncValue: myMissionsAsync,
+                      isAvailable: false,
+                      driverLoc: _driverLoc,
+                      ensureGpsReady: _ensureGpsReady,
+                    ),
+                  ],
+                ),
+                if (_gpsLoading)
+                  const Align(
+                    alignment: Alignment.topCenter,
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
               ],
             ),
           ),
-          actions: [
-            IconButton(
-              icon: _gpsLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.my_location),
-              tooltip: 'Actualiser ma position',
-              onPressed: _gpsLoading
-                  ? null
-                  : () => _prepareLocationAccess(userInitiated: true),
-            ),
-            // Toggle disponibilité
-            Padding(
-              padding: const EdgeInsets.only(left: 2),
-              child: Tooltip(
-                message: hasLockedMission
-                    ? "Disponibilité verrouillée pendant une course active ou un retour expéditeur."
-                    : 'Activer ou désactiver les nouvelles missions',
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: isAvailable ? Colors.green : Colors.grey.shade400,
-                  ),
-                  const SizedBox(width: 4),
-                  _toggling
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : Transform.scale(
-                          scale: 0.78,
-                          child: Switch(
-                            value: isAvailable,
-                            onChanged: hasLockedMission
-                                ? null
-                                : (_) => _toggleAvailability(),
-                            activeThumbColor: Colors.green,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                ]),
-              ),
-            ),
-            if (!hasLockedMission) const AccountSwitcherButton(),
-            const NotificationsBellButton(route: '/driver/notifications'),
-            // Badge Niveau (Phase 8)
-            if (ref.watch(authProvider).value?.user != null)
-              GestureDetector(
-                onTap: () => context.push('/driver/performance'),
-                child: Container(
-                  margin:
-                      const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                  decoration: BoxDecoration(
-                    color: Colors.amber.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.amber),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.stars, color: Colors.amber, size: 14),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${ref.watch(authProvider).value!.user!.level}',
-                        style: const TextStyle(
-                            color: Colors.amber,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            IconButton(
-              icon: Icon(
-                hasLockedMission ? Icons.lock_outline : Icons.logout,
-              ),
-              tooltip: hasLockedMission
-                  ? 'Déconnexion bloquée pendant une course active'
-                  : 'Se déconnecter',
-              onPressed: hasLockedMission
-                  ? null
-                  : () => ref.read(authProvider.notifier).logout(),
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            const NotificationPermissionBanner(),
-            const CampaignBanner(role: 'driver'),
-            Expanded(
-              child: Stack(
-                children: [
-                  TabBarView(
-                    children: [
-                      _MissionsList(
-                        asyncValue: availableAsync,
-                        isAvailable: true,
-                        driverLoc: _driverLoc,
-                        ensureGpsReady: _ensureGpsReady,
-                        backgroundLocationAllowed: _backgroundLocationAllowed,
-                        onEnableBackgroundLocation: () =>
-                            _prepareLocationAccess(userInitiated: true),
-                      ),
-                      _MissionsList(
-                        asyncValue: myMissionsAsync,
-                        isAvailable: false,
-                        driverLoc: _driverLoc,
-                        ensureGpsReady: _ensureGpsReady,
-                      ),
-                    ],
-                  ),
-                  if (_gpsLoading)
-                    const Align(
-                      alignment: Alignment.topCenter,
-                      child: LinearProgressIndicator(minHeight: 2),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

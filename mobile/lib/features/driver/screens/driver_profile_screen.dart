@@ -691,6 +691,15 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
                     const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.folder_shared_outlined),
+                      title: const Text('Mes données'),
+                      subtitle:
+                          const Text('Consulter ou télécharger mes données'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.push('/my-data'),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.privacy_tip_outlined),
                       title: const Text('Politique de confidentialité'),
                       trailing: const Icon(Icons.chevron_right),

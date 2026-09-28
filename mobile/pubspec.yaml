@@ -1,7 +1,7 @@
 name: pickupoint
 description: Plateforme livraison & points relais — Sénégal
 publish_to: none
-version: 1.0.27+47
+version: 1.0.28+48
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -63,6 +63,7 @@ dependencies:
   audioplayers: ^6.0.0
   video_player: ^2.9.2
   path_provider: ^2.1.0
+  share_plus: ^10.1.4
   flutter_webrtc: ^1.4.1
 
   # Téléphone international (détection SIM + dropdown pays SN/FR)
