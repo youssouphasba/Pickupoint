@@ -25,6 +25,9 @@ import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../../../shared/widgets/relay_opening_hours_editor.dart';
 import '../../../shared/widgets/map_picker_modal.dart';
+import '../../../core/theme/app_motion.dart';
+import '../../../shared/maps/motorcycle_map_marker.dart';
+import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 
 class ParcelDetailScreen extends ConsumerStatefulWidget {
   const ParcelDetailScreen({
@@ -40,11 +43,13 @@ class ParcelDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   Timer? _locationTimer;
   Timer? _parcelTimer;
   double? _driverLat;
   double? _driverLng;
+  double? _displayedDriverLat;
+  double? _displayedDriverLng;
   double? _liveDestinationLat;
   double? _liveDestinationLng;
   bool _driverOnline = false;
@@ -55,15 +60,65 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   DateTime? _confirmLocationUpdatedAt;
   String? _liveEtaText;
   String? _liveDistanceText;
+  String? _liveEncodedPolyline;
+  List<LatLng> _liveTrailPoints = const [];
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
   final GlobalKey _chatKey = GlobalKey();
   bool _messageRevealScheduled = false;
+  BitmapDescriptor? _motorcycleMarker;
+  late final AnimationController _driverMovementController;
+  Animation<double>? _driverLatAnimation;
+  Animation<double>? _driverLngAnimation;
 
   @override
   void initState() {
     super.initState();
+    _driverMovementController = AnimationController(
+      vsync: this,
+      duration: AppMotion.mapMovement,
+    )..addListener(_updateDisplayedDriverPosition);
     WidgetsBinding.instance.addObserver(this);
+    _loadMotorcycleMarker();
     _startPolling();
+  }
+
+  Future<void> _loadMotorcycleMarker() async {
+    final marker = await buildMotorcycleMapMarker();
+    if (mounted) setState(() => _motorcycleMarker = marker);
+  }
+
+  void _updateDisplayedDriverPosition() {
+    if (!mounted) return;
+    setState(() {
+      _displayedDriverLat = _driverLatAnimation?.value ?? _driverLat;
+      _displayedDriverLng = _driverLngAnimation?.value ?? _driverLng;
+    });
+  }
+
+  void _moveDriverMarker(double latitude, double longitude) {
+    final animationsDisabled =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final startLat = _displayedDriverLat ?? _driverLat ?? latitude;
+    final startLng = _displayedDriverLng ?? _driverLng ?? longitude;
+    _driverLat = latitude;
+    _driverLng = longitude;
+
+    if (animationsDisabled || (startLat == latitude && startLng == longitude)) {
+      _driverMovementController.stop();
+      _displayedDriverLat = latitude;
+      _displayedDriverLng = longitude;
+      return;
+    }
+
+    final curve = CurvedAnimation(
+      parent: _driverMovementController,
+      curve: AppMotion.standardCurve,
+    );
+    _driverLatAnimation =
+        Tween<double>(begin: startLat, end: latitude).animate(curve);
+    _driverLngAnimation =
+        Tween<double>(begin: startLng, end: longitude).animate(curve);
+    _driverMovementController.forward(from: 0);
   }
 
   @override
@@ -108,6 +163,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     _locationTimer?.cancel();
     _parcelTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
+    _driverMovementController.dispose();
     super.dispose();
   }
 
@@ -146,19 +202,35 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
         final destination = data['destination'] as Map<String, dynamic>?;
         final geopin = destination?['geopin'] as Map<String, dynamic>?;
         if (mounted) {
+          final latitude = (loc['lat'] as num).toDouble();
+          final longitude = (loc['lng'] as num).toDouble();
+          final trail = (data['trail'] as List? ?? const [])
+              .whereType<Map>()
+              .map((point) => Map<String, dynamic>.from(point))
+              .where(
+                (point) => point['lat'] is num && point['lng'] is num,
+              )
+              .map(
+                (point) => LatLng(
+                  (point['lat'] as num).toDouble(),
+                  (point['lng'] as num).toDouble(),
+                ),
+              )
+              .toList(growable: false);
+          _moveDriverMarker(latitude, longitude);
           setState(() {
-            _driverLat = (loc['lat'] as num).toDouble();
-            _driverLng = (loc['lng'] as num).toDouble();
             _driverOnline = true;
             _liveEtaText = data['eta_text']?.toString();
             _liveDistanceText = data['distance_text']?.toString();
+            _liveEncodedPolyline = data['encoded_polyline']?.toString();
+            _liveTrailPoints = trail;
             _liveDestinationLat = (geopin?['lat'] as num?)?.toDouble();
             _liveDestinationLng = (geopin?['lng'] as num?)?.toDouble();
           });
 
           if (_mapController != null) {
             _mapController!.animateCamera(
-              CameraUpdate.newLatLng(LatLng(_driverLat!, _driverLng!)),
+              CameraUpdate.newLatLng(LatLng(latitude, longitude)),
             );
           }
         }
@@ -168,6 +240,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
             _driverOnline = false;
             _liveEtaText = null;
             _liveDistanceText = null;
+            _liveEncodedPolyline = null;
+            _liveTrailPoints = const [];
           });
         }
       }
@@ -1005,24 +1079,51 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     final destLng = _liveDestinationLng ?? (parcel.deliveryLng as double?);
 
     // Centrer sur le livreur si disponible, sinon sur la destination
-    final center = _driverLat != null
-        ? LatLng(_driverLat!, _driverLng!)
+    final markerLat = _displayedDriverLat ?? _driverLat;
+    final markerLng = _displayedDriverLng ?? _driverLng;
+    final center = markerLat != null
+        ? LatLng(markerLat, markerLng!)
         : (destLat != null
             ? LatLng(destLat, destLng!)
             : const LatLng(14.693, -17.447)); // Dakar fallback
 
     final Set<Marker> markers = {};
+    final encodedPolyline = _liveEncodedPolyline ?? parcel.encodedPolyline;
+    final routePoints = encodedPolyline == null || encodedPolyline.isEmpty
+        ? const <LatLng>[]
+        : PolylinePoints()
+            .decodePolyline(encodedPolyline)
+            .map((point) => LatLng(point.latitude, point.longitude))
+            .toList();
+    final polylines = <Polyline>{
+      if (_liveTrailPoints.length > 1)
+        Polyline(
+          polylineId: const PolylineId('travelled_route'),
+          points: _liveTrailPoints,
+          color: Colors.green.shade700,
+          width: 5,
+        ),
+      if (routePoints.isNotEmpty)
+        Polyline(
+          polylineId: const PolylineId('remaining_route'),
+          points: routePoints,
+          color: Colors.blue.shade600,
+          width: 5,
+          patterns: [PatternItem.dash(18), PatternItem.gap(10)],
+        ),
+    };
 
     // Marker livreur (moto)
-    if (_driverLat != null) {
+    if (markerLat != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('driver_pos'),
-          position: LatLng(_driverLat!, _driverLng!),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
-          infoWindow: const InfoWindow(title: 'Livreur en route'),
+          position: LatLng(markerLat, markerLng!),
+          icon: _motorcycleMarker ??
+              BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueAzure,
+              ),
+          infoWindow: const InfoWindow(title: 'Moto du livreur'),
         ),
       );
     }
@@ -1052,6 +1153,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
             initialCameraPosition: CameraPosition(target: center, zoom: 14.0),
             onMapCreated: (controller) => _mapController = controller,
             markers: markers,
+            polylines: polylines,
             zoomControlsEnabled: true,
             mapToolbarEnabled: true,
             gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{

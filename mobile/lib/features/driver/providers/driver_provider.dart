@@ -46,12 +46,56 @@ final availableMissionsProvider =
 /// Provider pour les missions acceptées par le livreur connecté.
 final myMissionsProvider = FutureProvider<List<DeliveryMission>>((ref) async {
   final api = ref.watch(apiClientProvider);
-  final res = await api.getMyMissions();
-  final data = res.data as Map<String, dynamic>;
-  return (data['missions'] as List? ?? [])
-      .map((e) => DeliveryMission.fromJson(e as Map<String, dynamic>))
-      .toList();
+  final responses = await Future.wait([
+    api.getMyMissions(),
+    api.getMyMissions(limit: 10, finishedOnly: true),
+  ]);
+  final missionsById = <String, DeliveryMission>{};
+  for (final response in responses) {
+    final data = response.data as Map<String, dynamic>;
+    for (final entry in data['missions'] as List? ?? const []) {
+      final mission = DeliveryMission.fromJson(entry as Map<String, dynamic>);
+      missionsById[mission.id] = mission;
+    }
+  }
+  return missionsById.values.toList();
 });
+
+final completedDriverMissionsProvider =
+    FutureProvider<List<DeliveryMission>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  const pageSize = 100;
+  final missions = <DeliveryMission>[];
+  var offset = 0;
+  var total = pageSize;
+
+  while (offset < total) {
+    final response = await api.getMyMissions(
+      limit: pageSize,
+      skip: offset,
+      finishedOnly: true,
+    );
+    final data = response.data as Map<String, dynamic>;
+    final page = (data['missions'] as List? ?? const [])
+        .map((entry) => DeliveryMission.fromJson(entry as Map<String, dynamic>))
+        .toList();
+    missions.addAll(page);
+    total = (data['total'] as num?)?.toInt() ?? missions.length;
+    if (page.isEmpty) break;
+    offset += page.length;
+  }
+
+  missions
+      .sort((a, b) => _missionHistoryDate(b).compareTo(_missionHistoryDate(a)));
+  return missions;
+});
+
+DateTime _missionHistoryDate(DeliveryMission mission) {
+  return mission.completedAt ??
+      mission.startedAt ??
+      mission.assignedAt ??
+      mission.createdAt;
+}
 
 /// Provider pour une mission spécifique.
 final missionProvider =

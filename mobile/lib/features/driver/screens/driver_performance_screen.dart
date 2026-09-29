@@ -6,6 +6,8 @@ import '../../../core/models/wallet.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../providers/ranking_provider.dart';
 import '../../relay/providers/relay_provider.dart';
+import '../../../shared/widgets/animated_number_text.dart';
+import '../../../core/theme/app_motion.dart';
 
 class DriverPerformanceScreen extends ConsumerWidget {
   const DriverPerformanceScreen({super.key});
@@ -166,28 +168,30 @@ class DriverPerformanceScreen extends ConsumerWidget {
             _buildStatCard(
               Icons.local_shipping,
               'Livraisons terminées',
-              user.deliveriesCompleted.toString(),
+              user.deliveriesCompleted,
               Colors.blue,
             ),
             _buildStatCard(
               Icons.timer,
               'Livraisons à l\'heure',
-              '${user.onTimeDeliveries}',
+              user.onTimeDeliveries,
               Colors.green,
             ),
             _buildStatCard(
               Icons.star,
               'Note moyenne',
-              user.averageRating.toStringAsFixed(1),
+              user.averageRating,
               Colors.amber,
               subtitle: 'Basé sur ${user.totalRatingsCount} avis',
+              formatter: (value) => value.toStringAsFixed(1),
             ),
             _buildStatCard(
               Icons.payments,
               'Revenus totaux accumulés',
-              formatXof(user.totalEarned),
+              user.totalEarned,
               Colors.orange,
               subtitle: 'Missions, bonus et pourboires',
+              formatter: formatXof,
             ),
             const SizedBox(height: 16),
             _buildDeliveryDurationSection(rankingAsync),
@@ -384,8 +388,8 @@ class DriverPerformanceScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatCard(IconData icon, String label, String value, Color color,
-      {String? subtitle}) {
+  Widget _buildStatCard(IconData icon, String label, num value, Color color,
+      {String? subtitle, String Function(double value)? formatter}) {
     return Builder(builder: (context) {
       return InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -420,8 +424,10 @@ class DriverPerformanceScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-              Text(
-                value,
+              AnimatedNumberText(
+                value: value,
+                formatter: formatter ??
+                    (animatedValue) => animatedValue.round().toString(),
                 style:
                     const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
@@ -874,18 +880,23 @@ class DriverPerformanceScreen extends ConsumerWidget {
                       style: const TextStyle(fontSize: 8, color: Colors.grey),
                     ),
                   const SizedBox(height: 4),
-                  Container(
-                    width: 25,
-                    height: h == 0 ? 4 : h,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: h == 0
-                            ? [Colors.grey.shade200, Colors.grey.shade300]
-                            : [Colors.green.shade400, Colors.green.shade600],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 4, end: h == 0 ? 4 : h),
+                    duration: AppMotion.dataReveal,
+                    curve: Curves.easeOutCubic,
+                    builder: (context, height, _) => Container(
+                      width: 25,
+                      height: height,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: h == 0
+                              ? [Colors.grey.shade200, Colors.grey.shade300]
+                              : [Colors.green.shade400, Colors.green.shade600],
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      borderRadius: BorderRadius.circular(6),
                     ),
                   ),
                   const SizedBox(height: 8),

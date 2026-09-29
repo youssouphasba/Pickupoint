@@ -11,7 +11,7 @@ class PushAlertProfileTests(unittest.TestCase):
             "messages",
         )
 
-        self.assertEqual(profile["android_channel_id"], "denkma_messages_v2")
+        self.assertEqual(profile["android_channel_id"], "denkma_messages_v3")
         self.assertEqual(profile["ios_sound"], "denkma_message.wav")
 
     def test_mission_profile_is_used_for_available_course(self):
@@ -21,7 +21,7 @@ class PushAlertProfileTests(unittest.TestCase):
             "parcel_updates",
         )
 
-        self.assertEqual(profile["android_channel_id"], "denkma_missions_v2")
+        self.assertEqual(profile["android_channel_id"], "denkma_missions_v3")
         self.assertEqual(profile["android_sound"], "denkma_mission")
 
     def test_status_profile_is_the_default(self):
@@ -31,7 +31,7 @@ class PushAlertProfileTests(unittest.TestCase):
             "parcel_updates",
         )
 
-        self.assertEqual(profile["android_channel_id"], "denkma_updates_v2")
+        self.assertEqual(profile["android_channel_id"], "denkma_updates_v3")
         self.assertEqual(profile["ios_sound"], "denkma_status.wav")
 
 

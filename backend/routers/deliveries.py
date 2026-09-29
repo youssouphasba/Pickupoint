@@ -17,7 +17,7 @@ from config import settings
 from core.dependencies import get_current_user, require_role
 from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
 from database import db
-from services.mission_trace import archive_position, load_trace, timestamp
+from services.mission_trace import archive_position, load_trace, summarize_completion, timestamp
 from models.common import UserRole, ParcelStatus
 from models.delivery import MissionStatus, LocationUpdate
 from pydantic import BaseModel, Field
@@ -816,25 +816,44 @@ async def available_missions(
 
 @router.get("/my", summary="Mes missions (driver)")
 async def my_missions(
+    limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
+    finished_only: bool = Query(False),
     current_user: dict = Depends(require_role(
         UserRole.DRIVER, UserRole.ADMIN, UserRole.SUPERADMIN
     )),
 ):
+    mission_query = {"driver_id": current_user["user_id"]}
+    if finished_only:
+        mission_query["status"] = {
+            "$in": [MissionStatus.COMPLETED.value, MissionStatus.FAILED.value]
+        }
+    total = await db.delivery_missions.count_documents(mission_query)
     cursor = db.delivery_missions.find(
-        {"driver_id": current_user["user_id"]},
+        mission_query,
         {"_id": 0},
-    ).sort("created_at", -1).limit(50)
-    missions = await cursor.to_list(length=50)
+    ).sort("created_at", -1).skip(skip).limit(limit)
+    missions = await cursor.to_list(length=limit)
     auto_release_minutes = await get_assigned_mission_auto_release_minutes()
     for mission in missions:
         _attach_pickup_confirmation_window(
             mission,
             auto_release_minutes=auto_release_minutes,
         )
+        if mission.get("status") in {
+            MissionStatus.COMPLETED.value,
+            MissionStatus.FAILED.value,
+        }:
+            mission["completion_summary"] = summarize_completion(mission)
     await _attach_commission_requirements(missions)
     _mask_recipient_phone_for_driver(missions, current_user)
 
-    return {"missions": missions}
+    return {
+        "missions": missions,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+    }
 
 
 @router.get("/{mission_id}/preview", summary="Aperçu d'une mission disponible")
@@ -1229,6 +1248,15 @@ async def get_mission(
         mission,
         auto_release_minutes=await get_assigned_mission_auto_release_minutes(),
     )
+
+    if mission.get("status") in {
+        MissionStatus.COMPLETED.value,
+        MissionStatus.FAILED.value,
+    }:
+        mission["completion_summary"] = summarize_completion(
+            mission,
+            await load_trace(mission),
+        )
 
     # Enrichissement Photos
     # Driver

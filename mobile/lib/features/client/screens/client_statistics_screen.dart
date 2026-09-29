@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/animated_number_text.dart';
 
 class ClientStatisticsScreen extends ConsumerWidget {
   const ClientStatisticsScreen({super.key});
@@ -220,9 +221,23 @@ class ClientStatisticsScreen extends ConsumerWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Icon(icon, color: color, size: 22),
-          Text('$value',
-              style:
-                  const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+          if (value is num)
+            AnimatedNumberText(
+              value: value,
+              formatter: (animatedValue) => animatedValue.round().toString(),
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+              ),
+            )
+          else
+            Text(
+              '$value',
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           Text(label,
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
         ],

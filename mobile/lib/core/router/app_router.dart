@@ -37,6 +37,7 @@ import '../../features/driver/screens/mission_detail_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
+import '../../features/driver/screens/completed_missions_screen.dart';
 import '../../features/driver/providers/driver_provider.dart';
 import '../../features/driver/widgets/pickup_confirmation_countdown_badge.dart';
 import '../location/driver_location_consent.dart';
@@ -693,6 +694,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     id: s.pathParameters['id']!,
                     initialMessageId: s.uri.queryParameters['message'],
                   )),
+          GoRoute(
+              path: '/driver/missions/completed',
+              builder: (_, __) => const CompletedMissionsScreen()),
           GoRoute(
               path: '/driver/wallet',
               builder: (_, __) => const DriverWalletScreen()),

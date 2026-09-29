@@ -1,3 +1,37 @@
+class MissionCompletionSummary {
+  const MissionCompletionSummary({
+    this.assignedToPickupSeconds,
+    this.pickupToDeliverySeconds,
+    this.totalDurationSeconds,
+    this.recordedDistanceMeters,
+    this.gpsPointsCount,
+    this.completedAt,
+  });
+
+  final int? assignedToPickupSeconds;
+  final int? pickupToDeliverySeconds;
+  final int? totalDurationSeconds;
+  final int? recordedDistanceMeters;
+  final int? gpsPointsCount;
+  final DateTime? completedAt;
+
+  factory MissionCompletionSummary.fromJson(Map<String, dynamic> json) {
+    return MissionCompletionSummary(
+      assignedToPickupSeconds:
+          (json['assigned_to_pickup_seconds'] as num?)?.toInt(),
+      pickupToDeliverySeconds:
+          (json['pickup_to_delivery_seconds'] as num?)?.toInt(),
+      totalDurationSeconds: (json['total_duration_seconds'] as num?)?.toInt(),
+      recordedDistanceMeters:
+          (json['recorded_distance_meters'] as num?)?.toInt(),
+      gpsPointsCount: (json['gps_points_count'] as num?)?.toInt(),
+      completedAt: json['completed_at'] == null
+          ? null
+          : DateTime.tryParse(json['completed_at'].toString()),
+    );
+  }
+}
+
 class DeliveryMission {
   static String _areaLabel(Iterable<Object?> candidates) {
     for (final value in candidates) {
@@ -74,6 +108,7 @@ class DeliveryMission {
     this.recipientPhotoUrl,
     this.encodedPolyline,
     this.parcelStatus,
+    this.completionSummary,
   });
 
   final String id;
@@ -147,6 +182,7 @@ class DeliveryMission {
 
   /// Statut du colis lié (in_transit, out_for_delivery, etc.)
   final String? parcelStatus;
+  final MissionCompletionSummary? completionSummary;
 
   factory DeliveryMission.fromJson(Map<String, dynamic> json) {
     // Pickup geopin
@@ -242,6 +278,11 @@ class DeliveryMission {
       recipientPhotoUrl: json['recipient_photo_url'] as String?,
       encodedPolyline: json['encoded_polyline'] as String?,
       parcelStatus: json['parcel_status'] as String?,
+      completionSummary: json['completion_summary'] is Map
+          ? MissionCompletionSummary.fromJson(
+              Map<String, dynamic>.from(json['completion_summary'] as Map),
+            )
+          : null,
     );
   }
 

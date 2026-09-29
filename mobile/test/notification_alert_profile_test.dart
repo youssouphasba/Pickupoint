@@ -11,8 +11,8 @@ void main() {
     );
 
     expect(profile.kind, NotificationAlertKind.message);
-    expect(profile.channelId, 'denkma_messages_v2');
-    expect(profile.vibrationPattern, [0, 70]);
+    expect(profile.channelId, 'denkma_messages_v3');
+    expect(profile.vibrationPattern, [0, 500, 160, 700]);
   });
 
   test('available mission uses the urgent mission profile', () {
@@ -24,6 +24,8 @@ void main() {
 
     expect(profile.kind, NotificationAlertKind.mission);
     expect(profile.importance, Importance.max);
+    expect(profile.priority, Priority.max);
+    expect(profile.vibrationPattern, [0, 700, 180, 700, 180, 1100]);
     expect(profile.iosSound, 'denkma_mission.wav');
   });
 
@@ -35,6 +37,8 @@ void main() {
     );
 
     expect(profile.kind, NotificationAlertKind.status);
-    expect(profile.channelId, 'denkma_updates_v2');
+    expect(profile.channelId, 'denkma_updates_v3');
+    expect(profile.importance, Importance.high);
+    expect(profile.vibrationPattern, [0, 450, 160, 600]);
   });
 }

@@ -80,40 +80,40 @@ class NotificationAlertProfile {
 
 const missionAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.mission,
-  channelId: 'denkma_missions_v2',
+  channelId: 'denkma_missions_v3',
   channelName: 'Courses et missions',
   channelDescription: 'Nouvelles courses et actions urgentes sur une mission',
   soundResource: 'denkma_mission',
   iosSound: 'denkma_mission.wav',
   importance: Importance.max,
-  priority: Priority.high,
-  vibrationPattern: [0, 130, 70, 180],
+  priority: Priority.max,
+  vibrationPattern: [0, 700, 180, 700, 180, 1100],
   interruptionLevel: InterruptionLevel.timeSensitive,
 );
 
 const messageAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.message,
-  channelId: 'denkma_messages_v2',
+  channelId: 'denkma_messages_v3',
   channelName: 'Messages',
   channelDescription: 'Nouveaux messages reçus dans Denkma',
   soundResource: 'denkma_message',
   iosSound: 'denkma_message.wav',
   importance: Importance.high,
   priority: Priority.high,
-  vibrationPattern: [0, 70],
+  vibrationPattern: [0, 500, 160, 700],
   interruptionLevel: InterruptionLevel.active,
 );
 
 const statusAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.status,
-  channelId: 'denkma_updates_v2',
+  channelId: 'denkma_updates_v3',
   channelName: 'Suivi des colis',
   channelDescription: 'Étapes de livraison et informations de compte',
   soundResource: 'denkma_status',
   iosSound: 'denkma_status.wav',
-  importance: Importance.defaultImportance,
-  priority: Priority.defaultPriority,
-  vibrationPattern: [0, 90, 60, 110],
+  importance: Importance.high,
+  priority: Priority.high,
+  vibrationPattern: [0, 450, 160, 600],
   interruptionLevel: InterruptionLevel.active,
 );
 

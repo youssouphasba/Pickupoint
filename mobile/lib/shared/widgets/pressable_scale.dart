@@ -37,6 +37,7 @@ class _PressableScaleState extends State<PressableScale> {
     final animationsDisabled =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     return Listener(
+      behavior: HitTestBehavior.translucent,
       onPointerDown: (_) => _setPressed(true),
       onPointerUp: (_) => _setPressed(false),
       onPointerCancel: (_) => _setPressed(false),

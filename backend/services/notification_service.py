@@ -115,17 +115,17 @@ def _notif_id() -> str:
 
 _PUSH_ALERT_PROFILES = {
     "mission": {
-        "android_channel_id": "denkma_missions_v2",
+        "android_channel_id": "denkma_missions_v3",
         "android_sound": "denkma_mission",
         "ios_sound": "denkma_mission.wav",
     },
     "message": {
-        "android_channel_id": "denkma_messages_v2",
+        "android_channel_id": "denkma_messages_v3",
         "android_sound": "denkma_message",
         "ios_sound": "denkma_message.wav",
     },
     "status": {
-        "android_channel_id": "denkma_updates_v2",
+        "android_channel_id": "denkma_updates_v3",
         "android_sound": "denkma_status",
         "ios_sound": "denkma_status.wav",
     },

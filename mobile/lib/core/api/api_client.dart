@@ -283,7 +283,8 @@ class ApiClient {
     String relayId,
     String parcelId,
     String action,
-  ) => _dio.post(
+  ) =>
+      _dio.post(
         ApiEndpoints.relayFinancialAction(relayId, parcelId),
         data: {'action': action},
       );
@@ -308,7 +309,19 @@ class ApiClient {
     return _dio.get(ApiEndpoints.availableMissions, queryParameters: params);
   }
 
-  Future<Response> getMyMissions() => _dio.get(ApiEndpoints.myMissions);
+  Future<Response> getMyMissions({
+    int? limit,
+    int? skip,
+    bool finishedOnly = false,
+  }) =>
+      _dio.get(
+        ApiEndpoints.myMissions,
+        queryParameters: {
+          if (limit != null) 'limit': limit,
+          if (skip != null) 'skip': skip,
+          if (finishedOnly) 'finished_only': true,
+        },
+      );
 
   Future<Response> getMission(String id) => _dio.get(ApiEndpoints.delivery(id));
 

@@ -74,3 +74,26 @@ def summarize_trace(points):
         segments[-1].append(point)
         previous = point
     return {"segments": segments, "gaps": gaps, "recorded_distance_meters": round(distance), "gap_threshold_seconds": settings.GPS_TRACE_GAP_SECONDS}
+
+
+def summarize_completion(mission, points=None):
+    assigned_at = timestamp(mission.get("assigned_at"))
+    started_at = timestamp(mission.get("started_at"))
+    completed_at = timestamp(mission.get("completed_at"))
+
+    def elapsed_seconds(start, end):
+        if start is None or end is None:
+            return None
+        return max(int((end - start).total_seconds()), 0)
+
+    trace_summary = summarize_trace(points) if points is not None else None
+    return {
+        "assigned_to_pickup_seconds": elapsed_seconds(assigned_at, started_at),
+        "pickup_to_delivery_seconds": elapsed_seconds(started_at, completed_at),
+        "total_duration_seconds": elapsed_seconds(assigned_at, completed_at),
+        "recorded_distance_meters": (
+            trace_summary["recorded_distance_meters"] if trace_summary is not None else None
+        ),
+        "gps_points_count": len(points) if points is not None else None,
+        "completed_at": completed_at,
+    }

@@ -22,6 +22,8 @@ import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../../../core/location/driver_location_consent.dart';
+import '../../../core/theme/app_motion.dart';
+import '../../../shared/utils/date_format.dart';
 
 class MissionDetailScreen extends ConsumerStatefulWidget {
   const MissionDetailScreen({
@@ -604,6 +606,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       });
       if (mounted) {
         ref.invalidate(myMissionsProvider);
+        ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Livraison validée ! Merci.'),
@@ -613,7 +616,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         await ActionFeedback.mission();
         if (mounted) {
           showSuccessCelebration(context, message: 'Livraison validée');
-          Navigator.pop(context);
+          try {
+            await ref.read(missionProvider(widget.id).future);
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -1155,9 +1160,14 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final missionAsync = ref.watch(missionProvider(widget.id));
+    final currentMission = missionAsync.valueOrNull;
+    final isFinished =
+        currentMission?.isCompleted == true || currentMission?.isFailed == true;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Ma mission')),
+      appBar: AppBar(
+        title: Text(isFinished ? 'Récapitulatif' : 'Ma mission'),
+      ),
       body: missionAsync.when(
         data: (mission) {
           _revealRequestedMessage();
@@ -1173,80 +1183,85 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                         _buildWhatsappCallBanner(),
                         const SizedBox(height: 12),
                       ],
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildAmountSummary(
-                                    label: 'PRIX DE LA COURSE',
-                                    amount: mission.coursePrice,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                Container(
-                                  width: 1,
-                                  height: 48,
-                                  color: Colors.blue.shade100,
-                                ),
-                                const SizedBox(width: 20),
-                                Expanded(
-                                  child: _buildAmountSummary(
-                                    label: 'VOTRE GAIN',
-                                    amount: mission.earnAmount,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (mission.driverBonusXof > 0) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.green,
-                                ),
-                              ),
-                            ],
-                            if (mission.etaText != null) ...[
-                              const SizedBox(height: 12),
-                              Divider(color: Colors.blue.shade100, height: 1),
-                              const SizedBox(height: 10),
+                      if (mission.isCompleted || mission.isFailed) ...[
+                        _buildCompletionRecap(mission),
+                        const SizedBox(height: 20),
+                      ],
+                      if (!mission.isCompleted && !mission.isFailed)
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(
                                 children: [
-                                  const Icon(
-                                    Icons.route,
-                                    size: 18,
-                                    color: Colors.green,
-                                  ),
-                                  const SizedBox(width: 8),
                                   Expanded(
-                                    child: Text(
-                                      [
-                                        mission.etaText,
-                                        mission.distanceText,
-                                      ].whereType<String>().join(' · '),
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.blueGrey,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                    child: _buildAmountSummary(
+                                      label: 'PRIX DE LA COURSE',
+                                      amount: mission.coursePrice,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 1,
+                                    height: 48,
+                                    color: Colors.blue.shade100,
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: _buildAmountSummary(
+                                      label: 'VOTRE GAIN',
+                                      amount: mission.earnAmount,
+                                      color: Colors.blue,
                                     ),
                                   ),
                                 ],
                               ),
+                              if (mission.driverBonusXof > 0) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Bonus adresse: +${formatXof(mission.driverBonusXof)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ],
+                              if (mission.etaText != null) ...[
+                                const SizedBox(height: 12),
+                                Divider(color: Colors.blue.shade100, height: 1),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.route,
+                                      size: 18,
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        [
+                                          mission.etaText,
+                                          mission.distanceText,
+                                        ].whereType<String>().join(' · '),
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.blueGrey,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 20),
 
                       // ── Carte itinéraire ───────────────────────────────────────
@@ -1389,6 +1404,200 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ),
       ],
     );
+  }
+
+  Widget _buildCompletionRecap(DeliveryMission mission) {
+    final summary = mission.completionSummary;
+    final totalSeconds = summary?.totalDurationSeconds ??
+        _secondsBetween(mission.assignedAt, mission.completedAt);
+    final pickupSeconds = summary?.assignedToPickupSeconds ??
+        _secondsBetween(mission.assignedAt, mission.startedAt);
+    final deliverySeconds = summary?.pickupToDeliverySeconds ??
+        _secondsBetween(mission.startedAt, mission.completedAt);
+    final isSuccess = mission.isCompleted;
+    final statusColor = isSuccess ? Colors.green : Colors.red;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: AppMotion.emphasized,
+      curve: AppMotion.emphasizedCurve,
+      builder: (context, value, child) => Opacity(
+        opacity: value.clamp(0, 1),
+        child: Transform.scale(
+          scale: 0.94 + (0.06 * value),
+          alignment: Alignment.topCenter,
+          child: child,
+        ),
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              statusColor.withValues(alpha: 0.14),
+              statusColor.withValues(alpha: 0.04),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: statusColor.withValues(alpha: 0.25)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: statusColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isSuccess ? Icons.check_rounded : Icons.close_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isSuccess ? 'Livraison réussie' : 'Mission terminée',
+                        style: const TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (mission.completedAt != null)
+                        Text(
+                          formatDate(mission.completedAt!),
+                          style: const TextStyle(color: Colors.blueGrey),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _completionMetric(
+                  icon: Icons.payments_outlined,
+                  label: 'Votre gain',
+                  value: formatXof(mission.earnAmount),
+                  color: Colors.green,
+                ),
+                _completionMetric(
+                  icon: Icons.timer_outlined,
+                  label: 'Durée totale',
+                  value: _formatDuration(totalSeconds),
+                  color: Colors.blue,
+                ),
+                _completionMetric(
+                  icon: Icons.two_wheeler_outlined,
+                  label: 'Distance réelle',
+                  value: _formatRecordedDistance(
+                    summary?.recordedDistanceMeters,
+                  ),
+                  color: Colors.deepPurple,
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Divider(color: statusColor.withValues(alpha: 0.2), height: 1),
+            const SizedBox(height: 14),
+            _completionLine(
+              'Acceptation → collecte',
+              _formatDuration(pickupSeconds),
+            ),
+            const SizedBox(height: 8),
+            _completionLine(
+              'Collecte → livraison',
+              _formatDuration(deliverySeconds),
+            ),
+            if (summary?.recordedDistanceMeters == null) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'La distance réelle n’est affichée que lorsqu’une trace GPS exploitable a été enregistrée.',
+                style: TextStyle(fontSize: 12, color: Colors.blueGrey),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _completionMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      width: 145,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+          ),
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Widget _completionLine(String label, String value) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(color: Colors.blueGrey)),
+        ),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+
+  int? _secondsBetween(DateTime? start, DateTime? end) {
+    if (start == null || end == null) return null;
+    return end.difference(start).inSeconds.clamp(0, 1 << 31).toInt();
+  }
+
+  String _formatDuration(int? seconds) {
+    if (seconds == null) return 'Non disponible';
+    final duration = Duration(seconds: seconds);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    if (hours > 0) {
+      return '$hours h ${minutes.toString().padLeft(2, '0')} min';
+    }
+    if (duration.inMinutes > 0) return '${duration.inMinutes} min';
+    return '${duration.inSeconds} s';
+  }
+
+  String _formatRecordedDistance(int? meters) {
+    if (meters == null) return 'Non disponible';
+    if (meters < 1000) return '$meters m';
+    return '${(meters / 1000).toStringAsFixed(1)} km';
   }
 
   String _pickupAreaLabel(DeliveryMission mission) {

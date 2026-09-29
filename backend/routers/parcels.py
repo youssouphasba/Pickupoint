@@ -757,6 +757,9 @@ async def lookup_parcel_by_tracking(tracking_code: str, current_user: dict = Dep
 
     return payload
 
+_LIVE_TRACKING_TRAIL_LIMIT = 60
+
+
 @router.get("/{parcel_id}/driver-location", summary="Position GPS du livreur actif pour ce colis")
 async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_current_user)):
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
@@ -782,6 +785,7 @@ async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_c
             "delivery_geopin": 1,
             "delivery_label": 1,
             "location_updated_at": 1,
+            "gps_trail": {"$slice": -_LIVE_TRACKING_TRAIL_LIMIT},
         },
     )
     if not mission or not mission.get("driver_location"):
@@ -794,6 +798,12 @@ async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_c
         "distance_text": mission.get("distance_text"),
         "eta_seconds": mission.get("eta_seconds"),
         "encoded_polyline": mission.get("encoded_polyline"),
+        "trail": [
+            {"lat": point.get("lat"), "lng": point.get("lng")}
+            for point in mission.get("gps_trail") or []
+            if isinstance(point.get("lat"), (int, float))
+            and isinstance(point.get("lng"), (int, float))
+        ],
         "destination": {
             "geopin": mission.get("delivery_geopin"),
             "label": mission.get("delivery_label"),

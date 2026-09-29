@@ -23,6 +23,7 @@ import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/location_tracking_service.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../shared/feedback/action_feedback.dart';
+import '../widgets/completed_mission_card.dart';
 
 class _MissionPreview {
   const _MissionPreview({
@@ -695,6 +696,13 @@ class _MissionsList extends ConsumerWidget {
             final completed = missions
                 .where((m) => m.status == 'completed' || m.status == 'failed')
                 .toList();
+            active.sort(
+              (a, b) => _driverMissionDate(b).compareTo(_driverMissionDate(a)),
+            );
+            completed.sort(
+              (a, b) => _driverMissionDate(b).compareTo(_driverMissionDate(a)),
+            );
+            final recentCompleted = completed.take(10).toList();
 
             if (active.isEmpty && completed.isEmpty) {
               return _buildEmpty('Vous n\'avez pas encore de mission');
@@ -738,14 +746,27 @@ class _MissionsList extends ConsumerWidget {
                       Icon(Icons.history,
                           color: Colors.grey.shade600, size: 20),
                       const SizedBox(width: 10),
-                      Text('${completed.length} mission(s) terminée(s)',
+                      Text('Missions terminées',
                           style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Colors.grey.shade700)),
                     ]),
                   ),
                   const SizedBox(height: 4),
-                  ...completed.map((m) => _buildCompletedCard(context, m)),
+                  ...recentCompleted.asMap().entries.map(
+                        (entry) => _MissionEntrance(
+                          index: entry.key,
+                          child: CompletedMissionCard(mission: entry.value),
+                        ),
+                      ),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: () =>
+                          context.push('/driver/missions/completed'),
+                      icon: const Icon(Icons.history),
+                      label: const Text('Voir plus'),
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 80),
               ],
@@ -816,54 +837,13 @@ class _MissionsList extends ConsumerWidget {
           ],
         ]),
       );
+}
 
-  Widget _buildCompletedCard(BuildContext context, DeliveryMission m) {
-    final isFailed = m.status == 'failed';
-    final color = isFailed ? Colors.red : Colors.green;
-    final icon = isFailed ? Icons.cancel_outlined : Icons.check_circle_outline;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      color: Colors.grey.shade50,
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.1),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        title: Text(
-          m.trackingCode ?? m.id.substring(0, 10),
-          style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-              fontFamily: 'monospace'),
-        ),
-        subtitle: Text(
-          '${m.pickupLabel} -> ${m.deliveryLabel}',
-          style: const TextStyle(fontSize: 11),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              formatXof(m.earnAmount),
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: isFailed ? Colors.grey : Colors.green.shade700,
-                fontSize: 14,
-              ),
-            ),
-            Text(
-              isFailed ? 'Échouée' : 'Encaissé',
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+DateTime _driverMissionDate(DeliveryMission mission) {
+  return mission.completedAt ??
+      mission.startedAt ??
+      mission.assignedAt ??
+      mission.createdAt;
 }
 
 class _CompactTab extends StatelessWidget {
