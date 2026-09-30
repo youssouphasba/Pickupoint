@@ -205,7 +205,7 @@ function buildInitialPerformanceRewardsPayload(settings: any): PerformanceReward
         20,
       ),
       success_bonus: {
-        enabled: Boolean(rewards?.driver?.success_bonus?.enabled ?? true),
+        enabled: Boolean(rewards?.driver?.success_bonus?.enabled ?? false),
         min_success_rate: numberValue(
           rewards?.driver?.success_bonus?.min_success_rate,
           95,
@@ -216,17 +216,10 @@ function buildInitialPerformanceRewardsPayload(settings: any): PerformanceReward
         ),
         amount_xof: numberValue(rewards?.driver?.success_bonus?.amount_xof, 5000),
       },
-      volume_bonuses: rewards?.driver?.volume_bonuses ?? [
-        { min_deliveries: 50, amount_xof: 2500 },
-        { min_deliveries: 100, amount_xof: 5000 },
-        { min_deliveries: 200, amount_xof: 10000 },
-      ],
+      volume_bonuses: rewards?.driver?.volume_bonuses ?? [],
     },
     relay: {
-      volume_bonuses: rewards?.relay?.volume_bonuses ?? [
-        { min_parcels: 20, amount_xof: 1000 },
-        { min_parcels: 50, amount_xof: 2000 },
-      ],
+      volume_bonuses: rewards?.relay?.volume_bonuses ?? [],
     },
     client: {
       loyalty_tiers: rewards?.client?.loyalty_tiers ?? [],
@@ -1204,6 +1197,9 @@ function RewardRulesEditor<T extends "min_deliveries" | "min_parcels">({
         </Button>
       </div>
       <div className="space-y-2">
+        {rows.length === 0 && (
+          <p className="text-sm text-muted-foreground">Aucun bonus configuré.</p>
+        )}
         {rows.map((row, index) => (
           <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
             <MiniNumber

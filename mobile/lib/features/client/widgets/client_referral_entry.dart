@@ -43,7 +43,7 @@ class ReferralRewardButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label =
-        'Gagne ${formatXof((offer['sponsor_bonus_xof'] as num).toDouble())}';
+        'Gagnez ${formatXof((offer['sponsor_bonus_xof'] as num).toDouble())}';
     return Tooltip(
       message: '$label · Parrainage',
       child: FilledButton.icon(

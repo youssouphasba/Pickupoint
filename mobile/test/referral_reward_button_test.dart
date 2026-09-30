@@ -64,10 +64,10 @@ void main() {
             ),
           )),
         )));
-        expect(find.text('Gagne ${formatXof(1250)}'), findsOneWidget);
+        expect(find.text('Gagnez ${formatXof(1250)}'), findsOneWidget);
         expect(find.text('Denkma'), findsOneWidget);
         expect(find.byType(IconButton), findsNWidgets(4));
-        await tester.tap(find.text('Gagne ${formatXof(1250)}'));
+        await tester.tap(find.text('Gagnez ${formatXof(1250)}'));
         expect(opened, isTrue);
         expect(tester.takeException(), isNull);
       });

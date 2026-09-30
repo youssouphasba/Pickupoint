@@ -10,22 +10,15 @@ DEFAULT_PERFORMANCE_REWARDS = {
     "driver": {
         "monthly_goal_deliveries": 20,
         "success_bonus": {
-            "enabled": True,
+            "enabled": False,
             "min_success_rate": 95,
             "min_deliveries": 20,
             "amount_xof": 5000,
         },
-        "volume_bonuses": [
-            {"min_deliveries": 50, "amount_xof": 2500},
-            {"min_deliveries": 100, "amount_xof": 5000},
-            {"min_deliveries": 200, "amount_xof": 10000},
-        ],
+        "volume_bonuses": [],
     },
     "relay": {
-        "volume_bonuses": [
-            {"min_parcels": 20, "amount_xof": 1000},
-            {"min_parcels": 50, "amount_xof": 2000},
-        ],
+        "volume_bonuses": [],
     },
     "client": {
         "loyalty_points_per_delivered_parcel": 10,
@@ -66,7 +59,7 @@ def normalize_performance_rewards(raw: dict | None) -> dict:
         "amount_xof": _positive_int(success_bonus.get("amount_xof"), cfg["driver"]["success_bonus"]["amount_xof"]),
     }
     driver_volume = driver.get("volume_bonuses") if isinstance(driver.get("volume_bonuses"), list) else []
-    if driver_volume:
+    if isinstance(driver.get("volume_bonuses"), list):
         cfg["driver"]["volume_bonuses"] = sorted(
             [
                 {
@@ -81,7 +74,7 @@ def normalize_performance_rewards(raw: dict | None) -> dict:
 
     relay = raw.get("relay") if isinstance(raw.get("relay"), dict) else {}
     relay_volume = relay.get("volume_bonuses") if isinstance(relay.get("volume_bonuses"), list) else []
-    if relay_volume:
+    if isinstance(relay.get("volume_bonuses"), list):
         cfg["relay"]["volume_bonuses"] = sorted(
             [
                 {

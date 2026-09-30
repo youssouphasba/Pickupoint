@@ -1,6 +1,7 @@
 "use client";
 import { ReferralLedger } from "@/components/referral-ledger";
 import { audiencesForRecipients, resetRecipientAudience } from "@/lib/campaign-audience";
+import { referralConditions, referralMetricCount } from "@/lib/referral-wording";
 
 import * as React from "react";
 import { isAxiosError } from "axios";
@@ -23,8 +24,6 @@ import {
   deleteInAppCampaign,
   notifyInAppCampaign,
   fetchSettings,
-  toggleExpress,
-  updateLogisticsSettings,
   updateReferralSettings,
   ReferralRoleConfig,
   InAppCampaign,
@@ -53,14 +52,6 @@ const PROMO_TYPES = [
   { value: "express_upgrade", label: "Express offert" },
 ] as const;
 
-const PROMO_TARGETS = [
-  { value: "all", label: "Tous les clients" },
-  { value: "first_delivery", label: "Première livraison" },
-  { value: "tier_silver", label: "Fidélité Silver+" },
-  { value: "tier_gold", label: "Fidélité Gold" },
-  { value: "delivery_mode", label: "Mode de livraison" },
-] as const;
-
 function PromotionField({ label, help, children, className = "" }: {
   label: string;
   help: string;
@@ -75,6 +66,14 @@ function PromotionField({ label, help, children, className = "" }: {
   </div>;
 }
 
+const PROMO_TARGETS = [
+  { value: "all", label: "Tous les clients" },
+  { value: "first_delivery", label: "Première livraison" },
+  { value: "tier_silver", label: "Fidélité Silver+" },
+  { value: "tier_gold", label: "Fidélité Gold" },
+  { value: "delivery_mode", label: "Mode de livraison" },
+] as const;
+
 function PromotionManager() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -82,6 +81,10 @@ function PromotionManager() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const stats = useQuery({ queryKey: ["admin-promotion-stats", selectedId], queryFn: () => fetchPromotionStats(selectedId!), enabled: Boolean(selectedId) });
   const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [browserTimeZone, setBrowserTimeZone] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setBrowserTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }, []);
   const now = React.useMemo(() => new Date(), []);
   const [form, setForm] = React.useState<AdminPromotionPayload>({
     title: "",
@@ -107,21 +110,83 @@ function PromotionManager() {
 
   return <section className="space-y-4">
     <div><h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Promotions commerciales</h2><p className="mt-1 text-sm text-muted-foreground">Réductions appliquées au prix de livraison, avec quotas et historique.</p></div>
-    <Card><CardHeader><CardTitle className="text-base">Créer une promotion</CardTitle></CardHeader><CardContent className="grid gap-4 lg:grid-cols-3">
-      <Input placeholder="Titre de la promotion" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-      <Input placeholder="Code promo optionnel" value={form.promo_code ?? ""} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} />
-      <select value={form.promo_type} onChange={(e) => setForm({ ...form, promo_type: e.target.value as AdminPromotionPayload["promo_type"], value: e.target.value === "percentage" ? 10 : 0 })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">{PROMO_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select>
-      <textarea className="min-h-20 rounded-md border border-input bg-background px-3 py-2 text-sm lg:col-span-3" placeholder="Description" value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-      {form.promo_type === "percentage" || form.promo_type === "fixed_amount" ? <Input type="number" min={0} max={form.promo_type === "percentage" ? 100 : 1000000} placeholder={form.promo_type === "percentage" ? "Pourcentage" : "Montant XOF"} value={form.value} onChange={(e) => setForm({ ...form, value: Number(e.target.value) })} /> : <div className="flex items-center rounded-md border border-dashed px-3 text-sm text-muted-foreground">Aucune réduction monétaire</div>}
-      <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value, delivery_mode: e.target.value === "delivery_mode" ? "home_to_home" : null })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">{PROMO_TARGETS.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}</select>
-      {form.target === "delivery_mode" ? <select value={form.delivery_mode ?? "home_to_home"} onChange={(e) => setForm({ ...form, delivery_mode: e.target.value })} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="home_to_home">Domicile → domicile</option><option value="home_to_relay">Domicile → relais</option><option value="relay_to_home">Relais → domicile</option><option value="relay_to_relay">Relais → relais</option></select> : <div />}
-      <Input type="number" min={0} placeholder="Montant minimum XOF" value={form.min_amount ?? ""} onChange={(e) => setForm({ ...form, min_amount: e.target.value ? Number(e.target.value) : null })} />
-      <Input type="number" min={1} placeholder="Quota total" value={form.max_uses_total ?? ""} onChange={(e) => setForm({ ...form, max_uses_total: e.target.value ? Number(e.target.value) : null })} />
-      <Input type="number" min={1} placeholder="Quota par client" value={form.max_uses_per_user} onChange={(e) => setForm({ ...form, max_uses_per_user: Math.max(1, Number(e.target.value)) })} />
-      <Input type="datetime-local" value={form.start_date.slice(0, 16)} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
-      <Input type="datetime-local" value={form.end_date.slice(0, 16)} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
-      <div className="flex gap-2"><Button disabled={!canCreate || createMut.isPending || updateMut.isPending} onClick={() => editingId ? updateMut.mutate() : createMut.mutate()}>{createMut.isPending || updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{editingId ? "Enregistrer" : "Créer"}</Button>{editingId ? <Button variant="outline" onClick={() => setEditingId(null)}>Annuler</Button> : null}</div>
-    </CardContent></Card>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{editingId ? "Modifier la promotion" : "Créer une promotion"}</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Définissez l’avantage, les clients concernés, les limites et la période.
+          {editingId && " Le code, le type, le public et la date de début ne sont pas modifiables après création."}
+        </p>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" onSubmit={(event) => {
+          event.preventDefault();
+          if (canCreate && !createMut.isPending && !updateMut.isPending) {
+            if (editingId) updateMut.mutate(); else createMut.mutate();
+          }
+        }}>
+          <PromotionField label="Titre de la promotion" help="Un nom court pour identifier l’offre.">
+            <Input required minLength={2} maxLength={120} placeholder="Nom de votre offre" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </PromotionField>
+          <PromotionField label="Code promo (facultatif)" help={form.promo_code?.trim() ? "Le client devra saisir ce code pour bénéficier de l’offre." : "Sans code, l’offre est automatique si ses conditions sont remplies."}>
+            <Input maxLength={40} disabled={Boolean(editingId)} placeholder="Laisser vide pour une offre automatique" value={form.promo_code ?? ""} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} />
+          </PromotionField>
+          <PromotionField label="Type d’avantage" help="Choisissez ce que cette promotion offre au client.">
+            <select disabled={Boolean(editingId)} value={form.promo_type} onChange={(e) => setForm({ ...form, promo_type: e.target.value as AdminPromotionPayload["promo_type"], value: e.target.value === "percentage" ? 10 : 0 })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              {PROMO_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+            </select>
+          </PromotionField>
+          <PromotionField label="Description (facultative)" help="Expliquez l’offre en une phrase simple." className="md:col-span-2 xl:col-span-3">
+            <textarea maxLength={1000} className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="Description de l’offre" value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </PromotionField>
+          {form.promo_type === "percentage" || form.promo_type === "fixed_amount" ? (
+            <PromotionField label={form.promo_type === "percentage" ? "Réduction (%)" : "Réduction (XOF)"} help={form.promo_type === "percentage" ? "Part du prix de livraison à déduire. Par exemple, 10 signifie 10 %." : "Somme à déduire du prix de livraison, sans rendre le prix négatif."}>
+              <Input required type="number" step="any" min={0} max={form.promo_type === "percentage" ? 100 : 1000000} value={form.value} onChange={(e) => setForm({ ...form, value: Number(e.target.value) })} />
+            </PromotionField>
+          ) : (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <div className="font-medium">{form.promo_type === "free_delivery" ? "Prix de livraison offert" : "Avantage Express offert"}</div>
+              <p className="mt-2 text-xs text-muted-foreground">{form.promo_type === "free_delivery" ? "La réduction couvre le prix de livraison. Aucun montant à saisir." : "Ce type d’offre n’utilise ni pourcentage ni montant fixe."}</p>
+            </div>
+          )}
+          <PromotionField label="Clients concernés" help={form.target === "first_delivery" ? "Clients qui n’ont encore aucun colis livré en tant qu’expéditeur." : form.target === "tier_silver" ? "Clients aux niveaux de fidélité Argent ou Or." : form.target === "tier_gold" ? "Clients au niveau de fidélité Or uniquement." : form.target === "delivery_mode" ? "L’offre concerne uniquement le trajet choisi ci-dessous." : "Tous les clients, sous réserve des autres conditions de l’offre."}>
+            <select disabled={Boolean(editingId)} value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value, delivery_mode: e.target.value === "delivery_mode" ? "home_to_home" : null })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+              {PROMO_TARGETS.map((target) => <option key={target.value} value={target.value}>{target.label}</option>)}
+            </select>
+          </PromotionField>
+          {form.target === "delivery_mode" && (
+            <PromotionField label="Mode de livraison concerné" help="Les autres modes de livraison ne bénéficient pas de cette offre.">
+              <select disabled={Boolean(editingId)} value={form.delivery_mode ?? "home_to_home"} onChange={(e) => setForm({ ...form, delivery_mode: e.target.value })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+                <option value="home_to_home">Domicile → domicile</option><option value="home_to_relay">Domicile → relais</option><option value="relay_to_home">Relais → domicile</option><option value="relay_to_relay">Relais → relais</option>
+              </select>
+            </PromotionField>
+          )}
+          <PromotionField label="Prix de livraison minimum (XOF, facultatif)" help="Prix avant cette promotion. Laissez vide pour ne pas imposer de minimum. Ce n’est pas la valeur du colis.">
+            <Input type="number" step="any" min={0} placeholder="Aucun minimum" value={form.min_amount ?? ""} onChange={(e) => setForm({ ...form, min_amount: e.target.value ? Number(e.target.value) : null })} />
+          </PromotionField>
+          <PromotionField label="Utilisations maximum au total (facultatif)" help="Limite pour tous les clients réunis. Laissez vide pour ne pas limiter le total.">
+            <Input type="number" min={1} step={1} placeholder="Sans limite globale" value={form.max_uses_total ?? ""} onChange={(e) => setForm({ ...form, max_uses_total: e.target.value ? Number(e.target.value) : null })} />
+          </PromotionField>
+          <PromotionField label="Utilisations maximum par client" help="Sur toute la durée de l’offre. Par exemple, 1 permet une seule utilisation par client.">
+            <Input required type="number" min={1} max={100000} step={1} value={form.max_uses_per_user} onChange={(e) => setForm({ ...form, max_uses_per_user: Number(e.target.value) })} />
+          </PromotionField>
+          <PromotionField label="Début de l’offre" help="L’offre devient applicable à partir de cette date et de cette heure.">
+            <Input required disabled={Boolean(editingId)} type="datetime-local" value={form.start_date.slice(0, 16)} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+          </PromotionField>
+          <PromotionField label="Fin de l’offre" help="L’offre expire à cette date et à cette heure. La fin doit être après le début.">
+            <Input required type="datetime-local" value={form.end_date.slice(0, 16)} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+          </PromotionField>
+          <div className="space-y-3 md:col-span-2 xl:col-span-3">
+            <p className="text-xs text-muted-foreground">Les horaires utilisent le fuseau de votre navigateur{browserTimeZone ? ` : ${browserTimeZone}` : ""}.</p>
+            {new Date(form.end_date).getTime() <= new Date(form.start_date).getTime() && <p role="alert" className="text-sm text-red-600">Choisissez une date de fin après la date de début.</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={!canCreate || createMut.isPending || updateMut.isPending}>{createMut.isPending || updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}{editingId ? "Enregistrer les modifications" : "Créer la promotion"}</Button>
+              {editingId && <Button type="button" variant="outline" onClick={() => setEditingId(null)}>Annuler</Button>}
+            </div>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
     <div className="grid gap-4 lg:grid-cols-2">{promotions.data?.promotions.map((promo) => { const expired = new Date(promo.end_date).getTime() < Date.now(); return <Card key={promo.promo_id}><CardContent className="space-y-3 p-5"><div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{promo.title}</div><div className="text-sm text-muted-foreground">{promo.description || "Sans description"}</div></div><Badge tone={promo.is_active && !expired ? "success" : "default"}>{expired ? "Expirée" : promo.is_active ? "Active" : "Inactive"}</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div><div className="text-xs text-muted-foreground">Avantage</div><div className="font-medium">{promo.promo_type === "percentage" ? `${promo.value}%` : promo.promo_type === "fixed_amount" ? `${xof.format(promo.value)} XOF` : PROMO_TYPES.find((type) => type.value === promo.promo_type)?.label}</div></div><div><div className="text-xs text-muted-foreground">Utilisations</div><div className="font-medium">{promo.uses_count}{promo.max_uses_total ? ` / ${promo.max_uses_total}` : ""}</div></div></div><div className="flex flex-wrap gap-2 text-xs"><Badge>{promo.promo_code || "Automatique"}</Badge><Badge>{PROMO_TARGETS.find((target) => target.value === promo.target)?.label ?? promo.target}</Badge><Badge>Jusqu’au {new Date(promo.end_date).toLocaleDateString("fr-FR")}</Badge></div><div className="flex flex-wrap justify-end gap-2"><Button size="sm" variant="outline" onClick={() => { setEditingId(promo.promo_id); setForm({ ...promo, start_date: toDateTimeLocal(new Date(promo.start_date)), end_date: toDateTimeLocal(new Date(promo.end_date)) }); }}>Modifier</Button><Button size="sm" variant="outline" onClick={() => setSelectedId(selectedId === promo.promo_id ? null : promo.promo_id)}>Statistiques</Button><Button size="sm" variant="outline" onClick={() => toggleMut.mutate({ id: promo.promo_id, active: !promo.is_active })}>{promo.is_active ? "Désactiver" : "Activer"}</Button><Button size="sm" variant="outline" onClick={() => { if (window.confirm("Supprimer ou désactiver cette promotion ?")) deleteMut.mutate(promo.promo_id); }}><Trash2 className="h-4 w-4" />Supprimer</Button></div>{selectedId === promo.promo_id && stats.data ? <div className="rounded-md bg-muted/50 p-3 text-sm"><div className="grid grid-cols-2 gap-2"><span>Utilisations : <strong>{stats.data.uses}</strong></span><span>Clients uniques : <strong>{stats.data.unique_users}</strong></span><span>Remises : <strong>{xof.format(stats.data.discount_total_xof)} XOF</strong></span><span>CA associé : <strong>{xof.format(stats.data.revenue_total_xof)} XOF</strong></span></div><div className="mt-3 max-h-40 overflow-y-auto border-t pt-2">{stats.data.history?.map((item: any) => <div key={item.use_id} className="flex justify-between border-b py-1 text-xs"><span>{item.tracking_code || item.parcel_id}</span><span>{xof.format(item.discount_xof)} XOF</span></div>)}</div></div> : null}</CardContent></Card>; })}</div>
   </section>;
 }
@@ -129,7 +194,7 @@ function PromotionManager() {
 const METRIC_LABELS: Record<string, string> = {
   sent_parcels: "Colis créés",
   delivered_sender_parcels: "Colis livrés par le client",
-  completed_driver_deliveries: "Missions terminées par le livreur",
+  completed_driver_deliveries: "Missions terminées par le filleul livreur",
 };
 
 const campaignRoleOptions = [
@@ -609,12 +674,13 @@ function RoleConfigCard({
   onChange: (c: ReferralRoleConfig) => void;
 }) {
   const label = role === "client" ? "Client" : role === "driver" ? "Livreur" : role;
+  const conditions = referralConditions(config);
 
   return (
     <Card>
       <CardContent className="p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="font-semibold">Comptes {label.toLowerCase()}s</span>
+          <span className="font-semibold">Parrainage d’un filleul {label.toLowerCase()}</span>
           {editing ? (
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -631,35 +697,44 @@ function RoleConfigCard({
             </Badge>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">L’activation concerne les comptes de ce rôle. Les primes et objectifs ci-dessous dépendent du rôle du filleul, pas de celui du parrain. Les conditions déjà acceptées restent inchangées.</p>
+        <p className="text-xs text-muted-foreground">Le filleul est la personne invitée ; le parrain est la personne qui l’invite. Les conditions ci-dessous portent sur l’activité du filleul. Modifier ces paramètres ne change pas les conditions des parrainages déjà acceptés.</p>
+        <p className="text-xs text-muted-foreground">L’activation permet aux comptes de ce rôle de parrainer ou d’être parrainés. Les montants ci-dessous dépendent du type de filleul, pas du rôle du parrain.</p>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Bonus parrain (XOF)</label>
+            <label className="block text-xs text-muted-foreground mb-1">Prime à payer au parrain (XOF)</label>
             {editing ? (
               <Input
                 type="number"
                 value={config.sponsor_bonus_xof}
+                min={0}
                 onChange={(e) => onChange({ ...config, sponsor_bonus_xof: parseInt(e.target.value) || 0 })}
               />
             ) : (
               <div className="font-medium">{xof.format(config.sponsor_bonus_xof)} XOF</div>
             )}
+            <p className="mt-1 text-xs text-muted-foreground">{config.sponsor_bonus_xof === 0 ? "Aucune prime pour le parrain." : "Montant dû à la personne qui invite, pour chaque parrainage validé."}</p>
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Bonus filleul (XOF)</label>
+            <label className="block text-xs text-muted-foreground mb-1">Prime à payer au filleul (XOF)</label>
             {editing ? (
               <Input
                 type="number"
                 value={config.referred_bonus_xof}
+                min={0}
                 onChange={(e) => onChange({ ...config, referred_bonus_xof: parseInt(e.target.value) || 0 })}
               />
             ) : (
               <div className="font-medium">{xof.format(config.referred_bonus_xof)} XOF</div>
             )}
+            <p className="mt-1 text-xs text-muted-foreground">{config.referred_bonus_xof === 0 ? "Aucune prime pour le filleul." : "Montant dû à la personne invitée, une fois le parrainage validé."}</p>
+          </div>
+          <div className="rounded-md bg-muted/30 p-3 sm:col-span-2">
+            <h3 className="font-semibold">1. Condition pour ajouter le code</h3>
+            <p className="mt-1 text-sm">{conditions.application}</p>
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Quand le code peut être saisi</label>
+            <label className="block text-xs text-muted-foreground mb-1">Activité du filleul à vérifier</label>
             {editing ? (
               <select
                 value={config.apply_metric}
@@ -667,7 +742,7 @@ function RoleConfigCard({
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 {(metricOptions ?? Object.entries(METRIC_LABELS).map(([v, l]) => ({ value: v, label: l }))).map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>{METRIC_LABELS[o.value] ?? o.label}</option>
                 ))}
               </select>
             ) : (
@@ -675,19 +750,25 @@ function RoleConfigCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Maximum avant saisie du code</label>
+            <label className="block text-xs text-muted-foreground mb-1">Nombre maximum autorisé pour ajouter le code</label>
             {editing ? (
               <Input
                 type="number"
                 value={config.apply_max_count}
+                min={0}
                 onChange={(e) => onChange({ ...config, apply_max_count: parseInt(e.target.value) || 0 })}
               />
             ) : (
-              <div className="font-medium">{config.apply_max_count === 0 ? "Aucune action réalisée" : config.apply_max_count}</div>
+              <div className="font-medium">{referralMetricCount(config.apply_metric, config.apply_max_count)}</div>
             )}
           </div>
+          <div className="rounded-md bg-muted/30 p-3 sm:col-span-2">
+            <h3 className="font-semibold">2. Condition pour débloquer les primes</h3>
+            <p className="mt-1 text-sm">{conditions.reward}</p>
+            <p className="mt-1 text-xs text-muted-foreground">L’activité avant l’ajout du code compte aussi. Si l’objectif est déjà atteint, le parrainage peut être validé dès l’ajout du code.</p>
+          </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Quand payer le bonus</label>
+            <label className="block text-xs text-muted-foreground mb-1">Activité du filleul qui valide le parrainage</label>
             {editing ? (
               <select
                 value={config.reward_metric}
@@ -695,7 +776,7 @@ function RoleConfigCard({
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 {(metricOptions ?? Object.entries(METRIC_LABELS).map(([v, l]) => ({ value: v, label: l }))).map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value}>{METRIC_LABELS[o.value] ?? o.label}</option>
                 ))}
               </select>
             ) : (
@@ -703,7 +784,7 @@ function RoleConfigCard({
             )}
           </div>
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Objectif à atteindre</label>
+            <label className="block text-xs text-muted-foreground mb-1">Nombre minimum requis pour valider le parrainage</label>
             {editing ? (
               <Input
                 type="number"
@@ -712,22 +793,25 @@ function RoleConfigCard({
                 min={1}
               />
             ) : (
-              <div className="font-medium">{config.reward_count}</div>
+              <div className="font-medium">{referralMetricCount(config.reward_metric, config.reward_count)}</div>
             )}
           </div>
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <label className="block text-xs text-muted-foreground mb-1">Limite de filleuls de ce type par parrain</label>
             {editing ? (
               <Input
                 type="number"
                 value={config.max_referrals_per_sponsor}
+                min={0}
                 onChange={(e) => onChange({ ...config, max_referrals_per_sponsor: parseInt(e.target.value) || 0 })}
               />
             ) : (
               <div className="font-medium">{config.max_referrals_per_sponsor === 0 ? "Illimité" : config.max_referrals_per_sponsor}</div>
             )}
+            <p className="mt-1 text-xs text-muted-foreground">{conditions.limit} En saisie, 0 signifie sans limite.</p>
           </div>
         </div>
+        <p className="rounded-md border p-3 text-sm">Denkma paie les primes hors de l’application, puis enregistre le paiement. Atteindre l’objectif ne déclenche pas de virement automatique et ne crédite pas le wallet.</p>
       </CardContent>
     </Card>
   );
@@ -747,18 +831,9 @@ export default function PromotionsPage() {
     queryFn: fetchReferralStats,
   });
 
-  const expressMut = useMutation({
-    mutationFn: (enabled: boolean) => toggleExpress(enabled),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
-      toast("Mode express mis à jour.");
-    },
-  });
-
   const [editing, setEditing] = React.useState(false);
   const [clientConfig, setClientConfig] = React.useState<ReferralRoleConfig | null>(null);
   const [driverConfig, setDriverConfig] = React.useState<ReferralRoleConfig | null>(null);
-  const [redirectRelayDistance, setRedirectRelayDistance] = React.useState("1");
 
   const s = settings.data;
 
@@ -767,21 +842,7 @@ export default function PromotionsPage() {
       setClientConfig(s.referral_roles.client);
       setDriverConfig(s.referral_roles.driver);
     }
-    if (s?.redirect_relay_max_distance_km != null) {
-      setRedirectRelayDistance(String(s.redirect_relay_max_distance_km));
-    }
   }, [s]);
-
-  const logisticsMut = useMutation({
-    mutationFn: () =>
-      updateLogisticsSettings({
-        redirect_relay_max_distance_km: Number(redirectRelayDistance),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
-      toast("Règles logistiques mises à jour.");
-    },
-  });
 
   const referralMut = useMutation({
     mutationFn: () =>
@@ -800,16 +861,15 @@ export default function PromotionsPage() {
 
   const loading = settings.isLoading;
 
-  // Metric options from stats response
   const clientMetrics = referralStats.data?.referral_roles?.client?.metric_options;
   const driverMetrics = referralStats.data?.referral_roles?.driver?.metric_options;
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Promotions & paramètres</h1>
+        <h1 className="text-2xl font-bold">Promotions & parrainage</h1>
         <p className="text-sm text-muted-foreground">
-          Contrôler la livraison express et les programmes de parrainage.
+          Gérez les offres commerciales, les communications et le parrainage.
         </p>
       </div>
 
@@ -823,85 +883,6 @@ export default function PromotionsPage() {
         </div>
       )}
 
-      {s && (
-        <>
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Livraison express
-            </h2>
-            <Card>
-              <CardContent className="flex items-center justify-between p-5">
-                <div>
-                  <div className="font-medium">Mode express</div>
-                  <div className="text-sm text-muted-foreground">
-                    Coefficient x1.30 sur les tarifs.
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge tone={s.express_enabled ? "success" : "default"}>
-                    {s.express_enabled ? "Activé" : "Désactivé"}
-                  </Badge>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={expressMut.isPending}
-                    onClick={() => expressMut.mutate(!s.express_enabled)}
-                  >
-                    {expressMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {s.express_enabled ? "Désactiver" : "Activer"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </section>
-
-          <section>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Règles logistiques
-            </h2>
-            <Card>
-              <CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-end">
-                <div>
-                  <div className="font-medium">Rayon maximum relais de repli</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Si aucun relais actif, ouvert et disponible n'est trouvé dans ce rayon autour du destinataire,
-                    Denkma déclenche un retour à l'expéditeur au lieu d'envoyer le colis trop loin.
-                  </div>
-                  <div className="mt-3 max-w-xs">
-                    <label className="mb-1 block text-xs text-muted-foreground">
-                      Distance maximale autour du destinataire
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min="0.1"
-                        max="10"
-                        step="0.1"
-                        value={redirectRelayDistance}
-                        onChange={(e) => setRedirectRelayDistance(e.target.value)}
-                      />
-                      <span className="text-sm text-muted-foreground">km</span>
-                    </div>
-                  </div>
-                </div>
-                <Button
-                  className="w-full md:w-auto"
-                  variant="outline"
-                  disabled={logisticsMut.isPending || Number(redirectRelayDistance) < 0.1}
-                  onClick={() => logisticsMut.mutate()}
-                >
-                  {logisticsMut.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  Sauvegarder
-                </Button>
-              </CardContent>
-            </Card>
-          </section>
-        </>
-      )}
 
       {clientConfig && driverConfig && (
         <section>
