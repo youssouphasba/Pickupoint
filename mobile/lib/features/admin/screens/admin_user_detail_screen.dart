@@ -12,10 +12,12 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../providers/admin_provider.dart';
+import '../widgets/referral_payment_dialog.dart';
 import 'admin_parcel_audit_screen.dart';
 import 'admin_relay_detail_screen.dart';
 import 'admin_user_history_screen.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../../../shared/screens/referral_screen.dart';
 import '../../../shared/widgets/relay_opening_hours_editor.dart';
 
 class AdminUserDetailScreen extends ConsumerWidget {
@@ -604,12 +606,16 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         summary: sponsoredReferrals,
                         userId: user.id,
                       ),
-                      _InfoRow(
-                        'Bonus déjà crédité',
-                        (referral['referral_credited'] as bool? ?? false)
-                            ? 'Oui'
-                            : 'Non',
-                      ),
+                      if (referral['received_referral'] is Map)
+                        ReferralPaymentSummary(
+                          payment: Map<String, dynamic>.from(
+                              ((referral['received_referral']
+                                      as Map)['payments'] as Map)['referred']
+                                  as Map),
+                          qualified: (referral['received_referral']
+                                  as Map)['status'] !=
+                              'pending',
+                        ),
                       if (referral['referred_by_user'] is Map<String, dynamic>)
                         _InfoRow(
                           'Parrain',
@@ -1303,9 +1309,9 @@ class _SponsoredReferralList extends ConsumerWidget {
                 'En attente',
                 '${summary['pending_rewards'] ?? 0}',
               ),
-              _SmallReferralMetric('Payes', '${summary['rewarded'] ?? 0}'),
+              _SmallReferralMetric('Réglés', '${summary['rewarded'] ?? 0}'),
               _SmallReferralMetric(
-                'Bonus',
+                'Payé au parrain hors plateforme',
                 formatXof(
                   (summary['total_sponsor_bonus_xof'] as num?)?.toDouble() ??
                       0.0,
@@ -1320,7 +1326,7 @@ class _SponsoredReferralList extends ConsumerWidget {
               style: TextStyle(color: Colors.grey),
             )
           else
-            for (final item in items.take(8))
+            for (final item in items)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Column(
@@ -1339,7 +1345,7 @@ class _SponsoredReferralList extends ConsumerWidget {
                                 ),
                               ),
                               Text(
-                                '${item['reward_metric_count'] ?? 0} / ${item['reward_count'] ?? 1} objectif',
+                                '${item['reward_metric_count'] ?? 0} / ${item['reward_count']} ${item['reward_metric_label'] ?? ''}',
                                 style: const TextStyle(
                                   color: Colors.grey,
                                   fontSize: 12,
@@ -1354,20 +1360,50 @@ class _SponsoredReferralList extends ConsumerWidget {
                         ),
                       ],
                     ),
-                    if (item['status']?.toString() == 'qualified' &&
-                        (item['referral_id']?.toString().trim().isNotEmpty ??
-                            false))
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          icon: const Icon(Icons.check_circle_outline),
-                          label: const Text('Valider paiement'),
-                          onPressed: () => _confirmPayment(context, ref, item),
-                        ),
+                    for (final beneficiary in ['sponsor', 'referred'])
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(beneficiary == 'sponsor'
+                                  ? 'Prime parrain'
+                                  : 'Prime filleul'),
+                              ReferralPaymentSummary(
+                                payment: Map<String, dynamic>.from(
+                                    (item['payments'] as Map?)?[beneficiary]
+                                            as Map? ??
+                                        {}),
+                                qualified: [
+                                  'qualified',
+                                  'partially_paid',
+                                  'rewarded'
+                                ].contains(item['status']),
+                              ),
+                              if (['qualified', 'partially_paid']
+                                      .contains(item['status']) &&
+                                  ((item['payments'] as Map?)?[beneficiary]
+                                          as Map?)?['status'] ==
+                                      'pending')
+                                TextButton.icon(
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: Text(
+                                      'Confirmer le paiement du ${beneficiary == 'sponsor' ? 'parrain' : 'filleul'}'),
+                                  onPressed: () => _confirmPayment(
+                                      context, ref, item, beneficiary),
+                                ),
+                            ]),
                       ),
                   ],
                 ),
               ),
+          if ((summary['total'] as num? ?? 0) > items.length)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Les ${items.length} derniers parrainages sont affichés. Le suivi complet est disponible dans l’admin web.',
+              ),
+            ),
         ],
       ),
     );
@@ -1377,45 +1413,21 @@ class _SponsoredReferralList extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     Map<String, dynamic> item,
+    String beneficiary,
   ) async {
-    final referralId = item['referral_id']?.toString().trim() ?? '';
-    if (referralId.isEmpty) {
-      return;
-    }
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Valider le paiement ?'),
-        content: Text(
-          "Confirmer que le paiement parrainage de ${_stringOrDash(item['referred_name'])} a été effectué.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Valider'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) =>
+          ReferralPaymentDialog(record: item, beneficiary: beneficiary),
     );
-    if (confirmed != true) {
-      return;
-    }
-    try {
-      await ref.read(apiClientProvider).confirmReferralPayment(referralId);
+    if (confirmed == true) {
       ref.invalidate(adminUserDetailProvider(userId));
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Paiement parrainage validé')),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyError(e))),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Paiement hors plateforme confirmé')),
+        );
+      }
     }
   }
 
@@ -1429,7 +1441,9 @@ class _SponsoredReferralList extends ConsumerWidget {
       case 'rewarded':
         return 'Payé';
       case 'qualified':
-        return 'Qualifie';
+        return 'À payer';
+      case 'partially_paid':
+        return 'Paiement partiel';
       case 'qualified_no_bonus':
         return 'Sans bonus';
       default:
@@ -1442,6 +1456,7 @@ class _SponsoredReferralList extends ConsumerWidget {
       case 'rewarded':
         return Colors.green;
       case 'qualified':
+      case 'partially_paid':
         return Colors.blue;
       case 'qualified_no_bonus':
         return Colors.grey;

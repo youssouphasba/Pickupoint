@@ -276,6 +276,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                   color: const Color(0xFFFF6B00),
                 ),
               ],
+              if (_num(breakdown['loyalty_discount_xof']) > 0) ...[
+                const Divider(height: 20),
+                _row('Prix avant fidélité (hors promo)', _num(breakdown['price_before_loyalty'])),
+                _row('Avantage fidélité', -_num(breakdown['loyalty_discount_xof']), color: Colors.green.shade700),
+              ],
               const SizedBox(height: 20),
               _buildPromoSection(),
               const Divider(height: 20),

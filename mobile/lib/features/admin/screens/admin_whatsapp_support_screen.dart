@@ -1,4 +1,6 @@
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:io';
+import 'dart:math';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/api/api_endpoints.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class AdminWhatsappSupportScreen extends ConsumerStatefulWidget {
@@ -26,12 +29,44 @@ class AdminWhatsappSupportScreen extends ConsumerStatefulWidget {
 }
 
 class _AdminWhatsappSupportScreenState
-    extends ConsumerState<AdminWhatsappSupportScreen> {
+    extends ConsumerState<AdminWhatsappSupportScreen>
+    with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   final _startPhoneController = TextEditingController();
   final _replyController = TextEditingController();
   final _audioPlayer = AudioPlayer();
   final _audioRecorder = AudioRecorder();
+  final _noteController = TextEditingController();
+  final Map<String, String> _drafts = {};
+  final Map<String, String> _requestIds = {};
+  Timer? _refreshTimer;
+  int _detailRevision = 0;
+  int _listRevision = 0;
+  int _conversationLimit = 50;
+  int _conversationTotal = 0;
+  String? _before;
+  bool _hasMore = false;
+  bool _loadingOlder = false;
+  List<Map<String, dynamic>> _notes = [];
+  List<Map<String, dynamic>> _quickReplies = [];
+  String? _voicePath;
+  String? _voiceConversationId;
+  String? _voiceRequestId;
+  bool get _locked =>
+      _sending ||
+      _sendingTemplate ||
+      _startingSupport ||
+      _recording ||
+      _recordingBusy ||
+      _voicePath != null;
+  String _requestId(String key) => _requestIds.putIfAbsent(
+      key,
+      () => List.generate(
+          24,
+          (_) => Random.secure()
+              .nextInt(256)
+              .toRadixString(16)
+              .padLeft(2, '0')).join());
 
   String _status = 'open';
   String? _selectedConversationId;
@@ -51,6 +86,16 @@ class _AdminWhatsappSupportScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          !_loadingConversations &&
+          !_loadingDetail) {
+        _loadConversations(silent: true);
+      }
+    });
+    _loadSettings();
     final initialQuery = widget.initialQuery?.trim();
     final initialConversationId = widget.initialConversationId?.trim();
     if (initialQuery != null && initialQuery.isNotEmpty) {
@@ -66,6 +111,10 @@ class _AdminWhatsappSupportScreenState
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    _noteController.dispose();
+    _removeVoiceFile();
     _searchController.dispose();
     _startPhoneController.dispose();
     _replyController.dispose();
@@ -74,69 +123,171 @@ class _AdminWhatsappSupportScreenState
     super.dispose();
   }
 
-  Future<void> _loadConversations() async {
-    setState(() {
-      _loadingConversations = true;
-      _error = null;
-    });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _loadConversations(silent: true);
+    }
+  }
+
+  Future<void> _loadSettings() async {
     try {
       final response =
-          await ref.read(apiClientProvider).getWhatsappSupportConversations(
-                status: _status,
-                query: _searchController.text,
-              );
-      final data = Map<String, dynamic>.from(response.data as Map);
-      final conversations = (data['conversations'] as List? ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
+          await ref.read(apiClientProvider).getWhatsappSupportSettings();
+      if (!mounted) return;
+      setState(() => _quickReplies =
+          (response.data['quick_replies'] as List? ?? [])
+              .whereType<Map>()
+              .map((x) => Map<String, dynamic>.from(x))
+              .toList());
+    } catch (_) {}
+  }
+
+  Future<void> _loadConversations({bool silent = false}) async {
+    if (!mounted) return;
+    final revision = ++_listRevision;
+    if (!silent) {
       setState(() {
-        _conversations = conversations;
-        _selectedConversationId ??= conversations.isNotEmpty
-            ? _string(conversations.first['conversation_id'])
-            : null;
+        _loadingConversations = true;
+        _error = null;
       });
-      if (_selectedConversationId != null) {
-        await _loadDetail(_selectedConversationId!);
+    }
+    try {
+      final response = await ref
+          .read(apiClientProvider)
+          .getWhatsappSupportConversations(
+              status: _status,
+              query: _searchController.text,
+              limit: _conversationLimit.clamp(1, 100));
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final conversations = (data['conversations'] as List? ?? [])
+          .whereType<Map>()
+          .map((x) => Map<String, dynamic>.from(x))
+          .toList();
+      if (_conversationLimit > 100) {
+        for (var skip = 100; skip < _conversationLimit; skip += 100) {
+          final more = await ref
+              .read(apiClientProvider)
+              .getWhatsappSupportConversations(
+                  status: _status,
+                  query: _searchController.text,
+                  skip: skip,
+                  limit: (_conversationLimit - skip).clamp(1, 100));
+          conversations.addAll((more.data['conversations'] as List? ?? [])
+              .whereType<Map>()
+              .map((x) => Map<String, dynamic>.from(x)));
+        }
+      }
+      if (!mounted || revision != _listRevision) return;
+      setState(() {
+        _conversationTotal =
+            (data['total'] as num?)?.toInt() ?? conversations.length;
+        _conversations = {
+          for (final x in conversations) x['conversation_id']: x
+        }.values.toList();
+        if (_selectedConversationId == null && conversations.isNotEmpty) {
+          _selectedConversationId =
+              _string(conversations.first['conversation_id']);
+          _replyController.text = _drafts[_selectedConversationId] ?? '';
+        }
+      });
+      if (_selectedConversationId != null && !_loadingOlder) {
+        await _loadDetail(_selectedConversationId!, silent: silent);
       }
     } catch (e) {
-      setState(() => _error = friendlyError(e));
+      if (mounted && revision == _listRevision) {
+        setState(() => _error = friendlyError(e));
+      }
     } finally {
-      if (mounted) {
+      if (mounted && revision == _listRevision) {
         setState(() => _loadingConversations = false);
       }
     }
   }
 
-  Future<void> _loadDetail(String conversationId) async {
+  Future<void> _loadDetail(String conversationId,
+      {bool silent = false, String? before}) async {
+    if (!mounted || (_locked && conversationId != _selectedConversationId)) {
+      return;
+    }
+    final switched = conversationId != _selectedConversationId;
+    if (switched) {
+      final previous = _selectedConversationId;
+      if (previous != null) _drafts[previous] = _replyController.text;
+      _replyController.text = _drafts[conversationId] ?? '';
+      _noteController.clear();
+      _messages = [];
+      _notes = [];
+      _hasMore = false;
+      _before = null;
+    }
+    final revision = ++_detailRevision;
     setState(() {
       _selectedConversationId = conversationId;
-      _loadingDetail = true;
-      _error = null;
+      if (!silent && before == null) _loadingDetail = true;
+      if (before != null) _loadingOlder = true;
     });
     try {
       final response = await ref
           .read(apiClientProvider)
-          .getWhatsappSupportConversation(conversationId);
+          .getWhatsappSupportConversation(conversationId, before: before);
       final data = Map<String, dynamic>.from(response.data as Map);
+      if (!mounted ||
+          revision != _detailRevision ||
+          conversationId != _selectedConversationId) {
+        return;
+      }
+      final incoming = (data['messages'] as List? ?? [])
+          .whereType<Map>()
+          .map((x) => Map<String, dynamic>.from(x))
+          .toList();
+      final initialPage = switched || _messages.isEmpty;
       setState(() {
         _conversation = _map(data['conversation']);
-        _messages = (data['messages'] as List? ?? const [])
+        final merged = {
+          for (final message in [..._messages, ...incoming])
+            message['message_id']: message
+        };
+        _messages = merged.values.toList()
+          ..sort((a, b) {
+            final date = (a['created_at']?.toString() ?? '')
+                .compareTo(b['created_at']?.toString() ?? '');
+            return date != 0
+                ? date
+                : a['message_id']
+                    .toString()
+                    .compareTo(b['message_id'].toString());
+          });
+        if (before != null || initialPage) {
+          _hasMore = data['has_more'] == true;
+          _before = _string(data['next_before']);
+        }
+        _notes = (data['notes'] as List? ?? [])
             .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
+            .map((x) => Map<String, dynamic>.from(x))
             .toList();
       });
     } catch (e) {
-      setState(() => _error = friendlyError(e));
+      if (mounted && revision == _detailRevision) {
+        setState(() => _error = friendlyError(e));
+      }
     } finally {
-      if (mounted) {
-        setState(() => _loadingDetail = false);
+      if (mounted && revision == _detailRevision) {
+        setState(() {
+          _loadingDetail = false;
+          _loadingOlder = false;
+        });
       }
     }
   }
 
-  bool get _canReplyFreeform =>
-      _conversation?['can_reply_freeform'] as bool? ?? true;
+  bool get _canReplyFreeform {
+    final expires = DateTime.tryParse(
+        _conversation?['reply_window_expires_at']?.toString() ?? '');
+    return _conversation?['can_reply_freeform'] == true &&
+        expires != null &&
+        expires.isAfter(DateTime.now());
+  }
 
   void _showReplyWindowClosedMessage() {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +303,7 @@ class _AdminWhatsappSupportScreenState
   Future<void> _sendReply() async {
     final text = _replyController.text.trim();
     final conversationId = _selectedConversationId;
-    if (text.isEmpty || conversationId == null || _sending) return;
+    if (text.isEmpty || conversationId == null || _locked) return;
     if (!_canReplyFreeform) {
       _showReplyWindowClosedMessage();
       return;
@@ -160,10 +311,12 @@ class _AdminWhatsappSupportScreenState
 
     setState(() => _sending = true);
     try {
-      await ref
-          .read(apiClientProvider)
-          .sendWhatsappSupportTextReply(conversationId, text);
-      _replyController.clear();
+      await ref.read(apiClientProvider).sendWhatsappSupportTextReply(
+          conversationId, text,
+          requestId: _requestId('text:$conversationId'));
+      _requestIds.remove('text:$conversationId');
+      if (_selectedConversationId == conversationId) _replyController.clear();
+      _drafts.remove(conversationId);
       await _loadConversations();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -186,13 +339,14 @@ class _AdminWhatsappSupportScreenState
 
   Future<void> _sendReopenTemplate() async {
     final conversationId = _selectedConversationId;
-    if (conversationId == null || _sendingTemplate) return;
+    if (conversationId == null || _locked) return;
 
     setState(() => _sendingTemplate = true);
     try {
-      await ref
-          .read(apiClientProvider)
-          .sendWhatsappSupportReopenTemplate(conversationId);
+      await ref.read(apiClientProvider).sendWhatsappSupportReopenTemplate(
+          conversationId,
+          requestId: _requestId('reopen:$conversationId'));
+      _requestIds.remove('reopen:$conversationId');
       await _loadConversations();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -215,13 +369,14 @@ class _AdminWhatsappSupportScreenState
 
   Future<void> _startSupportConversation() async {
     final phone = _startPhoneController.text.trim();
-    if (phone.isEmpty || _startingSupport) return;
+    if (phone.isEmpty || _locked) return;
 
     setState(() => _startingSupport = true);
     try {
-      final response = await ref
-          .read(apiClientProvider)
-          .startWhatsappSupport(phone: phone);
+      final response = await ref.read(apiClientProvider).startWhatsappSupport(
+          phone: phone, requestId: _requestId('start:$phone'));
+      if (!mounted) return;
+      _requestIds.remove('start:$phone');
       final data = Map<String, dynamic>.from(response.data as Map);
       final conversation = _map(data['conversation']);
       final conversationId = _string(conversation?['conversation_id']);
@@ -252,69 +407,140 @@ class _AdminWhatsappSupportScreenState
     }
   }
 
+  Future<void> _removeVoiceFile() async {
+    final path = _voicePath;
+    if (path != null) {
+      try {
+        await File(path).delete();
+      } catch (_) {}
+    }
+  }
+
   Future<void> _toggleVoiceReply() async {
-    final conversationId = _selectedConversationId;
-    if (conversationId == null || _recordingBusy) return;
+    final id = _selectedConversationId;
+    if (id == null || _recordingBusy || _sending || _voicePath != null) return;
     if (!_recording && !_canReplyFreeform) {
       _showReplyWindowClosedMessage();
       return;
     }
-
     setState(() => _recordingBusy = true);
     try {
       if (_recording) {
         final path = await _audioRecorder.stop();
-        setState(() => _recording = false);
-        if (path == null || path.trim().isEmpty) {
-          throw Exception('Enregistrement audio introuvable.');
+        if (!mounted) {
+          if (path != null) {
+            try {
+              await File(path).delete();
+            } catch (_) {}
+          }
+          return;
         }
-        await ref
-            .read(apiClientProvider)
-            .sendWhatsappSupportVoiceReply(conversationId, path);
-        await _loadConversations();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Note vocale WhatsApp envoyée.')),
-          );
-        }
+        if (path == null) throw Exception('Aucun audio enregistré.');
+        setState(() {
+          _recording = false;
+          _voicePath = path;
+        });
         return;
       }
-
-      final hasPermission = await _audioRecorder.hasPermission();
-      if (!hasPermission) {
+      if (!await _audioRecorder.hasPermission()) {
         throw Exception('Autorisation micro refusée.');
       }
       final dir = await getTemporaryDirectory();
-      final opusSupported =
-          await _audioRecorder.isEncoderSupported(AudioEncoder.opus);
+      final opus = await _audioRecorder.isEncoderSupported(AudioEncoder.opus);
       final path =
-          '${dir.path}/denkma_support_${DateTime.now().millisecondsSinceEpoch}.${opusSupported ? 'opus' : 'm4a'}';
+          '${dir.path}/denkma_support_${_requestId("voice-file:$id")}.${opus ? "opus" : "m4a"}';
       await _audioRecorder.start(
-        RecordConfig(
-          encoder: opusSupported ? AudioEncoder.opus : AudioEncoder.aacLc,
-          bitRate: 64000,
-          sampleRate: 44100,
-        ),
-        path: path,
-      );
-      setState(() => _recording = true);
+          RecordConfig(
+              encoder: opus ? AudioEncoder.opus : AudioEncoder.aacLc,
+              bitRate: 64000,
+              sampleRate: 44100),
+          path: path);
+      if (!mounted) {
+        await _audioRecorder.cancel();
+        return;
+      }
+      setState(() {
+        _recording = true;
+        _voiceConversationId = id;
+        _voiceRequestId = _requestId('voice:$id');
+      });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
-        );
+        setState(() => _recording = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _recordingBusy = false);
+    }
+  }
+
+  Future<void> _cancelVoice() async {
+    await _audioPlayer.stop();
+    await _removeVoiceFile();
+    if (mounted) {
+      setState(() {
+        _requestIds.remove('voice:$_voiceConversationId');
+        _requestIds.remove('voice-file:$_voiceConversationId');
+        _voicePath = null;
+        _voiceConversationId = null;
+        _voiceRequestId = null;
+        _playingMessageId = null;
+      });
+    }
+  }
+
+  Future<void> _sendVoice() async {
+    final path = _voicePath;
+    final id = _voiceConversationId;
+    if (path == null || id == null || _sending) return;
+    if (!_canReplyFreeform) {
+      _showReplyWindowClosedMessage();
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(apiClientProvider)
+          .sendWhatsappSupportVoiceReply(id, path, requestId: _voiceRequestId);
+      await _cancelVoice();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
       }
     } finally {
       if (mounted) {
-        setState(() => _recordingBusy = false);
+        setState(() => _sending = false);
+        await _loadConversations(silent: true);
       }
+    }
+  }
+
+  Future<void> _addNote() async {
+    final id = _selectedConversationId;
+    final text = _noteController.text.trim();
+    if (id == null || text.isEmpty || _locked) return;
+    setState(() => _sending = true);
+    try {
+      await ref.read(apiClientProvider).addWhatsappSupportNote(id, text);
+      if (mounted) {
+        _noteController.clear();
+        await _loadDetail(id, silent: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
   Future<void> _updateStatus(String status) async {
     final conversationId = _selectedConversationId;
-    if (conversationId == null) return;
+    if (conversationId == null || _locked) return;
     try {
       await ref
           .read(apiClientProvider)
@@ -330,43 +556,91 @@ class _AdminWhatsappSupportScreenState
     }
   }
 
-  Future<void> _playAudio(Map<String, dynamic> message) async {
-    final messageId = _string(message['message_id']) ?? '';
+  String _privateMediaUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !uri.path.startsWith('/api/admin/support/whatsapp/media/')) {
+      throw Exception('Adresse du média invalide.');
+    }
+    return ApiEndpoints.resolve(uri.path);
+  }
+
+  Future<void> _openAttachment(Map<String, dynamic> message) async {
     final media = _map(message['media']);
-    final downloadUrl = _string(media?['download_url']);
-    if (downloadUrl == null || downloadUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Audio indisponible.')),
-      );
-      return;
-    }
-
-    if (_playingMessageId == messageId) {
-      await _audioPlayer.stop();
-      setState(() => _playingMessageId = null);
-      return;
-    }
-
+    final url = _string(media?['download_url']);
+    if (url == null) return;
     try {
-      setState(() => _playingMessageId = messageId);
-      final Uint8List bytes =
-          await ref.read(apiClientProvider).downloadBytes(downloadUrl);
+      final bytes = await ref
+          .read(apiClientProvider)
+          .downloadBytes(_privateMediaUrl(url));
+      if (!mounted) return;
+      if (message['message_type'] == 'image' &&
+          ['image/jpeg', 'image/png', 'image/webp']
+              .contains(media?['mime_type'])) {
+        await showDialog<void>(
+            context: context,
+            builder: (context) => Dialog(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Flexible(
+                      child: InteractiveViewer(
+                          child: Image.memory(bytes,
+                              errorBuilder: (context, error, stack) =>
+                                  const Text('Photo illisible')))),
+                  TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Fermer')),
+                ])));
+      } else {
+        final directory = await getDownloadsDirectory() ??
+            await getApplicationDocumentsDirectory();
+        final original = _string(media?['filename']) ?? 'document';
+        final safeName = original
+            .split(RegExp(r'[\\/]'))
+            .last
+            .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final file = File(
+            '${directory.path}/support_${DateTime.now().microsecondsSinceEpoch}_$safeName');
+        await file.writeAsBytes(bytes, flush: true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Document enregistré dans ${file.path}')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Média indisponible : ${friendlyError(e)}')));
+      }
+    }
+  }
+
+  Future<void> _playAudio(Map<String, dynamic> message) async {
+    final id = _string(message['message_id']) ?? '';
+    final url = _string(_map(message['media'])?['download_url']);
+    if (url == null) return;
+    try {
+      if (_playingMessageId == id) {
+        await _audioPlayer.stop();
+        if (mounted) setState(() => _playingMessageId = null);
+        return;
+      }
+      setState(() => _playingMessageId = id);
+      final bytes = await ref
+          .read(apiClientProvider)
+          .downloadBytes(_privateMediaUrl(url));
+      if (!mounted || _playingMessageId != id) return;
       await _audioPlayer.stop();
       await _audioPlayer.play(BytesSource(bytes));
       _audioPlayer.onPlayerComplete.first.then((_) {
-        if (mounted && _playingMessageId == messageId) {
+        if (mounted && _playingMessageId == id) {
           setState(() => _playingMessageId = null);
         }
       });
     } catch (e) {
       if (mounted) {
         setState(() => _playingMessageId = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lecture audio impossible : ${friendlyError(e)}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Lecture impossible : ${friendlyError(e)}')));
       }
     }
   }
@@ -410,13 +684,19 @@ class _AdminWhatsappSupportScreenState
       children: [
         TextField(
           controller: _searchController,
+          enabled: !_locked,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
             labelText: 'Rechercher',
             hintText: 'Nom, numéro, colis ou message',
             prefixIcon: const Icon(Icons.search),
             suffixIcon: IconButton(
-              onPressed: _loadConversations,
+              onPressed: _locked
+                  ? null
+                  : () {
+                      _conversationLimit = 50;
+                      _loadConversations();
+                    },
               icon: const Icon(Icons.arrow_forward),
             ),
             border: const OutlineInputBorder(),
@@ -429,6 +709,7 @@ class _AdminWhatsappSupportScreenState
             Expanded(
               child: TextField(
                 controller: _startPhoneController,
+                enabled: !_locked,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(
                   labelText: 'Contacter un utilisateur',
@@ -440,8 +721,7 @@ class _AdminWhatsappSupportScreenState
             ),
             const SizedBox(width: 8),
             ElevatedButton(
-              onPressed:
-                  _startingSupport ? null : _startSupportConversation,
+              onPressed: _locked ? null : _startSupportConversation,
               child: _startingSupport
                   ? const SizedBox(
                       width: 18,
@@ -456,8 +736,9 @@ class _AdminWhatsappSupportScreenState
         Wrap(
           spacing: 8,
           children: [
-            _filterChip('open', 'Ouverts'),
-            _filterChip('pending', 'En attente'),
+            _filterChip('open', 'À traiter'),
+            _filterChip('pending', 'Attente client'),
+            _filterChip('pending_internal', 'Action interne'),
             _filterChip('resolved', 'Résolus'),
             _filterChip('all', 'Tous'),
           ],
@@ -470,15 +751,25 @@ class _AdminWhatsappSupportScreenState
     return ChoiceChip(
       label: Text(label),
       selected: _status == value,
-      onSelected: (_) {
-        setState(() {
-          _status = value;
-          _selectedConversationId = null;
-          _conversation = null;
-          _messages = [];
-        });
-        _loadConversations();
-      },
+      onSelected: _locked
+          ? null
+          : (_) {
+              setState(() {
+                final previous = _selectedConversationId;
+                if (previous != null) _drafts[previous] = _replyController.text;
+                _replyController.clear();
+                _noteController.clear();
+                _notes = [];
+                _before = null;
+                _hasMore = false;
+                _conversationLimit = 50;
+                _status = value;
+                _selectedConversationId = null;
+                _conversation = null;
+                _messages = [];
+              });
+              _loadConversations();
+            },
     );
   }
 
@@ -503,6 +794,15 @@ class _AdminWhatsappSupportScreenState
         ),
         const SizedBox(height: 8),
         ..._conversations.map(_buildConversationTile),
+        if (_conversations.length < _conversationTotal)
+          OutlinedButton(
+              onPressed: _locked
+                  ? null
+                  : () {
+                      _conversationLimit += 50;
+                      _loadConversations();
+                    },
+              child: const Text('Voir plus de conversations')),
       ],
     );
   }
@@ -543,7 +843,7 @@ class _AdminWhatsappSupportScreenState
             Text(_formatDate(conversation['last_message_at'])),
           ],
         ),
-        onTap: () => _loadDetail(id),
+        onTap: _locked ? null : () => _loadDetail(id),
       ),
     );
   }
@@ -634,17 +934,26 @@ class _AdminWhatsappSupportScreenState
                   spacing: 8,
                   children: [
                     OutlinedButton.icon(
-                      onPressed: () => _updateStatus('open'),
+                      onPressed: _locked ? null : () => _updateStatus('open'),
                       icon: const Icon(Icons.mark_chat_unread_outlined),
-                      label: const Text('Ouvert'),
+                      label: const Text('À traiter'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => _updateStatus('pending'),
+                      onPressed:
+                          _locked ? null : () => _updateStatus('pending'),
                       icon: const Icon(Icons.schedule_outlined),
-                      label: const Text('En attente'),
+                      label: const Text('Attente du client'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _locked
+                          ? null
+                          : () => _updateStatus('pending_internal'),
+                      icon: const Icon(Icons.assignment_outlined),
+                      label: const Text('Action interne'),
                     ),
                     FilledButton.icon(
-                      onPressed: () => _updateStatus('resolved'),
+                      onPressed:
+                          _locked ? null : () => _updateStatus('resolved'),
                       icon: const Icon(Icons.check_circle_outline),
                       label: const Text('Résolu'),
                     ),
@@ -660,6 +969,14 @@ class _AdminWhatsappSupportScreenState
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
+        if (_hasMore)
+          OutlinedButton(
+              onPressed: _loadingOlder
+                  ? null
+                  : () => _loadDetail(_selectedConversationId!,
+                      before: _before, silent: true),
+              child:
+                  Text(_loadingOlder ? 'Chargement…' : 'Messages précédents')),
         if (_messages.isEmpty)
           const _InfoCard(
             icon: Icons.chat_bubble_outline,
@@ -670,6 +987,32 @@ class _AdminWhatsappSupportScreenState
           ..._messages.map(_buildMessageBubble),
         const SizedBox(height: 16),
         _buildReplyBox(),
+        const SizedBox(height: 16),
+        Card(
+            child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Notes internes',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text(
+                          'Réservées à l’administration. Les 50 dernières notes sont affichées.'),
+                      ..._notes.map((note) => ListTile(
+                          title: Text(_string(note['text']) ?? ''),
+                          subtitle: Text(
+                              '${note["admin_name"] ?? "Admin"} · ${_formatDate(note["created_at"])}'))),
+                      TextField(
+                          controller: _noteController,
+                          enabled: !_locked,
+                          maxLength: 2000,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                              labelText: 'Nouvelle note interne')),
+                      OutlinedButton(
+                          onPressed: _locked ? null : _addNote,
+                          child: const Text('Ajouter la note interne')),
+                    ]))),
       ],
     );
   }
@@ -700,7 +1043,7 @@ class _AdminWhatsappSupportScreenState
               inbound ? CrossAxisAlignment.start : CrossAxisAlignment.end,
           children: [
             Text(
-              inbound ? 'Client' : 'Denkma',
+              inbound ? 'Contact' : (_string(message['admin_name']) ?? 'Admin'),
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
@@ -727,6 +1070,21 @@ class _AdminWhatsappSupportScreenState
                 ),
               ),
             ],
+            if (!hasAudio && media?['download_url'] != null)
+              OutlinedButton.icon(
+                  onPressed: () => _openAttachment(message),
+                  icon: Icon(message['message_type'] == 'image'
+                      ? Icons.image_outlined
+                      : Icons.download),
+                  label: Text(message['message_type'] == 'image'
+                      ? 'Voir la photo'
+                      : 'Télécharger le document')),
+            if (!inbound)
+              Text(_deliveryLabel(message['delivery_status']),
+                  style: const TextStyle(fontSize: 11)),
+            if (message['send_error'] != null)
+              Text(message['send_error'].toString(),
+                  style: const TextStyle(color: Colors.red, fontSize: 11)),
             const SizedBox(height: 4),
             Text(
               _formatDate(message['created_at']),
@@ -739,113 +1097,99 @@ class _AdminWhatsappSupportScreenState
   }
 
   Widget _buildReplyBox() {
-    final canReplyFreeform = _canReplyFreeform;
-    final expiresAt = _string(_conversation?['reply_window_expires_at']);
+    final allowed = _canReplyFreeform;
+    final expires = _conversation?['reply_window_expires_at'];
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!canReplyFreeform) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.orange.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: Text(
-                  [
-                    'La fenêtre WhatsApp de 24h est fermée.',
-                    'Le client doit renvoyer un message, ou il faut utiliser un modèle approuvé.',
-                    if (expiresAt != null)
-                      'Dernière fenêtre expirée le ${_formatDate(expiresAt)}.',
-                  ].join(' '),
-                  style: const TextStyle(color: Colors.deepOrange),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: _sendingTemplate ? null : _sendReopenTemplate,
-                  icon: _sendingTemplate
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.mark_chat_unread_outlined),
-                  label: const Text('Relancer par template'),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _replyController,
-                    minLines: 1,
-                    maxLines: 4,
-                    enabled: canReplyFreeform,
-                    decoration: const InputDecoration(
-                      labelText: 'Réponse',
-                      hintText: 'Écrire une réponse WhatsApp...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
+        child: Padding(
+            padding: const EdgeInsets.all(12),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(allowed
+                  ? 'Réponses libres jusqu’au ${_formatDate(expires)}.'
+                  : 'Fenêtre de réponse fermée. Le contact doit répondre à un modèle approuvé pour la rouvrir.'),
+              if (!allowed)
                 OutlinedButton(
-                  onPressed: canReplyFreeform && !_recordingBusy
-                      ? _toggleVoiceReply
-                      : null,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _recording ? Colors.red : null,
-                  ),
-                  child: _recordingBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(_recording ? Icons.stop : Icons.mic),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: canReplyFreeform && !_sending ? _sendReply : null,
-                  child: _sending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send),
-                ),
+                    onPressed: _locked ? null : _sendReopenTemplate,
+                    child: const Text('Envoyer une relance approuvée')),
+              if (allowed) ...[
+                Wrap(
+                    spacing: 8,
+                    children: _quickReplies
+                        .map((reply) => ActionChip(
+                            label: Text(_string(reply['label']) ?? ''),
+                            onPressed: _locked
+                                ? null
+                                : () {
+                                    _replyController.text = [
+                                      _replyController.text,
+                                      _string(reply['text']) ?? ''
+                                    ].where((x) => x.isNotEmpty).join('\n');
+                                    _requestIds.remove(
+                                        'text:$_selectedConversationId');
+                                  }))
+                        .toList()),
+                TextField(
+                    controller: _replyController,
+                    enabled: !_locked,
+                    minLines: 2,
+                    maxLines: 4,
+                    maxLength: 2000,
+                    onChanged: (_) =>
+                        _requestIds.remove('text:$_selectedConversationId'),
+                    decoration: const InputDecoration(
+                        labelText: 'Réponse au contact',
+                        border: OutlineInputBorder())),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  FilledButton.icon(
+                      onPressed: _locked ? null : _sendReply,
+                      icon: const Icon(Icons.send),
+                      label: const Text('Envoyer le texte')),
+                  OutlinedButton.icon(
+                      onPressed:
+                          _recordingBusy || _sending || _voicePath != null
+                              ? null
+                              : _toggleVoiceReply,
+                      icon: Icon(_recording ? Icons.stop : Icons.mic),
+                      label: Text(_recording
+                          ? 'Arrêter pour écouter'
+                          : 'Enregistrer un vocal')),
+                ]),
               ],
-            ),
-            if (canReplyFreeform) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  expiresAt == null
-                      ? 'Réponse libre autorisée dans la fenêtre WhatsApp de 24h.'
-                      : 'Réponse libre autorisée jusqu’au ${_formatDate(expiresAt)}.',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
+              if (_recording && !allowed)
+                OutlinedButton(
+                    onPressed: _toggleVoiceReply,
+                    child: const Text('Arrêter le vocal')),
+              if (_voicePath != null) ...[
+                const Divider(),
+                const Text('Vocal enregistré — non envoyé'),
+                Wrap(spacing: 8, children: [
+                  OutlinedButton.icon(
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Écouter'),
+                      onPressed: _sending
+                          ? null
+                          : () async {
+                              try {
+                                await _audioPlayer
+                                    .play(DeviceFileSource(_voicePath!));
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(friendlyError(e))));
+                                }
+                              }
+                            }),
+                  FilledButton(
+                      onPressed: allowed && !_sending ? _sendVoice : null,
+                      child: const Text('Envoyer le vocal')),
+                  TextButton(
+                      onPressed: _sending ? null : _cancelVoice,
+                      child: const Text('Annuler')),
+                ]),
+              ],
+            ])));
   }
 }
 
@@ -953,11 +1297,23 @@ String _formatDate(Object? value) {
 
 String _statusLabel(String status) {
   return switch (status) {
-    'pending' => 'En attente',
+    'pending' => 'Attente du client',
+    'pending_internal' => 'Action interne',
     'resolved' => 'Résolu',
-    _ => 'Ouvert',
+    _ => 'À traiter',
   };
 }
+
+String _deliveryLabel(Object? status) => switch (status) {
+      'sending' => 'Envoi en cours',
+      'accepted' => 'Accepté par WhatsApp',
+      'sent' => 'Envoyé',
+      'delivered' => 'Livré',
+      'read' => 'Lu',
+      'failed' => 'Échec d’envoi',
+      'uncertain' => 'Envoi incertain — vérifier avant de renvoyer',
+      _ => 'Envoi enregistré',
+    };
 
 Color _statusColor(String status) {
   return switch (status) {

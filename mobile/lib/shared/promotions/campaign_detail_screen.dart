@@ -26,11 +26,15 @@ class _CampaignDetailScreenState extends ConsumerState<CampaignDetailScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(apiClientProvider).markCampaignImpression(
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        await ref.read(apiClientProvider).markCampaignImpression(
             widget.campaign.id,
             role: widget.role,
+            countView: false,
           );
+      } catch (_) {}
     });
   }
 

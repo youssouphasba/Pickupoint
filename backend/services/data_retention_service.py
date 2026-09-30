@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from bson import ObjectId
 from gridfs.errors import NoFile
@@ -110,12 +111,19 @@ async def _purge_campaign_media(cutoff: datetime) -> int:
 
 
 async def _purge_support_media(cutoff: datetime) -> int:
+    from services.whatsapp_support_service import PRIVATE_WHATSAPP_DIR
     referenced: set[str] = set()
+    filenames: set[str] = set()
     async for message in db.whatsapp_support_messages.find(
-        {"media.file_id": {"$exists": True}},
-        {"media.file_id": 1},
+        {"media": {"$ne": None}},
+        {"media": 1},
     ):
-        file_id = ((message.get("media") or {}).get("file_id"))
+        media = message.get("media") or {}
+        for field in ("download_url", "storage_path"):
+            value = media.get(field)
+            if value:
+                filenames.add(str(value).replace("\\", "/").rsplit("/", 1)[-1])
+        file_id = media.get("file_id")
         if file_id:
             referenced.add(str(file_id))
     bucket = AsyncIOMotorGridFSBucket(get_db(), bucket_name="whatsapp_support_media")
@@ -128,6 +136,16 @@ async def _purge_support_media(cutoff: datetime) -> int:
             deleted += 1
         except NoFile:
             continue
+    base = PRIVATE_WHATSAPP_DIR.resolve()
+    if base.is_dir():
+        for path in base.iterdir():
+            if (path.is_file() and not path.is_symlink() and path.resolve().parent == base
+                    and path.name not in filenames
+                    and datetime.fromtimestamp(path.stat().st_mtime, timezone.utc) < cutoff):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
     return deleted
 
 
@@ -156,18 +174,26 @@ async def _anonymize_old_closed_parcels(cutoff: datetime) -> int:
 
 
 async def _anonymize_resolved_support(cutoff: datetime) -> int:
-    result = await db.whatsapp_support_conversations.update_many(
-        {"status": "resolved", "updated_at": {"$lt": cutoff}},
-        {
-            "$set": {
-                "phone": "anonymized",
-                "full_name": "Contact anonymisé",
-                "last_incoming_preview": None,
-            },
-            "$unset": {"matched_user_id": "", "matched_parcel_id": ""},
-        },
-    )
-    return result.modified_count
+    conversations = await db.whatsapp_support_conversations.find(
+        {"status": "resolved", "updated_at": {"$lt": cutoff}, "anonymized_at": {"$exists": False}},
+        {"_id": 0, "conversation_id": 1}).to_list(length=5000)
+    modified = 0
+    for conversation in conversations:
+        conversation_id = conversation["conversation_id"]
+        if await db.whatsapp_support_messages.count_documents({"conversation_id": conversation_id}):
+            continue
+        if await db.whatsapp_support_notes.count_documents({"conversation_id": conversation_id}):
+            continue
+        archive_id = "wa_archived_" + uuid.uuid4().hex
+        result = await db.whatsapp_support_conversations.update_one(
+            {"conversation_id": conversation_id, "status": "resolved", "updated_at": {"$lt": cutoff}},
+            {"$set": {"conversation_id": archive_id, "phone": "anonymized", "full_name": "Contact anonymisé",
+                      "anonymized_at": datetime.now(timezone.utc)},
+             "$unset": {field: "" for field in ("matched_user_id", "matched_parcel_id", "matched_user",
+                       "matched_parcel", "related_parcels", "last_message_text", "last_incoming_preview",
+                       "last_media", "last_inbound_message_id", "status_changed_by")}})
+        modified += result.modified_count
+    return modified
 
 
 async def _purge_deleted_account_kyc(cutoff: datetime) -> int:
@@ -250,6 +276,14 @@ async def purge_expired_data() -> dict[str, int]:
             "conversation_id",
             {"status": "resolved", "updated_at": {"$lt": _cutoff(settings.SUPPORT_RETENTION_DAYS, now)}},
         )}},
+    )
+    result["support_notes"] = await _purge_collection(
+        "whatsapp_support_notes", "created_at", _cutoff(settings.SUPPORT_RETENTION_DAYS, now),
+        {"conversation_id": {"$in": await db.whatsapp_support_conversations.distinct(
+            "conversation_id", {"status": "resolved", "updated_at": {"$lt": _cutoff(settings.SUPPORT_RETENTION_DAYS, now)}})}},
+    )
+    result["support_delivery_statuses"] = await _purge_collection(
+        "whatsapp_support_delivery_statuses", "updated_at", _cutoff(settings.SUPPORT_RETENTION_DAYS, now)
     )
     result["support_media"] = await _purge_support_media(
         _cutoff(settings.SUPPORT_RETENTION_DAYS, now)

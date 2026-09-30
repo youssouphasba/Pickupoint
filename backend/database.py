@@ -66,6 +66,8 @@ async def create_indexes():
         "users": [
             IndexModel([("user_id", 1)], unique=True),
             IndexModel([("phone", 1)], unique=True),
+            IndexModel([("referral_code", 1)], unique=True,
+                       partialFilterExpression={"referral_code": {"$type": "string", "$gt": ""}}),
             IndexModel([("email", 1)], sparse=True),
             IndexModel([("role", 1)]),
         ],
@@ -197,8 +199,17 @@ async def create_indexes():
             IndexModel([("message_id", 1)], unique=True),
             IndexModel([("whatsapp_message_id", 1)], unique=True, sparse=True),
             IndexModel([("conversation_id", 1), ("created_at", 1)]),
+            IndexModel([("conversation_id", 1), ("created_at", -1), ("message_id", -1)]),
+            IndexModel([("media.pending_download", 1), ("media.retry_at", 1)]),
             IndexModel([("matched_user_id", 1)]),
             IndexModel([("matched_parcel_id", 1)]),
+        ],
+        "whatsapp_support_notes": [
+            IndexModel([("note_id", 1)], unique=True),
+            IndexModel([("conversation_id", 1), ("created_at", -1)]),
+        ],
+        "whatsapp_support_delivery_statuses": [
+            IndexModel([("updated_at", 1)]),
         ],
         "legal_contents": [
             IndexModel([("document_type", 1)], unique=True),

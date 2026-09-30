@@ -7,6 +7,7 @@ assez d'infos pour être traité inline sans navigation supplémentaire.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query
 
@@ -304,24 +305,25 @@ async def _fetch_support(now: datetime) -> list[dict[str, Any]]:
     if "whatsapp_support_conversations" not in await db.list_collection_names():
         return []
     cursor = db.whatsapp_support_conversations.find(
-        {"status": {"$in": ["pending", "open"]}},
-        {"_id": 0, "conversation_id": 1, "phone": 1, "full_name": 1, "status": 1, "last_message_at": 1, "updated_at": 1, "last_incoming_preview": 1},
+        {"status": {"$in": ["pending_internal", "open"]}},
+        {"_id": 0, "conversation_id": 1, "phone": 1, "matched_user.name": 1, "status": 1, "last_message_at": 1, "updated_at": 1, "last_message_text": 1, "unanswered_since": 1, "last_inbound_at": 1, "status_changed_at": 1},
     ).sort("last_message_at", -1).limit(200)
     items: list[dict[str, Any]] = []
     async for c in cursor:
-        ref_date = c.get("last_message_at") or c.get("updated_at")
+        ref_date = (c.get("status_changed_at") or c.get("updated_at")) if c.get("status") == "pending_internal" else (
+            c.get("unanswered_since") or c.get("last_inbound_at") or c.get("last_message_at") or c.get("updated_at"))
         age_h = _age_hours(ref_date, now)
         items.append({
             "id": c["conversation_id"],
             "conversation_id": c["conversation_id"],
             "phone": c.get("phone"),
-            "full_name": c.get("full_name"),
+            "full_name": (c.get("matched_user") or {}).get("name"),
             "status": c.get("status"),
             "last_message_at": ref_date,
-            "preview": c.get("last_incoming_preview"),
+            "preview": c.get("last_message_text"),
             "age_hours": round(age_h, 2),
             "urgency": _urgency(age_h, sla),
-            "href": f"/dashboard/support?c={c['conversation_id']}",
+            "href": "/dashboard/support?" + urlencode({"c": c["conversation_id"]}),
         })
     return items
 

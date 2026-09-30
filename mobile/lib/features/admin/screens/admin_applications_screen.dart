@@ -226,6 +226,16 @@ class _ApplicationCard extends ConsumerWidget {
                   _stringOrDash(data['id_card_number'])),
               _row(Icons.credit_card_outlined, 'Permis',
                   _stringOrDash(data['license_number'])),
+              _row(
+                Icons.event_outlined,
+                'Expiration CNI',
+                _applicationDate(data['id_card_expires_on']),
+              ),
+              _row(
+                Icons.event_available_outlined,
+                'Expiration permis',
+                _applicationDate(data['license_expires_on']),
+              ),
               _row(Icons.two_wheeler_outlined, 'Véhicule',
                   _stringOrDash(data['vehicle_type'])),
             ] else ...[
@@ -712,6 +722,14 @@ class _ApplicationCard extends ConsumerWidget {
     final hour = local.hour.toString().padLeft(2, '0');
     final minute = local.minute.toString().padLeft(2, '0');
     return '$day/$month/${local.year} $hour:$minute';
+  }
+
+  static String _applicationDate(dynamic rawValue) {
+    final parsed = DateTime.tryParse(_stringValue(rawValue));
+    if (parsed == null) return 'Non renseignée';
+    final day = parsed.day.toString().padLeft(2, '0');
+    final month = parsed.month.toString().padLeft(2, '0');
+    return '$day/$month/${parsed.year}';
   }
 
   static String? _geopinLabel(dynamic rawGeopin) {

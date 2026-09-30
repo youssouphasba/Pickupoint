@@ -44,9 +44,16 @@ from services.notification_service import (
     notify_pending_mission_dispatch_reminder,
     notify_sender_driver_assigned,
     notify_sender_parcel_collected,
+    notify_driver_low_balance,
+    notify_driver_relay_closing,
+    notify_relay_driver_approaching,
+    notify_relay_financial_action,
+    notify_relay_parcel_incoming,
     notify_tracking_progress,
 )
+from services.relay_hours import relay_needs_closing_warning, relay_open_status
 from services.wallet_service import (
+    build_relay_financial_summary,
     compute_delivery_commission_breakdown,
     credit_wallet,
     debit_wallet,
@@ -1168,6 +1175,22 @@ async def confirm_pickup(
         # R2H et R2R : driver quitte le relais origine → IN_TRANSIT
         await transition_status(parcel["parcel_id"], ParcelStatus.IN_TRANSIT, notes="Pick-up au relais origine", **actor)
 
+    delivery_relay_id = mission.get("delivery_relay_id")
+    if mission.get("delivery_type") == "relay" and delivery_relay_id:
+        await notify_relay_parcel_incoming(delivery_relay_id, parcel)
+
+    pickup_relay_id = mission.get("pickup_relay_id")
+    if pickup_relay_id and parcel.get("delivery_mode") == "relay_to_relay":
+        financial_summary = build_relay_financial_summary(parcel, pickup_relay_id)
+        for action in financial_summary.get("actions") or []:
+            if action.get("key") == "denkma_payment" and action.get("status") == "pending":
+                await notify_relay_financial_action(
+                    pickup_relay_id,
+                    parcel,
+                    action="denkma_payment",
+                    amount_xof=float(action.get("amount_xof") or 0),
+                )
+
     await notify_sender_parcel_collected(parcel)
 
     return {"message": "Collecte confirmée", "mission_id": mission_id}
@@ -1439,6 +1462,17 @@ async def accept_mission(
             raise bad_request_exception(
                 "Solde insuffisant. Rechargez votre wallet avant d'accepter cette mission."
             )
+        wallet_after = await db.wallets.find_one(
+            {"owner_id": current_user["user_id"]},
+            {"_id": 0, "balance": 1},
+        )
+        remaining_balance = float((wallet_after or {}).get("balance") or 0)
+        if remaining_balance < commission_xof:
+            await notify_driver_low_balance(
+                current_user["user_id"],
+                balance_xof=remaining_balance,
+                required_xof=commission_xof,
+            )
 
     await db.parcels.update_one(
         {"parcel_id": mission["parcel_id"]},
@@ -1473,6 +1507,45 @@ async def accept_mission(
         )
     if parcel:
         await notify_sender_driver_assigned(parcel, current_user)
+        pickup_relay_id = updated_mission.get("pickup_relay_id")
+        if pickup_relay_id:
+            await notify_relay_driver_approaching(
+                pickup_relay_id,
+                parcel,
+                accepted=True,
+            )
+            financial_summary = build_relay_financial_summary(
+                parcel,
+                pickup_relay_id,
+            )
+            for action in financial_summary.get("actions") or []:
+                if action.get("key") == "driver_payment" and action.get("status") == "pending":
+                    await notify_relay_financial_action(
+                        pickup_relay_id,
+                        parcel,
+                        action="driver_payment",
+                        amount_xof=float(action.get("amount_xof") or 0),
+                    )
+        for relay_id in {
+            updated_mission.get("pickup_relay_id"),
+            updated_mission.get("delivery_relay_id"),
+        }:
+            if not relay_id:
+                continue
+            relay = await db.relay_points.find_one(
+                {"relay_id": relay_id},
+                {"_id": 0},
+            )
+            if relay and relay_needs_closing_warning(
+                relay,
+                within_minutes=settings.RELAY_CLOSING_SOON_MINUTES,
+            ):
+                await notify_driver_relay_closing(
+                    current_user["user_id"],
+                    updated_mission,
+                    relay,
+                    status_label=relay_open_status(relay)["label"],
+                )
         await _record_event(
             parcel_id=mission["parcel_id"],
             event_type="MISSION_ACCEPTED",
@@ -1678,6 +1751,33 @@ async def update_location(
                 update_query["$set"]["encoded_polyline"] = eta_data["encoded_polyline"]
         elif previous_eta_target_status != route_status:
             update_query["$unset"] = {"eta_seconds": "", "eta_text": "", "distance_text": "", "encoded_polyline": ""}
+
+    if (
+        mission["status"] == MissionStatus.ASSIGNED.value
+        and mission.get("pickup_relay_id")
+        and not mission.get("pickup_relay_approaching_notified")
+        and pickup_geopin
+    ):
+        pickup_lat = pickup_geopin.get("lat")
+        pickup_lng = pickup_geopin.get("lng")
+        if pickup_lat is not None and pickup_lng is not None:
+            pickup_distance_m = _haversine_km(
+                body.lat,
+                body.lng,
+                pickup_lat,
+                pickup_lng,
+            ) * 1000
+            if pickup_distance_m < 500:
+                parcel = await db.parcels.find_one(
+                    {"parcel_id": mission["parcel_id"]},
+                    {"_id": 0},
+                )
+                if parcel:
+                    await notify_relay_driver_approaching(
+                        mission["pickup_relay_id"],
+                        parcel,
+                    )
+                    update_query["$set"]["pickup_relay_approaching_notified"] = True
 
     # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
     if (mission["status"] == MissionStatus.IN_PROGRESS.value and 

@@ -23,6 +23,7 @@ import '../../features/client/screens/confirm_location_screen.dart';
 import '../../features/client/screens/tracking_screen.dart';
 import '../../features/client/screens/client_search_screen.dart';
 import '../../features/client/screens/client_profile_screen.dart';
+import '../../shared/screens/referral_screen.dart';
 import '../../features/client/screens/client_statistics_screen.dart';
 import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
@@ -399,7 +400,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ).toString();
           }
         } else {
-          return _homeForRole(auth!.effectiveRole);
+          final path = auth!.effectiveRole == 'driver'
+              ? '/driver/referral'
+              : '/client/referral';
+          if (state.matchedLocation != path) {
+            return Uri(path: path, queryParameters: {'ref': referralCode})
+                .toString();
+          }
         }
       }
       if (isLegalRoute) {
@@ -595,6 +602,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               path: '/client/loyalty-history',
               builder: (_, __) => const ClientLoyaltyHistoryScreen()),
           GoRoute(
+              path: '/client/referral',
+              builder: (_, s) =>
+                  ReferralScreen(initialCode: s.uri.queryParameters['ref'])),
+          GoRoute(
               path: '/client/statistics',
               builder: (_, __) => const ClientStatisticsScreen()),
           GoRoute(
@@ -629,7 +640,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ShellRoute(
         builder: (_, __, child) => RelayShell(child: child),
         routes: [
-          GoRoute(path: '/relay', builder: (_, __) => const RelayHome()),
+          GoRoute(
+            path: '/relay',
+            builder: (_, state) => RelayHome(
+              initialParcelId: state.uri.queryParameters['parcel'],
+            ),
+          ),
           GoRoute(
               path: '/relay/campaign',
               builder: (_, state) => CampaignDetailScreen(
@@ -708,6 +724,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/driver/performance',
               builder: (_, __) => const DriverPerformanceScreen()),
+          GoRoute(
+              path: '/driver/referral',
+              builder: (_, s) =>
+                  ReferralScreen(initialCode: s.uri.queryParameters['ref'])),
           GoRoute(
               path: '/driver/notifications',
               builder: (_, __) => const NotificationsInboxScreen()),

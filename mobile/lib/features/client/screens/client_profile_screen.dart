@@ -1,11 +1,9 @@
 import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/providers/user_stats_provider.dart';
 import '../../driver/providers/driver_provider.dart';
@@ -15,13 +13,7 @@ import '../../../shared/widgets/change_pin_tile.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/utils/currency_format.dart';
-
-final _referralInfoProvider = FutureProvider<Map<String, dynamic>>((ref) async {
-  final res = await ref.watch(apiClientProvider).getReferralInfo();
-  return Map<String, dynamic>.from(
-    res.data as Map<String, dynamic>? ?? const {},
-  );
-});
+import '../widgets/client_loyalty_card.dart';
 
 class ClientProfileScreen extends ConsumerStatefulWidget {
   const ClientProfileScreen({super.key, this.initialSection});
@@ -91,7 +83,6 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider).valueOrNull;
     final statsAsync = ref.watch(userStatsProvider);
-    final referralAsync = ref.watch(_referralInfoProvider);
     final user = authState?.user;
 
     if (user == null) {
@@ -118,10 +109,10 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
                     const SizedBox(height: 24),
                     KeyedSubtree(
                       key: _loyaltyKey,
-                      child: _buildLoyaltyProgress(user, statsAsync),
+                      child: const ClientLoyaltyCard(),
                     ),
                     const SizedBox(height: 24),
-                    _buildActionsList(context, ref, user, referralAsync),
+                    _buildActionsList(context, ref, user),
                     const SizedBox(height: 40),
                     _buildLogoutButton(context, ref),
                     const SizedBox(height: 12),
@@ -436,79 +427,11 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
     );
   }
 
-  Widget _buildLoyaltyProgress(
-      dynamic user, AsyncValue<Map<String, dynamic>> statsAsync) {
-    final points = user.loyaltyPoints ?? 0;
-    final tier = user.loyaltyTier ?? 'bronze';
-
-    int nextTierPoints = 200;
-    String nextTier = "Silver";
-    if (tier == 'silver') {
-      nextTierPoints = 500;
-      nextTier = "Gold";
-    } else if (tier == 'gold') {
-      nextTierPoints = points;
-    }
-
-    final progress = (points / nextTierPoints).clamp(0.0, 1.0);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Statut $tier'.toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text('$points / $nextTierPoints PTS',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue.shade600),
-            minHeight: 8,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          const SizedBox(height: 8),
-          if (tier != 'gold')
-            Text(
-                'Plus que ${nextTierPoints - points} points pour devenir $nextTier !',
-                style: const TextStyle(
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                    color: Colors.blueGrey)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildActionsList(
     BuildContext context,
     WidgetRef ref,
     dynamic user,
-    AsyncValue<Map<String, dynamic>> referralAsync,
   ) {
-    final referralData = referralAsync.valueOrNull ?? const <String, dynamic>{};
-    final hasSponsor = (user.referredBy ?? '').toString().trim().isNotEmpty;
-    final referralCheckFailed = referralAsync.hasError;
-    final canApplyReferral = !hasSponsor &&
-        (referralCheckFailed ||
-            (referralData['can_apply_now'] as bool? ?? false));
-    final applyRule = referralData['apply_rule']?.toString() ??
-        'Les conditions du programme seront vérifiées au moment de la saisie.';
-
     return Column(
       children: [
         _buildActionCard([
@@ -583,43 +506,11 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: Icon(
-                hasSponsor
-                    ? Icons.verified_outlined
-                    : Icons.card_giftcard_outlined,
-              ),
-              title: Text(
-                hasSponsor
-                    ? 'Parrainage déjà activé'
-                    : 'J\'ai un code parrainage',
-              ),
-              subtitle: Text(
-                hasSponsor
-                    ? (user.referralCredited
-                        ? 'Le bonus de parrainage a déjà été crédité.'
-                        : 'Votre bonus sera crédité selon les règles du programme de parrainage.')
-                    : referralAsync.isLoading
-                        ? 'Vérification des conditions du programme...'
-                        : referralCheckFailed
-                            ? 'Vous pouvez saisir un code. Le serveur vérifiera les conditions.'
-                            : canApplyReferral
-                                ? applyRule
-                                : 'Le code ne peut plus être appliqué. $applyRule',
-              ),
-              trailing: hasSponsor
-                  ? const Icon(Icons.lock_outline)
-                  : const Icon(Icons.chevron_right),
-              enabled: hasSponsor || canApplyReferral,
-              onTap: hasSponsor || !canApplyReferral
-                  ? null
-                  : () => _applyReferralCode(context, ref),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.share_outlined),
-              title: const Text('Partager mon code parrainage'),
+              leading: const Icon(Icons.card_giftcard_outlined),
+              title: const Text('Mon parrainage'),
+              subtitle: const Text('Invitations, objectifs et paiements'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => _shareReferral(context, ref),
+              onTap: () => context.push('/client/referral'),
             ),
           ]),
         ),
@@ -662,371 +553,6 @@ class _ClientProfileScreenState extends ConsumerState<ClientProfileScreen> {
         side: BorderSide(color: Colors.grey.shade200),
       ),
       child: Column(children: children),
-    );
-  }
-
-  Future<void> _applyReferralCode(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    final code = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Ajouter un code parrainage'),
-        content: TextField(
-          controller: controller,
-          textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(
-            labelText: 'Code parrainage',
-            hintText: 'Ex: DENKMA-4F2K',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext)
-                .pop(controller.text.trim().toUpperCase()),
-            child: const Text('Appliquer'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-
-    if (code == null || code.trim().isEmpty || !context.mounted) {
-      return;
-    }
-
-    try {
-      await ref.read(apiClientProvider).applyReferralCode(code.trim());
-      await ref.read(authProvider.notifier).fetchMe();
-      ref.invalidate(_referralInfoProvider);
-      ref.invalidate(userStatsProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Code parrainage applique. Les primes seront debloquees selon les regles du programme.',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(friendlyError(e)),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _shareReferral(BuildContext context, WidgetRef ref) async {
-    try {
-      final response = await ref.read(apiClientProvider).getReferralInfo();
-      final data = Map<String, dynamic>.from(
-        response.data as Map<String, dynamic>? ?? const {},
-      );
-      final enabled = data['enabled'] as bool? ?? false;
-      if (!enabled) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                data['message']?.toString() ??
-                    'Le parrainage n\'est pas actif pour ce compte.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-
-      final shareMessage = data['share_message']?.toString().trim() ?? '';
-      final referralCode =
-          data['referral_code']?.toString().trim().toUpperCase() ?? '';
-      final referralUrl = data['referral_url']?.toString().trim();
-      final sponsorBonus = data['referral_sponsor_bonus_xof'] as int? ?? 0;
-      final refereeBonus = data['referral_referred_bonus_xof'] as int? ?? 0;
-      if (!context.mounted) {
-        return;
-      }
-      await showModalBottomSheet<void>(
-        context: context,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        builder: (sheetContext) => SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Parrainage Denkma',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    referralCode.isEmpty
-                        ? 'Votre code sera disponible après l’activation du parrainage.'
-                        : 'Code: $referralCode',
-                  ),
-                  if (referralUrl != null && referralUrl.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      referralUrl,
-                      style: const TextStyle(color: Colors.blueGrey),
-                    ),
-                  ],
-                  if (sponsorBonus > 0 || refereeBonus > 0) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.green.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.stars, color: Colors.green),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (sponsorBonus > 0)
-                                  Text(
-                                    'Gagnez $sponsorBonus XOF par parrainage valide !',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.green,
-                                    ),
-                                  ),
-                                if (refereeBonus > 0)
-                                  Text(
-                                    'Votre ami recevra $refereeBonus XOF.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.green.shade800,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  _buildReferralTracking(data),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.copy_outlined),
-                    title: const Text('Copier le message'),
-                    subtitle: const Text('Code et lien de parrainage'),
-                    onTap: () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: shareMessage),
-                      );
-                      if (!sheetContext.mounted) {
-                        return;
-                      }
-                      Navigator.of(sheetContext).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Message de parrainage copie'),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.tag_outlined),
-                    title: const Text('Copier seulement le code'),
-                    onTap: referralCode.isEmpty
-                        ? null
-                        : () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: referralCode),
-                            );
-                            if (!sheetContext.mounted) {
-                              return;
-                            }
-                            Navigator.of(sheetContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Code parrainage copie'),
-                              ),
-                            );
-                          },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.link_outlined),
-                    title: const Text('Copier le lien'),
-                    onTap: referralUrl == null || referralUrl.isEmpty
-                        ? null
-                        : () async {
-                            await Clipboard.setData(
-                              ClipboardData(text: referralUrl),
-                            );
-                            if (!sheetContext.mounted) {
-                              return;
-                            }
-                            Navigator.of(sheetContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Lien de parrainage copié'),
-                              ),
-                            );
-                          },
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading:
-                        const Icon(Icons.message_outlined, color: Colors.green),
-                    title: const Text('Partager sur WhatsApp'),
-                    onTap: () async {
-                      final whatsappUri = Uri.parse(
-                        'https://wa.me/?text=${Uri.encodeComponent(shareMessage)}',
-                      );
-                      if (await canLaunchUrl(whatsappUri)) {
-                        await launchUrl(
-                          whatsappUri,
-                          mode: LaunchMode.externalApplication,
-                        );
-                      }
-                      if (!sheetContext.mounted) {
-                        return;
-                      }
-                      Navigator.of(sheetContext).pop();
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(friendlyError(e)), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Widget _buildReferralTracking(Map<String, dynamic> data) {
-    final summary = Map<String, dynamic>.from(
-      data['sponsored_referrals'] as Map<String, dynamic>? ?? const {},
-    );
-    final items = (summary['items'] as List? ?? const [])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
-    final total = summary['total'] ?? 0;
-    final pending = summary['pending_rewards'] ?? 0;
-    final rewarded = summary['rewarded'] ?? 0;
-    final paid = summary['total_sponsor_bonus_xof'] ?? 0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blueGrey.shade50,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Suivi parrainage',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildReferralChip('Filleuls', '$total'),
-              _buildReferralChip('En attente', '$pending'),
-              _buildReferralChip('Recompenses', '$rewarded'),
-              _buildReferralChip('Gagne', '$paid XOF'),
-            ],
-          ),
-          if (items.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ...items.take(5).map(_buildReferralItem),
-          ] else ...[
-            const SizedBox(height: 10),
-            const Text(
-              'Aucun filleul inscrit pour le moment.',
-              style: TextStyle(color: Colors.blueGrey, fontSize: 12),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReferralChip(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReferralItem(Map<String, dynamic> item) {
-    final status = item['status']?.toString() ?? 'pending';
-    final current = item['reward_metric_count'] ?? 0;
-    final target = item['reward_count'] ?? 1;
-    final name = item['referred_name']?.toString() ?? 'Utilisateur Denkma';
-    final statusLabel = switch (status) {
-      'rewarded' => 'Payé',
-      'qualified' => 'Qualifie',
-      _ => 'En cours',
-    };
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                Text(
-                  '$current / $target objectif atteint',
-                  style: const TextStyle(color: Colors.blueGrey, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Text(statusLabel, style: const TextStyle(fontSize: 12)),
-        ],
-      ),
     );
   }
 

@@ -873,6 +873,12 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     # ── Si le destinataire ou l'expéditeur confirme, on vérifie la création de mission ──
     updated_parcel = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
     if updated_parcel:
+        from services.notification_service import notify_location_updated
+
+        await notify_location_updated(
+            updated_parcel,
+            actor="recipient" if is_recipient else "sender",
+        )
         mode = updated_parcel.get("delivery_mode", "")
         status = updated_parcel.get("status", "")
 

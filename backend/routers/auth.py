@@ -27,7 +27,7 @@ from database import db
 from models.common import clean_optional_text
 from models.user import OTPRequest, TokenResponse, RefreshRequest, ProfileUpdate, User
 from services.parcel_service import _record_event
-from services.referral_service import upsert_referral_record
+from services.referral_service import assign_referral
 from services.user_service import (
     generate_unique_referral_code,
     get_global_app_settings,
@@ -374,14 +374,17 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
         "loyalty_points":    0,
         "loyalty_tier":      "bronze",
         "referral_code":     await generate_unique_referral_code(body.name),
-        "referred_by":       referred_by,
+        "referred_by":       None,
         "referral_applied_at": now if referred_by else None,
         "referral_source":   "signup" if referred_by else None,
         "created_at":        now,
         "last_login_at":     now,
         "updated_at":        now,
     }
-    await db.users.insert_one(user_doc)
+    if referred_by:
+        user_doc = await assign_referral(user_doc["user_id"], referred_by, referral_code, app_settings, "signup", new_user_doc=user_doc)
+    else:
+        await db.users.insert_one(user_doc)
     phone_candidates = {phone, normalize_phone(phone)}
     suffix = phone_suffix(phone)
     recipient_phone_filters = [{"recipient_phone": {"$in": list(phone_candidates)}}]
@@ -404,15 +407,6 @@ async def complete_registration(body: CompleteRegistrationRequest, request: Requ
     )
 
     if referred_by:
-        await upsert_referral_record(
-            sponsor_user_id=referred_by,
-            referred_user_id=user_doc["user_id"],
-            referred_role=user_doc["role"],
-            referral_code=referral_code or "",
-            source="signup",
-            settings_doc=app_settings,
-            created_at=now,
-        )
         await _record_event(
             event_type="USER_REGISTERED_WITH_REFERRAL",
             actor_id=user_doc["user_id"],

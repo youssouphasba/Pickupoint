@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from config import settings as app_config
 from database import db
+from services.sending_guide import sending_guide_payload
 from services.user_service import (
     REFERRAL_ELIGIBLE_ROLES,
     describe_referral_reward_rule,
@@ -81,4 +82,5 @@ async def get_public_app_settings():
         },
         **_support_whatsapp_payload(settings_doc),
         **_app_update_payload(settings_doc),
+        **sending_guide_payload(settings_doc),
     }

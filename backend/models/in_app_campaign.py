@@ -5,6 +5,7 @@ from typing import List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
+from services.campaign_targeting import CampaignTargeting
 
 
 class CampaignTargetRole(str, Enum):
@@ -55,6 +56,7 @@ class InAppCampaignCreate(BaseModel):
     placements: List[str] = Field(default_factory=lambda: ["home"])
     priority: int = Field(default=0, ge=0, le=10)
     is_active: bool = True
+    targeting: CampaignTargeting = Field(default_factory=CampaignTargeting)
 
     @field_validator("title", "body", "cta_label", "action_value")
     @classmethod
@@ -96,6 +98,7 @@ class InAppCampaignUpdate(BaseModel):
     placements: Optional[List[str]] = None
     priority: Optional[int] = Field(default=None, ge=0, le=10)
     is_active: Optional[bool] = None
+    targeting: Optional[CampaignTargeting] = None
 
     @field_validator("title", "body", "cta_label", "action_value")
     @classmethod

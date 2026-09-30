@@ -1,187 +1,68 @@
-import logging
-import uuid
 from datetime import datetime, timezone
 
-from database import db
+from database import db, get_client
+from services.loyalty_rules import compute_tier, tier_discount_coeff as get_tier_discount
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.referral_service import (
     ensure_referral_record_for_user,
-    mark_referral_rewarded,
     refresh_referral_progress,
 )
 from services.user_service import (
     get_global_app_settings,
-    get_referral_metric_count,
-    get_referral_role_config,
 )
-from services.wallet_service import credit_wallet
-
-logger = logging.getLogger(__name__)
-
-# Config from PLAN_RECOMPENSES_PROMOTIONS.md
-POINTS_PER_DELIVERY = 10
-
-# Tiers thresholds and discounts
-TIER_BRONZE = "bronze"
-TIER_SILVER = "silver"
-TIER_GOLD = "gold"
-
-THRESHOLD_SILVER = 200
-THRESHOLD_GOLD = 500
 
 
-def compute_tier(points: int) -> str:
-    if points >= THRESHOLD_GOLD:
-        return TIER_GOLD
-    if points >= THRESHOLD_SILVER:
-        return TIER_SILVER
-    return TIER_BRONZE
-
-
-def get_tier_discount(tier: str) -> float:
-    """Returns the discount coefficient (e.g., 0.90 for 10% off)."""
-    return {
-        TIER_BRONZE: 1.0,
-        TIER_SILVER: 0.90,
-        TIER_GOLD: 0.80,
-    }.get(tier, 1.0)
-
-
-async def credit_loyalty_points(user_id: str):
-    """Credits points after a successful delivery and checks for tier up."""
-    user = await db.users.find_one({"user_id": user_id})
-    if not user:
-        return
-
+async def credit_loyalty_points(user_id: str, parcel_id: str):
+    """Commit the balance, parcel receipt and event together, once per parcel."""
     now = datetime.now(timezone.utc)
     rewards = await get_performance_rewards_settings()
     points_per_delivery = rewards["client"]["loyalty_points_per_delivered_parcel"]
-    new_points = user.get("loyalty_points", 0) + points_per_delivery
-    new_tier = compute_tier(new_points)
-
-    await db.users.update_one(
-        {"user_id": user_id},
-        {
-            "$set": {
-                "loyalty_points": new_points,
-                "loyalty_tier": new_tier,
-                "updated_at": now,
-            }
-        },
-    )
-
-    await db.loyalty_events.insert_one(
-        {
-            "event_id": f"loy_{uuid.uuid4().hex[:12]}",
+    async def award(session):
+        parcel = await db.parcels.find_one({"parcel_id": parcel_id}, session=session)
+        if not parcel or parcel.get("status") != "delivered" or parcel.get("sender_user_id") != user_id:
+            return None
+        if parcel.get("loyalty_award"):
+            return parcel["loyalty_award"]
+        user = await db.users.find_one({"user_id": user_id}, session=session)
+        if not user:
+            return None
+        new_points = user.get("loyalty_points", 0) + points_per_delivery
+        new_tier = compute_tier(new_points, rewards["client"]["loyalty_tiers"])
+        previous_tier = compute_tier(user.get("loyalty_points", 0), rewards["client"]["loyalty_tiers"])
+        event = {
+            "_id": f"loyalty_delivery:{parcel_id}",
+            "event_id": f"loyalty_delivery:{parcel_id}",
             "user_id": user_id,
+            "parcel_id": parcel_id,
+            "tracking_code": parcel.get("tracking_code"),
             "type": "delivery_completed",
             "points": points_per_delivery,
             "balance": new_points,
+            "tier": new_tier,
+            "previous_tier": previous_tier,
+            "tier_changed": new_tier != previous_tier,
             "created_at": now,
         }
-    )
+        await db.loyalty_events.insert_one(event, session=session)
+        await db.users.update_one({"user_id": user_id}, {"$set": {
+            "loyalty_points": new_points, "loyalty_tier": new_tier, "updated_at": now,
+        }}, session=session)
+        receipt = {key: value for key, value in event.items() if key != "_id"}
+        await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": {"loyalty_award": receipt}}, session=session)
+        return receipt
 
-    if new_tier != user.get("loyalty_tier"):
-        logger.info("User %s promoted to %s tier", user_id, new_tier)
-
-    await _check_referral_bonus(user_id)
+    async with await get_client().start_session() as session:
+        receipt = await session.with_transaction(award)
+    if receipt:
+        await _check_referral_bonus(user_id)
+    return receipt
 
 
 async def _check_referral_bonus(user_id: str):
-    """Credits referral rewards using per-role config for the referred user."""
+    """Qualify the frozen referral offer without making a payment."""
     user = await db.users.find_one({"user_id": user_id})
-    if not user or not user.get("referred_by") or user.get("referral_credited"):
+    if not user or not user.get("referred_by"):
         return
-
     settings_doc = await get_global_app_settings()
-    user_role = str(user.get("role") or "client")
-    config = get_referral_role_config(settings_doc, user_role)
-
-    reward_metric = config["reward_metric"]
-    reward_count = config["reward_count"]
-    current_count = await get_referral_metric_count(user_id, reward_metric)
     await ensure_referral_record_for_user(user, settings_doc, source="legacy_bonus_check")
     await refresh_referral_progress(user_id, settings_doc)
-    if current_count < reward_count:
-        return
-
-    now = datetime.now(timezone.utc)
-    referred_bonus_xof = config["referred_bonus_xof"]
-    sponsor_bonus_xof = config["sponsor_bonus_xof"]
-    if referred_bonus_xof <= 0 and sponsor_bonus_xof <= 0:
-        logger.info("Referral bonus disabled by settings for user %s (role=%s)", user_id, user_role)
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
-        )
-        await mark_referral_rewarded(referred_user_id=user_id, status="qualified_no_bonus")
-        return
-
-    sponsor_user_id = user["referred_by"]
-    referred_tx_reference = f"ref_bonus_self_{user_id}"
-    sponsor_tx_reference = f"ref_bonus_sponsor_{user_id}"
-
-    if referred_bonus_xof > 0:
-        await _add_to_wallet_once(
-            user_id=user_id,
-            amount=referred_bonus_xof,
-            tx_type="referral_bonus",
-            description=f"Bonus parrainage ({user_role}) - seuil atteint",
-            now=now,
-            tx_id=referred_tx_reference,
-        )
-    if sponsor_bonus_xof > 0:
-        await _add_to_wallet_once(
-            user_id=sponsor_user_id,
-            amount=sponsor_bonus_xof,
-            tx_type="referral_bonus",
-            description=f"Bonus parrainage ({user_role}) - filleul qualifie",
-            now=now,
-            tx_id=sponsor_tx_reference,
-        )
-
-    await db.users.update_one(
-        {"user_id": user_id},
-        {"$set": {"referral_credited": True, "referral_rewarded_at": now, "updated_at": now}},
-    )
-    await mark_referral_rewarded(
-        referred_user_id=user_id,
-        status="rewarded",
-        sponsor_transaction_reference=sponsor_tx_reference if sponsor_bonus_xof > 0 else None,
-        referred_transaction_reference=referred_tx_reference if referred_bonus_xof > 0 else None,
-    )
-    logger.info("Referral credits paid for user %s (role=%s) and referrer %s", user_id, user_role, sponsor_user_id)
-
-
-async def _add_to_wallet(user_id: str, amount: float, tx_type: str, description: str, now: datetime):
-    user = await db.users.find_one({"user_id": user_id}, {"role": 1})
-    await credit_wallet(
-        owner_id=user_id,
-        owner_type=(user or {}).get("role", "client"),
-        amount=amount,
-        description=description,
-        reference=f"{tx_type}:{uuid.uuid4().hex[:12]}",
-    )
-
-
-async def _add_to_wallet_once(
-    *,
-    user_id: str,
-    amount: float,
-    tx_type: str,
-    description: str,
-    now: datetime,
-    tx_id: str,
-):
-    existing = await db.wallet_transactions.find_one({"reference": tx_id}, {"_id": 0})
-    if existing:
-        return
-
-    user = await db.users.find_one({"user_id": user_id}, {"role": 1})
-    await credit_wallet(
-        owner_id=user_id,
-        owner_type=(user or {}).get("role", "client"),
-        amount=amount,
-        description=description,
-        reference=tx_id,
-    )

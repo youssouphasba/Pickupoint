@@ -5,7 +5,7 @@ from html import escape
 import mimetypes
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
@@ -25,15 +25,15 @@ from core.limiter import limiter
 from core.security import hash_password, verify_password
 from core.utils import normalize_phone, phones_match
 from database import db, get_db
+from services.loyalty_rules import compute_tier
 from models.common import UserRole
 from models.delivery import MissionStatus
 from models.user import FavoriteAddress, ProfileUpdate, User
 from services.parcel_service import _record_event
-from services.referral_service import ensure_referral_record_for_user, refresh_referral_progress, upsert_referral_record
+from services.referral_service import ensure_referral_record_for_user, refresh_referral_progress, assign_referral, public_referral, referral_list, sponsored_referral_summary
 from services.user_service import (
     build_referral_share_message,
     build_referral_url,
-    check_sponsor_referral_limit,
     describe_referral_apply_rule,
     describe_referral_reward_rule,
     get_effective_referral_share_base_url,
@@ -102,74 +102,7 @@ def _image_content_type(ext: str) -> str:
 
 
 async def _build_sponsored_referral_summary(user_id: str) -> dict:
-    referrals = await db.referrals.find(
-        {"sponsor_user_id": user_id},
-        {"_id": 0},
-        sort=[("created_at", -1)],
-        limit=25,
-    ).to_list(length=25)
-
-    referred_ids = [
-        referral.get("referred_user_id")
-        for referral in referrals
-        if referral.get("referred_user_id")
-    ]
-    users_by_id = {}
-    if referred_ids:
-        referred_users = await db.users.find(
-            {"user_id": {"$in": referred_ids}},
-            {"_id": 0, "user_id": 1, "name": 1, "role": 1, "phone": 1},
-        ).to_list(length=len(referred_ids))
-        users_by_id = {user["user_id"]: user for user in referred_users}
-
-    items = []
-    status_counts: dict[str, int] = {}
-    pending_rewards = 0
-    rewarded_count = 0
-    total_sponsor_bonus_xof = 0
-    total_referred_bonus_xof = 0
-
-    for referral in referrals:
-        status = str(referral.get("status") or "pending")
-        status_counts[status] = status_counts.get(status, 0) + 1
-        if status in {"pending", "qualified"}:
-            pending_rewards += 1
-        if status == "rewarded":
-            rewarded_count += 1
-            total_sponsor_bonus_xof += int(referral.get("sponsor_bonus_xof") or 0)
-            total_referred_bonus_xof += int(referral.get("referred_bonus_xof") or 0)
-
-        referred_user = users_by_id.get(referral.get("referred_user_id"), {})
-        reward_count = int(referral.get("reward_count") or 1)
-        current_count = int(referral.get("reward_metric_count") or 0)
-        items.append({
-            "referral_id": referral.get("referral_id"),
-            "referred_user_id": referral.get("referred_user_id"),
-            "referred_name": referred_user.get("name") or "Utilisateur Denkma",
-            "referred_role": referral.get("referred_role") or referred_user.get("role"),
-            "status": status,
-            "reward_metric": referral.get("reward_metric"),
-            "reward_metric_label": get_referral_metric_label(str(referral.get("reward_metric") or "")),
-            "reward_metric_count": current_count,
-            "reward_count": reward_count,
-            "progress_percent": min(100, round((current_count / max(reward_count, 1)) * 100)),
-            "sponsor_bonus_xof": int(referral.get("sponsor_bonus_xof") or 0),
-            "referred_bonus_xof": int(referral.get("referred_bonus_xof") or 0),
-            "created_at": referral.get("created_at"),
-            "qualified_at": referral.get("qualified_at"),
-            "rewarded_at": referral.get("rewarded_at"),
-        })
-
-    return {
-        "total": await db.referrals.count_documents({"sponsor_user_id": user_id}),
-        "shown": len(items),
-        "pending_rewards": pending_rewards,
-        "rewarded": rewarded_count,
-        "status_counts": status_counts,
-        "total_sponsor_bonus_xof": total_sponsor_bonus_xof,
-        "total_referred_bonus_xof": total_referred_bonus_xof,
-        "items": items,
-    }
+    return await sponsored_referral_summary(user_id)
 
 
 async def _build_referral_payload(user_doc: dict) -> dict:
@@ -195,18 +128,43 @@ async def _build_referral_payload(user_doc: dict) -> dict:
     if user_doc.get("referred_by"):
         await ensure_referral_record_for_user(user_doc, settings_doc, source="legacy_profile_view")
         received_referral = await refresh_referral_progress(user_doc.get("user_id", ""), settings_doc)
+        if received_referral:
+            received_referral["reward_metric_label"] = get_referral_metric_label(received_referral["reward_metric"], received_referral["reward_count"])
     can_apply_now = (
         referred_enabled
         and not user_doc.get("referred_by")
         and apply_current_count <= apply_max_count
     )
+    invitation_offers = []
+    for role in ("client", "driver"):
+        offer = get_referral_role_config(settings_doc, role)
+        if not offer["enabled"]:
+            continue
+        assigned = await db.referrals.count_documents({"sponsor_user_id": user_doc["user_id"], "referred_role": role})
+        maximum = offer["max_referrals_per_sponsor"]
+        if maximum and assigned >= maximum:
+            continue
+        invitation_offers.append({
+            **offer, "referred_role": role,
+            "label": "Nouveau client" if role == "client" else "Compte déjà livreur",
+            "apply_rule": describe_referral_apply_rule(settings_doc, role),
+            "reward_rule": describe_referral_reward_rule(settings_doc, role),
+            "share_message": ("Pour votre compte déjà livreur : " if role == "driver" else "") + build_referral_share_message(
+                code=code, referral_url=referral_url if role == "client" else None,
+                sponsor_bonus_xof=offer["sponsor_bonus_xof"], referred_bonus_xof=offer["referred_bonus_xof"],
+                reward_rule=describe_referral_reward_rule(settings_doc, role),
+            ),
+        })
+    invitation = next((offer for offer in invitation_offers if offer["referred_role"] == "client"), None)
     return {
         "enabled": sponsor_enabled,
         "enabled_override": user_doc.get("referral_enabled_override"),
         "referral_code": code,
-        "referral_sponsor_bonus_xof": config["sponsor_bonus_xof"],
-        "referral_referred_bonus_xof": config["referred_bonus_xof"],
+        "referral_sponsor_bonus_xof": invitation["sponsor_bonus_xof"] if invitation else 0,
+        "referral_referred_bonus_xof": invitation["referred_bonus_xof"] if invitation else 0,
         "referral_bonus_xof": config["referred_bonus_xof"],
+        "payment_mode": "external",
+        "invitation_offers": invitation_offers,
         "share_base_url": get_referral_share_base_url(settings_doc),
         "effective_share_base_url": effective_share_base_url,
         "can_sponsor": sponsor_enabled,
@@ -221,17 +179,11 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         "reward_metric": config["reward_metric"],
         "reward_metric_label": get_referral_metric_label(config["reward_metric"]),
         "reward_count": config["reward_count"],
-        "received_referral": received_referral,
+        "received_referral": public_referral(received_referral, "referred"),
         "sponsored_referrals": await _build_sponsored_referral_summary(user_doc.get("user_id", "")),
         "reward_rule": describe_referral_reward_rule(settings_doc, user_role),
         "metric_options": get_referral_metric_options(user_role),
-        "share_message": build_referral_share_message(
-            code=code,
-            referral_url=referral_url,
-            sponsor_bonus_xof=config["sponsor_bonus_xof"],
-            referred_bonus_xof=config["referred_bonus_xof"],
-            reward_rule=describe_referral_reward_rule(settings_doc, user_role),
-        ),
+        "share_message": invitation["share_message"] if invitation else "",
         "message": (
             "Le parrainage est disponible pour ce compte."
             if sponsor_enabled or referred_enabled
@@ -994,6 +946,7 @@ async def upload_avatar(
 async def upload_kyc(
     request: Request,
     doc_type: Literal["id_card", "license"] = "id_card",
+    expires_on: date | None = Query(default=None),
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1015,20 +968,34 @@ async def upload_kyc(
 
     field_to_update, field_path, field_content_type = _kyc_fields(doc_type)
     doc_url = f"{settings.BASE_URL.rstrip('/')}/api/users/me/kyc/{doc_type}"
+    expiration = (
+        datetime.combine(expires_on, datetime.min.time(), tzinfo=timezone.utc)
+        if expires_on
+        else None
+    )
+    updates = {
+        field_to_update: doc_url,
+        field_path: None,
+        field_content_type: content_type,
+        _kyc_file_id_field(doc_type): str(file_id),
+        f"kyc_{doc_type}_storage": "gridfs",
+        "kyc_status": "pending",
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if expiration:
+        updates[f"kyc_{doc_type}_expires_at"] = expiration
+        updates["document_reminders"] = {}
     await db.users.update_one(
         {"user_id": current_user["user_id"]},
-        {"$set": {
-            field_to_update: doc_url,
-            field_path: None,
-            field_content_type: content_type,
-            _kyc_file_id_field(doc_type): str(file_id),
-            f"kyc_{doc_type}_storage": "gridfs",
-            "kyc_status": "pending",
-            "updated_at": datetime.now(timezone.utc),
-        }},
+        {"$set": updates},
     )
 
-    return {"kyc_status": "pending", "doc_url": doc_url, "doc_type": doc_type}
+    return {
+        "kyc_status": "pending",
+        "doc_url": doc_url,
+        "doc_type": doc_type,
+        "expires_at": expiration,
+    }
 
 
 @router.get("/me/kyc/{doc_type}", summary="Telecharger sa piece d'identite (KYC)")
@@ -1188,7 +1155,7 @@ async def get_my_stats(current_user: dict = Depends(get_current_user)):
         "parcels_delivered": delivered_count,
         "parcels_cancelled": cancelled_count,
         "loyalty_points": current_user.get("loyalty_points", 0),
-        "loyalty_tier": current_user.get("loyalty_tier", "bronze"),
+        "loyalty_tier": compute_tier(current_user.get("loyalty_points", 0), rewards["client"]["loyalty_tiers"]),
         "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
         "current_period": period,
         "client_monthly_sent": month_sent,
@@ -1295,7 +1262,8 @@ async def assign_relay_point(
 @router.get("/me/loyalty", summary="Statistiques de fidelite")
 async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
     """Retourne les points, le tier et l'historique de fidelite."""
-    from services.user_service import compute_tier
+    from services.loyalty_rules import loyalty_summary
+    from services.performance_rewards_service import get_performance_rewards_settings
 
     loyalty_events = await db.loyalty_events.find(
         {"user_id": current_user["user_id"]},
@@ -1358,14 +1326,12 @@ async def get_my_loyalty(current_user: dict = Depends(get_current_user)):
     merged_history.sort(key=_history_sort_key, reverse=True)
     merged_history = merged_history[:50]
 
-    points = current_user.get("loyalty_points", 0)
-    tier = compute_tier(points)
-    next_tier_at = 200 if tier == "bronze" else 500 if tier == "silver" else None
+    rules = await get_performance_rewards_settings()
+    fresh_user = await db.users.find_one({"user_id": current_user["user_id"]}, {"loyalty_points": 1}) or current_user
+    summary = loyalty_summary(fresh_user.get("loyalty_points", 0), rules["client"])
 
     return {
-        "points": points,
-        "tier": tier,
-        "next_tier_at": next_tier_at,
+        **summary,
         "referral_code": current_user.get("referral_code", ""),
         "history": merged_history,
     }
@@ -1384,8 +1350,10 @@ async def referral_landing(code: str):
     settings_doc = await get_global_app_settings()
     if not is_referral_sponsor_enabled_for_user(sponsor, settings_doc):
         raise not_found_exception("Code parrainage")
+    if not get_referral_role_config(settings_doc, "client")["enabled"]:
+        raise not_found_exception("Offre de parrainage pour les nouveaux clients")
 
-    sponsor_role = str(sponsor.get("role") or "client")
+    sponsor_role = "client"
     sponsor_bonus_xof = get_referral_sponsor_bonus_xof(settings_doc, sponsor_role)
     referred_bonus_xof = get_referral_referred_bonus_xof(settings_doc, sponsor_role)
     reward_rule = describe_referral_reward_rule(settings_doc, sponsor_role)
@@ -1562,6 +1530,15 @@ class ApplyReferralRequest(BaseModel):
     referral_code: str = Field(..., min_length=3, max_length=20)
 
 
+@router.get("/me/referrals", summary="Mes filleuls et leurs primes")
+async def get_my_referrals(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    return await referral_list({"sponsor_user_id": current_user["user_id"]}, skip, limit)
+
+
 @router.post("/apply-referral", summary="Appliquer un parrain")
 async def apply_referral_code(
     body: ApplyReferralRequest,
@@ -1595,28 +1572,8 @@ async def apply_referral_code(
     if not is_referral_sponsor_enabled_for_user(parrain, settings_doc):
         raise bad_request_exception("Ce code parrainage n'est pas actif")
 
-    if not await check_sponsor_referral_limit(parrain["user_id"], user_role, settings_doc):
-        raise bad_request_exception("Ce parrain a atteint le nombre maximum de filleuls")
-
-    now = datetime.now(timezone.utc)
-    await db.users.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": {
-            "referred_by": parrain["user_id"],
-            "referral_applied_at": now,
-            "referral_source": "post_signup",
-            "updated_at": now,
-        }},
-    )
-    await upsert_referral_record(
-        sponsor_user_id=parrain["user_id"],
-        referred_user_id=current_user["user_id"],
-        referred_role=user_role,
-        referral_code=code,
-        source="post_signup",
-        settings_doc=settings_doc,
-        created_at=now,
-    )
+    await assign_referral(current_user["user_id"], parrain["user_id"], code, settings_doc, "post_signup")
+    await refresh_referral_progress(current_user["user_id"], settings_doc)
     await _record_event(
         event_type="USER_REFERRAL_APPLIED",
         actor_id=current_user["user_id"],

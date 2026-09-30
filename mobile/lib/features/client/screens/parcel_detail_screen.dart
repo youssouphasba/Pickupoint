@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../widgets/client_loyalty_card.dart';
+import '../widgets/client_referral_entry.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -20,6 +22,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
+import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
@@ -65,6 +68,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
   final GlobalKey _chatKey = GlobalKey();
   bool _messageRevealScheduled = false;
+  final Set<String> _ratingPromptedParcelIds = {};
+  bool _ratingPromptScheduled = false;
   BitmapDescriptor? _motorcycleMarker;
   late final AnimationController _driverMovementController;
   Animation<double>? _driverLatAnimation;
@@ -154,6 +159,51 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
         alignment: 0.08,
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _promptForRating(Parcel parcel) {
+    if (parcel.status != 'delivered' ||
+        parcel.rating != null ||
+        parcel.isRecipientView != true ||
+        _ratingPromptScheduled ||
+        _ratingPromptedParcelIds.contains(parcel.id)) {
+      return;
+    }
+    _ratingPromptScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _ratingPromptScheduled = false;
+      if (!_canRefresh) return;
+      final current = ref.read(parcelProvider(widget.id)).valueOrNull;
+      if (current == null ||
+          current.id != parcel.id ||
+          current.status != 'delivered' ||
+          current.rating != null ||
+          current.isRecipientView != true) {
+        return;
+      }
+      _ratingPromptedParcelIds.add(parcel.id);
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _RatingCard(
+                  parcelId: parcel.id,
+                  onSubmitted: () => Navigator.of(dialogContext).pop(),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Plus tard'),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
       );
     });
   }
@@ -260,6 +310,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(parcelProvider(widget.id), (previous, next) {
+      final award = next.asData?.value.loyaltyAward;
+      if (award != null && award['event_id'] != previous?.asData?.value.loyaltyAward?['event_id']) {
+        ref.invalidate(clientLoyaltyProvider);
+        ref.invalidate(clientReferralProvider);
+      }
+    });
     final parcelAsync = ref.watch(parcelProvider(widget.id));
 
     return Scaffold(
@@ -267,6 +324,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
       body: parcelAsync.when(
         data: (parcel) {
           _revealRequestedMessage();
+          _promptForRating(parcel);
           final isRecipient = parcel.isRecipientView ?? false;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(20),
@@ -274,8 +332,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(context, parcel, isRecipient: isRecipient),
+                if (parcel.status == 'delivered' && parcel.loyaltyAward != null &&
+                    parcel.senderId == ref.watch(authProvider).valueOrNull?.user?.id)
+                  ClientLoyaltyAward(award: parcel.loyaltyAward!),
                 const SizedBox(height: 16),
                 _buildPriceCard(parcel),
+                if (parcel.status == 'delivered' &&
+                    parcel.senderId == ref.watch(authProvider).valueOrNull?.user?.id)
+                  const ReferralInviteCard(),
                 const SizedBox(height: 16),
                 if (parcel.parcelPhotoUrl != null &&
                     parcel.parcelPhotoUrl!.trim().isNotEmpty) ...[
@@ -317,7 +381,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                   const SizedBox(height: 16),
                 ],
 
-                // ── Bloc Notation & Pourboire (si livré et non noté) ─────────
+                // ── Bloc notation (si livré et non noté) ─────────────────────
                 if (parcel.status == 'delivered' &&
                     parcel.rating == null &&
                     isRecipient) ...[
@@ -352,6 +416,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                   const SizedBox(height: 16),
                 ],
                 _buildEnhancedInfoSection(parcel, isRecipient: isRecipient),
+                SupportWhatsAppTile(trackingCode: parcel.trackingCode),
                 const SizedBox(height: 28),
 
                 const Text(
@@ -2372,8 +2437,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
 }
 
 class _RatingCard extends ConsumerStatefulWidget {
-  const _RatingCard({required this.parcelId});
+  const _RatingCard({required this.parcelId, this.onSubmitted});
   final String parcelId;
+  final VoidCallback? onSubmitted;
 
   @override
   ConsumerState<_RatingCard> createState() => _RatingCardState();
@@ -2382,13 +2448,11 @@ class _RatingCard extends ConsumerStatefulWidget {
 class _RatingCardState extends ConsumerState<_RatingCard> {
   int _rating = 0;
   final _commentController = TextEditingController();
-  final _tipController = TextEditingController();
   bool _submitting = false;
 
   @override
   void dispose() {
     _commentController.dispose();
-    _tipController.dispose();
     super.dispose();
   }
 
@@ -2404,18 +2468,17 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
 
     setState(() => _submitting = true);
     try {
-      final tip = double.tryParse(_tipController.text) ?? 0.0;
       await ref.read(apiClientProvider).rateParcel(
             widget.parcelId,
             _rating,
             comment: _commentController.text,
-            tip: tip,
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Merci pour votre avis !')),
         );
         ref.invalidate(parcelProvider(widget.parcelId));
+        widget.onSubmitted?.call();
       }
     } catch (e) {
       if (mounted) {
@@ -2453,8 +2516,8 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
             children: List.generate(5, (index) {
               return IconButton(
                 icon: Icon(
@@ -2475,22 +2538,6 @@ class _RatingCardState extends ConsumerState<_RatingCard> {
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
             maxLines: 2,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Ajouter un pourboire au livreur ?',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _tipController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              hintText: 'Montant en XOF (ex: 500)',
-              prefixIcon: Icon(Icons.account_balance_wallet, size: 20),
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
           ),
           const SizedBox(height: 20),
           LoadingButton(

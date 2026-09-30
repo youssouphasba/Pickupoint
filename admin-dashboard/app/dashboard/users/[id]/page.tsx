@@ -8,7 +8,7 @@ import {
   assignRelayPoint,
   banUser,
   changeUserRole,
-  confirmReferralPayment,
+  ReferralRecord,
   fetchRelays,
   fetchUserDetail,
   fetchUserHistory,
@@ -52,6 +52,7 @@ import {
   Clock3,
 } from "lucide-react";
 import Link from "next/link";
+import { ReferralRecordCard } from "@/components/referral-ledger";
 
 export const runtime = "edge";
 
@@ -110,19 +111,7 @@ type ApplicationDocument = {
   url?: string | null;
 };
 
-const REFERRAL_STATUS_LABELS: Record<string, string> = {
-  pending: "En cours",
-  qualified: "Qualifie",
-  rewarded: "Paye",
-  qualified_no_bonus: "Qualifie sans bonus",
-};
 
-const REFERRAL_STATUS_TONES: Record<string, BadgeTone> = {
-  pending: "warning",
-  qualified: "info",
-  rewarded: "success",
-  qualified_no_bonus: "default",
-};
 
 function textOrDash(value: unknown) {
   const text = String(value ?? "").trim();
@@ -287,13 +276,7 @@ export default function UserDetailPage() {
     },
   });
 
-  const referralPaymentMut = useMutation({
-    mutationFn: (referralId: string) => confirmReferralPayment(referralId),
-    onSuccess: () => {
-      invalidate();
-      toast("Paiement parrainage validé.");
-    },
-  });
+
 
   const photoModerationMut = useMutation({
     mutationFn: ({
@@ -1067,7 +1050,6 @@ export default function UserDetailPage() {
           </Card>
         )}
 
-        {/* Referral */}
         {referral && (
           <Card>
             <CardHeader>
@@ -1088,6 +1070,7 @@ export default function UserDetailPage() {
                 <span className="text-muted-foreground">Filleuls</span>
                 <span>{referral.referrals_count}</span>
               </div>
+              {referral.received_referral && <ReferralRecordCard record={referral.received_referral} onSuccess={invalidate} />}
               {sponsoredReferrals && (
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                   <div className="grid gap-2 sm:grid-cols-4">
@@ -1095,76 +1078,14 @@ export default function UserDetailPage() {
                     <InfoLine label="En attente" value={sponsoredReferrals.pending_rewards ?? 0} />
                     <InfoLine label="Récompensés" value={sponsoredReferrals.rewarded ?? 0} />
                     <InfoLine
-                      label="Bonus parrain"
+                      label="Payé hors plateforme au parrain"
                       value={`${xof.format(sponsoredReferrals.total_sponsor_bonus_xof ?? 0)} XOF`}
                     />
                   </div>
                   {sponsoredItems.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="text-muted-foreground">
-                          <tr>
-                            <th className="py-2 pr-3">Filleul</th>
-                            <th className="py-2 pr-3">Rôle</th>
-                            <th className="py-2 pr-3">Statut</th>
-                            <th className="py-2 pr-3">Progression</th>
-                            <th className="py-2 pr-3">Bonus</th>
-                            <th className="py-2 pr-3">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sponsoredItems.map((item: any) => {
-                            const status = String(item.status ?? "pending");
-                            return (
-                              <tr key={item.referral_id ?? item.referred_user_id} className="border-t">
-                                <td className="py-2 pr-3">
-                                  {item.referred_user_id ? (
-                                    <Link
-                                      href={`/dashboard/users/${item.referred_user_id}`}
-                                      className="font-medium text-primary underline"
-                                    >
-                                      {textOrDash(item.referred_name)}
-                                    </Link>
-                                  ) : (
-                                    textOrDash(item.referred_name)
-                                  )}
-                                  {item.referred_phone && (
-                                    <div className="text-muted-foreground">{item.referred_phone}</div>
-                                  )}
-                                </td>
-                                <td className="py-2 pr-3">
-                                  {ROLE_LABELS[item.referred_role] ?? textOrDash(item.referred_role)}
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <Badge tone={REFERRAL_STATUS_TONES[status] ?? "default"}>
-                                    {REFERRAL_STATUS_LABELS[status] ?? status}
-                                  </Badge>
-                                </td>
-                                <td className="py-2 pr-3">
-                                  {item.reward_metric_count ?? 0} / {item.reward_count ?? 1}
-                                </td>
-                                <td className="py-2 pr-3">
-                                  {xof.format(item.sponsor_bonus_xof ?? 0)} XOF
-                                </td>
-                                <td className="py-2 pr-3">
-                                  {status === "qualified" && item.referral_id ? (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={referralPaymentMut.isPending}
-                                      onClick={() => referralPaymentMut.mutate(item.referral_id)}
-                                    >
-                                      Valider paiement
-                                    </Button>
-                                  ) : (
-                                    <span className="text-xs text-muted-foreground">-</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <div className="space-y-3">
+                      {sponsoredItems.map((item: ReferralRecord) => <ReferralRecordCard key={item.referral_id} record={item} onSuccess={invalidate} />)}
+                      {sponsoredReferrals.total > sponsoredItems.length && <Link href="/dashboard/promotions" className="text-sm text-primary underline">Voir tous les parrainages et paiements</Link>}
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground">

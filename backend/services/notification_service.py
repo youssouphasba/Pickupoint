@@ -158,7 +158,7 @@ STATUS_MESSAGES = {
     ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis est arrivé au relais destination.",
     ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis vous attend au relais. Présentez votre code de retrait pour le récupérer.",
     ParcelStatus.OUT_FOR_DELIVERY:        "Un livreur est en route pour livrer votre colis.",
-    ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Merci d'avoir utilisé Denkma !",
+    ParcelStatus.DELIVERED:               "Votre colis a été livré avec succès. Consultez le récapitulatif et laissez votre avis.",
     ParcelStatus.DELIVERY_FAILED:         "La livraison n'a pas pu être finalisée. Denkma recherche la meilleure solution.",
     ParcelStatus.REDIRECTED_TO_RELAY:     "Votre colis est redirigé vers un relais. Code de retrait : {relay_pin}",
     ParcelStatus.INCIDENT_REPORTED:       "Un incident est en cours de traitement sur votre colis. Denkma vous tiendra informé.",
@@ -176,7 +176,7 @@ SENDER_STATUS_MESSAGES = {
     ParcelStatus.AT_DESTINATION_RELAY:    "Votre colis {tracking_code} est arrivé au relais proche du destinataire.",
     ParcelStatus.AVAILABLE_AT_RELAY:      "Votre colis {tracking_code} est disponible au relais pour le destinataire.",
     ParcelStatus.OUT_FOR_DELIVERY:        "Le livreur est en route pour livrer votre colis {tracking_code}.",
-    ParcelStatus.DELIVERED:               "Votre colis {tracking_code} a été livré avec succès.",
+    ParcelStatus.DELIVERED:               "Votre colis {tracking_code} a été livré avec succès. Consultez le récapitulatif et laissez votre avis.",
     ParcelStatus.DELIVERY_FAILED:         "La livraison du colis {tracking_code} n'a pas pu être finalisée. Denkma recherche la meilleure solution.",
     ParcelStatus.REDIRECTED_TO_RELAY:     "Votre colis {tracking_code} a été redirigé vers un relais proche du destinataire.",
     ParcelStatus.INCIDENT_REPORTED:       "Un incident est en cours de traitement sur votre colis {tracking_code}.",
@@ -1890,28 +1890,354 @@ async def send_location_confirmation_prompt(
             await _send_whatsapp(phone, body)
 
 
-async def notify_relay_agent_parcel_arrived(relay_id: str, parcel: dict):
-    """Notifie l'agent relais qu'un colis est arrivé dans son relais."""
+async def _relay_agent_user_ids(relay_id: str) -> list[str]:
+    relay = await db.relay_points.find_one(
+        {"relay_id": relay_id},
+        {"_id": 0, "owner_user_id": 1, "agent_user_ids": 1},
+    )
+    user_ids = {
+        str(user_id)
+        for user_id in ((relay or {}).get("agent_user_ids") or [])
+        if user_id
+    }
+    owner_user_id = (relay or {}).get("owner_user_id")
+    if owner_user_id:
+        user_ids.add(str(owner_user_id))
+    cursor = db.users.find(
+        {"relay_point_id": relay_id, "role": "relay_agent"},
+        {"_id": 0, "user_id": 1},
+    )
+    async for agent in cursor:
+        if agent.get("user_id"):
+            user_ids.add(str(agent["user_id"]))
+    return sorted(user_ids)
+
+
+async def notify_location_updated(parcel: dict, *, actor: str) -> None:
     tracking_code = parcel.get("tracking_code", "")
     parcel_id = parcel.get("parcel_id")
-
-    # Trouver l'agent relais lié à ce relay_point
-    agent = await db.users.find_one(
-        {"relay_point_id": relay_id, "role": "relay_agent"},
-        {"user_id": 1},
+    sender_id = parcel.get("sender_user_id")
+    driver_id = parcel.get("assigned_driver_id")
+    label = "livraison" if actor == "recipient" else "collecte"
+    recipients: list[tuple[str, str]] = []
+    if sender_id and actor == "recipient":
+        recipients.append((sender_id, "client"))
+    if driver_id:
+        recipients.append((driver_id, "driver"))
+    mission_id = None
+    if driver_id:
+        mission = await db.delivery_missions.find_one(
+            {"parcel_id": parcel_id, "driver_id": driver_id},
+            {"_id": 0, "mission_id": 1},
+            sort=[("updated_at", -1)],
+        )
+        mission_id = (mission or {}).get("mission_id")
+    changed_at = parcel.get("updated_at")
+    change_marker = (
+        changed_at.isoformat()
+        if isinstance(changed_at, datetime)
+        else str(changed_at or datetime.now(timezone.utc).isoformat())
     )
-    if not agent:
-        return
+    for user_id, target_view in recipients:
+        await _store_and_send(
+            user_id=user_id,
+            title=f"Position de {label} mise à jour",
+            body=f"La position de {label} du colis {tracking_code} a été confirmée ou modifiée.",
+            ref_type="mission" if target_view == "driver" else "parcel",
+            ref_id=mission_id if target_view == "driver" else parcel_id,
+            category="parcel_updates",
+            skip_whatsapp=True,
+            event_type="mission_detail" if target_view == "driver" else "parcel_detail",
+            target_view=target_view,
+            dedupe_key=f"location_updated:{parcel_id}:{actor}:{target_view}:{change_marker}",
+        )
 
+
+async def notify_incident_resolved(parcel: dict, *, resolution: str) -> None:
+    tracking_code = parcel.get("tracking_code", "")
+    body = f"L'incident du colis {tracking_code} est résolu. Décision : {resolution}."
+    user_ids = {
+        parcel.get("sender_user_id"),
+        parcel.get("recipient_user_id"),
+    }
+    for user_id in {item for item in user_ids if item}:
+        await _store_and_send(
+            user_id=user_id,
+            title="Incident résolu",
+            body=body,
+            ref_type="parcel",
+            ref_id=parcel.get("parcel_id"),
+            category="parcel_updates",
+            skip_whatsapp=True,
+            event_type="parcel_detail",
+            target_view="client",
+            dedupe_key=f"incident_resolved:{parcel.get('parcel_id')}:{resolution}:{user_id}",
+        )
+
+
+async def notify_driver_mission_completed(mission: dict, parcel: dict) -> None:
+    driver_id = mission.get("driver_id")
+    if not driver_id:
+        return
+    tracking_code = parcel.get("tracking_code") or mission.get("tracking_code", "")
+    gain = float(mission.get("earn_amount") or 0)
     await _store_and_send(
-        user_id=agent["user_id"],
-        title="Nouveau colis arrivé",
-        body=f"Le colis {tracking_code} est arrivé dans votre relais. Veuillez le réceptionner.",
-        ref_type="parcel",
-        ref_id=parcel_id,
-        event_type="relay_scan_in",
-        target_view="relay_agent",
-        dedupe_key=f"relay_arrival:{parcel_id}",
+        user_id=driver_id,
+        title="Mission terminée",
+        body=f"Mission {tracking_code} terminée. Gain prévu : {int(round(gain))} XOF. Consultez le récapitulatif.",
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+        event_type="mission_detail",
+        target_view="driver",
+        dedupe_key=f"mission_completed:{mission.get('mission_id')}",
+    )
+
+
+async def notify_driver_low_balance(
+    user_id: str,
+    *,
+    balance_xof: float,
+    required_xof: float,
+) -> None:
+    await _store_and_send(
+        user_id=user_id,
+        title="Solde bientôt insuffisant",
+        body=(
+            f"Votre solde est de {int(round(balance_xof))} XOF. "
+            f"Une mission similaire demande environ {int(round(required_xof))} XOF."
+        ),
+        ref_type="wallet",
+        category="parcel_updates",
+        skip_whatsapp=True,
+        event_type="wallet",
+        target_view="driver",
+        dedupe_key=f"driver_low_balance:{user_id}:{datetime.now(timezone.utc).date().isoformat()}",
+    )
+
+
+async def notify_driver_relay_closing(
+    user_id: str,
+    mission: dict,
+    relay: dict,
+    *,
+    status_label: str,
+) -> None:
+    await _store_and_send(
+        user_id=user_id,
+        title="Attention aux horaires du relais",
+        body=f"{relay.get('name') or 'Le relais'} : {status_label}. Vérifiez l'itinéraire de la mission.",
+        ref_type="mission",
+        ref_id=mission.get("mission_id"),
+        category="parcel_updates",
+        skip_whatsapp=True,
+        event_type="mission_detail",
+        target_view="driver",
+        dedupe_key=f"relay_hours:{mission.get('mission_id')}:{relay.get('relay_id')}:{datetime.now(timezone.utc).date().isoformat()}",
+    )
+
+
+async def notify_driver_document_expiry(
+    user_id: str,
+    *,
+    document_label: str,
+    days_remaining: int,
+) -> None:
+    await _store_and_send(
+        user_id=user_id,
+        title=f"{document_label} bientôt expiré",
+        body=f"Votre {document_label.lower()} expire dans {days_remaining} jour(s). Mettez votre document à jour.",
+        ref_type="profile",
+        category="admin",
+        skip_whatsapp=True,
+        event_type="driver_document",
+        target_view="driver",
+        dedupe_key=f"driver_document_expiry:{user_id}:{document_label}:{days_remaining}",
+    )
+
+
+async def _notify_relay_users(
+    relay_id: str,
+    *,
+    title: str,
+    body: str,
+    parcel_id: str | None = None,
+    event_type: str = "relay_parcel",
+    dedupe_key: str,
+    metadata: Optional[dict] = None,
+) -> None:
+    for user_id in await _relay_agent_user_ids(relay_id):
+        await _store_and_send(
+            user_id=user_id,
+            title=title,
+            body=body,
+            ref_type="parcel" if parcel_id else "relay",
+            ref_id=parcel_id or relay_id,
+            category="parcel_updates",
+            skip_whatsapp=True,
+            event_type=event_type,
+            target_view="relay_agent",
+            dedupe_key=f"{dedupe_key}:{user_id}",
+            metadata={"relay_id": relay_id, **(metadata or {})},
+        )
+
+
+async def notify_relay_parcel_incoming(relay_id: str, parcel: dict) -> None:
+    tracking_code = parcel.get("tracking_code", "")
+    await _notify_relay_users(
+        relay_id,
+        title="Un colis arrive bientôt",
+        body=f"Le colis {tracking_code} est en route vers votre relais. Préparez sa réception.",
+        parcel_id=parcel.get("parcel_id"),
+        dedupe_key=f"relay_incoming:{parcel.get('parcel_id')}",
+    )
+
+
+async def notify_relay_driver_approaching(
+    relay_id: str,
+    parcel: dict,
+    *,
+    accepted: bool = False,
+) -> None:
+    tracking_code = parcel.get("tracking_code", "")
+    await _notify_relay_users(
+        relay_id,
+        title=("Collecte relais planifiée" if accepted else "Le livreur arrive au relais"),
+        body=(
+            f"Un livreur a accepté la collecte du colis {tracking_code}. Gardez le code de collecte disponible."
+            if accepted
+            else f"Le livreur approche pour récupérer le colis {tracking_code}. Préparez le colis et son code."
+        ),
+        parcel_id=parcel.get("parcel_id"),
+        dedupe_key=(
+            f"relay_pickup_assigned:{parcel.get('parcel_id')}"
+            if accepted
+            else f"relay_pickup_approaching:{parcel.get('parcel_id')}"
+        ),
+    )
+
+
+async def notify_relay_financial_action(
+    relay_id: str,
+    parcel: dict,
+    *,
+    action: str,
+    amount_xof: float,
+) -> None:
+    labels = {
+        "driver_payment": (
+            "Paiement au livreur à effectuer",
+            "Remettez {amount} XOF au livreur pour le colis {tracking} puis déclarez l'action.",
+        ),
+        "denkma_payment": (
+            "Règlement Denkma à déclarer",
+            "Le règlement de {amount} XOF lié au colis {tracking} doit être déclaré à Denkma.",
+        ),
+    }
+    if action not in labels or amount_xof <= 0:
+        return
+    title, template = labels[action]
+    tracking_code = parcel.get("tracking_code", "")
+    await _notify_relay_users(
+        relay_id,
+        title=title,
+        body=template.format(amount=int(round(amount_xof)), tracking=tracking_code),
+        parcel_id=parcel.get("parcel_id"),
+        event_type="relay_finance",
+        dedupe_key=f"relay_financial_action:{parcel.get('parcel_id')}:{action}",
+        metadata={"financial_action": action, "amount_xof": amount_xof},
+    )
+
+
+async def notify_relay_settlement_update(
+    relay_id: str,
+    parcel: dict,
+    *,
+    action: str,
+    status: str,
+    note: str | None = None,
+) -> None:
+    summary_labels = {
+        "denkma_payment": "Règlement Denkma",
+        "driver_payment": "Paiement au livreur",
+        "origin_relay_payment": "Commission du relais de départ",
+        "destination_relay_payment": "Commission du relais d'arrivée",
+    }
+    label = summary_labels.get(action, "Règlement")
+    approved = status == "validated"
+    title = f"{label} validé" if approved else f"{label} refusé"
+    tracking_code = parcel.get("tracking_code", "")
+    body = f"{label} pour le colis {tracking_code} : {'validé' if approved else 'refusé'} par Denkma."
+    if note:
+        body = f"{body} Motif : {note}"
+    await _notify_relay_users(
+        relay_id,
+        title=title,
+        body=body,
+        parcel_id=parcel.get("parcel_id"),
+        event_type="relay_finance",
+        dedupe_key=f"relay_settlement:{parcel.get('parcel_id')}:{action}:{status}",
+        metadata={"financial_action": action, "settlement_status": status},
+    )
+
+
+async def notify_relay_parcel_expiry_reminder(
+    relay_id: str,
+    parcel: dict,
+    *,
+    hours_remaining: int,
+) -> None:
+    tracking_code = parcel.get("tracking_code", "")
+    await _notify_relay_users(
+        relay_id,
+        title="Colis bientôt expiré",
+        body=f"Le colis {tracking_code} expire dans environ {hours_remaining} h. Contactez le destinataire si nécessaire.",
+        parcel_id=parcel.get("parcel_id"),
+        dedupe_key=f"relay_expiry:{parcel.get('parcel_id')}:{hours_remaining}",
+        metadata={"hours_remaining": hours_remaining},
+    )
+
+
+async def notify_relay_capacity_warning(relay: dict) -> None:
+    relay_id = relay.get("relay_id")
+    capacity = int(relay.get("max_capacity") or 0)
+    load = max(0, int(relay.get("current_load") or 0))
+    if not relay_id or capacity <= 0:
+        return
+    percentage = round(load / capacity * 100)
+    await _notify_relay_users(
+        relay_id,
+        title="Capacité du relais atteinte" if load >= capacity else "Capacité du relais presque atteinte",
+        body=f"Votre relais contient {load} colis sur {capacity} places ({percentage} %).",
+        event_type="relay_stock",
+        dedupe_key=(
+            f"relay_capacity:{relay_id}:"
+            f"{'full' if load >= capacity else 'warning'}:"
+            f"{datetime.now(timezone.utc).date().isoformat()}"
+        ),
+        metadata={"current_load": load, "max_capacity": capacity, "percentage": percentage},
+    )
+    from services.admin_events_service import AdminEventType, record_admin_event
+
+    await record_admin_event(
+        AdminEventType.RELAY_CAPACITY_WARNING,
+        title=(
+            "Capacité relais atteinte"
+            if load >= capacity
+            else "Capacité relais presque atteinte"
+        ),
+        message=(
+            f"{relay.get('name') or relay_id} contient {load} colis sur "
+            f"{capacity} places ({percentage} %)."
+        ),
+        href=f"/dashboard/relays/{relay_id}",
+        metadata={
+            "relay_id": relay_id,
+            "current_load": load,
+            "max_capacity": capacity,
+            "percentage": percentage,
+        },
     )
 
 
@@ -2040,6 +2366,41 @@ async def notify_parcel_expired(parcel: dict):
         )
     elif recipient_phone:
         await _send_whatsapp(recipient_phone, body)
+
+
+async def notify_parcel_expiry_reminder(
+    parcel: dict,
+    *,
+    hours_remaining: int,
+) -> None:
+    recipient_user_id = parcel.get("recipient_user_id")
+    if not recipient_user_id and parcel.get("recipient_phone"):
+        user = await _find_user_by_phone(parcel.get("recipient_phone"))
+        recipient_user_id = (user or {}).get("user_id")
+    if recipient_user_id:
+        await _store_and_send(
+            user_id=recipient_user_id,
+            title="Retirez votre colis avant expiration",
+            body=(
+                f"Le colis {parcel.get('tracking_code', '')} expire dans environ "
+                f"{hours_remaining} h. Consultez les horaires et l'itinéraire du relais."
+            ),
+            ref_type="parcel",
+            ref_id=parcel.get("parcel_id"),
+            category="parcel_updates",
+            skip_whatsapp=True,
+            event_type="parcel_detail",
+            target_view="client",
+            dedupe_key=f"parcel_expiry:{parcel.get('parcel_id')}:{hours_remaining}",
+        )
+
+    relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
+    if relay_id:
+        await notify_relay_parcel_expiry_reminder(
+            relay_id,
+            parcel,
+            hours_remaining=hours_remaining,
+        )
 
 
 async def notify_location_confirmation_request(parcel: dict, actor: str, confirm_url: str, escalate_external: bool = False):

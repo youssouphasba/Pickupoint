@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     PUBLIC_TRACKING_RETENTION_DAYS: int = 30
     DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES: int = 5
     DRIVER_LOCATION_PURGE_AFTER_HOURS: int = 24
+    RELAY_PARCEL_REMINDER_HOURS: str = "48,24"
+    RELAY_CAPACITY_WARNING_PERCENT: int = 80
+    RELAY_CLOSING_SOON_MINUTES: int = 60
+    DRIVER_DOCUMENT_REMINDER_DAYS: str = "30,7"
     OPERATIONAL_DATA_RETENTION_DAYS: int = 1095
     GPS_TRACE_RETENTION_DAYS: int = 365
     NOTIFICATION_RETENTION_DAYS: int = 365
@@ -140,6 +144,10 @@ class Settings(BaseSettings):
             raise ValueError("DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES must be >= 1")
         if self.DRIVER_LOCATION_PURGE_AFTER_HOURS < 1:
             raise ValueError("DRIVER_LOCATION_PURGE_AFTER_HOURS must be >= 1")
+        if not 1 <= self.RELAY_CAPACITY_WARNING_PERCENT <= 100:
+            raise ValueError("RELAY_CAPACITY_WARNING_PERCENT must be between 1 and 100")
+        if self.RELAY_CLOSING_SOON_MINUTES < 1:
+            raise ValueError("RELAY_CLOSING_SOON_MINUTES must be >= 1")
         retention_settings = (
             "OPERATIONAL_DATA_RETENTION_DAYS",
             "GPS_TRACE_RETENTION_DAYS",

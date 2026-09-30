@@ -8,6 +8,7 @@ from urllib.parse import quote_plus
 
 from config import settings
 from database import db
+from services.loyalty_rules import compute_tier, tier_discount_coeff
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,9 @@ REFERRAL_ROLE_DEFAULTS: dict[str, dict] = {
 }
 
 REFERRAL_METRIC_LABELS = {
-    "sent_parcels": ("colis envoye", "colis envoyes"),
-    "delivered_sender_parcels": ("colis livre", "colis livres"),
-    "completed_driver_deliveries": ("livraison effectuee", "livraisons effectuees"),
+    "sent_parcels": ("colis envoyé", "colis envoyés"),
+    "delivered_sender_parcels": ("colis livré", "colis livrés"),
+    "completed_driver_deliveries": ("livraison effectuée", "livraisons effectuées"),
 }
 
 # Metrics relevant to each role (for UI filtering)
@@ -90,19 +91,6 @@ async def generate_unique_referral_code(name: str) -> str:
 
 
 # ── Tier helpers ─────────────────────────────────────────────────────────────
-
-def compute_tier(points: int) -> str:
-    if points >= 500:
-        return "gold"
-    if points >= 200:
-        return "silver"
-    return "bronze"
-
-
-def tier_discount_coeff(tier: str) -> float:
-    """Coefficient de reduction fidelite (1.0 = aucune reduction)."""
-    return {"bronze": 1.0, "silver": 0.90, "gold": 0.80}.get(tier, 1.0)
-
 
 # ── App settings ─────────────────────────────────────────────────────────────
 
@@ -239,18 +227,19 @@ def build_referral_share_message(
     referred_bonus_xof: int,
     reward_rule: str | None = None,
 ) -> str:
-    message = f"Utilise mon code parrainage Denkma {code} pour rejoindre l'app."
+    message = f"Utilise mon code parrainage Denkma {code}."
     if sponsor_bonus_xof > 0 and referred_bonus_xof > 0:
         message += f" Gagne {referred_bonus_xof} XOF et fais-moi gagner {sponsor_bonus_xof} XOF !"
     elif referred_bonus_xof > 0:
         message += f" Bonus filleul : {referred_bonus_xof} XOF."
     elif sponsor_bonus_xof > 0:
-        message += f" Fais-moi gagner {sponsor_bonus_xof} XOF en t'inscrivant."
+        message += f" Bonus parrain : {sponsor_bonus_xof} XOF si l’objectif est atteint."
 
     if reward_rule:
         message += f" {reward_rule}"
     if referral_url:
         message += f" Lien d'inscription : {referral_url}"
+    message += " Primes versées par Denkma hors de l’application après vérification."
     return message
 
 
@@ -301,7 +290,7 @@ def describe_referral_apply_rule(settings_doc: dict | None, role: str = "client"
     metric = config["apply_metric"]
     max_count = config["apply_max_count"]
     return (
-        "Code applicable tant que le compte ne depasse pas "
+        "Code applicable tant que le compte ne dépasse pas "
         f"{format_referral_metric_threshold(metric, max_count)}."
     )
 
@@ -310,7 +299,7 @@ def describe_referral_reward_rule(settings_doc: dict | None, role: str = "client
     config = get_referral_role_config(settings_doc, role)
     metric = config["reward_metric"]
     count = config["reward_count"]
-    return f"Prime debloquee apres {format_referral_metric_threshold(metric, count)}."
+    return f"Prime débloquée après {format_referral_metric_threshold(metric, count)}."
 
 
 # ── Enablement checks ───────────────────────────────────────────────────────
@@ -361,7 +350,7 @@ async def check_sponsor_referral_limit(sponsor_user_id: str, role: str, settings
     max_count = config.get("max_referrals_per_sponsor", 0)
     if max_count <= 0:
         return True  # unlimited
-    current = await db.referrals.count_documents({"sponsor_user_id": sponsor_user_id})
+    current = await db.referrals.count_documents({"sponsor_user_id": sponsor_user_id, "referred_role": role})
     return current < max_count
 
 

@@ -15,8 +15,11 @@ import '../../../shared/promotions/campaign_banner.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
+import '../../../shared/widgets/sending_guide.dart';
 import '../../driver/providers/driver_provider.dart';
 import '../providers/client_provider.dart';
+import '../widgets/client_loyalty_card.dart';
+import '../widgets/client_referral_entry.dart';
 
 class ClientHome extends ConsumerStatefulWidget {
   const ClientHome({super.key});
@@ -44,7 +47,12 @@ class _ClientHomeState extends ConsumerState<ClientHome>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) ref.invalidate(parcelsProvider);
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(parcelsProvider);
+      ref.invalidate(sendingGuideProvider);
+      ref.invalidate(clientLoyaltyProvider);
+      ref.invalidate(clientReferralProvider);
+    }
   }
 
   @override
@@ -58,28 +66,42 @@ class _ClientHomeState extends ConsumerState<ClientHome>
   Widget build(BuildContext context) {
     ref.listen(foregroundNotificationRefreshProvider, (_, __) {
       ref.invalidate(parcelsProvider);
+      ref.invalidate(clientLoyaltyProvider);
     });
     final parcelsAsync = ref.watch(parcelsProvider);
+    final referralOffer =
+        referralRewardOffer(ref.watch(clientReferralProvider).asData?.value);
+    final headerActions = <Widget>[
+      const AccountSwitcherButton(),
+      const NotificationsBellButton(route: '/client/notifications'),
+      IconButton(
+        tooltip: 'Devenir partenaire',
+        icon: const Icon(Icons.handshake_outlined),
+        onPressed: () => context.push('/client/partnership'),
+      ),
+      IconButton(
+        tooltip: 'Se déconnecter',
+        icon: const Icon(Icons.logout),
+        onPressed: () => _logout(context, ref),
+      ),
+    ];
 
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Denkma'),
-          actions: [
-            const AccountSwitcherButton(),
-            const NotificationsBellButton(route: '/client/notifications'),
-            IconButton(
-              tooltip: 'Devenir partenaire',
-              icon: const Icon(Icons.handshake_outlined),
-              onPressed: () => context.push('/client/partnership'),
-            ),
-            IconButton(
-              tooltip: 'Se déconnecter',
-              icon: const Icon(Icons.logout),
-              onPressed: () => _logout(context, ref),
-            ),
-          ],
+          automaticallyImplyLeading: false,
+          toolbarHeight: referralOffer == null
+              ? kToolbarHeight
+              : ClientReferralToolbar.height(context),
+          title: referralOffer == null
+              ? const Text('Denkma')
+              : ClientReferralToolbar(
+                  offer: referralOffer,
+                  actions: headerActions,
+                  onPressed: () => context.push('/client/referral'),
+                ),
+          actions: referralOffer == null ? headerActions : null,
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(48),
             child: parcelsAsync.maybeWhen(
@@ -115,7 +137,13 @@ class _ClientHomeState extends ConsumerState<ClientHome>
           children: [
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () => ref.refresh(parcelsProvider.future),
+                onRefresh: () async {
+                  ref.invalidate(sendingGuideProvider);
+                  ref.invalidate(clientLoyaltyProvider);
+                  ref.invalidate(clientReferralProvider);
+                  ref.invalidate(parcelsProvider);
+                  await ref.read(parcelsProvider.future);
+                },
                 child: parcelsAsync.when(
                   data: (parcels) {
                     final active =
@@ -395,7 +423,7 @@ class _DeliveryModesGuide extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
         scrollDirection: Axis.horizontal,
-        children: [
+        children: const [
           _ModeCard(
             icon: Icons.home_outlined,
             title: 'Domicile → domicile',
@@ -538,6 +566,8 @@ class _ClientHomeHeader extends StatelessWidget {
           onStats: onStats,
           onRelay: onRelay,
         ),
+        const SendingGuideEntry(),
+        const ClientLoyaltyCard(home: true),
         const CampaignBanner(role: 'client'),
         const _DeliveryModesGuide(),
       ],

@@ -12,7 +12,7 @@ from services.user_service import get_global_app_settings
 
 
 async def main():
-    dry_run = "--dry-run" in sys.argv
+    dry_run = "--apply" not in sys.argv
     await connect_db()
     settings_doc = await get_global_app_settings()
     query = {"referred_by": {"$exists": True, "$ne": None}}

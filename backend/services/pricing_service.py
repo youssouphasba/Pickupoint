@@ -237,9 +237,16 @@ async def calculate_price(
     sous_total = base + dist_cost + weight_cost + inter_city_cost
 
     # ── Réductions Fidélité & Expéditeur Fréquent (Phase 8) ──
-    from services.user_service import tier_discount_coeff
-    
-    tier_discount = tier_discount_coeff(sender_tier)
+    from services.loyalty_rules import compute_tier, tier_discount_coeff
+    from services.performance_rewards_service import get_performance_rewards_settings
+
+    rewards = await get_performance_rewards_settings()
+    tiers = rewards["client"]["loyalty_tiers"]
+    if user_id:
+        loyalty_user = await db.users.find_one({"user_id": user_id}, {"loyalty_points": 1})
+        if loyalty_user:
+            sender_tier = compute_tier(loyalty_user.get("loyalty_points", 0), tiers)
+    tier_discount = tier_discount_coeff(sender_tier, tiers)
     frequent_discount = 0.90 if is_frequent else 1.0 # -10% from text
     
     # Coefficient combiné
@@ -259,6 +266,11 @@ async def calculate_price(
 
     # Min + arrondi 50 XOF
     final = _round_to_50(max(price_with_coeff, pricing_settings["min_price"]))
+    without_loyalty = sous_total * frequent_discount
+    if quote.is_express and pricing_settings["express_enabled"]:
+        without_loyalty *= pricing_settings["express_multiplier"]
+    price_before_loyalty = _round_to_50(max(without_loyalty, pricing_settings["min_price"]))
+    loyalty_discount_xof = max(price_before_loyalty - final, 0)
 
     # ── Promotions (Bloc E) ──
     from services.promotion_service import find_best_promo
@@ -314,6 +326,9 @@ async def calculate_price(
         "loyalty_tier":   sender_tier,
         "is_frequent":    is_frequent,
         "loyalty_coeff":  round(loyalty_coeff, 2),
+        "loyalty_discount_percent": round((1 - tier_discount) * 100, 2),
+        "loyalty_discount_xof": loyalty_discount_xof,
+        "price_before_loyalty": price_before_loyalty,
         "who_pays":       quote.who_pays,
         "estimated_hours": estimated_hours,
         "promo_code":     quote.promo_code,

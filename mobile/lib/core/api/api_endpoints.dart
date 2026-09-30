@@ -44,6 +44,7 @@ class ApiEndpoints {
   static const userKyc = '$_base/api/users/me/kyc';
   static const favoriteAddresses = '$_base/api/users/me/favorite-addresses';
   static const referralInfo = '$_base/api/users/refer';
+  static const myReferrals = '$_base/api/users/me/referrals';
   static const applyReferral = '$_base/api/users/apply-referral';
 
   // ─── Parcels ─────────────────────────────────────────────────────────────
@@ -158,16 +159,18 @@ class ApiEndpoints {
       '$_base/api/admin/parcels/$id/payment-override';
   static const adminWhatsappSupportConversations =
       '$_base/api/admin/support/whatsapp/conversations';
+  static const adminWhatsappSupportSettings =
+      '$_base/api/admin/support/whatsapp/settings';
   static String adminWhatsappSupportConversation(String id) =>
-      '$_base/api/admin/support/whatsapp/conversations/$id';
+      '$adminWhatsappSupportConversations/${Uri.encodeComponent(id)}';
   static String adminWhatsappSupportConversationStatus(String id) =>
-      '$_base/api/admin/support/whatsapp/conversations/$id/status';
+      '${adminWhatsappSupportConversation(id)}/status';
   static String adminWhatsappSupportReply(String id) =>
-      '$_base/api/admin/support/whatsapp/conversations/$id/reply';
+      '${adminWhatsappSupportConversation(id)}/reply';
   static String adminWhatsappSupportReopenTemplate(String id) =>
-      '$_base/api/admin/support/whatsapp/conversations/$id/reopen-template';
+      '${adminWhatsappSupportConversation(id)}/reopen-template';
   static String adminWhatsappSupportVoice(String id) =>
-      '$_base/api/admin/support/whatsapp/conversations/$id/voice';
+      '${adminWhatsappSupportConversation(id)}/voice';
   static const adminWhatsappSupportStart =
       '$_base/api/admin/support/whatsapp/start';
   static const adminNotificationsSend = '$_base/api/admin/notifications/send';

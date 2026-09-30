@@ -107,6 +107,7 @@ class Parcel {
     this.platformCommissionDebt = false,
     this.platformCommissionOffered = false,
     this.relayFinancial,
+    this.loyaltyAward,
   });
 
   final String id;
@@ -191,6 +192,7 @@ class Parcel {
   final bool platformCommissionDebt;
   final bool platformCommissionOffered;
   final Map<String, dynamic>? relayFinancial;
+  final Map<String, dynamic>? loyaltyAward;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
@@ -200,6 +202,7 @@ class Parcel {
     final deliveryArea = json['delivery_area_label']?.toString();
 
     return Parcel(
+      loyaltyAward: json['loyalty_award'] as Map<String, dynamic>?,
       id: json['parcel_id'] as String? ?? json['id'] as String? ?? '',
       trackingCode: json['tracking_code'] as String? ?? '',
       status: (json['status'] is String

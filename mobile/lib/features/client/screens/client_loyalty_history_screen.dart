@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../widgets/client_loyalty_card.dart';
+import 'package:go_router/go_router.dart';
 
 final clientLoyaltyHistoryProvider = FutureProvider<List<dynamic>>((ref) async {
-  final api = ref.watch(apiClientProvider);
-  final res = await api.getLoyalty();
-  final data = res.data as Map<String, dynamic>;
+  final data = await ref.watch(clientLoyaltyProvider.future);
   return data['history'] as List? ?? [];
 });
 
@@ -52,6 +51,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
 
               return Card(
                 child: ListTile(
+                  onTap: event['parcel_id'] is String ? () => context.push('/client/parcel/${event['parcel_id']}') : null,
                   leading: CircleAvatar(
                     backgroundColor:
                         isPositive ? Colors.green.shade50 : Colors.red.shade50,
@@ -111,6 +111,8 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
   }) {
     final dateText = _formatEventDate(event['created_at']);
     final description = (event['description']?.toString() ?? '').trim();
+    final reference = event['tracking_code']?.toString();
+    final parcelLabel = reference != null ? ' · Colis $reference' : '';
     if (isCash) {
       if (description.isNotEmpty) {
         return '$dateText - $description';
@@ -118,7 +120,7 @@ class ClientLoyaltyHistoryScreen extends ConsumerWidget {
       return dateText;
     }
     if (balance > 0) {
-      return '$dateText - Solde: $balance pts';
+      return '$dateText - Solde : $balance pts$parcelLabel';
     }
     return dateText;
   }

@@ -7,7 +7,9 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from datetime import datetime, timezone
+import asyncio
+import hashlib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,7 +20,8 @@ from gridfs.errors import NoFile
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from config import UPLOADS_DIR, settings
-from database import db, get_db
+from database import db, get_db, get_client
+from pymongo import ReturnDocument
 from models.common import ParcelStatus
 
 logger = logging.getLogger(__name__)
@@ -71,10 +74,31 @@ def extract_tracking_code(text: str | None) -> Optional[str]:
 
 
 def _conversation_id(phone: str) -> str:
-    return f"wa_{re.sub(r'\\D', '', phone)}"
+    return "wa_" + re.sub(r"\D", "", phone)
+
+
+def _aware(value):
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+async def find_support_conversation(conversation_id):
+    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    if not conversation and str(conversation_id).startswith("wa_"):
+        phone = normalize_whatsapp_phone(str(conversation_id)[3:])
+        conversation = await db.whatsapp_support_conversations.find_one({"phone": phone}, {"_id": 0})
+    return conversation
+
+
+class WhatsAppSendUncertain(RuntimeError):
+    pass
 
 
 def _safe_media_extension(mime_type: str | None) -> str:
+    supported = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf"}
+    if mime_type in supported:
+        return supported[mime_type]
     if mime_type == "audio/ogg":
         return ".ogg"
     if mime_type == "audio/mpeg":
@@ -282,7 +306,7 @@ async def _post_whatsapp_message(
             admin_user=admin_user,
             error=str(exc),
         )
-        raise RuntimeError(f"Impossible de contacter Meta WhatsApp : {exc}") from exc
+        raise WhatsAppSendUncertain("Envoi incertain : Meta n’a pas confirmé la réponse. Ne la renvoyez pas avant vérification.") from exc
 
     if response.status_code != 200:
         await _log_whatsapp_support_attempt(
@@ -293,9 +317,13 @@ async def _post_whatsapp_message(
             conversation=conversation,
             admin_user=admin_user,
         )
-        raise RuntimeError(_whatsapp_error_message(response.status_code, response.text))
+        error_type = WhatsAppSendUncertain if response.status_code >= 500 else RuntimeError
+        raise error_type(_whatsapp_error_message(response.status_code, response.text))
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise WhatsAppSendUncertain("Confirmation Meta illisible : vérifiez l’envoi avant de réessayer") from exc
     whatsapp_message_id = ((data.get("messages") or [{}])[0]).get("id")
     await _log_whatsapp_support_attempt(
         payload=payload,
@@ -336,45 +364,57 @@ async def _upload_whatsapp_media(content: bytes, filename: str, mime_type: str) 
     return media_id
 
 
-async def _store_outbound_message(
-    conversation: dict,
-    *,
-    admin_user: dict,
-    text: str,
-    message_type: str,
-    whatsapp_message_id: Optional[str],
-    media: Optional[dict] = None,
-) -> dict:
+async def _send_support_message(conversation, *, admin_user, text, message_type, payload, media=None, request_id=None):
+    if not normalize_whatsapp_phone(conversation.get("phone")) or conversation.get("anonymized_at"):
+        raise ValueError("Ce contact est anonymisé : aucune réponse WhatsApp ne peut être envoyée")
+    request_id = request_id or uuid.uuid4().hex
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", request_id):
+        raise ValueError("Identifiant d’envoi invalide")
+    identity = {"conversation": conversation["conversation_id"], "text": text, "type": message_type,
+                "media_hash": (media or {}).get("content_hash"), "template": payload.get("template")}
+    fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     now = _now()
-    message_doc = {
-        "message_id": f"wmsg_{uuid.uuid4().hex[:16]}",
-        "conversation_id": conversation["conversation_id"],
-        "whatsapp_message_id": whatsapp_message_id,
-        "direction": "outbound",
-        "phone": conversation["phone"],
-        "message_type": message_type,
-        "text": text,
-        "media": media,
-        "admin_user_id": admin_user.get("user_id"),
-        "admin_name": admin_user.get("name") or admin_user.get("email"),
-        "matched_user_id": conversation.get("matched_user_id"),
-        "matched_parcel_id": conversation.get("matched_parcel_id"),
-        "matched_tracking_code": (conversation.get("matched_parcel") or {}).get("tracking_code"),
-        "created_at": now,
-    }
-    await db.whatsapp_support_messages.insert_one(message_doc)
+    message_id = "wmsg_" + request_id
+    doc = {"message_id": message_id, "conversation_id": conversation["conversation_id"],
+           "direction": "outbound", "phone": conversation["phone"], "text": text, "message_type": message_type,
+           "media": media, "delivery_status": "sending", "fingerprint": fingerprint,
+           "admin_user_id": admin_user.get("user_id"), "admin_name": admin_user.get("name") or admin_user.get("email"),
+           "matched_user_id": conversation.get("matched_user_id"), "matched_parcel_id": conversation.get("matched_parcel_id"),
+           "matched_tracking_code": (conversation.get("matched_parcel") or {}).get("tracking_code"),
+           "created_at": now, "updated_at": now}
+    inserted = await db.whatsapp_support_messages.update_one({"message_id": message_id}, {"$setOnInsert": doc}, upsert=True)
+    if not inserted.upserted_id:
+        previous = await db.whatsapp_support_messages.find_one({"message_id": message_id}, {"_id": 0})
+        if previous.get("fingerprint") != fingerprint:
+            raise ValueError("Cet identifiant appartient à une autre réponse")
+        if previous.get("delivery_status") != "failed":
+            return previous
+        claimed = await db.whatsapp_support_messages.update_one(
+            {"message_id": message_id, "delivery_status": "failed"}, {"$set": {"delivery_status": "sending", "updated_at": now}})
+        if not claimed.modified_count:
+            return await db.whatsapp_support_messages.find_one({"message_id": message_id}, {"_id": 0})
+    try:
+        response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
+        whatsapp_id = ((response.get("messages") or [{}])[0]).get("id")
+        if not whatsapp_id:
+            raise WhatsAppSendUncertain("Meta n’a pas confirmé l’identifiant de cette réponse")
+    except Exception as error:
+        state = "uncertain" if isinstance(error, WhatsAppSendUncertain) else "failed"
+        await db.whatsapp_support_messages.update_one({"message_id": message_id},
+            {"$set": {"delivery_status": state, "send_error": str(error), "updated_at": _now()}})
+        raise
+    await db.whatsapp_support_messages.update_one({"message_id": message_id},
+        {"$set": {"whatsapp_message_id": whatsapp_id, "delivery_status": "accepted", "send_error": None, "updated_at": _now()}})
+    conversation_id = conversation["conversation_id"]
     await db.whatsapp_support_conversations.update_one(
-        {"conversation_id": conversation["conversation_id"]},
-        {"$set": {
-            "last_message_text": text,
-            "last_message_at": now,
-            "last_outbound_at": now,
-            "last_media": media,
-            "status": "pending",
-            "updated_at": now,
-        }},
-    )
-    return message_doc
+        {"conversation_id": conversation_id, "$or": [{"last_message_at": {"$lte": now}}, {"last_message_at": {"$exists": False}}]},
+        {"$set": {"last_message_text": text, "last_message_at": now, "last_media": media, "updated_at": _now()}})
+    await db.whatsapp_support_conversations.update_one(
+        {"conversation_id": conversation_id, "last_inbound_at": conversation.get("last_inbound_at"),
+         "last_inbound_message_id": conversation.get("last_inbound_message_id"),
+         "status_changed_at": conversation.get("status_changed_at")},
+        {"$set": {"status": "pending", "unanswered_since": None, "updated_at": _now()}, "$max": {"last_outbound_at": now}})
+    return await db.whatsapp_support_messages.find_one({"message_id": message_id}, {"_id": 0})
 
 
 async def _download_whatsapp_media(media_id: str | None) -> dict | None:
@@ -404,19 +444,24 @@ async def _download_whatsapp_media(media_id: str | None) -> dict | None:
         if not media_url:
             return None
 
-        media_response = await client.get(media_url, headers=headers)
-        if media_response.status_code != 200:
-            logger.warning("WhatsApp media download error %s", media_response.status_code)
-            return None
+        content = bytearray()
+        async with client.stream("GET", media_url, headers=headers) as media_response:
+            if media_response.status_code != 200:
+                return None
+            async for chunk in media_response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > MAX_WHATSAPP_MEDIA_BYTES:
+                    return None
+            response_mime_type = media_response.headers.get("content-type")
 
-    content = media_response.content
+    content = bytes(content)
     if not content or len(content) > MAX_WHATSAPP_MEDIA_BYTES:
         return None
 
-    mime_type = meta.get("mime_type") or media_response.headers.get("content-type")
+    mime_type = meta.get("mime_type") or response_mime_type
     ext = _safe_media_extension(mime_type)
     PRIVATE_WHATSAPP_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{media_id}_{uuid.uuid4().hex[:10]}{ext}"
+    filename = f"in_{uuid.uuid4().hex}{ext}"
     path = PRIVATE_WHATSAPP_DIR / filename
     path.write_bytes(content)
     file_id = await _store_whatsapp_media_blob(
@@ -438,47 +483,68 @@ async def _download_whatsapp_media(media_id: str | None) -> dict | None:
     }
 
 
-async def ensure_whatsapp_support_media_file(filename: str) -> tuple[Path, str] | None:
-    path = (PRIVATE_WHATSAPP_DIR / filename).resolve()
-    base = PRIVATE_WHATSAPP_DIR.resolve()
-    if base in path.parents and path.is_file():
-        media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        return path, media_type
-
-    escaped_filename = re.escape(filename)
-    message = await db.whatsapp_support_messages.find_one(
-        {
-            "$or": [
-                {"media.download_url": {"$regex": escaped_filename}},
-                {"media.storage_path": {"$regex": escaped_filename}},
-            ]
-        },
-        {"_id": 0, "media": 1},
-    )
-    media = (message or {}).get("media") or {}
-    restored_blob = await _restore_whatsapp_media_blob(media.get("file_id"), filename)
-    if restored_blob:
-        return restored_blob
-
-    media_id = media.get("media_id")
-    restored = await _download_whatsapp_media(media_id)
-    if not restored:
-        return None
-
-    await db.whatsapp_support_messages.update_many(
-        {"media.media_id": media_id},
-        {"$set": {"media": restored}},
-    )
+async def _hydrate_support_message_media(message):
+    previous = message.get("media") or {}
+    downloaded = await _download_whatsapp_media(previous.get("media_id"))
+    if not downloaded:
+        raise RuntimeError("Média WhatsApp indisponible pour le moment")
+    media = {**downloaded, "download_url": previous.get("download_url") or downloaded["download_url"],
+             "filename": previous.get("filename") or Path(downloaded["storage_path"]).name,
+             "pending_download": False}
+    await db.whatsapp_support_messages.update_one(
+        {"message_id": message["message_id"]}, {"$set": {"media": media}})
     await db.whatsapp_support_conversations.update_many(
-        {"last_media.media_id": media_id},
-        {"$set": {"last_media": restored}},
-    )
+        {"last_media.media_id": media["media_id"]}, {"$set": {"last_media": media}})
+    return Path(media["storage_path"]), media.get("mime_type") or "application/octet-stream"
 
-    restored_path = Path(restored["storage_path"]).resolve()
-    if base not in restored_path.parents or not restored_path.is_file():
+
+async def hydrate_pending_support_media():
+    for _ in range(10):
+        now = _now()
+        message = await db.whatsapp_support_messages.find_one_and_update(
+            {"media.pending_download": True,
+             "$and": [{"$or": [{"media.retry_at": {"$exists": False}}, {"media.retry_at": {"$lte": now}}]},
+                      {"$or": [{"media.lease_until": {"$exists": False}}, {"media.lease_until": {"$lte": now}}]}]},
+            {"$set": {"media.lease_until": now + timedelta(minutes=2)}},
+            return_document=ReturnDocument.AFTER)
+        if not message:
+            break
+        try:
+            await _hydrate_support_message_media(message)
+        except Exception:
+            attempts = int((message.get("media") or {}).get("attempts") or 0) + 1
+            await db.whatsapp_support_messages.update_one(
+                {"message_id": message["message_id"]},
+                {"$set": {"media.attempts": attempts,
+                          "media.retry_at": now + timedelta(minutes=min(60, 2 ** min(attempts, 6))),
+                          "media.download_error": "Média indisponible, nouvelle tentative prévue"},
+                 "$unset": {"media.lease_until": ""}})
+            logger.warning("Support media download deferred for %s", message["message_id"])
+
+
+async def ensure_whatsapp_support_media_file(filename: str) -> tuple[Path, str] | None:
+    base = PRIVATE_WHATSAPP_DIR.resolve()
+    path = (base / filename).resolve()
+    if base not in path.parents:
         return None
-    media_type = restored.get("mime_type") or mimetypes.guess_type(str(restored_path))[0] or "application/octet-stream"
-    return restored_path, media_type
+    message = await db.whatsapp_support_messages.find_one(
+        {"$or": [{"media.download_url": {"$regex": "/" + re.escape(filename) + "$"}},
+                 {"media.storage_path": {"$regex": re.escape(filename) + "$"}}]}, {"_id": 0})
+    if not message:
+        return None
+    media = message.get("media") or {}
+    if path.is_file():
+        return path, media.get("mime_type") or "application/octet-stream"
+    stored_path = Path(media.get("storage_path") or path).resolve()
+    if base in stored_path.parents and stored_path.is_file():
+        return stored_path, media.get("mime_type") or "application/octet-stream"
+    restored = await _restore_whatsapp_media_blob(media.get("file_id"), filename)
+    if restored:
+        return restored
+    try:
+        return await _hydrate_support_message_media(message)
+    except Exception:
+        return None
 
 
 async def _find_related_user(phone: str) -> dict | None:
@@ -571,7 +637,8 @@ async def ensure_support_conversation_for_contact(
 
     parcels, primary_parcel = await _find_related_parcels(normalized_phone, None)
     now = _now()
-    conversation_id = _conversation_id(normalized_phone)
+    existing = await db.whatsapp_support_conversations.find_one({"phone": normalized_phone}, {"_id": 0})
+    conversation_id = (existing or {}).get("conversation_id") or _conversation_id(normalized_phone)
     update = {
         "conversation_id": conversation_id,
         "phone": normalized_phone,
@@ -581,7 +648,6 @@ async def ensure_support_conversation_for_contact(
         "matched_parcel": primary_parcel,
         "matched_parcel_id": primary_parcel.get("parcel_id") if primary_parcel else None,
         "related_parcels": parcels,
-        "status": "pending",
         "updated_at": now,
     }
     await db.whatsapp_support_conversations.update_one(
@@ -589,6 +655,7 @@ async def ensure_support_conversation_for_contact(
         {
             "$set": update,
             "$setOnInsert": {
+                "status": "pending",
                 "created_at": now,
                 "last_message_text": "Conversation support démarrée par l'admin.",
                 "last_message_at": now,
@@ -610,9 +677,10 @@ async def start_support_template_conversation(
     phone: str | None = None,
     user_id: str | None = None,
     admin_user: dict,
+    request_id=None,
 ) -> dict:
     conversation = await ensure_support_conversation_for_contact(phone=phone, user_id=user_id)
-    message = await send_support_reopen_template(conversation, admin_user)
+    message = await send_support_reopen_template(conversation, admin_user, request_id)
     refreshed = await db.whatsapp_support_conversations.find_one(
         {"conversation_id": conversation["conversation_id"]},
         {"_id": 0},
@@ -624,83 +692,102 @@ async def start_support_template_conversation(
 
 
 async def record_whatsapp_inbound_message(value: dict, message: dict) -> dict:
-    """Stocke un message entrant WhatsApp et associe client/colis si possible."""
     phone = normalize_whatsapp_phone(message.get("from"))
-    if not phone:
-        raise ValueError("WhatsApp sender phone missing")
-
-    text = ""
-    msg_type = message.get("type")
-    if msg_type == "text":
-        text = ((message.get("text") or {}).get("body") or "").strip()
-    elif msg_type == "audio":
-        text = "[note vocale]"
-    elif msg_type:
-        text = f"[{msg_type}]"
-
-    media = None
-    if msg_type == "audio":
-        audio_payload = message.get("audio") or {}
-        media = await _download_whatsapp_media(audio_payload.get("id"))
-
-    tracking_code = extract_tracking_code(text)
-    user = await _find_related_user(phone)
-    parcels, primary_parcel = await _find_related_parcels(phone, tracking_code)
-
+    if not phone or not message.get("id"):
+        raise ValueError("Identité du message WhatsApp manquante")
+    existing = await db.whatsapp_support_messages.find_one({"whatsapp_message_id": message["id"]}, {"_id": 0})
+    if existing:
+        return existing
     now = _now()
-    conversation_id = _conversation_id(phone)
-    message_doc = {
-        "message_id": f"wmsg_{uuid.uuid4().hex[:16]}",
-        "conversation_id": conversation_id,
-        "whatsapp_message_id": message.get("id"),
-        "direction": "inbound",
-        "phone": phone,
-        "message_type": msg_type or "unknown",
-        "text": text,
-        "media": media,
-        "raw_message": message,
-        "matched_user_id": user.get("user_id") if user else None,
-        "matched_parcel_id": primary_parcel.get("parcel_id") if primary_parcel else None,
-        "matched_tracking_code": primary_parcel.get("tracking_code") if primary_parcel else tracking_code,
-        "created_at": now,
-    }
+    try:
+        sent_at = datetime.fromtimestamp(int(message["timestamp"]), timezone.utc)
+    except (ValueError, TypeError, KeyError, OverflowError):
+        raise ValueError("Date du message WhatsApp invalide")
+    sent_at = min(sent_at, now)
+    msg_type = message.get("type") or "unknown"
+    content = message.get(msg_type) or {}
+    text = str(content.get("body") or content.get("caption") or "").strip()
+    if not text:
+        text = {"audio": "[note vocale]", "image": "[photo]", "document": "[document]"}.get(msg_type, f"[{msg_type}]")
+    media = None
+    if msg_type in {"audio", "image", "document"} and content.get("id"):
+        filename = "in_" + uuid.uuid4().hex + _safe_media_extension(content.get("mime_type"))
+        media = {"media_id": content["id"], "mime_type": content.get("mime_type"),
+                 "filename": Path(content.get("filename") or filename).name,
+                 "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{filename}",
+                 "pending_download": True}
+    user = await _find_related_user(phone)
+    tracking_code = extract_tracking_code(text)
+    parcels, primary_parcel = await _find_related_parcels(phone, tracking_code)
+    async def save(session):
+        duplicate = await db.whatsapp_support_messages.find_one({"whatsapp_message_id": message["id"]}, {"_id": 0}, session=session)
+        if duplicate:
+            return duplicate
+        conversation = await db.whatsapp_support_conversations.find_one({"phone": phone}, {"_id": 0}, session=session)
+        conversation_id = (conversation or {}).get("conversation_id") or _conversation_id(phone)
+        doc = {"message_id": f"wmsg_{uuid.uuid4().hex}", "conversation_id": conversation_id,
+               "whatsapp_message_id": message["id"], "direction": "inbound", "phone": phone,
+               "message_type": msg_type, "text": text, "media": media, "raw_message": message,
+               "matched_user_id": (user or {}).get("user_id"), "matched_parcel_id": (primary_parcel or {}).get("parcel_id"),
+               "matched_tracking_code": (primary_parcel or {}).get("tracking_code") or tracking_code,
+               "created_at": sent_at, "received_at": now}
+        await db.whatsapp_support_messages.insert_one(doc, session=session)
+        updates = {}
+        newer_inbound = not (conversation or {}).get("last_inbound_at") or sent_at >= _aware(conversation["last_inbound_at"])
+        if newer_inbound:
+            updates["last_inbound_at"] = sent_at
+            updates["last_inbound_message_id"] = message["id"]
+            resolved_at = (conversation or {}).get("resolved_at")
+            last_outbound = (conversation or {}).get("last_outbound_at")
+            follows_reply = not last_outbound or sent_at >= _aware(last_outbound).replace(microsecond=0)
+            if follows_reply and (not resolved_at or sent_at >= _aware(resolved_at).replace(microsecond=0)):
+                updates["status"] = "open"
+                updates["unanswered_since"] = (conversation or {}).get("unanswered_since") or sent_at
+        if not (conversation or {}).get("last_message_at") or sent_at >= _aware(conversation["last_message_at"]):
+            updates.update(last_message_text=text, last_media=media, last_message_at=sent_at,
+                           matched_user=user, matched_user_id=(user or {}).get("user_id"),
+                           matched_parcel=primary_parcel, matched_parcel_id=(primary_parcel or {}).get("parcel_id"),
+                           related_parcels=parcels)
+        updates["updated_at"] = now
+        await db.whatsapp_support_conversations.update_one(
+            {"conversation_id": conversation_id},
+            {"$set": updates, "$setOnInsert": {"conversation_id": conversation_id, "phone": phone, "source": "whatsapp", "created_at": now}},
+            upsert=True, session=session)
+        return doc
+    async with await get_client().start_session() as session:
+        return await session.with_transaction(save)
 
-    conversation_update = {
-        "conversation_id": conversation_id,
-        "phone": phone,
-        "source": "whatsapp",
-        "matched_user": user,
-        "matched_user_id": user.get("user_id") if user else None,
-        "matched_parcel": primary_parcel,
-        "matched_parcel_id": primary_parcel.get("parcel_id") if primary_parcel else None,
-        "related_parcels": parcels,
-        "last_message_text": text,
-        "last_media": media,
-        "last_message_at": now,
-        "last_inbound_at": now,
-        "status": "open",
-        "updated_at": now,
-    }
 
-    await db.whatsapp_support_messages.update_one(
-        {"whatsapp_message_id": message.get("id")},
-        {"$setOnInsert": message_doc},
-        upsert=True,
-    )
-    await db.whatsapp_support_conversations.update_one(
-        {"conversation_id": conversation_id},
-        {"$set": conversation_update, "$setOnInsert": {"created_at": now}},
-        upsert=True,
-    )
+async def record_whatsapp_delivery_status(status):
+    whatsapp_id = status.get("id")
+    state = status.get("status")
+    ranks = {"sent": 1, "failed": 2, "delivered": 3, "read": 4}
+    if not whatsapp_id or state not in ranks:
+        return
+    try:
+        timestamp = datetime.fromtimestamp(int(status["timestamp"]), timezone.utc)
+    except (ValueError, KeyError, TypeError, OverflowError):
+        timestamp = _now()
+    update = {"$max": {"rank": ranks[state], "timestamps." + state: timestamp}, "$set": {"updated_at": _now()}}
+    if state == "failed":
+        update["$set"]["errors"] = [{"code": error.get("code"), "message": str(error.get("message") or error.get("title") or "")[:500]}
+                                   for error in (status.get("errors") or [])]
+    await db.whatsapp_support_delivery_statuses.update_one({"_id": whatsapp_id}, update, upsert=True)
 
-    logger.info(
-        "WhatsApp support message: phone=%s user=%s parcel=%s type=%s",
-        phone,
-        message_doc["matched_user_id"],
-        message_doc["matched_parcel_id"],
-        msg_type,
-    )
-    return message_doc
+
+async def enrich_delivery_statuses(messages):
+    ids = [message["whatsapp_message_id"] for message in messages if message.get("whatsapp_message_id")]
+    statuses = await db.whatsapp_support_delivery_statuses.find({"_id": {"$in": ids}}).to_list(length=len(ids)) if ids else []
+    by_id = {status["_id"]: status for status in statuses}
+    labels = {1: "sent", 2: "failed", 3: "delivered", 4: "read"}
+    for message in messages:
+        if message.get("delivery_status") == "sending" and _aware(message["updated_at"]) < _now() - timedelta(minutes=2):
+            message["delivery_status"] = "uncertain"
+        status = by_id.get(message.get("whatsapp_message_id"))
+        if status:
+            message["delivery_status"] = labels[status["rank"]]
+            message["delivery_errors"] = status.get("errors") if status["rank"] == 2 else []
+    return messages
 
 
 def serialize_support_doc(doc: dict | None) -> dict | None:
@@ -710,25 +797,14 @@ def serialize_support_doc(doc: dict | None) -> dict | None:
     return result
 
 
-async def send_support_text_reply(conversation: dict, text: str, admin_user: dict) -> dict:
+async def send_support_text_reply(conversation: dict, text: str, admin_user: dict, request_id=None) -> dict:
     clean_text = text.strip()
     if not clean_text:
         raise ValueError("Message vide")
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": conversation["phone"].lstrip("+"),
-        "type": "text",
-        "text": {"body": clean_text},
-    }
-    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
-    whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
-    return await _store_outbound_message(
-        conversation,
-        admin_user=admin_user,
-        text=clean_text,
-        message_type="text",
-        whatsapp_message_id=whatsapp_message_id,
-    )
+    payload = {"messaging_product": "whatsapp", "to": conversation["phone"].lstrip("+"),
+               "type": "text", "text": {"body": clean_text}}
+    return await _send_support_message(conversation, admin_user=admin_user, text=clean_text,
+        message_type="text", payload=payload, request_id=request_id)
 
 
 def _support_template_variable(token: str, conversation: dict) -> str:
@@ -765,36 +841,18 @@ def _support_template_components(conversation: dict) -> list[dict]:
     ]
 
 
-async def send_support_reopen_template(conversation: dict, admin_user: dict) -> dict:
+async def send_support_reopen_template(conversation: dict, admin_user: dict, request_id=None) -> dict:
     template_name = settings.WHATSAPP_TEMPLATE_SUPPORT_REOPEN
     if not template_name:
-        raise RuntimeError(
-            "Template WhatsApp de relance support non configuré. "
-            "Ajoutez WHATSAPP_TEMPLATE_SUPPORT_REOPEN sur Railway."
-        )
-    template_payload = {
-        "name": template_name,
-        "language": {"code": "fr"},
-    }
+        raise RuntimeError("Modèle WhatsApp de relance support non configuré")
+    template_payload = {"name": template_name, "language": {"code": "fr"}}
     components = _support_template_components(conversation)
     if components:
         template_payload["components"] = components
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": conversation["phone"].lstrip("+"),
-        "type": "template",
-        "template": template_payload,
-    }
-    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
-    whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
-    return await _store_outbound_message(
-        conversation,
-        admin_user=admin_user,
-        text=f"[relance support envoyée via template {template_name}]",
-        message_type="template",
-        whatsapp_message_id=whatsapp_message_id,
-    )
+    payload = {"messaging_product": "whatsapp", "to": conversation["phone"].lstrip("+"),
+               "type": "template", "template": template_payload}
+    return await _send_support_message(conversation, admin_user=admin_user,
+        text=f"[relance support via {template_name}]", message_type="template", payload=payload, request_id=request_id)
 
 
 async def send_support_audio_reply(
@@ -804,12 +862,20 @@ async def send_support_audio_reply(
     filename: str,
     mime_type: str,
     admin_user: dict,
+    request_id=None,
 ) -> dict:
-    prepared_content, prepared_filename, clean_mime_type = _prepare_outbound_audio(
-        content,
-        filename,
-        mime_type,
-    )
+    content_hash = hashlib.sha256(content).hexdigest()
+    if request_id:
+        previous = await db.whatsapp_support_messages.find_one({"message_id": "wmsg_" + request_id}, {"_id": 0})
+        if previous:
+            if (previous.get("conversation_id") != conversation["conversation_id"] or
+                    previous.get("message_type") != "audio" or
+                    (previous.get("media") or {}).get("content_hash") != content_hash):
+                raise ValueError("Cet identifiant appartient à une autre réponse")
+            if previous.get("delivery_status") != "failed":
+                return previous
+    prepared_content, prepared_filename, clean_mime_type = await asyncio.to_thread(
+        _prepare_outbound_audio, content, filename, mime_type)
     media_id = await _upload_whatsapp_media(prepared_content, prepared_filename, clean_mime_type)
     payload = {
         "messaging_product": "whatsapp",
@@ -817,12 +883,10 @@ async def send_support_audio_reply(
         "type": "audio",
         "audio": {"id": media_id},
     }
-    response = await _post_whatsapp_message(payload, conversation=conversation, admin_user=admin_user)
-    whatsapp_message_id = ((response.get("messages") or [{}])[0]).get("id")
 
     PRIVATE_WHATSAPP_DIR.mkdir(parents=True, exist_ok=True)
     ext = _safe_media_extension(clean_mime_type)
-    stored_filename = f"out_{media_id}_{uuid.uuid4().hex[:10]}{ext}"
+    stored_filename = f"out_{uuid.uuid4().hex}{ext}"
     path = PRIVATE_WHATSAPP_DIR / stored_filename
     path.write_bytes(prepared_content)
     file_id = await _store_whatsapp_media_blob(
@@ -836,16 +900,17 @@ async def send_support_audio_reply(
     media = {
         "media_id": media_id,
         "mime_type": clean_mime_type,
+        "content_hash": content_hash,
         "file_size": len(prepared_content),
         "storage_path": str(path),
         "file_id": file_id,
         "download_url": f"{settings.BASE_URL}/api/admin/support/whatsapp/media/{stored_filename}",
     }
-    return await _store_outbound_message(
+    return await _send_support_message(
         conversation,
         admin_user=admin_user,
         text="[note vocale envoyée]",
         message_type="audio",
-        whatsapp_message_id=whatsapp_message_id,
+        payload=payload, request_id=request_id,
         media=media,
     )

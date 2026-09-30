@@ -164,6 +164,35 @@ def relay_open_status(relay: dict, now: datetime | None = None) -> dict[str, Any
     return {"is_open": is_open, "known": True, "label": label}
 
 
+def relay_needs_closing_warning(
+    relay: dict,
+    *,
+    within_minutes: int,
+    now: datetime | None = None,
+) -> bool:
+    status = relay_open_status(relay, now)
+    if status.get("known") and not status.get("is_open"):
+        return True
+    if not status.get("known") or not status.get("is_open"):
+        return False
+    local_now = (now or datetime.now(timezone.utc)).astimezone(RELAY_TIMEZONE)
+    schedule = normalize_opening_hours(relay.get("opening_hours"))
+    if isinstance(schedule, str):
+        parsed = _parse_range(schedule)
+        end = parsed[1] if parsed else None
+    else:
+        day_key = RELAY_DAYS[local_now.weekday()][0]
+        entry = (schedule or {}).get(day_key)
+        end = _parse_time(entry.get("close")) if isinstance(entry, dict) else None
+    if end is None:
+        return False
+    close_at = datetime.combine(local_now.date(), end, tzinfo=RELAY_TIMEZONE)
+    if close_at <= local_now:
+        close_at += timedelta(days=1)
+    remaining_minutes = (close_at - local_now).total_seconds() / 60
+    return remaining_minutes <= within_minutes
+
+
 def _is_between(current: time, start: time, end: time) -> bool:
     if start < end:
         return start <= current < end

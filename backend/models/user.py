@@ -65,6 +65,8 @@ class User(BaseModel):
     kyc_status: str = "none"
     kyc_id_card_url: Optional[str] = None
     kyc_license_url: Optional[str] = None
+    kyc_id_card_expires_at: Optional[datetime] = None
+    kyc_license_expires_at: Optional[datetime] = None
     loyalty_points: int = 0
     loyalty_tier: str = "bronze"
     referral_code: str = ""

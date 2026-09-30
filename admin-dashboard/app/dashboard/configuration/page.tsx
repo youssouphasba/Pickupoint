@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
+import { SendingGuideSettingsCard } from "@/components/sending-guide-settings-card";
 
 export const runtime = "edge";
 
@@ -228,6 +229,7 @@ function buildInitialPerformanceRewardsPayload(settings: any): PerformanceReward
       ],
     },
     client: {
+      loyalty_tiers: rewards?.client?.loyalty_tiers ?? [],
       loyalty_points_per_delivered_parcel: numberValue(
         rewards?.client?.loyalty_points_per_delivered_parcel,
         10,
@@ -412,6 +414,8 @@ export default function ConfigurationPage() {
             "Erreur de sauvegarde."}
         </div>
       )}
+
+      <SendingGuideSettingsCard />
 
       {appUpdateMutation.isError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -931,6 +935,22 @@ export default function ConfigurationPage() {
                 )
               }
             />
+          </div>
+
+          <div className="rounded-lg border p-4 space-y-3">
+            <div className="font-medium">Niveaux de fidélité client</div>
+            <p className="text-sm text-muted-foreground">Les points acquis sont conservés. Les seuils et réductions sauvegardés s’appliquent aux nouveaux devis ; les prix déjà confirmés ne changent pas. Les réductions restent soumises au tarif minimum et aux arrondis.</p>
+            {performanceRewardsForm.client.loyalty_tiers.map((tier, index) => (
+              <div key={tier.key} className="grid gap-3 sm:grid-cols-3 items-end">
+                <div className="font-medium">{tier.label}</div>
+                <label className="space-y-1"><span className="text-sm">Seuil en points</span><Input type="number" min={0} step={1} disabled={tier.key === "bronze"} value={tier.min_points} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
+                  ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, min_points: Number(event.target.value) } : item) },
+                } : current)} /></label>
+                <label className="space-y-1"><span className="text-sm">Réduction (%)</span><Input type="number" min={0} max={100} step={1} value={tier.discount_percent} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
+                  ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, discount_percent: Number(event.target.value) } : item) },
+                } : current)} /></label>
+              </div>
+            ))}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

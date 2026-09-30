@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_provider.dart';
@@ -99,6 +100,8 @@ class _DriverApplicationFormState
   File? _licenseBackFile;
   String? _idCardUrl;
   String? _licenseUrl;
+  DateTime? _idCardExpiresOn;
+  DateTime? _licenseExpiresOn;
 
   @override
   void dispose() {
@@ -170,9 +173,21 @@ class _DriverApplicationFormState
             _field(_cniCtrl, 'Numéro CNI (carte d’identité) *', Icons.badge,
                 validator: _required),
             const SizedBox(height: 16),
+            _expiryField(
+              label: "Date d'expiration de la CNI *",
+              value: _idCardExpiresOn,
+              onChanged: (value) => setState(() => _idCardExpiresOn = value),
+            ),
+            const SizedBox(height: 16),
             _field(
                 _licCtrl, 'Numéro de permis de conduire *', Icons.credit_card,
                 validator: _required),
+            const SizedBox(height: 16),
+            _expiryField(
+              label: "Date d'expiration du permis *",
+              value: _licenseExpiresOn,
+              onChanged: (value) => setState(() => _licenseExpiresOn = value),
+            ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _vehicle,
@@ -537,6 +552,38 @@ class _DriverApplicationFormState
   String? _required(String? value) =>
       (value == null || value.trim().isEmpty) ? 'Champ obligatoire' : null;
 
+  Widget _expiryField({
+    required String label,
+    required DateTime? value,
+    required ValueChanged<DateTime> onChanged,
+  }) {
+    return InkWell(
+      onTap: () async {
+        final now = DateTime.now();
+        final selected = await showDatePicker(
+          context: context,
+          initialDate: value ?? DateTime(now.year + 1),
+          firstDate: now,
+          lastDate: DateTime(now.year + 20),
+          helpText: label,
+        );
+        if (selected != null) onChanged(selected);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.event_outlined),
+        ),
+        child: Text(
+          value == null
+              ? 'Sélectionner une date'
+              : DateFormat('dd/MM/yyyy').format(value),
+        ),
+      ),
+    );
+  }
+
   bool get _hasProfilePhoto {
     final url = ref.read(authProvider).valueOrNull?.user?.profilePictureUrl;
     return url != null && url.trim().isNotEmpty;
@@ -546,6 +593,15 @@ class _DriverApplicationFormState
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    if (_idCardExpiresOn == null || _licenseExpiresOn == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Indiquez la date d'expiration de chaque document"),
+          backgroundColor: Colors.orange,
+        ),
+      );
       return;
     }
     if (!_hasProfilePhoto && _profilePhotoFile == null) {
@@ -594,10 +650,18 @@ class _DriverApplicationFormState
         prefix: 'driver_license',
       );
 
-      final idRes = await api.uploadKyc(mergedIdCardFile, 'id_card');
+      final idRes = await api.uploadKyc(
+        mergedIdCardFile,
+        'id_card',
+        expiresOn: _idCardExpiresOn,
+      );
       _idCardUrl = idRes.data['doc_url'];
 
-      final licRes = await api.uploadKyc(mergedLicenseFile, 'license');
+      final licRes = await api.uploadKyc(
+        mergedLicenseFile,
+        'license',
+        expiresOn: _licenseExpiresOn,
+      );
       _licenseUrl = licRes.data['doc_url'];
 
       await api.applyDriver({
@@ -607,6 +671,10 @@ class _DriverApplicationFormState
         'vehicle_type': _vehicle,
         'id_card_url': _idCardUrl,
         'license_url': _licenseUrl,
+        'id_card_expires_on':
+            _idCardExpiresOn!.toIso8601String().split('T').first,
+        'license_expires_on':
+            _licenseExpiresOn!.toIso8601String().split('T').first,
         'message': _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
       });
 
@@ -930,9 +998,12 @@ class _RelayApplicationFormState extends ConsumerState<_RelayApplicationForm> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_openingHours.values.any((entry) => entry is Map && entry['enabled'] == true)) {
+    if (!_openingHours.values
+        .any((entry) => entry is Map && entry['enabled'] == true)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sélectionnez au moins un jour d’ouverture.'), backgroundColor: Colors.orange),
+        const SnackBar(
+            content: Text('Sélectionnez au moins un jour d’ouverture.'),
+            backgroundColor: Colors.orange),
       );
       return;
     }

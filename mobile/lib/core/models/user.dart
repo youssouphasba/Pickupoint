@@ -30,6 +30,8 @@ class User {
     this.kycStatus = 'none',
     this.kycIdCardUrl,
     this.kycLicenseUrl,
+    this.kycIdCardExpiresAt,
+    this.kycLicenseExpiresAt,
     this.profilePictureUrl,
     this.favoriteAddresses = const [],
     this.notificationPrefs = const NotificationPrefs(),
@@ -74,6 +76,8 @@ class User {
   final String kycStatus;
   final String? kycIdCardUrl;
   final String? kycLicenseUrl;
+  final DateTime? kycIdCardExpiresAt;
+  final DateTime? kycLicenseExpiresAt;
   final List<FavoriteAddress> favoriteAddresses;
   final NotificationPrefs notificationPrefs;
   final bool isPhoneVerified;
@@ -145,6 +149,12 @@ class User {
       kycStatus: json['kyc_status'] as String? ?? 'none',
       kycIdCardUrl: json['kyc_id_card_url'] as String?,
       kycLicenseUrl: json['kyc_license_url'] as String?,
+      kycIdCardExpiresAt: DateTime.tryParse(
+        json['kyc_id_card_expires_at']?.toString() ?? '',
+      ),
+      kycLicenseExpiresAt: DateTime.tryParse(
+        json['kyc_license_expires_at']?.toString() ?? '',
+      ),
       favoriteAddresses: (json['favorite_addresses'] as List<dynamic>?)
               ?.map((e) => FavoriteAddress.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -179,6 +189,8 @@ class User {
         'is_active': isActive,
         'is_banned': isBanned,
         'bio': bio,
+        'kyc_id_card_expires_at': kycIdCardExpiresAt?.toIso8601String(),
+        'kyc_license_expires_at': kycLicenseExpiresAt?.toIso8601String(),
         'notification_prefs': notificationPrefs.toJson(),
         'is_phone_verified': isPhoneVerified,
         'language': language,
@@ -227,6 +239,8 @@ class User {
     String? kycStatus,
     String? kycIdCardUrl,
     String? kycLicenseUrl,
+    DateTime? kycIdCardExpiresAt,
+    DateTime? kycLicenseExpiresAt,
     List<FavoriteAddress>? favoriteAddresses,
     NotificationPrefs? notificationPrefs,
     bool? isPhoneVerified,
@@ -268,6 +282,8 @@ class User {
         kycStatus: kycStatus ?? this.kycStatus,
         kycIdCardUrl: kycIdCardUrl ?? this.kycIdCardUrl,
         kycLicenseUrl: kycLicenseUrl ?? this.kycLicenseUrl,
+        kycIdCardExpiresAt: kycIdCardExpiresAt ?? this.kycIdCardExpiresAt,
+        kycLicenseExpiresAt: kycLicenseExpiresAt ?? this.kycLicenseExpiresAt,
         favoriteAddresses: favoriteAddresses ?? this.favoriteAddresses,
         notificationPrefs: notificationPrefs ?? this.notificationPrefs,
         isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,

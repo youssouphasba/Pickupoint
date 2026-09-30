@@ -3,6 +3,30 @@ import 'package:pickupoint/core/notifications/notification_navigation.dart';
 
 void main() {
   group('notificationRouteFor', () {
+    test('ouvre le colis relais depuis une alerte opérationnelle', () {
+      expect(
+        notificationRouteFor(
+          refType: 'parcel',
+          refId: 'prc_123',
+          role: 'relay_agent',
+          eventType: 'relay_finance',
+        ),
+        '/relay?parcel=prc_123',
+      );
+    });
+
+    test('ouvre les documents du livreur depuis une alerte de conformité', () {
+      expect(
+        notificationRouteFor(
+          refType: 'profile',
+          refId: null,
+          role: 'driver',
+          eventType: 'driver_document',
+        ),
+        '/driver/profile?section=documents',
+      );
+    });
+
     test('opens an available mission preview in the driver view', () {
       expect(
         notificationRouteFor(

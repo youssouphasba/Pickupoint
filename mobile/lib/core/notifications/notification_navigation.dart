@@ -38,10 +38,17 @@ String? notificationRouteFor({
       return '/client/parcel/$encodedId$query';
     case 'relay_scan_in':
       return id.isEmpty ? '/relay/scan-in' : '/relay/scan-in?parcel=$encodedId';
+    case 'relay_parcel':
+    case 'relay_finance':
+      return id.isEmpty ? '/relay' : '/relay?parcel=$encodedId';
+    case 'relay_stock':
+      return '/relay';
     case 'wallet':
       return effectiveRole == 'relay_agent'
           ? '/relay/wallet'
           : '/driver/wallet';
+    case 'driver_document':
+      return '/driver/profile?section=documents';
     case 'application_status':
       return '/client/profile?section=application';
   }

@@ -106,9 +106,9 @@ class DriverPresenceService {
           distanceFilter: 10,
           intervalDuration: _updateInterval,
           foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationTitle: 'Denkma livreur disponible',
+            notificationTitle: 'Localisation Denkma active',
             notificationText:
-                'Votre zone est actualisée pour recevoir les courses proches.',
+                'Votre position est actualisée pour les courses et le suivi des livraisons.',
             notificationIcon: AndroidResource(
               name: 'ic_notification_logo',
               defType: 'drawable',

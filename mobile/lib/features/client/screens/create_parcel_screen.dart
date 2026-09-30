@@ -13,6 +13,8 @@ import '../models/create_parcel_prefill.dart';
 import '../providers/create_parcel_prefill_provider.dart';
 import '../providers/client_provider.dart';
 import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/sending_guide.dart';
+import '../widgets/client_referral_entry.dart';
 import '../../../shared/widgets/map_picker_modal.dart';
 import '../widgets/relay_selector_modal.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -100,6 +102,9 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
   void initState() {
     super.initState();
     _applyPrefill();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.invalidate(clientReferralProvider);
+    });
   }
 
   void _applyPrefill() {
@@ -806,6 +811,8 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Qui initie ? ──────────────────────────
+          const SendingGuideEntry(compact: true),
+          if (_initiatedBy == _InitiatedBy.sender) const ReferralCodeEntry(),
           _sectionTitle(Icons.swap_horiz, 'Quelle est votre situation ?'),
           const SizedBox(height: 12),
           _choiceCard(

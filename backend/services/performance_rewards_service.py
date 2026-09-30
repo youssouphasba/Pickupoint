@@ -1,6 +1,9 @@
 from copy import deepcopy
 
 from database import db
+from services.loyalty_rules import DEFAULT_LOYALTY_TIERS, normalize_loyalty_tiers
+from core.exceptions import bad_request_exception
+from math import isfinite
 
 
 DEFAULT_PERFORMANCE_REWARDS = {
@@ -26,6 +29,7 @@ DEFAULT_PERFORMANCE_REWARDS = {
     },
     "client": {
         "loyalty_points_per_delivered_parcel": 10,
+        "loyalty_tiers": DEFAULT_LOYALTY_TIERS,
         "monthly_goal_sent_parcels": 5,
     },
 }
@@ -91,6 +95,7 @@ def normalize_performance_rewards(raw: dict | None) -> dict:
         )
 
     client = raw.get("client") if isinstance(raw.get("client"), dict) else {}
+    cfg["client"]["loyalty_tiers"] = normalize_loyalty_tiers(client.get("loyalty_tiers"))
     cfg["client"]["loyalty_points_per_delivered_parcel"] = max(
         _positive_int(
             client.get("loyalty_points_per_delivered_parcel"),
@@ -112,5 +117,23 @@ async def get_performance_rewards_settings() -> dict:
 
 
 async def set_performance_rewards_settings(body: dict) -> dict:
+    raw_tiers = (body.get("client") or {}).get("loyalty_tiers")
+    if raw_tiers is not None:
+        try:
+            if not isinstance(raw_tiers, list) or len(raw_tiers) != len(DEFAULT_LOYALTY_TIERS):
+                raise ValueError()
+            previous_threshold, previous_discount = -1, 0
+            for item, default in zip(raw_tiers, DEFAULT_LOYALTY_TIERS):
+                threshold = int(item["min_points"])
+                discount = float(item["discount_percent"])
+                if item["key"] != default["key"] or threshold != item["min_points"] or threshold <= previous_threshold:
+                    raise ValueError()
+                if default["key"] == "bronze" and threshold != 0:
+                    raise ValueError()
+                if not isfinite(discount) or not previous_discount <= discount <= 100:
+                    raise ValueError()
+                previous_threshold, previous_discount = threshold, discount
+        except (ValueError, TypeError, KeyError, OverflowError):
+            raise bad_request_exception("Les seuils doivent augmenter de Bronze à Or, et les réductions être croissantes entre 0 et 100 %.")
     cfg = normalize_performance_rewards(body)
     return cfg

@@ -65,7 +65,11 @@ class ApiClient {
     return _dio.post(ApiEndpoints.userAvatar, data: formData);
   }
 
-  Future<Response> uploadKyc(File file, String docType) async {
+  Future<Response> uploadKyc(
+    File file,
+    String docType, {
+    DateTime? expiresOn,
+  }) async {
     final fileName = file.path.split('/').last;
     final formData = FormData.fromMap({
       "file": await MultipartFile.fromFile(file.path, filename: fileName),
@@ -74,7 +78,11 @@ class ApiClient {
     // Mon backend le prend en query param par défaut si non spécifié comme Form (...)
     return _dio.post(
       ApiEndpoints.userKyc,
-      queryParameters: {"doc_type": docType},
+      queryParameters: {
+        "doc_type": docType,
+        if (expiresOn != null)
+          "expires_on": expiresOn.toIso8601String().split('T').first,
+      },
       data: formData,
     );
   }
@@ -159,6 +167,9 @@ class ApiClient {
       _dio.delete('${ApiEndpoints.favoriteAddresses}/$name');
 
   Future<Response> getReferralInfo() => _dio.post(ApiEndpoints.referralInfo);
+  Future<Response> getMyReferrals({int skip = 0, int limit = 20}) =>
+      _dio.get(ApiEndpoints.myReferrals,
+          queryParameters: {'skip': skip, 'limit': limit});
 
   Future<Response> applyReferralCode(String code) =>
       _dio.post(ApiEndpoints.applyReferral, data: {'referral_code': code});
@@ -260,11 +271,10 @@ class ApiClient {
     String id,
     int rating, {
     String? comment,
-    double tip = 0,
   }) =>
       _dio.post(
         ApiEndpoints.rateParcel(id),
-        data: {'rating': rating, 'comment': comment, 'tip': tip},
+        data: {'rating': rating, 'comment': comment},
       );
 
   // ─── Relay points ─────────────────────────────────────────────────────────
@@ -582,54 +592,52 @@ class ApiClient {
   Future<Response> getWhatsappSupportConversations({
     String? status,
     String? query,
-    int limit = 100,
+    int limit = 50,
+    int skip = 0,
   }) =>
-      _dio.get(
-        ApiEndpoints.adminWhatsappSupportConversations,
-        queryParameters: {
-          if (status != null && status != 'all') 'status': status,
-          if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
-          'limit': limit,
-        },
-      );
+      _dio.get(ApiEndpoints.adminWhatsappSupportConversations,
+          queryParameters: {
+            if (status != null && status != 'all') 'status': status,
+            if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
+            'limit': limit,
+            'skip': skip,
+          });
 
-  Future<Response> getWhatsappSupportConversation(String conversationId) =>
-      _dio.get(ApiEndpoints.adminWhatsappSupportConversation(conversationId));
+  Future<Response> getWhatsappSupportConversation(String id,
+          {String? before}) =>
+      _dio.get(ApiEndpoints.adminWhatsappSupportConversation(id),
+          queryParameters: {if (before != null) 'before': before});
+
+  Future<Response> getWhatsappSupportSettings() =>
+      _dio.get(ApiEndpoints.adminWhatsappSupportSettings);
+
+  Future<Response> addWhatsappSupportNote(String id, String text) =>
+      _dio.post('${ApiEndpoints.adminWhatsappSupportConversation(id)}/notes',
+          data: {'text': text});
 
   Future<Response> updateWhatsappSupportConversationStatus(
-    String conversationId,
-    String status,
-  ) =>
-      _dio.patch(
-        ApiEndpoints.adminWhatsappSupportConversationStatus(conversationId),
-        data: {'status': status},
-      );
+          String id, String status) =>
+      _dio.patch(ApiEndpoints.adminWhatsappSupportConversationStatus(id),
+          data: {'status': status});
 
-  Future<Response> sendWhatsappSupportTextReply(
-    String conversationId,
-    String text,
-  ) =>
-      _dio.post(
-        ApiEndpoints.adminWhatsappSupportReply(conversationId),
-        data: {'text': text},
-      );
+  Future<Response> sendWhatsappSupportTextReply(String id, String text,
+          {String? requestId}) =>
+      _dio.post(ApiEndpoints.adminWhatsappSupportReply(id),
+          data: {'text': text, if (requestId != null) 'request_id': requestId});
 
-  Future<Response> sendWhatsappSupportReopenTemplate(String conversationId) =>
-      _dio.post(
-          ApiEndpoints.adminWhatsappSupportReopenTemplate(conversationId));
+  Future<Response> sendWhatsappSupportReopenTemplate(String id,
+          {String? requestId}) =>
+      _dio.post(ApiEndpoints.adminWhatsappSupportReopenTemplate(id),
+          data: {if (requestId != null) 'request_id': requestId});
 
-  Future<Response> startWhatsappSupport({
-    String? phone,
-    String? userId,
-  }) =>
-      _dio.post(
-        ApiEndpoints.adminWhatsappSupportStart,
-        data: {
-          if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
-          if (userId != null && userId.trim().isNotEmpty)
-            'user_id': userId.trim(),
-        },
-      );
+  Future<Response> startWhatsappSupport(
+          {String? phone, String? userId, String? requestId}) =>
+      _dio.post(ApiEndpoints.adminWhatsappSupportStart, data: {
+        if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+        if (userId != null && userId.trim().isNotEmpty)
+          'user_id': userId.trim(),
+        if (requestId != null) 'request_id': requestId,
+      });
 
   Future<Response> sendAdminNotification(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.adminNotificationsSend, data: body);
@@ -640,9 +648,8 @@ class ApiClient {
       );
 
   Future<Response> sendWhatsappSupportVoiceReply(
-    String conversationId,
-    String filePath,
-  ) async {
+      String conversationId, String filePath,
+      {String? requestId}) async {
     final lowerPath = filePath.toLowerCase();
     final mediaType = lowerPath.endsWith('.ogg') || lowerPath.endsWith('.opus')
         ? DioMediaType('audio', 'ogg')
@@ -652,6 +659,7 @@ class ApiClient {
                 ? DioMediaType('audio', 'aac')
                 : DioMediaType('audio', 'mp4');
     final formData = FormData.fromMap({
+      if (requestId != null) 'request_id': requestId,
       'file': await MultipartFile.fromFile(
         filePath,
         filename: filePath.split(RegExp(r'[\\/]')).last,
@@ -702,10 +710,20 @@ class ApiClient {
       _dio.get(ApiEndpoints.adminUserDetail(userId));
 
   Future<Response> confirmReferralPayment(String referralId,
-          {String note = ''}) =>
+          {required String beneficiary,
+          required int amountXof,
+          required DateTime paidAt,
+          String reference = '',
+          String note = ''}) =>
       _dio.post(
         ApiEndpoints.adminReferralPaymentConfirmed(referralId),
-        data: {'note': note},
+        data: {
+          'beneficiary': beneficiary,
+          'amount_xof': amountXof,
+          'paid_at': paidAt.toUtc().toIso8601String(),
+          'reference': reference,
+          'note': note
+        },
       );
 
   Future<Response> getAdminRelayDetail(String relayId) =>
@@ -834,11 +852,19 @@ class ApiClient {
   Future<Response> getCampaign(String id) =>
       _dio.get(ApiEndpoints.campaign(id));
 
-  Future<Response> markCampaignImpression(String id, {required String role}) =>
+  Future<Response> markCampaignImpression(String id,
+          {required String role, bool countView = true, String? viewId}) =>
       _dio.post(
         ApiEndpoints.campaignImpression(id),
-        queryParameters: {'role': role},
+        queryParameters: {
+          'role': role,
+          'count_view': countView,
+          if (viewId != null) 'view_id': viewId
+        },
       );
+
+  Future<Response> dismissCampaign(String id) =>
+      _dio.post('${ApiEndpoints.campaign(id)}/dismiss');
 
   Future<Response> markCampaignClick(String id, {required String role}) =>
       _dio.post(

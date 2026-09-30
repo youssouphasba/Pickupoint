@@ -16,7 +16,9 @@ import '../providers/relay_provider.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class RelayHome extends ConsumerStatefulWidget {
-  const RelayHome({super.key});
+  const RelayHome({super.key, this.initialParcelId});
+
+  final String? initialParcelId;
 
   @override
   ConsumerState<RelayHome> createState() => _RelayHomeState();
@@ -25,6 +27,15 @@ class RelayHome extends ConsumerStatefulWidget {
 class _RelayHomeState extends ConsumerState<RelayHome> {
   final _searchCtrl = TextEditingController();
   String _filter = 'all';
+  String? _openedParcelId;
+
+  @override
+  void didUpdateWidget(covariant RelayHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialParcelId != widget.initialParcelId) {
+      _openedParcelId = null;
+    }
+  }
 
   @override
   void dispose() {
@@ -66,6 +77,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
         child: stockAsync.when(
           data: (parcels) {
             final history = historyAsync.valueOrNull ?? [];
+            _openInitialParcel(parcels, history);
             final incoming = parcels
                 .where((parcel) => parcel.status == 'in_transit')
                 .toList();
@@ -264,6 +276,26 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
     return parcel.trackingCode.toLowerCase().contains(query) ||
         (parcel.recipientName ?? '').toLowerCase().contains(query) ||
         (parcel.recipientPhone ?? '').toLowerCase().contains(query);
+  }
+
+  void _openInitialParcel(List<Parcel> parcels, List<Parcel> history) {
+    final parcelId = widget.initialParcelId?.trim();
+    if (parcelId == null || parcelId.isEmpty || _openedParcelId == parcelId) {
+      return;
+    }
+    Parcel? parcel;
+    for (final candidate in [...parcels, ...history]) {
+      if (candidate.id == parcelId) {
+        parcel = candidate;
+        break;
+      }
+    }
+    if (parcel == null) return;
+    _openedParcelId = parcelId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showParcelDetail(context, parcel!);
+    });
   }
 
   void _showParcelDetail(BuildContext context, Parcel parcel) {
@@ -775,7 +807,9 @@ class _RelayParcelDetailSheetState
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Action enregistrée. Elle sera validée par Denkma.')),
+          const SnackBar(
+              content:
+                  Text('Action enregistrée. Elle sera validée par Denkma.')),
         );
       }
     } catch (error) {
@@ -870,12 +904,14 @@ class _RelayParcelDetailSheetState
                           (action['key'] == 'driver_payment' ||
                               action['key'] == 'denkma_payment')
                       ? TextButton(
-                          onPressed: () => _declareFinancialAction(action['key'].toString()),
+                          onPressed: () =>
+                              _declareFinancialAction(action['key'].toString()),
                           child: const Text('Déclarer'),
                         )
                       : status == 'pending'
-                          ? const Text('À valider', style: TextStyle(color: Colors.orange))
-                      : const Icon(Icons.check_circle, color: Colors.green),
+                          ? const Text('À valider',
+                              style: TextStyle(color: Colors.orange))
+                          : const Icon(Icons.check_circle, color: Colors.green),
                 ),
               );
             }),

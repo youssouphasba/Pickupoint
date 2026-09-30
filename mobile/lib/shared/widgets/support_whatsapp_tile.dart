@@ -18,15 +18,26 @@ final supportWhatsAppProvider =
 });
 
 class SupportWhatsAppTile extends ConsumerWidget {
-  const SupportWhatsAppTile({super.key, this.contentPadding});
+  const SupportWhatsAppTile(
+      {super.key, this.contentPadding, this.trackingCode});
 
   final EdgeInsetsGeometry? contentPadding;
+  final String? trackingCode;
 
   Future<void> _openSupport(BuildContext context, String url) async {
-    final uri = Uri.tryParse(url);
+    var uri = Uri.tryParse(url);
     if (uri == null) return;
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && context.mounted) {
+    if (trackingCode?.trim().isNotEmpty == true) {
+      uri = uri.replace(queryParameters: {
+        ...uri.queryParameters,
+        'text':
+            'Bonjour, j’ai besoin d’aide pour le colis ${trackingCode!.trim()}.'
+      });
+    }
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {}
+    if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Impossible d’ouvrir WhatsApp.')),
       );

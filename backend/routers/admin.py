@@ -2,16 +2,15 @@
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import asyncio
-import mimetypes
 import uuid
 from calendar import monthrange
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -22,6 +21,8 @@ from core.limiter import limiter
 from core.security import hash_password
 from core.utils import normalize_phone
 from database import db
+from services.sending_guide import SendingGuideSettings, sending_guide_payload
+from services.loyalty_rules import compute_tier
 from services.mission_trace import load_trace, summarize_trace
 from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
@@ -36,7 +37,11 @@ from services.parcel_service import (
     sync_active_mission_with_parcel,
 )
 from services.pricing_service import get_pricing_settings
-from services.notification_service import notify_payout_result, send_targeted_notifications
+from services.notification_service import (
+    notify_payout_result,
+    notify_relay_settlement_update,
+    send_targeted_notifications,
+)
 from services.admin_events_service import AdminEventType, record_admin_event
 from core.date_filters import date_range_query, parse_date_range
 from services.whatsapp_support_service import (
@@ -47,6 +52,8 @@ from services.whatsapp_support_service import (
     send_support_text_reply,
     serialize_support_doc,
     start_support_template_conversation,
+    find_support_conversation,
+    enrich_delivery_statuses,
 )
 from services.user_service import (
     REFERRAL_ELIGIBLE_ROLES,
@@ -65,7 +72,7 @@ from services.user_service import (
     is_referral_referred_enabled_for_user,
     is_referral_sponsor_enabled_for_user,
 )
-from services.referral_service import mark_referral_rewarded
+from services.referral_service import confirm_external_payment, ensure_referral_record_for_user, refresh_referral_progress, referral_list, referral_totals, sponsored_referral_summary
 from services.performance_rewards_service import (
     get_performance_rewards_settings,
     set_performance_rewards_settings,
@@ -202,6 +209,14 @@ async def update_relay_settlement(
         }},
     )
     updated = {**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: status}}
+    if relay_id:
+        await notify_relay_settlement_update(
+            relay_id,
+            updated,
+            action=action,
+            status=status,
+            note=str(body.get("note") or "").strip() or None,
+        )
     return {"ok": True, "parcel_id": parcel_id, "relay_settlement": updated["relay_settlement"], "relay_financial": build_relay_financial_summary(updated, relay_id) if relay_id else None}
 
 
@@ -658,20 +673,68 @@ class UserReferralAccessRequest(BaseModel):
 
 
 class ReferralPaymentConfirmRequest(BaseModel):
+    beneficiary: Literal["sponsor", "referred"]
+    amount_xof: int = Field(..., gt=0, le=1000000)
+    paid_at: datetime
+    reference: Optional[str] = Field(default=None, max_length=120)
     note: str = Field("", max_length=300)
 
 
+@router.get("/referrals", summary="Suivi des parrainages et paiements hors plateforme")
+async def get_admin_referrals(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=50),
+    status: Optional[Literal["pending", "qualified", "partially_paid", "rewarded", "qualified_no_bonus", "needs_review"]] = None,
+    role: Optional[Literal["client", "driver"]] = None,
+    search: str = Query("", max_length=120),
+    _admin=Depends(require_admin_dep),
+):
+    query = {}
+    if role:
+        query["referred_role"] = role
+    if status == "needs_review":
+        query["$or"] = [{"payments.sponsor.status": "needs_review"}, {"payments.referred.status": "needs_review"}]
+    elif status:
+        query["status"] = status
+    if search.strip():
+        import re
+        term = {"$regex": re.escape(search.strip()), "$options": "i"}
+        users = await db.users.find({"$or": [{"name": term}, {"phone": term}, {"referral_code": term}]}, {"user_id": 1}).to_list(length=None)
+        ids = [user["user_id"] for user in users]
+        query["$and"] = [{"$or": [{"sponsor_user_id": {"$in": ids}}, {"referred_user_id": {"$in": ids}}, {"referral_code": term}]}]
+    return {**await referral_list(query, skip, limit, admin=True), "totals": await referral_totals(query)}
+
+
 class SupportConversationStatusRequest(BaseModel):
-    status: str = Field(..., pattern="^(open|pending|resolved)$")
+    status: str = Field(..., pattern="^(open|pending|pending_internal|resolved)$")
 
 
 class SupportTextReplyRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
+    request_id: Optional[str] = Field(default=None, pattern="^[A-Za-z0-9_-]{8,80}$")
+
+
+class SupportSendRequest(BaseModel):
+    request_id: Optional[str] = Field(default=None, pattern="^[A-Za-z0-9_-]{8,80}$")
+
+
+class SupportNoteRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+class SupportQuickReply(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+class SupportSettingsRequest(BaseModel):
+    quick_replies: list[SupportQuickReply] = Field(default_factory=list, max_length=30)
 
 
 class SupportStartRequest(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=32)
     user_id: Optional[str] = Field(default=None, max_length=64)
+    request_id: Optional[str] = Field(default=None, pattern="^[A-Za-z0-9_-]{8,80}$")
 
 
 class ProfilePhotoModerationRequest(BaseModel):
@@ -748,45 +811,85 @@ def _ensure_whatsapp_reply_window_open(conversation: dict | None) -> None:
         )
 
 
+@router.get("/support/whatsapp/settings", summary="Réponses rapides du support")
+async def get_whatsapp_support_settings(_admin=Depends(require_admin_dep)):
+    settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    return {"quick_replies": settings_doc.get("whatsapp_support_quick_replies") or [],
+            "reopen_template_available": bool(settings.WHATSAPP_TEMPLATE_SUPPORT_REOPEN)}
+
+
+@router.put("/support/whatsapp/settings", summary="Configurer les réponses rapides")
+async def set_whatsapp_support_settings(payload: SupportSettingsRequest, _admin=Depends(require_admin_dep)):
+    replies = [{"label": reply.label.strip(), "text": reply.text.strip()} for reply in payload.quick_replies]
+    if any(not reply["label"] or not reply["text"] for reply in replies):
+        raise bad_request_exception("Le titre et le texte sont requis")
+    await db.app_settings.update_one({"key": "global"}, {"$set": {"whatsapp_support_quick_replies": replies}}, upsert=True)
+    return {"quick_replies": replies}
+
+
 @router.get("/support/whatsapp/conversations", summary="Conversations support WhatsApp")
 async def list_whatsapp_support_conversations(
-    status: Optional[str] = Query(None, pattern="^(open|pending|resolved)$"),
+    status: Optional[str] = Query(None, pattern="^(open|pending|pending_internal|resolved)$"),
     q: Optional[str] = Query(None, max_length=80),
     limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
     _admin=Depends(require_admin_dep),
 ):
-    query: dict[str, Any] = {}
+    query = {}
     if status:
         query["status"] = status
-    if q:
-        clean_q = q.strip()
-        query["$or"] = [
-            {"phone": {"$regex": clean_q, "$options": "i"}},
-            {"last_message_text": {"$regex": clean_q, "$options": "i"}},
-            {"matched_parcel.tracking_code": {"$regex": clean_q, "$options": "i"}},
-            {"matched_user.name": {"$regex": clean_q, "$options": "i"}},
-        ]
-
-    cursor = db.whatsapp_support_conversations.find(query, {"_id": 0}).sort("last_message_at", -1).limit(limit)
-    conversations = await cursor.to_list(length=limit)
-    return {"conversations": [_with_whatsapp_reply_window(conversation) for conversation in conversations]}
+    if q and q.strip():
+        term = {"$regex": re.escape(q.strip()), "$options": "i"}
+        query["$or"] = [{field: term} for field in ("phone", "last_message_text", "matched_parcel.tracking_code", "matched_user.name")]
+    conversations = await db.whatsapp_support_conversations.find(query, {"_id": 0}).sort(
+        [("last_message_at", -1), ("conversation_id", -1)]).skip(skip).limit(limit).to_list(length=limit)
+    return {"conversations": [_with_whatsapp_reply_window(conversation) for conversation in conversations],
+            "total": await db.whatsapp_support_conversations.count_documents(query), "skip": skip, "limit": limit}
 
 
 @router.get("/support/whatsapp/conversations/{conversation_id}", summary="Détail conversation support WhatsApp")
 async def get_whatsapp_support_conversation(
     conversation_id: str,
+    before: Optional[str] = Query(None, max_length=100),
+    limit: int = Query(50, ge=1, le=100),
     _admin=Depends(require_admin_dep),
 ):
-    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    conversation = await find_support_conversation(conversation_id)
     if not conversation:
-        raise not_found_exception("Conversation WhatsApp introuvable")
+        raise not_found_exception("Conversation WhatsApp")
+    query = {"conversation_id": conversation["conversation_id"]}
+    if before:
+        cursor_doc = await db.whatsapp_support_messages.find_one({**query, "message_id": before}, {"_id": 0})
+        if not cursor_doc:
+            raise bad_request_exception("Le curseur ne correspond pas à cette conversation")
+        query["$or"] = [{"created_at": {"$lt": cursor_doc["created_at"]}},
+                        {"created_at": cursor_doc["created_at"], "message_id": {"$lt": before}}]
+    messages = await db.whatsapp_support_messages.find(query, {"_id": 0, "raw_message": 0, "fingerprint": 0}).sort(
+        [("created_at", -1), ("message_id", -1)]).limit(limit + 1).to_list(length=limit + 1)
+    has_more = len(messages) > limit
+    messages = list(reversed(messages[:limit]))
+    notes = await db.whatsapp_support_notes.find({"conversation_id": conversation["conversation_id"]}, {"_id": 0}).sort(
+        "created_at", -1).limit(50).to_list(length=50)
+    return {"conversation": _with_whatsapp_reply_window(conversation), "messages": await enrich_delivery_statuses(messages),
+            "has_more": has_more, "next_before": messages[0]["message_id"] if has_more and messages else None,
+            "notes": list(reversed(notes)), "notes_total": await db.whatsapp_support_notes.count_documents({"conversation_id": conversation["conversation_id"]})}
 
-    cursor = db.whatsapp_support_messages.find(
-        {"conversation_id": conversation_id},
-        {"_id": 0, "raw_message": 0},
-    ).sort("created_at", 1).limit(200)
-    messages = await cursor.to_list(length=200)
-    return {"conversation": _with_whatsapp_reply_window(conversation), "messages": messages}
+
+@router.post("/support/whatsapp/conversations/{conversation_id}/notes", summary="Ajouter une note interne")
+async def add_whatsapp_support_note(conversation_id: str, payload: SupportNoteRequest, admin_user=Depends(require_admin_dep)):
+    conversation = await find_support_conversation(conversation_id)
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp")
+    text = payload.text.strip()
+    if not text:
+        raise bad_request_exception("La note est vide")
+    now = datetime.now(timezone.utc)
+    note = {"note_id": "wanote_" + uuid.uuid4().hex, "conversation_id": conversation["conversation_id"],
+            "text": text, "admin_user_id": admin_user["user_id"], "admin_name": admin_user.get("name") or admin_user.get("email"),
+            "created_at": now}
+    await db.whatsapp_support_notes.insert_one(dict(note))
+    await db.whatsapp_support_conversations.update_one({"conversation_id": conversation["conversation_id"]}, {"$set": {"updated_at": now}})
+    return {"note": note}
 
 
 @router.patch("/support/whatsapp/conversations/{conversation_id}/status", summary="Statut conversation support WhatsApp")
@@ -795,13 +898,20 @@ async def update_whatsapp_support_conversation_status(
     payload: SupportConversationStatusRequest,
     _admin=Depends(require_admin_dep),
 ):
+    conversation = await find_support_conversation(conversation_id)
+    if not conversation:
+        raise not_found_exception("Conversation WhatsApp")
+    conversation_id = conversation["conversation_id"]
+    now = datetime.now(timezone.utc)
     result = await db.whatsapp_support_conversations.update_one(
         {"conversation_id": conversation_id},
-        {"$set": {"status": payload.status, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {"status": payload.status, "updated_at": now, "status_changed_by": _admin["user_id"],
+                  "status_changed_at": now, "resolved_at": now if payload.status == "resolved" else None,
+                  "unanswered_since": (conversation.get("unanswered_since") or now) if payload.status == "open" else None}},
     )
     if result.matched_count == 0:
         raise not_found_exception("Conversation WhatsApp introuvable")
-    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    conversation = await find_support_conversation(conversation_id)
     return {"conversation": _with_whatsapp_reply_window(conversation)}
 
 
@@ -817,9 +927,11 @@ async def start_whatsapp_support_conversation(
             phone=payload.phone,
             user_id=payload.user_id,
             admin_user=admin_user,
+            request_id=payload.request_id,
         )
     except Exception as exc:
         raise bad_request_exception(str(exc))
+    _support_send_result(result["message"])
     result["conversation"] = _with_whatsapp_reply_window(result.get("conversation"))
     return result
 
@@ -835,15 +947,18 @@ async def get_whatsapp_support_media(
     base = WHATSAPP_MEDIA_DIR.resolve()
     if base not in path.parents:
         raise not_found_exception("Média WhatsApp")
-    if not path.is_file():
-        restored = await ensure_whatsapp_support_media_file(filename)
-        if not restored:
-            raise not_found_exception("Média WhatsApp")
-        restored_path, restored_media_type = restored
-        return FileResponse(path=restored_path, media_type=restored_media_type, filename=restored_path.name)
+    restored = await ensure_whatsapp_support_media_file(filename)
+    if not restored:
+        raise not_found_exception("Média WhatsApp")
+    restored_path, restored_media_type = restored
+    return FileResponse(path=restored_path, media_type=restored_media_type, filename=filename,
+                        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
-    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-    return FileResponse(path=path, media_type=media_type, filename=filename)
+
+def _support_send_result(message):
+    if message.get("delivery_status") in {"sending", "uncertain"}:
+        raise bad_request_exception("Envoi non confirmé : vérifiez la conversation avant de renvoyer la réponse")
+    return {"message": serialize_support_doc(message)}
 
 
 @router.post("/support/whatsapp/conversations/{conversation_id}/reply", summary="Réponse texte WhatsApp")
@@ -852,39 +967,41 @@ async def reply_whatsapp_support_conversation(
     payload: SupportTextReplyRequest,
     admin_user=Depends(require_admin_dep),
 ):
-    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    conversation = await find_support_conversation(conversation_id)
     if not conversation:
         raise not_found_exception("Conversation WhatsApp introuvable")
     _ensure_whatsapp_reply_window_open(conversation)
     try:
-        message = await send_support_text_reply(conversation, payload.text, admin_user)
+        message = await send_support_text_reply(conversation, payload.text, admin_user, payload.request_id)
     except Exception as exc:
         raise bad_request_exception(str(exc))
-    return {"message": serialize_support_doc(message)}
+    return _support_send_result(message)
 
 
 @router.post("/support/whatsapp/conversations/{conversation_id}/reopen-template", summary="Relance template WhatsApp")
 async def reopen_whatsapp_support_conversation(
     conversation_id: str,
+    payload: Optional[SupportSendRequest] = None,
     admin_user=Depends(require_admin_dep),
 ):
-    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    conversation = await find_support_conversation(conversation_id)
     if not conversation:
         raise not_found_exception("Conversation WhatsApp introuvable")
     try:
-        message = await send_support_reopen_template(conversation, admin_user)
+        message = await send_support_reopen_template(conversation, admin_user, payload.request_id if payload else None)
     except Exception as exc:
         raise bad_request_exception(str(exc))
-    return {"message": serialize_support_doc(message)}
+    return _support_send_result(message)
 
 
 @router.post("/support/whatsapp/conversations/{conversation_id}/voice", summary="Réponse vocale WhatsApp")
 async def reply_whatsapp_support_conversation_voice(
     conversation_id: str,
     file: UploadFile = File(...),
+    request_id: Optional[str] = Form(None, max_length=80),
     admin_user=Depends(require_admin_dep),
 ):
-    conversation = await db.whatsapp_support_conversations.find_one({"conversation_id": conversation_id}, {"_id": 0})
+    conversation = await find_support_conversation(conversation_id)
     if not conversation:
         raise not_found_exception("Conversation WhatsApp introuvable")
     _ensure_whatsapp_reply_window_open(conversation)
@@ -904,10 +1021,11 @@ async def reply_whatsapp_support_conversation_voice(
             filename=file.filename or "note-vocale.webm",
             mime_type=content_type,
             admin_user=admin_user,
+            request_id=request_id,
         )
     except Exception as exc:
         raise bad_request_exception(str(exc))
-    return {"message": serialize_support_doc(message)}
+    return _support_send_result(message)
 
 
 def _user_identity_snapshot(user: dict | None) -> dict | None:
@@ -990,74 +1108,7 @@ def _admin_kyc_document_url(user_id: str | None, doc_type: str) -> str | None:
 
 
 async def _admin_sponsored_referral_summary(user_id: str) -> dict:
-    referrals = await db.referrals.find(
-        {"sponsor_user_id": user_id},
-        {"_id": 0},
-        sort=[("created_at", -1)],
-        limit=50,
-    ).to_list(length=50)
-    referred_ids = [
-        referral.get("referred_user_id")
-        for referral in referrals
-        if referral.get("referred_user_id")
-    ]
-    users_by_id = {}
-    if referred_ids:
-        referred_users = await db.users.find(
-            {"user_id": {"$in": referred_ids}},
-            {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "role": 1},
-        ).to_list(length=len(referred_ids))
-        users_by_id = {user["user_id"]: user for user in referred_users}
-
-    items = []
-    status_counts: dict[str, int] = {}
-    pending_rewards = 0
-    rewarded = 0
-    total_sponsor_bonus_xof = 0
-    total_referred_bonus_xof = 0
-
-    for referral in referrals:
-        status = str(referral.get("status") or "pending")
-        status_counts[status] = status_counts.get(status, 0) + 1
-        if status in {"pending", "qualified"}:
-            pending_rewards += 1
-        if status == "rewarded":
-            rewarded += 1
-            total_sponsor_bonus_xof += int(referral.get("sponsor_bonus_xof") or 0)
-            total_referred_bonus_xof += int(referral.get("referred_bonus_xof") or 0)
-
-        referred_user = users_by_id.get(referral.get("referred_user_id"), {})
-        reward_count = int(referral.get("reward_count") or 1)
-        current_count = int(referral.get("reward_metric_count") or 0)
-        items.append({
-            "referral_id": referral.get("referral_id"),
-            "referred_user_id": referral.get("referred_user_id"),
-            "referred_name": referred_user.get("name") or "Utilisateur Denkma",
-            "referred_phone": referred_user.get("phone"),
-            "referred_role": referral.get("referred_role") or referred_user.get("role"),
-            "status": status,
-            "reward_metric": referral.get("reward_metric"),
-            "reward_metric_label": get_referral_metric_label(str(referral.get("reward_metric") or "")),
-            "reward_metric_count": current_count,
-            "reward_count": reward_count,
-            "progress_percent": min(100, round((current_count / max(reward_count, 1)) * 100)),
-            "sponsor_bonus_xof": int(referral.get("sponsor_bonus_xof") or 0),
-            "referred_bonus_xof": int(referral.get("referred_bonus_xof") or 0),
-            "created_at": referral.get("created_at"),
-            "qualified_at": referral.get("qualified_at"),
-            "rewarded_at": referral.get("rewarded_at"),
-        })
-
-    return {
-        "total": await db.referrals.count_documents({"sponsor_user_id": user_id}),
-        "shown": len(items),
-        "pending_rewards": pending_rewards,
-        "rewarded": rewarded,
-        "status_counts": status_counts,
-        "total_sponsor_bonus_xof": total_sponsor_bonus_xof,
-        "total_referred_bonus_xof": total_referred_bonus_xof,
-        "items": items,
-    }
+    return await sponsored_referral_summary(user_id, admin=True)
 
 
 def _application_snapshot(
@@ -2790,6 +2841,13 @@ async def admin_user_detail(
         {"user_id": user_id, "expires_at": {"$gte": datetime.now(timezone.utc)}}
     )
     app_settings = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    received_referral = await ensure_referral_record_for_user(user, app_settings, source="legacy_admin_view")
+    if received_referral:
+        received_referral = await refresh_referral_progress(user_id, app_settings) or received_referral
+        received_referral.pop("_id", None)
+        received_referral["sponsor_name"] = ""
+        received_referral["referred_name"] = user.get("name") or "Utilisateur Denkma"
+        received_referral["reward_metric_label"] = get_referral_metric_label(received_referral["reward_metric"], received_referral["reward_count"])
     if not user.get("referral_code"):
         code = await generate_unique_referral_code(user.get("name") or "Denkma")
         await db.users.update_one(
@@ -2803,6 +2861,10 @@ async def admin_user_detail(
             {"user_id": user["referred_by"]},
             {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1},
         )
+        if received_referral:
+            received_referral["sponsor_name"] = (referred_by_user or {}).get("name") or "Utilisateur Denkma"
+            received_referral["sponsor_phone"] = (referred_by_user or {}).get("phone")
+            received_referral["referred_phone"] = user.get("phone")
     now = datetime.now(timezone.utc)
     current_period = f"{now.year}-{now.month:02d}"
     period_start, period_end = _month_bounds(current_period)
@@ -2829,7 +2891,7 @@ async def admin_user_detail(
         "monthly_goal": client_goal,
         "goal_progress": round(min(client_sent / max(client_goal, 1), 1), 3),
         "loyalty_points": user.get("loyalty_points", 0),
-        "loyalty_tier": user.get("loyalty_tier", "bronze"),
+        "loyalty_tier": compute_tier(user.get("loyalty_points", 0), performance_rewards["client"]["loyalty_tiers"]),
         "points_per_delivered_parcel": performance_rewards["client"]["loyalty_points_per_delivered_parcel"],
         "is_hybrid_client": user.get("role") != UserRole.CLIENT.value and client_sent > 0,
     }
@@ -2991,6 +3053,7 @@ async def admin_user_detail(
             "reward_rule": describe_referral_reward_rule(app_settings, user.get("role", "client")),
             "referrals_count": await db.referrals.count_documents({"sponsor_user_id": user_id}),
             "sponsored_referrals": await _admin_sponsored_referral_summary(user_id),
+            "received_referral": received_referral,
         },
     }
 
@@ -3225,58 +3288,9 @@ async def admin_confirm_referral_payment(
     body: ReferralPaymentConfirmRequest,
     admin_user=Depends(require_admin_dep),
 ):
-    referral = await db.referrals.find_one({"referral_id": referral_id}, {"_id": 0})
-    if not referral:
-        raise not_found_exception("Parrainage")
-    if referral.get("status") == "rewarded":
-        return {"message": "Paiement du parrainage déjà validé", "referral": referral}
-    if referral.get("status") != "qualified":
-        raise bad_request_exception("Le parrainage n’est pas encore admissible au paiement")
-
-    now = datetime.now(timezone.utc)
-    note = (body.note or "").strip()
-    await mark_referral_rewarded(
-        referred_user_id=referral["referred_user_id"],
-        status="rewarded",
-        sponsor_transaction_reference=referral.get("sponsor_transaction_reference"),
-        referred_transaction_reference=referral.get("referred_transaction_reference"),
-    )
-    await db.referrals.update_one(
-        {"referral_id": referral_id},
-        {
-            "$set": {
-                "payment_confirmed_by": admin_user.get("user_id"),
-                "payment_confirmed_by_name": admin_user.get("name") or admin_user.get("email"),
-                "payment_confirmed_at": now,
-                "payment_confirmation_note": note or None,
-                "updated_at": now,
-            }
-        },
-    )
-    await db.users.update_one(
-        {"user_id": referral["referred_user_id"]},
-        {
-            "$set": {
-                "referral_credited": True,
-                "referral_rewarded_at": now,
-                "updated_at": now,
-            }
-        },
-    )
-    await _record_event(
-        event_type="ADMIN_REFERRAL_PAYMENT_CONFIRMED",
-        actor_id=admin_user.get("user_id"),
-        actor_role=admin_user.get("role"),
-        notes=f"Paiement parrainage valide: {referral_id}",
-        metadata={
-            "referral_id": referral_id,
-            "sponsor_user_id": referral.get("sponsor_user_id"),
-            "referred_user_id": referral.get("referred_user_id"),
-            "note": note,
-        },
-    )
-    updated = await db.referrals.find_one({"referral_id": referral_id}, {"_id": 0})
-    return {"message": "Paiement parrainage valide", "referral": updated}
+    result = await confirm_external_payment(referral_id, body.beneficiary, body.amount_xof, body.paid_at, body.reference, body.note, admin_user)
+    result["referral"].pop("_id", None)
+    return {"message": "Paiement déjà confirmé" if result["already_confirmed"] else "Paiement hors plateforme confirmé", **result}
 
 
 @router.get("/fleet/live", summary="Position GPS temps réel de la flotte")
@@ -5100,7 +5114,7 @@ async def admin_get_client_stats(
             "success_rate": success_rate,
             "spent_xof": spent,
             "loyalty_points": client.get("loyalty_points", 0),
-            "loyalty_tier": client.get("loyalty_tier", "bronze"),
+            "loyalty_tier": compute_tier(client.get("loyalty_points", 0), rewards["client"]["loyalty_tiers"]),
             "monthly_goal": goal,
             "goal_progress": round(min(sent / max(goal, 1), 1), 3),
             "is_active": client.get("is_active", False),
@@ -5380,6 +5394,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
     pricing_settings = await get_pricing_settings()
     delivery_dispatch = await get_delivery_dispatch_settings(settings_doc)
     return {
+        **sending_guide_payload(settings_doc),
         "express_enabled": settings_doc.get("express_enabled", False),
         "delivery_commissions_enabled": bool(settings_doc.get("delivery_commissions_enabled", True)),
         "commission_rules": normalize_commission_rules(
@@ -5421,6 +5436,10 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
 
 @router.put("/settings/performance-rewards", summary="Configurer les récompenses de performance")
 async def update_performance_rewards_settings(body: dict, _admin=Depends(require_admin_dep)):
+    client_rules = body.get("client")
+    if isinstance(client_rules, dict) and "loyalty_tiers" not in client_rules:
+        existing = await get_performance_rewards_settings()
+        client_rules["loyalty_tiers"] = existing["client"]["loyalty_tiers"]
     performance_rewards = await set_performance_rewards_settings(body)
     await db.app_settings.update_one(
         {"key": "global"},
@@ -5431,6 +5450,17 @@ async def update_performance_rewards_settings(body: dict, _admin=Depends(require
         upsert=True,
     )
     return {"performance_rewards": performance_rewards}
+
+
+@router.put("/settings/sending-guide", summary="Configurer la vidéo d'aide à l'envoi")
+async def update_sending_guide(body: SendingGuideSettings, _admin=Depends(require_admin_dep)):
+    config = body.model_dump()
+    await db.app_settings.update_one(
+        {"key": "global"},
+        {"$set": {"sending_guide": config, "updated_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"sending_guide": config}
 
 
 @router.put("/settings/app-update", summary="Configurer les mises à jour mobiles")
@@ -5593,150 +5623,64 @@ async def notify_app_update(
 @router.get("/settings/referral/stats", summary="Statistiques du programme de parrainage")
 async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
-    effective_share_base_url = get_effective_referral_share_base_url(settings_doc)
-    now = datetime.now(timezone.utc)
-    last_30_days = now - timedelta(days=30)
-
-    # Aggregation pipeline — no full user scan
-    pipeline = [
-        {"$match": {"role": {"$in": REFERRAL_ELIGIBLE_ROLES}}},
-        {"$group": {
-            "_id": "$role",
-            "total_users": {"$sum": 1},
-            "with_code": {"$sum": {"$cond": [{"$and": [
-                {"$ne": ["$referral_code", None]},
-                {"$ne": ["$referral_code", ""]},
-            ]}, 1, 0]}},
-            "override_enabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", True]}, 1, 0]}},
-            "override_disabled": {"$sum": {"$cond": [{"$eq": ["$referral_enabled_override", False]}, 1, 0]}},
-        }},
-    ]
-    agg_results = await db.users.aggregate(pipeline).to_list(length=100)
-    referral_results = await db.referrals.aggregate([
-        {"$group": {
-            "_id": "$referred_role",
-            "referred_users": {"$sum": 1},
-            "rewarded_users": {"$sum": {"$cond": [
-                {"$in": ["$status", ["rewarded", "qualified_no_bonus"]]},
-                1,
-                0,
-            ]}},
-            "pending_rewards": {"$sum": {"$cond": [
-                {"$in": ["$status", ["rewarded", "qualified_no_bonus"]]},
-                0,
-                1,
-            ]}},
-        }},
-    ]).to_list(length=100)
-    referral_stats_by_role = {
-        row["_id"] or "client": {
-            "referred_users": row["referred_users"],
-            "rewarded_users": row["rewarded_users"],
-            "pending_rewards": row["pending_rewards"],
-        }
-        for row in referral_results
-    }
-
     stats_by_role = {}
-    totals = {"with_code": 0, "effective_enabled": 0, "referred": 0,
-              "rewarded": 0, "pending": 0, "override_on": 0, "override_off": 0}
-
-    for row in agg_results:
-        role = row["_id"]
-        role_config = get_referral_role_config(settings_doc, role)
-        role_enabled = role_config.get("enabled", False)
-        effective_enabled = (
-            row["with_code"]
-            - row["override_disabled"]
-            + row["override_enabled"]
-        ) if role_enabled else row["override_enabled"]
-        referral_role_stats = referral_stats_by_role.get(role, {
-            "referred_users": 0,
-            "rewarded_users": 0,
-            "pending_rewards": 0,
-        })
-
+    for role in REFERRAL_ELIGIBLE_ROLES:
+        eligible = {
+            "role": role, "is_active": {"$ne": False}, "is_banned": {"$ne": True},
+            "referral_code": {"$type": "string", "$ne": ""},
+        }
+        config = get_referral_role_config(settings_doc, role)
+        eligible["referral_enabled_override"] = {"$ne": False} if config["enabled"] else True
+        totals = await referral_totals({"referred_role": role})
         stats_by_role[role] = {
-            "total_users": row["total_users"],
-            "with_code": row["with_code"],
-            "effective_enabled": max(effective_enabled, 0),
-            "forced_enabled": row["override_enabled"],
-            "forced_disabled": row["override_disabled"],
-            "referred_users": referral_role_stats["referred_users"],
-            "rewarded_users": referral_role_stats["rewarded_users"],
-            "pending_rewards": referral_role_stats["pending_rewards"],
+            "total_users": await db.users.count_documents({"role": role}),
+            "with_code": await db.users.count_documents({"role": role, "referral_code": {"$type": "string", "$ne": ""}}),
+            "effective_enabled": await db.users.count_documents(eligible),
+            "forced_enabled": await db.users.count_documents({"role": role, "referral_enabled_override": True}),
+            "forced_disabled": await db.users.count_documents({"role": role, "referral_enabled_override": False}),
+            "referred_users": totals["total"], "rewarded_users": totals["rewarded"],
+            "pending_rewards": totals["pending_rewards"],
         }
-        totals["with_code"] += row["with_code"]
-        totals["effective_enabled"] += max(effective_enabled, 0)
-        totals["referred"] += referral_role_stats["referred_users"]
-        totals["rewarded"] += referral_role_stats["rewarded_users"]
-        totals["pending"] += referral_role_stats["pending_rewards"]
-        totals["override_on"] += row["override_enabled"]
-        totals["override_off"] += row["override_disabled"]
-
-    referral_tx_total = await db.wallet_transactions.count_documents(
-        {"reference": {"$regex": "^ref_bonus_"}}
-    )
-    referral_tx_last_30_days = await db.wallet_transactions.count_documents(
-        {
-            "reference": {"$regex": "^ref_bonus_"},
-            "created_at": {"$gte": last_30_days},
-        }
-    )
-    referral_aggregate = await db.wallet_transactions.aggregate(
-        [
-            {"$match": {"reference": {"$regex": "^ref_bonus_"}}},
-            {"$group": {"_id": None, "total_paid_xof": {"$sum": "$amount"}}},
-        ]
-    ).to_list(length=1)
-    referral_last_30_aggregate = await db.wallet_transactions.aggregate(
-        [
-            {
-                "$match": {
-                    "reference": {"$regex": "^ref_bonus_"},
-                    "created_at": {"$gte": last_30_days},
-                }
-            },
-            {"$group": {"_id": None, "total_paid_xof": {"$sum": "$amount"}}},
-        ]
-    ).to_list(length=1)
-    referral_paid_total_xof = int((referral_aggregate[0] if referral_aggregate else {}).get("total_paid_xof", 0))
-    referral_paid_last_30_days_xof = int(
-        (referral_last_30_aggregate[0] if referral_last_30_aggregate else {}).get("total_paid_xof", 0)
-    )
-
+    totals = await referral_totals({})
+    historical = await db.wallet_transactions.aggregate([
+        {"$match": {"reference": {"$regex": "^ref_bonus_"}}},
+        {"$group": {"_id": None, "amount": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+    ]).to_list(length=1)
+    external_recent = await db.referrals.aggregate([
+        {"$project": {"payments": {"$objectToArray": {"$ifNull": ["$payments", {}]}}}},
+        {"$unwind": "$payments"},
+        {"$match": {"payments.v.status": {"$in": ["confirmed", "legacy_confirmed"]},
+                    "payments.v.paid_at": {"$gte": datetime.now(timezone.utc) - timedelta(days=30)}}},
+        {"$group": {"_id": None, "amount": {"$sum": "$payments.v.paid_amount_xof"}}},
+    ]).to_list(length=1)
+    base = get_effective_referral_share_base_url(settings_doc)
+    client = get_referral_role_config(settings_doc, "client")
     return {
+        "payment_mode": "external",
         "referral_enabled": is_referral_globally_enabled(settings_doc),
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
-        "effective_referral_share_base_url": effective_share_base_url,
-        "referral_roles": {
-            role: {
-                **get_referral_role_config(settings_doc, role),
-                "apply_rule": describe_referral_apply_rule(settings_doc, role),
-                "reward_rule": describe_referral_reward_rule(settings_doc, role),
-                "metric_options": get_referral_metric_options(role),
-            }
-            for role in REFERRAL_ELIGIBLE_ROLES
-        },
-        "sample_referral_url": build_referral_url("DENKMA-DEMO", effective_share_base_url),
-        "sample_share_message": build_referral_share_message(
-            code="DENKMA-DEMO",
-            referral_url=build_referral_url("DENKMA-DEMO", effective_share_base_url),
-            sponsor_bonus_xof=get_referral_role_config(settings_doc, "client").get("sponsor_bonus_xof", 500),
-            referred_bonus_xof=get_referral_role_config(settings_doc, "client").get("referred_bonus_xof", 500),
-            reward_rule=describe_referral_reward_rule(settings_doc, "client"),
-        ),
-        "users_with_code": totals["with_code"],
-        "effective_enabled_users": totals["effective_enabled"],
-        "override_enabled_users": totals["override_on"],
-        "override_disabled_users": totals["override_off"],
-        "referred_users": totals["referred"],
-        "rewarded_users": totals["rewarded"],
-        "pending_reward_users": totals["pending"],
-        "referral_bonus_transactions_total": referral_tx_total,
-        "referral_bonus_transactions_last_30_days": referral_tx_last_30_days,
-        "referral_bonus_paid_total_xof": referral_paid_total_xof,
-        "referral_bonus_paid_last_30_days_xof": referral_paid_last_30_days_xof,
+        "effective_referral_share_base_url": base,
+        "referral_roles": {role: {
+            **get_referral_role_config(settings_doc, role),
+            "apply_rule": describe_referral_apply_rule(settings_doc, role),
+            "reward_rule": describe_referral_reward_rule(settings_doc, role),
+            "metric_options": get_referral_metric_options(role),
+        } for role in REFERRAL_ELIGIBLE_ROLES},
+        "sample_referral_url": build_referral_url("DENKMA-DEMO", base),
+        "sample_share_message": build_referral_share_message(code="DENKMA-DEMO",
+            referral_url=build_referral_url("DENKMA-DEMO", base), sponsor_bonus_xof=client["sponsor_bonus_xof"],
+            referred_bonus_xof=client["referred_bonus_xof"], reward_rule=describe_referral_reward_rule(settings_doc, "client")),
+        "users_with_code": sum(row["with_code"] for row in stats_by_role.values()),
+        "effective_enabled_users": sum(row["effective_enabled"] for row in stats_by_role.values()),
+        "override_enabled_users": sum(row["forced_enabled"] for row in stats_by_role.values()),
+        "override_disabled_users": sum(row["forced_disabled"] for row in stats_by_role.values()),
+        "referred_users": totals["total"], "rewarded_users": totals["rewarded"],
+        "pending_reward_users": totals["pending_rewards"],
+        "referral_bonus_paid_total_xof": totals["total_sponsor_bonus_xof"] + totals["total_referred_bonus_xof"],
+        "referral_bonus_paid_last_30_days_xof": int((external_recent[0] if external_recent else {}).get("amount", 0)),
+        "external_payments": totals,
+        "legacy_wallet_credits_xof": int((historical[0] if historical else {}).get("amount", 0)),
+        "legacy_wallet_credits_count": int((historical[0] if historical else {}).get("count", 0)),
         "stats_by_role": stats_by_role,
     }
 
@@ -5923,9 +5867,19 @@ async def update_referral_settings(
     body: ReferralSettingsRequest,
     _admin=Depends(require_admin_dep),
 ):
-    share_base_url = (body.share_base_url or "").strip() or None
     now = datetime.now(timezone.utc)
     before = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    share_base_url = ((body.share_base_url or "").strip() or None) if "share_base_url" in body.model_fields_set else before.get("referral_share_base_url")
+    if share_base_url:
+        from urllib.parse import urlparse
+        url = urlparse(share_base_url)
+        if url.scheme not in {"http", "https"} or not url.netloc or url.username or url.password:
+            raise bad_request_exception("Le lien de partage doit être une URL HTTP ou HTTPS valide")
+    for role in REFERRAL_ELIGIBLE_ROLES:
+        role_config = getattr(body, role)
+        allowed = {item["value"] for item in get_referral_metric_options(role)}
+        if role_config.apply_metric not in allowed or role_config.reward_metric not in allowed:
+            raise bad_request_exception(f"Condition de parrainage invalide pour {role}")
 
     referral_roles = {
         "client": body.client.model_dump(),

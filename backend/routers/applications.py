@@ -3,7 +3,7 @@ Router applications : candidatures livreur et point relais.
 Workflow : le client soumet → l’administrateur examine les pièces et coordonnées → approuve ou rejette.
 """
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -99,6 +99,8 @@ class DriverApplicationCreate(BaseModel):
     vehicle_type:    Literal["moto", "car", "van", "tricycle"] = "moto"
     id_card_url:     Optional[str] = None
     license_url:     Optional[str] = None
+    id_card_expires_on: Optional[date] = None
+    license_expires_on: Optional[date] = None
     message:         Optional[str] = None
 
     @field_validator("full_name", "id_card_number", "license_number", "id_card_url", "license_url", "message")
@@ -177,7 +179,7 @@ async def apply_driver(
         "user_name":       current_user.get("name", current_user["phone"]),
         "type":            "driver",
         "status":          "pending",
-        "data":            body.model_dump(),
+        "data":            body.model_dump(mode="json"),
         "admin_notes":     None,
         "created_at":      now,
         "updated_at":      now,
@@ -404,12 +406,27 @@ async def approve_application(
         if user.get("profile_picture_status") != "approved":
             raise bad_request_exception("La photo de profil du livreur doit être approuvée avant validation")
 
+        def expiration_datetime(value: Any) -> datetime | None:
+            if not value:
+                return None
+            try:
+                parsed = date.fromisoformat(str(value))
+            except ValueError:
+                return None
+            return datetime.combine(parsed, datetime.min.time(), tzinfo=timezone.utc)
+
         await db.users.update_one(
             {"user_id": user_id},
             {"$set": {
                 "role": UserRole.DRIVER.value,
                 "kyc_id_card_url": data.get("id_card_url"),
                 "kyc_license_url": data.get("license_url"),
+                "kyc_id_card_expires_at": expiration_datetime(
+                    data.get("id_card_expires_on")
+                ),
+                "kyc_license_expires_at": expiration_datetime(
+                    data.get("license_expires_on")
+                ),
                 "kyc_status": "verified",
                 "updated_at": now
             }},

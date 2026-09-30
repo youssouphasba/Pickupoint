@@ -1,6 +1,8 @@
 "use client";
+import { ReferralLedger } from "@/components/referral-ledger";
 
 import * as React from "react";
+import { isAxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchReferralStats,
@@ -11,6 +13,8 @@ import {
   fetchPromotionStats,
   AdminPromotionPayload,
   fetchInAppCampaigns,
+  fetchCampaignOptions,
+  CampaignTargeting,
   createInAppCampaign,
   uploadInAppCampaignImage,
   uploadInAppCampaignVideo,
@@ -33,6 +37,13 @@ import { useToast } from "@/components/ui/toaster";
 import { Loader2, Pencil, Plus, Save, Trash2, Upload, X } from "lucide-react";
 
 const xof = new Intl.NumberFormat("fr-FR");
+
+function campaignError(error: unknown) {
+  const detail: unknown = isAxiosError(error) ? error.response?.data?.detail : null;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return "Certains champs sont invalides. Vérifiez les dates, les liens et les valeurs du ciblage ou de la fréquence.";
+  return "L’opération a échoué. Vérifiez votre connexion et réessayez.";
+}
 
 const PROMO_TYPES = [
   { value: "percentage", label: "Pourcentage" },
@@ -161,6 +172,7 @@ function CampaignsSection() {
     queryKey: ["in-app-campaigns"],
     queryFn: () => fetchInAppCampaigns(false),
   });
+  const options = useQuery({ queryKey: ["campaign-options"], queryFn: fetchCampaignOptions });
   const now = React.useMemo(() => new Date(), []);
   const [editingCampaignId, setEditingCampaignId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<InAppCampaignPayload>({
@@ -178,6 +190,9 @@ function CampaignsSection() {
     priority: 0,
     is_active: true,
   });
+  React.useEffect(() => {
+    if (options.data) setForm((current) => current.targeting ? current : { ...current, targeting: options.data.targeting_defaults });
+  }, [options.data]);
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -193,6 +208,7 @@ function CampaignsSection() {
       setForm((current) => ({ ...current, title: "", body: "", image_url: "", video_url: "" }));
       toast("Campagne in-app créée.");
     },
+    onError: (error) => toast(campaignError(error)),
   });
 
   const imageMut = useMutation({
@@ -201,6 +217,7 @@ function CampaignsSection() {
       setForm((current) => ({ ...current, image_url: data.image_url, video_url: "" }));
       toast("Image importée.");
     },
+    onError: (error) => toast(campaignError(error)),
   });
 
   const videoMut = useMutation({
@@ -209,6 +226,7 @@ function CampaignsSection() {
       setForm((current) => ({ ...current, video_url: data.video_url, image_url: "" }));
       toast("Vidéo importée.");
     },
+    onError: (error) => toast(campaignError(error)),
   });
 
   const updateMut = useMutation({
@@ -219,6 +237,7 @@ function CampaignsSection() {
       toast("Campagne mise à jour.");
       setEditingCampaignId(null);
     },
+    onError: (error) => toast(campaignError(error)),
   });
 
   const deleteMut = useMutation({
@@ -227,6 +246,7 @@ function CampaignsSection() {
       qc.invalidateQueries({ queryKey: ["in-app-campaigns"] });
       toast("Campagne supprimée.");
     },
+    onError: (error) => toast(campaignError(error)),
   });
 
   function setRole(role: string) {
@@ -247,7 +267,7 @@ function CampaignsSection() {
     <section className="space-y-4">
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Campagnes in-app
+          Communications
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Messages affichés dans l'app avec redirection vers une page.
@@ -256,7 +276,7 @@ function CampaignsSection() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Nouvelle campagne</CardTitle>
+          <CardTitle className="text-base">{editingCampaignId ? "Modifier la communication" : "Nouvelle communication"}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           <Input placeholder="Titre" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
@@ -311,6 +331,25 @@ function CampaignsSection() {
       <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
             {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
+          {form.targeting && options.data && (
+            <div className="space-y-3 rounded-lg border p-4 lg:col-span-2">
+              <label className="block space-y-1"><span className="font-medium">Audience</span>
+                <select className="w-full rounded-md border bg-background p-2" value={form.targeting.audience} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, audience: event.target.value as CampaignTargeting["audience"] } }))}>
+                  {options.data.audiences.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <p className="text-sm text-muted-foreground">Le ciblage repose sur les colis envoyés par le compte, y compris lorsqu’un partenaire utilise l’application comme client. « Premier colis livré » correspond à exactement un colis livré ; « Utilisateurs des relais » à au moins un envoi livré avec un relais.</p>
+              {form.targeting.audience === "regular" && <label className="block space-y-1"><span>Nombre minimum de colis livrés</span><Input type="number" value={form.targeting.min_deliveries} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, min_deliveries: Number(event.target.value) } }))} /></label>}
+              {form.targeting.audience === "inactive" && <label className="block space-y-1"><span>Aucun nouvel envoi depuis (jours)</span><Input type="number" value={form.targeting.inactive_days} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, inactive_days: Number(event.target.value) } }))} /><p className="text-sm text-muted-foreground">Comptes ayant déjà envoyé un colis, sans colis en cours. Ce critère ne mesure pas les ouvertures de l’application.</p></label>}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <label className="space-y-1"><span>Maximum par personne et par canal</span><Input type="number" value={form.targeting.max_exposures} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, max_exposures: Number(event.target.value) } }))} /></label>
+                <label className="space-y-1"><span>Sur une période de (jours)</span><Input type="number" value={form.targeting.frequency_days} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, frequency_days: Number(event.target.value) } }))} /></label>
+                <label className="space-y-1"><span>Intervalle minimum (heures)</span><Input type="number" value={form.targeting.cooldown_hours} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, cooldown_hours: Number(event.target.value) } }))} /></label>
+              </div>
+              <p className="text-sm text-muted-foreground">Les cartes et notifications utilisent la même audience, avec des compteurs de fréquence séparés. Une communication fermée est masquée sur le compte et exclue des prochains envois de notifications. Les préférences marketing restent prioritaires.</p>
+            </div>
+          )}
+          {options.isError && <p role="alert" className="text-sm text-red-600">Impossible de charger les règles de ciblage. <button onClick={() => options.refetch()}>Réessayer</button></p>}
       <select
         value={form.placements[0] ?? "home"}
         onChange={(e) => setForm({ ...form, placements: [e.target.value] })}
@@ -357,7 +396,7 @@ function CampaignsSection() {
             </p>
           </div>
           <Button
-            disabled={!canCreate || createMut.isPending || updateMut.isPending}
+            disabled={!canCreate || !options.data || createMut.isPending || updateMut.isPending}
             onClick={() => {
               if (editingCampaignId) {
                 updateMut.mutate({
@@ -376,7 +415,7 @@ function CampaignsSection() {
             }}
           >
             {createMut.isPending || updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : editingCampaignId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {editingCampaignId ? "Enregistrer" : "Créer la campagne"}
+            {editingCampaignId ? "Enregistrer" : "Créer la communication"}
           </Button>
           {editingCampaignId ? <Button variant="outline" onClick={() => setEditingCampaignId(null)}>Annuler</Button> : null}
         </CardContent>
@@ -409,6 +448,7 @@ function CampaignsSection() {
               setEditingCampaignId(campaign.campaign_id);
               setForm({
                 title: campaign.title,
+                targeting: campaign.targeting ?? options.data?.targeting_defaults,
                 body: campaign.body,
                 cta_label: campaign.cta_label,
                 image_url: campaign.image_url ?? "",
@@ -458,9 +498,11 @@ function CampaignPreview({ form }: { form: InAppCampaignPayload }) {
 
 function CampaignCard({ campaign, onToggle, onDelete, onEdit }: { campaign: InAppCampaign; onToggle: () => void; onDelete: () => void; onEdit: () => void }) {
   const { toast } = useToast();
+  const options = useQuery({ queryKey: ["campaign-options"], queryFn: fetchCampaignOptions });
   const notifyMut = useMutation({
     mutationFn: () => notifyInAppCampaign(campaign.campaign_id),
-    onSuccess: (data) => toast(`Notification envoyée à ${data.matched} utilisateur(s).`),
+    onSuccess: (data) => toast(`${data.in_app_sent ?? data.sent ?? 0} notification(s) enregistrée(s), ${data.push_sent ?? 0} push envoyé(s), ${data.frequency_skipped ?? 0} compte(s) exclus par fréquence ou fermeture, ${data.failed ?? 0} échec(s) d’enregistrement, ${data.push_failed ?? 0} échec(s) push et ${data.push_skipped ?? 0} push non envoyé(s).`),
+    onError: (error) => toast(campaignError(error)),
   });
   const ctr = campaign.impressions_count > 0 ? Math.round((campaign.clicks_count / campaign.impressions_count) * 100) : 0;
   const now = Date.now();
@@ -478,6 +520,8 @@ function CampaignCard({ campaign, onToggle, onDelete, onEdit }: { campaign: InAp
           <div>
             <div className="font-semibold">{campaign.title}</div>
             <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{campaign.body}</div>
+            <div className="mt-2 text-xs text-muted-foreground">Audience : {options.data?.audiences.find((item) => item.value === (campaign.targeting?.audience ?? "all"))?.label ?? "Chargement…"}</div>
+            {campaign.targeting && <div className="mt-1 text-xs text-muted-foreground">Maximum {campaign.targeting.max_exposures} fois en {campaign.targeting.frequency_days} jours par canal · intervalle {campaign.targeting.cooldown_hours} h</div>}
           </div>
           <Badge tone={campaign.is_active && !expired && !scheduled ? "success" : "default"}>
             {scheduled ? "Programmée" : expired ? "Expirée" : campaign.is_active ? "Active" : "Inactive"}
@@ -529,7 +573,7 @@ function RoleConfigCard({
     <Card>
       <CardContent className="p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="font-semibold">{label}</span>
+          <span className="font-semibold">Comptes {label.toLowerCase()}s</span>
           {editing ? (
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -546,6 +590,7 @@ function RoleConfigCard({
             </Badge>
           )}
         </div>
+        <p className="text-xs text-muted-foreground">L’activation concerne les comptes de ce rôle. Les primes et objectifs ci-dessous dépendent du rôle du filleul, pas de celui du parrain. Les conditions déjà acceptées restent inchangées.</p>
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
@@ -630,7 +675,7 @@ function RoleConfigCard({
             )}
           </div>
           <div className="col-span-2">
-            <label className="block text-xs text-muted-foreground mb-1">Limite de filleuls par parrain</label>
+            <label className="block text-xs text-muted-foreground mb-1">Limite de filleuls de ce type par parrain</label>
             {editing ? (
               <Input
                 type="number"
@@ -669,7 +714,6 @@ export default function PromotionsPage() {
     },
   });
 
-  // Referral editing state
   const [editing, setEditing] = React.useState(false);
   const [clientConfig, setClientConfig] = React.useState<ReferralRoleConfig | null>(null);
   const [driverConfig, setDriverConfig] = React.useState<ReferralRoleConfig | null>(null);
@@ -703,6 +747,7 @@ export default function PromotionsPage() {
       updateReferralSettings({
         client: clientConfig!,
         driver: driverConfig!,
+        share_base_url: s?.referral_share_base_url ?? null,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings"] });
@@ -821,7 +866,7 @@ export default function PromotionsPage() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Parrainage par rôle
+              Conditions du parrainage selon le type de filleul
             </h2>
             {!editing ? (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
@@ -883,6 +928,7 @@ export default function PromotionsPage() {
         </section>
       )}
 
+      <ReferralLedger />
       {referralStats.data && (() => {
         const rs = referralStats.data;
         const statKeys = [
@@ -897,8 +943,7 @@ export default function PromotionsPage() {
           { key: "referral_bonus_paid_last_30_days_xof", label: "Bonus versés (30 jours)" },
         ];
         const txKeys = [
-          { key: "referral_bonus_transactions_total", label: "Transactions bonus (total)" },
-          { key: "referral_bonus_transactions_last_30_days", label: "Transactions bonus (30 jours)" },
+          { key: "legacy_wallet_credits_count", label: "Crédits wallet historiques (non inclus dans les paiements)" },
         ];
         return (
           <section>

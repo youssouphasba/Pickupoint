@@ -59,7 +59,12 @@ from services.parcel_service import (
     build_location_area_label,
 )
 from services.pricing_service import calculate_price, _haversine_km
-from services.notification_service import notify_quote_finalized, notify_relay_agent_parcel_arrived, notify_new_parcel_message
+from services.notification_service import (
+    notify_location_updated,
+    notify_new_parcel_message,
+    notify_quote_finalized,
+    notify_relay_capacity_warning,
+)
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.wallet_service import credit_wallet, debit_wallet
 from services.google_maps_service import reverse_geocode
@@ -684,6 +689,8 @@ async def list_parcels(
             )
 
     for p in parcels:
+        if p.get("sender_user_id") != current_user.get("user_id") and not _is_admin(current_user):
+            p.pop("loyalty_award", None)
         if _parcel_photo_allowed(p, current_user):
             _attach_parcel_photo_url(p)
         else:
@@ -823,6 +830,9 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     is_admin = _is_admin(current_user)
     if not allowed:
         raise forbidden_exception("Accès refusé à ce colis")
+
+    if not is_sender and not is_admin:
+        parcel.pop("loyalty_award", None)
 
     # Injecter le flag dans la réponse (Flutter l'utilise pour l'UX)
     parcel["is_recipient"] = bool(is_recipient)
@@ -1101,6 +1111,8 @@ async def confirm_location_authenticated(
         actor_role=current_user["role"],
         notes="Position de livraison confirmée via application",
     )
+    if updated_parcel:
+        await notify_location_updated(updated_parcel, actor="recipient")
 
     return {"ok": True, "message": "Position de livraison confirmée"}
 
@@ -1203,6 +1215,8 @@ async def apply_delivery_address_change(
             "surcharge_accepted": bool(preview["requires_acceptance"]),
         },
     )
+    if updated_parcel:
+        await notify_location_updated(updated_parcel, actor="recipient")
 
     return {
         "ok": True,
@@ -1275,6 +1289,8 @@ async def update_delivery_address(
         notes="Adresse de livraison mise à jour par le destinataire",
         metadata={"distance_delta_km": preview.get("distance_delta_km", 0.0)},
     )
+    if updated_parcel:
+        await notify_location_updated(updated_parcel, actor="recipient")
     return {"ok": True, "message": "Adresse de livraison mise à jour"}
 
 
@@ -1493,8 +1509,18 @@ async def _scan_arrival_at_relay(parcel: dict, current_user: dict, *, batch: boo
 
     if target_relay_id:
         await db.relay_points.update_one({"relay_id": target_relay_id}, {"$inc": {"current_load": 1}})
-        # Notifier l'agent relais de destination
-        await notify_relay_agent_parcel_arrived(target_relay_id, parcel)
+        updated_relay = await db.relay_points.find_one(
+            {"relay_id": target_relay_id},
+            {"_id": 0},
+        )
+        if updated_relay:
+            capacity = int(updated_relay.get("max_capacity") or 0)
+            load = int(updated_relay.get("current_load") or 0)
+            warning_load = (
+                capacity * settings.RELAY_CAPACITY_WARNING_PERCENT + 99
+            ) // 100
+            if capacity > 0 and load in {warning_load, capacity}:
+                await notify_relay_capacity_warning(updated_relay)
     return result
 
 

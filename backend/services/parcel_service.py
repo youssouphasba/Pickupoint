@@ -22,7 +22,12 @@ from services.wallet_service import (
     normalize_commission_rules,
     distribute_delivery_revenue,
 )
-from services.notification_service import notify_parcel_status_change, notify_delivery_code
+from services.notification_service import (
+    notify_delivery_code,
+    notify_driver_mission_completed,
+    notify_incident_resolved,
+    notify_parcel_status_change,
+)
 from services.payment_service import create_payment_link
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.google_maps_service import reverse_geocode
@@ -969,6 +974,11 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         parcel_doc["recipient_user_id"] = recipient_user["user_id"]
 
     await db.parcels.insert_one(parcel_doc)
+    try:
+        from services.loyalty_service import _check_referral_bonus
+        await _check_referral_bonus(sender_user_id)
+    except Exception:
+        logger.exception("Qualification du parrainage différée pour %s", sender_user_id)
     
     # ── Déclenchement automatique de la mission de collecte ──
     # Uniquement pour les modes commençant par 'home_to_' (pickup chez l'expéditeur)
@@ -1170,7 +1180,7 @@ async def transition_status(
         sender_user_id = parcel.get("sender_user_id")
         if sender_user_id:
             from services.loyalty_service import credit_loyalty_points
-            await credit_loyalty_points(sender_user_id)
+            await credit_loyalty_points(sender_user_id, parcel_id)
 
     # Générer la mission du livreur quand le colis est déposé au relais d'origine
     if new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
@@ -1239,6 +1249,7 @@ async def transition_status(
                         "updated_at":   now
                     }}
                 )
+                await notify_driver_mission_completed(mission, parcel)
                 logger.info(f"Mission {mission['mission_id']} complétée via scan relais pour {parcel_id}")
             if mission.get("driver_id"):
                 from services.loyalty_service import _check_referral_bonus
@@ -1270,6 +1281,7 @@ async def transition_status(
                     "updated_at":   now
                 }}
             )
+            await notify_driver_mission_completed(mission, parcel)
             logger.info(f"Mission {mission['mission_id']} complétée (colis livré) pour {parcel_id}")
             if mission.get("driver_id"):
                 from services.loyalty_service import _check_referral_bonus
@@ -1376,6 +1388,21 @@ async def transition_status(
                 },
             )
 
+
+    if current_status == ParcelStatus.INCIDENT_REPORTED and new_status != ParcelStatus.INCIDENT_REPORTED:
+        resolution_labels = {
+            ParcelStatus.OUT_FOR_DELIVERY: "livraison reprise",
+            ParcelStatus.RETURNED: "retour à l'expéditeur",
+            ParcelStatus.CANCELLED: "colis annulé",
+            ParcelStatus.DELIVERED: "colis livré",
+        }
+        await notify_incident_resolved(
+            parcel,
+            resolution=resolution_labels.get(
+                new_status,
+                new_status.value.replace("_", " "),
+            ),
+        )
 
     # Notifier le changement
     await notify_parcel_status_change(parcel, new_status)

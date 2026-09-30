@@ -18,7 +18,7 @@ from database import db
 from services.parcel_service import _record_event
 from services.payment_service import verify_payment
 from services.stripe_service import handle_stripe_event
-from services.whatsapp_support_service import record_whatsapp_inbound_message
+from services.whatsapp_support_service import record_whatsapp_inbound_message, record_whatsapp_delivery_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,6 +76,11 @@ async def whatsapp_webhook(
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
             for status in value.get("statuses") or []:
+                try:
+                    await record_whatsapp_delivery_status(status)
+                except Exception:
+                    logger.exception("Statut WhatsApp non enregistré")
+                    raise HTTPException(status_code=503, detail="Réessayez la livraison du webhook")
                 logger.info(
                     "WhatsApp status: id=%s recipient=%s status=%s timestamp=%s",
                     status.get("id"),
@@ -86,8 +91,12 @@ async def whatsapp_webhook(
             for message in value.get("messages") or []:
                 try:
                     await record_whatsapp_inbound_message(value, message)
-                except Exception as exc:
-                    logger.warning("WhatsApp message non associ? au support: %s", exc)
+                except ValueError:
+                    logger.exception("Message WhatsApp invalide")
+                    raise HTTPException(status_code=400, detail="Message WhatsApp invalide")
+                except Exception:
+                    logger.exception("Message WhatsApp non enregistré")
+                    raise HTTPException(status_code=503, detail="Réessayez la livraison du webhook")
                 logger.info(
                     "WhatsApp message re?u: from=%s id=%s type=%s timestamp=%s",
                     message.get("from"),

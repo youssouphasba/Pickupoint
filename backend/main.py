@@ -15,6 +15,7 @@ from config import UPLOADS_DIR, settings
 from database import connect_db, close_db, db
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from services.whatsapp_support_service import hydrate_pending_support_media
 
 # Routers
 from routers import auth, users, relay_points, parcels, tracking, deliveries, pricing, wallets, admin, admin_action_center, admin_auth, webhooks, confirm, applications, promotions, in_app_campaigns, legal, app_settings, geo, notifications as notifications_router, privacy
@@ -335,6 +336,116 @@ async def _expire_stale_parcels():
         logger.error("Erreur job expiration colis : %s", exc)
 
 
+def _positive_int_settings(value: str) -> list[int]:
+    parsed = set()
+    for item in str(value or "").split(","):
+        try:
+            number = int(item.strip())
+        except ValueError:
+            continue
+        if number > 0:
+            parsed.add(number)
+    return sorted(parsed)
+
+
+async def _send_operational_reminders_impl() -> None:
+    from services.notification_service import (
+        notify_driver_document_expiry,
+        notify_parcel_expiry_reminder,
+    )
+
+    now = datetime.now(timezone.utc)
+    expiry_thresholds = _positive_int_settings(settings.RELAY_PARCEL_REMINDER_HOURS)
+    if expiry_thresholds:
+        max_expiry = now + timedelta(hours=max(expiry_thresholds))
+        parcels = await db.parcels.find(
+            {
+                "status": {"$in": ["available_at_relay", "redirected_to_relay"]},
+                "expires_at": {"$gt": now, "$lte": max_expiry},
+            },
+            {"_id": 0},
+        ).to_list(length=500)
+        for parcel in parcels:
+            expires_at = parcel.get("expires_at")
+            if not isinstance(expires_at, datetime):
+                continue
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            remaining_hours = max(1, int((expires_at - now).total_seconds() // 3600) + 1)
+            threshold = next(
+                (hours for hours in expiry_thresholds if remaining_hours <= hours),
+                None,
+            )
+            if threshold is None:
+                continue
+            field = f"expiry_reminder_{threshold}_sent_at"
+            result = await db.parcels.update_one(
+                {"parcel_id": parcel["parcel_id"], field: {"$in": [None, False]}},
+                {"$set": {field: now}},
+            )
+            if result.modified_count:
+                await notify_parcel_expiry_reminder(
+                    parcel,
+                    hours_remaining=min(threshold, remaining_hours),
+                )
+
+    document_thresholds = _positive_int_settings(settings.DRIVER_DOCUMENT_REMINDER_DAYS)
+    if not document_thresholds:
+        return
+    max_date = now + timedelta(days=max(document_thresholds))
+    drivers = await db.users.find(
+        {
+            "role": "driver",
+            "$or": [
+                {"kyc_license_expires_at": {"$gt": now, "$lte": max_date}},
+                {"kyc_id_card_expires_at": {"$gt": now, "$lte": max_date}},
+            ],
+        },
+        {
+            "_id": 0,
+            "user_id": 1,
+            "kyc_license_expires_at": 1,
+            "kyc_id_card_expires_at": 1,
+            "document_reminders": 1,
+        },
+    ).to_list(length=500)
+    for driver in drivers:
+        for field_name, label in (
+            ("kyc_license_expires_at", "Permis de conduire"),
+            ("kyc_id_card_expires_at", "Carte d'identité"),
+        ):
+            expires_at = driver.get(field_name)
+            if not isinstance(expires_at, datetime):
+                continue
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            days_remaining = max(1, (expires_at.date() - now.date()).days)
+            threshold = next(
+                (days for days in document_thresholds if days_remaining <= days),
+                None,
+            )
+            if threshold is None:
+                continue
+            marker = f"document_reminders.{field_name}_{threshold}"
+            result = await db.users.update_one(
+                {"user_id": driver["user_id"], marker: {"$in": [None, False]}},
+                {"$set": {marker: now}},
+            )
+            if result.modified_count:
+                await notify_driver_document_expiry(
+                    driver["user_id"],
+                    document_label=label,
+                    days_remaining=min(threshold, days_remaining),
+                )
+
+
+async def _send_operational_reminders() -> None:
+    try:
+        await _send_operational_reminders_impl()
+    except Exception as exc:
+        logger.error("Erreur rappels opérationnels : %s", exc)
+
+
 async def _purge_expired_driver_locations():
     """Supprime les coordonnées de présence devenues inutiles pour le dispatch."""
     try:
@@ -499,8 +610,11 @@ async def _admin_anomaly_notifier_loop() -> None:
 
 
 scheduler = AsyncIOScheduler()
+
+scheduler.add_job(hydrate_pending_support_media, "interval", minutes=1, max_instances=1, coalesce=True)
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
+scheduler.add_job(_send_operational_reminders, "interval", hours=1)
 scheduler.add_job(_purge_expired_driver_locations, "interval", hours=1)
 scheduler.add_job(_purge_expired_data, "interval", hours=24)
 

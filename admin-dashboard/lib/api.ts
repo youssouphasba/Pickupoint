@@ -451,142 +451,78 @@ export async function setUserPayoutBlock(
 // ------------------------- WhatsApp support -------------------------
 
 export type WhatsAppSupportParcel = {
-  parcel_id: string;
-  tracking_code: string;
-  status: string;
-  recipient_name?: string | null;
-  recipient_phone?: string | null;
-  sender_user_id?: string | null;
-  assigned_driver_id?: string | null;
-  payment_status?: string | null;
-  updated_at?: string | null;
+  parcel_id: string; tracking_code: string; status: string;
+  recipient_name?: string | null; recipient_phone?: string | null;
+  sender_user_id?: string | null; assigned_driver_id?: string | null;
+  payment_status?: string | null; updated_at?: string | null;
 };
-
 export type WhatsAppSupportUser = {
-  user_id: string;
-  name?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  role?: string | null;
-  profile_picture_url?: string | null;
-  is_active?: boolean;
-  is_banned?: boolean;
-  kyc_status?: string | null;
+  user_id: string; name?: string | null; phone?: string | null;
+  email?: string | null; role?: string | null; profile_picture_url?: string | null;
+  is_active?: boolean; is_banned?: boolean; kyc_status?: string | null;
 };
-
+export type SupportStatus = "open" | "pending" | "pending_internal" | "resolved";
 export type WhatsAppSupportConversation = {
-  conversation_id: string;
-  phone: string;
-  source: "whatsapp";
-  status: "open" | "pending" | "resolved";
-  matched_user_id?: string | null;
-  matched_user?: WhatsAppSupportUser | null;
-  matched_parcel_id?: string | null;
-  matched_parcel?: WhatsAppSupportParcel | null;
-  related_parcels?: WhatsAppSupportParcel[];
-  last_message_text?: string | null;
-  last_message_at?: string | null;
-  last_inbound_at?: string | null;
-  reply_window_expires_at?: string | null;
-  can_reply_freeform?: boolean;
-  created_at?: string | null;
-  updated_at?: string | null;
+  conversation_id: string; phone: string; source: "whatsapp"; status: SupportStatus;
+  matched_user_id?: string | null; matched_user?: WhatsAppSupportUser | null;
+  matched_parcel_id?: string | null; matched_parcel?: WhatsAppSupportParcel | null;
+  related_parcels?: WhatsAppSupportParcel[]; last_message_text?: string | null;
+  last_message_at?: string | null; last_inbound_at?: string | null;
+  reply_window_expires_at?: string | null; can_reply_freeform?: boolean;
+  created_at?: string | null; updated_at?: string | null;
 };
-
 export type WhatsAppSupportMessage = {
-  message_id: string;
-  conversation_id: string;
-  whatsapp_message_id?: string | null;
-  direction: "inbound" | "outbound";
-  phone: string;
-  message_type: string;
-  text?: string | null;
-  media?: {
-    media_id?: string | null;
-    mime_type?: string | null;
-    file_size?: number | null;
-    download_url?: string | null;
-  } | null;
-  matched_user_id?: string | null;
-  matched_parcel_id?: string | null;
-  matched_tracking_code?: string | null;
-  created_at?: string | null;
+  message_id: string; conversation_id: string; whatsapp_message_id?: string | null;
+  direction: "inbound" | "outbound"; phone: string; message_type: string; text?: string | null;
+  delivery_status?: string; send_error?: string | null;
+  delivery_errors?: {code?: number; message?: string}[];
+  media?: {media_id?: string | null; mime_type?: string | null; file_size?: number | null;
+    download_url?: string | null; filename?: string | null; pending_download?: boolean} | null;
+  matched_user_id?: string | null; matched_parcel_id?: string | null;
+  matched_tracking_code?: string | null; created_at?: string | null; admin_name?: string | null;
 };
-
-export async function fetchWhatsappSupportConversations(params?: {
-  status?: string;
-  q?: string;
-  limit?: number;
-}) {
-  const { data } = await api.get<{
-    conversations: WhatsAppSupportConversation[];
-  }>("/api/admin/support/whatsapp/conversations", { params });
+export type SupportNote = {note_id: string; text: string; admin_name?: string; created_at: string};
+export type SupportQuickReply = {label: string; text: string};
+export async function fetchWhatsappSupportConversations(params?: {status?: string; q?: string; limit?: number; skip?: number}) {
+  const {data} = await api.get<{conversations: WhatsAppSupportConversation[]; total: number; skip: number; limit: number}>(
+    "/api/admin/support/whatsapp/conversations", {params});
   return data;
 }
-
-export async function fetchWhatsappSupportConversation(conversationId: string) {
-  const { data } = await api.get<{
-    conversation: WhatsAppSupportConversation;
-    messages: WhatsAppSupportMessage[];
-  }>(`/api/admin/support/whatsapp/conversations/${conversationId}`);
+const supportPath = (id: string) => `/api/admin/support/whatsapp/conversations/${encodeURIComponent(id)}`;
+export async function fetchWhatsappSupportConversation(conversationId: string, params?: {before?: string; limit?: number}) {
+  const {data} = await api.get<{conversation: WhatsAppSupportConversation; messages: WhatsAppSupportMessage[];
+    has_more: boolean; next_before?: string | null; notes: SupportNote[]; notes_total: number}>(supportPath(conversationId), {params});
   return data;
 }
-
-export async function updateWhatsappSupportConversationStatus(
-  conversationId: string,
-  status: "open" | "pending" | "resolved",
-) {
-  const { data } = await api.patch(
-    `/api/admin/support/whatsapp/conversations/${conversationId}/status`,
-    { status },
-  );
-  return data;
+export async function updateWhatsappSupportConversationStatus(conversationId: string, status: SupportStatus) {
+  const {data} = await api.patch(supportPath(conversationId) + "/status", {status}); return data;
 }
-
-export async function sendWhatsappSupportTextReply(
-  conversationId: string,
-  text: string,
-) {
-  const { data } = await api.post(
-    `/api/admin/support/whatsapp/conversations/${conversationId}/reply`,
-    { text },
-  );
-  return data;
+export async function sendWhatsappSupportTextReply(conversationId: string, text: string, requestId?: string) {
+  const {data} = await api.post(supportPath(conversationId) + "/reply", {text, request_id: requestId}); return data;
 }
-
-export async function sendWhatsappSupportReopenTemplate(
-  conversationId: string,
-) {
-  const { data } = await api.post(
-    `/api/admin/support/whatsapp/conversations/${conversationId}/reopen-template`,
-  );
-  return data;
+export async function sendWhatsappSupportReopenTemplate(conversationId: string, requestId?: string) {
+  const {data} = await api.post(supportPath(conversationId) + "/reopen-template", {request_id: requestId}); return data;
 }
-
-export async function startWhatsappSupport(payload: {
-  phone?: string;
-  user_id?: string;
-}) {
-  const { data } = await api.post<{
-    conversation: WhatsAppSupportConversation;
-    message: WhatsAppSupportMessage;
-  }>("/api/admin/support/whatsapp/start", payload);
-  return data;
+export async function startWhatsappSupport(payload: {phone?: string; user_id?: string; request_id?: string}) {
+  const {data} = await api.post<{conversation: WhatsAppSupportConversation; message: WhatsAppSupportMessage}>(
+    "/api/admin/support/whatsapp/start", payload); return data;
 }
-
-export async function sendWhatsappSupportVoiceReply(
-  conversationId: string,
-  blob: Blob,
-) {
+export async function sendWhatsappSupportVoiceReply(conversationId: string, blob: Blob, requestId?: string) {
   const formData = new FormData();
-  const extension = blob.type.includes("ogg") ? "ogg" : "webm";
+  const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
   formData.append("file", blob, `note-vocale.${extension}`);
-  const { data } = await api.post(
-    `/api/admin/support/whatsapp/conversations/${conversationId}/voice`,
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" } },
-  );
+  if (requestId) formData.append("request_id", requestId);
+  const {data} = await api.post(supportPath(conversationId) + "/voice", formData); return data;
+}
+export async function fetchWhatsappSupportSettings() {
+  const {data} = await api.get<{quick_replies: SupportQuickReply[]; reopen_template_available: boolean}>("/api/admin/support/whatsapp/settings");
   return data;
+}
+export async function saveWhatsappSupportSettings(quick_replies: SupportQuickReply[]) {
+  const {data} = await api.put("/api/admin/support/whatsapp/settings", {quick_replies}); return data;
+}
+export async function addWhatsappSupportNote(id: string, text: string) {
+  const {data} = await api.post(supportPath(id) + "/notes", {text}); return data;
 }
 
 // ───────────────────────── Relay Points ─────────────────────────
@@ -944,6 +880,7 @@ export type PerformanceRewardsPayload = {
   client: {
     loyalty_points_per_delivered_parcel: number;
     monthly_goal_sent_parcels: number;
+    loyalty_tiers: { key: string; label: string; min_points: number; discount_percent: number }[];
   };
 };
 
@@ -1058,6 +995,13 @@ export async function fetchParcelAudit(parcelId: string) {
   return data;
 }
 
+export type SendingGuideSettings = { video_url: string; thumbnail_url: string };
+
+export async function updateSendingGuide(body: SendingGuideSettings) {
+  const { data } = await api.put("/api/admin/settings/sending-guide", body);
+  return data;
+}
+
 export async function updateRelaySettlement(
   parcelId: string,
   body: { action: string; status: "validated" | "rejected"; relay_id?: string; note?: string },
@@ -1146,17 +1090,72 @@ export async function setReferralAccess(
   return data;
 }
 
-export async function confirmReferralPayment(referralId: string, note = "") {
+export type ReferralPayment = {
+  amount_xof: number;
+  paid_amount_xof?: number;
+  status: string;
+  paid_at?: string | null;
+  confirmed_at?: string | null;
+  confirmed_by_name?: string | null;
+  reference?: string | null;
+  note?: string | null;
+};
+
+export type ReferralRecord = {
+  referral_id: string;
+  sponsor_user_id: string;
+  referred_user_id: string;
+  sponsor_name: string;
+  referred_name: string;
+  sponsor_phone?: string | null;
+  referred_phone?: string | null;
+  referred_role: string;
+  status: string;
+  reward_metric_count?: number;
+  reward_count: number;
+  reward_metric_label: string;
+  created_at?: string;
+  payments: Record<"sponsor" | "referred", ReferralPayment>;
+  payment_history?: (ReferralPayment & { event_id: string; beneficiary: "sponsor" | "referred" })[];
+};
+
+export async function fetchReferrals(params: {skip: number; limit: number; status?: string; role?: string; search?: string}) {
+  const {data} = await api.get("/api/admin/referrals", {params});
+  return data as {items: ReferralRecord[]; total: number; totals: Record<string, number>};
+}
+
+export async function confirmReferralPayment(referralId: string, body: {
+  beneficiary: "sponsor" | "referred";
+  amount_xof: number;
+  paid_at: string;
+  reference?: string;
+  note?: string;
+}) {
   const { data } = await api.post(
     `/api/admin/referrals/${referralId}/payment-confirmed`,
-    { note },
+    body,
   );
   return data;
 }
 
 // ───────────────────────── Relay detail ─────────────────────────
 
+export type CampaignTargeting = {
+  audience: "all" | "no_send" | "first_delivery" | "regular" | "relay_users" | "inactive";
+  min_deliveries: number;
+  inactive_days: number;
+  max_exposures: number;
+  frequency_days: number;
+  cooldown_hours: number;
+};
+
+export async function fetchCampaignOptions() {
+  const { data } = await api.get<{ audiences: {value: CampaignTargeting["audience"]; label: string}[]; targeting_defaults: CampaignTargeting }>("/api/admin/campaigns/options");
+  return data;
+}
+
 export type InAppCampaign = {
+  targeting?: CampaignTargeting;
   campaign_id: string;
   title: string;
   body: string;
@@ -1177,6 +1176,7 @@ export type InAppCampaign = {
 };
 
 export type InAppCampaignPayload = {
+  targeting?: CampaignTargeting;
   title: string;
   body: string;
   cta_label: string;
@@ -1262,7 +1262,7 @@ export async function updateLegalDoc(
 
 export async function notifyInAppCampaign(campaignId: string) {
   const { data } = await api.post(`/api/admin/campaigns/${campaignId}/notify`);
-  return data as { matched: number; sent: number; push_sent: number; in_app_sent: number };
+  return data as { matched: number; sent: number; push_sent: number; push_failed: number; push_skipped: number; in_app_sent: number; frequency_skipped: number; failed: number };
 }
 
 export async function fetchLegalReadingStats(docType: string, search?: string) {

@@ -1,4 +1,6 @@
 import os
+import asyncio
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -23,8 +25,14 @@ from models.in_app_campaign import (
     InAppCampaignUpdate,
 )
 from services.notification_service import send_targeted_notifications
+from services.campaign_targeting import (
+    AUDIENCE_LABELS, CampaignAudience, CampaignTargeting, targeting_for,
+    sender_activity, audience_matches, campaign_audience_matches,
+    campaign_state, exposure_allowed, claim_exposure, release_exposure, utc,
+)
 
 router = APIRouter(tags=["In-app Campaigns"])
+logger = logging.getLogger(__name__)
 require_admin = require_role(UserRole.ADMIN, UserRole.SUPERADMIN)
 MAX_CAMPAIGN_IMAGE_SIZE = 4 * 1024 * 1024
 MAX_CAMPAIGN_VIDEO_SIZE = 12 * 1024 * 1024
@@ -48,6 +56,7 @@ def _campaign_payload(campaign: InAppCampaign) -> dict:
     payload = campaign.model_dump()
     payload["target_roles"] = [role.value for role in campaign.target_roles]
     payload["action_type"] = campaign.action_type.value
+    payload["targeting"] = campaign.targeting.model_dump(mode="json")
     if payload.get("image_url") is not None:
         payload["image_url"] = str(payload["image_url"])
     if payload.get("video_url") is not None:
@@ -121,6 +130,16 @@ def _campaign_targets_user(campaign: dict, user: dict) -> bool:
     )
 
 
+async def _check_campaign_access(campaign, user):
+    if not _campaign_targets_user(campaign, user) or (user.get("notification_prefs") or {}).get("promotions") is False:
+        raise HTTPException(status_code=403, detail="Cette communication ne vous est pas destinée")
+    now = datetime.now(timezone.utc)
+    if not campaign.get("is_active") or not utc(campaign.get("start_date")) or not utc(campaign.get("end_date")) or not utc(campaign["start_date"]) <= now <= utc(campaign["end_date"]):
+        raise HTTPException(status_code=410, detail="Cette communication n’est plus disponible")
+    if not await campaign_audience_matches(campaign, user["user_id"], now):
+        raise HTTPException(status_code=403, detail="Cette communication ne vous est pas destinée")
+
+
 def _validate_action(action_type: str, action_value: str) -> None:
     value = action_value.strip()
     if action_type == CampaignActionType.INTERNAL_ROUTE.value:
@@ -175,12 +194,20 @@ async def create_campaign(
     body: InAppCampaignCreate,
     current_user: dict = Depends(require_admin),
 ):
-    if body.end_date <= body.start_date:
+    if utc(body.end_date) <= utc(body.start_date):
         raise HTTPException(status_code=400, detail="La date de fin doit suivre la date de debut")
     _validate_action(body.action_type.value, body.action_value)
     campaign = InAppCampaign(**body.model_dump(), created_by=current_user["user_id"])
     await db.in_app_campaigns.insert_one(_campaign_payload(campaign))
     return {"campaign_id": campaign.campaign_id, "message": "Campagne creee"}
+
+
+@router.get("/admin/campaigns/options", response_model=dict)
+async def campaign_options(current_user: dict = Depends(require_admin)):
+    return {
+        "audiences": [{"value": value, "label": label} for value, label in AUDIENCE_LABELS.items()],
+        "targeting_defaults": CampaignTargeting().model_dump(mode="json"),
+    }
 
 
 @router.get("/admin/campaigns", response_model=dict)
@@ -209,6 +236,8 @@ async def update_campaign(
     current_user: dict = Depends(require_admin),
 ):
     updates = body.model_dump(exclude_unset=True)
+    if body.targeting is not None:
+        updates["targeting"] = body.targeting.model_dump(mode="json")
     if not updates:
         raise HTTPException(status_code=400, detail="Aucun champ a mettre a jour")
     if "image_url" in updates and updates["image_url"] is not None:
@@ -225,8 +254,8 @@ async def update_campaign(
     existing = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
-    start_date = updates.get("start_date", existing.get("start_date"))
-    end_date = updates.get("end_date", existing.get("end_date"))
+    start_date = utc(updates.get("start_date", existing.get("start_date")))
+    end_date = utc(updates.get("end_date", existing.get("end_date")))
     if start_date and end_date and end_date <= start_date:
         raise HTTPException(status_code=400, detail="La date de fin doit suivre la date de debut")
     action_type = updates.get("action_type", existing.get("action_type"))
@@ -349,8 +378,17 @@ async def active_campaigns(
     }
     campaigns = await db.in_app_campaigns.find(query).sort(
         [("priority", -1), ("created_at", -1)]
-    ).to_list(10)
-    return {"campaigns": [_clean(c) for c in campaigns]}
+    ).to_list(200)
+    uid = current_user["user_id"]
+    states = await campaign_state(uid, [item["campaign_id"] for item in campaigns])
+    needs_activity = any(targeting_for(item).audience != CampaignAudience.ALL for item in campaigns)
+    activity = (await sender_activity([uid])).get(uid, {}) if needs_activity else {}
+    visible = [item for item in campaigns if
+        audience_matches(targeting_for(item), activity, now)
+        and (item["campaign_id"], "dismiss") not in states
+        and exposure_allowed(states.get((item["campaign_id"], "impression")), targeting_for(item), now)
+    ]
+    return {"campaigns": [_clean(c) for c in visible[:10]]}
 
 
 @router.get("/campaigns/{campaign_id}", response_model=dict)
@@ -361,8 +399,7 @@ async def get_campaign(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
-    if not _campaign_targets_user(campaign, current_user):
-        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
+    await _check_campaign_access(campaign, current_user)
     return {"campaign": _clean(campaign)}
 
 
@@ -375,49 +412,79 @@ async def notify_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
     now = datetime.now(timezone.utc)
+    start_date = utc(campaign.get("start_date"))
+    end_date = utc(campaign.get("end_date"))
     if (
         not campaign.get("is_active", False)
-        or campaign.get("start_date") is None
-        or campaign.get("end_date") is None
-        or campaign["start_date"] > now
-        or campaign["end_date"] < now
+        or start_date is None
+        or end_date is None
+        or start_date > now
+        or end_date < now
     ):
         raise bad_request_exception("Seule une campagne active peut être envoyée")
     target_roles = set(campaign.get("target_roles") or [CampaignTargetRole.ALL.value])
     query = {"is_active": True, "is_banned": {"$ne": True}, "role": {"$nin": [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]}, "notification_prefs.promotions": {"$ne": False}}
-    if CampaignTargetRole.ALL.value not in target_roles:
+    if CampaignTargetRole.ALL.value not in target_roles and CampaignTargetRole.CLIENT.value not in target_roles:
         query["role"] = {"$in": list(target_roles)}
-    users = await db.users.find(query, {"_id": 0, "user_id": 1}).to_list(length=100000)
-    user_ids = [user["user_id"] for user in users]
-    if not user_ids:
-        raise bad_request_exception("Aucun utilisateur éligible pour cette campagne")
-    result = await send_targeted_notifications(
-        user_ids=user_ids,
-        title=campaign["title"],
-        body=campaign["body"],
-        category="promotions",
-        ref_type="campaign",
-        ref_id=campaign_id,
-        metadata={"campaign_id": campaign_id, "source": "campaign_manager", "admin_user_id": current_user.get("user_id")},
-        dedupe_key=f"campaign_notification:{campaign_id}:{uuid.uuid4().hex[:8]}",
-    )
-    return {"ok": True, "campaign_id": campaign_id, "matched": len(user_ids), **result}
+    users = await db.users.find(query, {"_id": 0, "user_id": 1, "role": 1}).to_list(length=100000)
+    users = [user for user in users if _campaign_targets_user(campaign, user)]
+    policy = targeting_for(campaign)
+    activity = await sender_activity([user["user_id"] for user in users]) if policy.audience != CampaignAudience.ALL else {}
+    users = [user for user in users if audience_matches(policy, activity.get(user["user_id"], {}), now)]
+    totals = {"matched": len(users), "sent": 0, "in_app_sent": 0, "push_sent": 0, "push_failed": 0, "push_skipped": 0, "frequency_skipped": 0, "failed": 0}
+    token = uuid.uuid4().hex
+    semaphore = asyncio.Semaphore(16)
+
+    async def send(user):
+        async with semaphore:
+            uid = user["user_id"]
+            claimed = False
+            try:
+                claimed = await claim_exposure(campaign, uid, "notification", token, now)
+                if not claimed:
+                    totals["frequency_skipped"] += 1
+                    return
+                result = await send_targeted_notifications(
+                    user_ids=[uid], title=campaign["title"], body=campaign["body"],
+                    category="promotions", ref_type="campaign", ref_id=campaign_id,
+                    metadata={"campaign_id": campaign_id, "source": "campaign_manager", "admin_user_id": current_user.get("user_id")},
+                    dedupe_key=f"campaign_notification:{campaign_id}:{token}",
+                )
+                for key in ("sent", "in_app_sent", "push_sent", "push_failed", "push_skipped"):
+                    totals[key] += result.get(key, 0)
+                if not result.get("in_app_sent"):
+                    await release_exposure(campaign_id, uid, "notification", token)
+            except Exception:
+                totals["failed"] += 1
+                logger.exception("Campaign notification failed for %s", campaign_id)
+                if claimed:
+                    try:
+                        await release_exposure(campaign_id, uid, "notification", token)
+                    except Exception:
+                        logger.exception("Campaign notification exposure could not be released")
+    for offset in range(0, len(users), 1000):
+        await asyncio.gather(*(send(user) for user in users[offset:offset + 1000]))
+    return {"ok": True, "campaign_id": campaign_id, **totals}
 
 
 @router.post("/campaigns/{campaign_id}/impression", response_model=dict)
 async def mark_campaign_impression(
     campaign_id: str,
     role: Optional[str] = Query(None),
+    count_view: bool = Query(True),
+    view_id: Optional[str] = Query(None, max_length=80),
     current_user: dict = Depends(get_current_user),
 ):
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
-    if not _campaign_targets_user(campaign, current_user):
-        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
+    await _check_campaign_access(campaign, current_user)
     requested_role = (role or current_user.get("role") or UserRole.CLIENT.value).strip()
     if requested_role not in _allowed_view_roles(current_user):
         requested_role = current_user.get("role") or UserRole.CLIENT.value
+    if count_view:
+        allowed = await claim_exposure(campaign, current_user["user_id"], "impression", view_id or uuid.uuid4().hex, datetime.now(timezone.utc))
+        return {"ok": True, "allowed": allowed}
     await _record_campaign_event(
         campaign_id,
         current_user["user_id"],
@@ -436,8 +503,7 @@ async def mark_campaign_click(
     campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
-    if not _campaign_targets_user(campaign, current_user):
-        raise HTTPException(status_code=403, detail="Cette campagne ne vous est pas destinée")
+    await _check_campaign_access(campaign, current_user)
     requested_role = (role or current_user.get("role") or UserRole.CLIENT.value).strip()
     if requested_role not in _allowed_view_roles(current_user):
         requested_role = current_user.get("role") or UserRole.CLIENT.value
@@ -446,5 +512,17 @@ async def mark_campaign_click(
         current_user["user_id"],
         "click",
         requested_role,
+    )
+    return {"ok": True}
+
+
+@router.post("/campaigns/{campaign_id}/dismiss", response_model=dict)
+async def dismiss_campaign(campaign_id: str, current_user: dict = Depends(get_current_user)):
+    campaign = await db.in_app_campaigns.find_one({"campaign_id": campaign_id})
+    if not campaign or not _campaign_targets_user(campaign, current_user):
+        raise HTTPException(status_code=404, detail="Communication introuvable")
+    await db.in_app_campaign_events.update_one(
+        {"campaign_id": campaign_id, "user_id": current_user["user_id"], "event_type": "dismiss"},
+        {"$setOnInsert": {"created_at": datetime.now(timezone.utc)}}, upsert=True,
     )
     return {"ok": True}
