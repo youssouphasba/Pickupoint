@@ -27,7 +27,8 @@ from models.in_app_campaign import (
 from services.notification_service import send_targeted_notifications
 from services.campaign_targeting import (
     AUDIENCE_LABELS, CampaignAudience, CampaignTargeting, targeting_for,
-    sender_activity, audience_matches, campaign_audience_matches,
+    ROLE_AUDIENCES, audience_options, valid_audience_for_roles,
+    activities_for_campaigns, campaign_matches_activity, campaign_audience_matches,
     campaign_state, exposure_allowed, claim_exposure, release_exposure, utc,
 )
 
@@ -194,6 +195,8 @@ async def create_campaign(
     body: InAppCampaignCreate,
     current_user: dict = Depends(require_admin),
 ):
+    if not valid_audience_for_roles(body.target_roles, body.targeting.audience):
+        raise HTTPException(status_code=400, detail="Cette audience ne correspond pas aux destinataires sélectionnés. Choisissez une audience adaptée ou Sans filtre d’activité.")
     if utc(body.end_date) <= utc(body.start_date):
         raise HTTPException(status_code=400, detail="La date de fin doit suivre la date de debut")
     _validate_action(body.action_type.value, body.action_value)
@@ -207,6 +210,7 @@ async def campaign_options(current_user: dict = Depends(require_admin)):
     return {
         "audiences": [{"value": value, "label": label} for value, label in AUDIENCE_LABELS.items()],
         "targeting_defaults": CampaignTargeting().model_dump(mode="json"),
+        "audiences_by_role": {role: audience_options([role]) for role in ROLE_AUDIENCES},
     }
 
 
@@ -254,6 +258,10 @@ async def update_campaign(
     existing = await db.in_app_campaigns.find_one({"campaign_id": campaign_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Campagne introuvable")
+    if "target_roles" in updates or "targeting" in updates:
+        effective = {**existing, **updates}
+        if not valid_audience_for_roles(effective.get("target_roles") or ["all"], targeting_for(effective).audience):
+            raise HTTPException(status_code=400, detail="Cette audience ne correspond pas aux destinataires sélectionnés. Choisissez une audience adaptée ou Sans filtre d’activité.")
     start_date = utc(updates.get("start_date", existing.get("start_date")))
     end_date = utc(updates.get("end_date", existing.get("end_date")))
     if start_date and end_date and end_date <= start_date:
@@ -381,10 +389,9 @@ async def active_campaigns(
     ).to_list(200)
     uid = current_user["user_id"]
     states = await campaign_state(uid, [item["campaign_id"] for item in campaigns])
-    needs_activity = any(targeting_for(item).audience != CampaignAudience.ALL for item in campaigns)
-    activity = (await sender_activity([uid])).get(uid, {}) if needs_activity else {}
+    activities = await activities_for_campaigns(campaigns, [uid])
     visible = [item for item in campaigns if
-        audience_matches(targeting_for(item), activity, now)
+        campaign_matches_activity(item, activities, uid, now)
         and (item["campaign_id"], "dismiss") not in states
         and exposure_allowed(states.get((item["campaign_id"], "impression")), targeting_for(item), now)
     ]
@@ -428,9 +435,8 @@ async def notify_campaign(
         query["role"] = {"$in": list(target_roles)}
     users = await db.users.find(query, {"_id": 0, "user_id": 1, "role": 1}).to_list(length=100000)
     users = [user for user in users if _campaign_targets_user(campaign, user)]
-    policy = targeting_for(campaign)
-    activity = await sender_activity([user["user_id"] for user in users]) if policy.audience != CampaignAudience.ALL else {}
-    users = [user for user in users if audience_matches(policy, activity.get(user["user_id"], {}), now)]
+    activities = await activities_for_campaigns([campaign], [user["user_id"] for user in users])
+    users = [user for user in users if campaign_matches_activity(campaign, activities, user["user_id"], now)]
     totals = {"matched": len(users), "sent": 0, "in_app_sent": 0, "push_sent": 0, "push_failed": 0, "push_skipped": 0, "frequency_skipped": 0, "failed": 0}
     token = uuid.uuid4().hex
     semaphore = asyncio.Semaphore(16)

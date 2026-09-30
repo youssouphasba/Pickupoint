@@ -1141,8 +1141,12 @@ export async function confirmReferralPayment(referralId: string, body: {
 // ───────────────────────── Relay detail ─────────────────────────
 
 export type CampaignTargeting = {
-  audience: "all" | "no_send" | "first_delivery" | "regular" | "relay_users" | "inactive";
+  audience: "all" | "no_send" | "first_delivery" | "regular" | "relay_users" | "inactive" |
+    "driver_new" | "driver_first" | "driver_regular" | "driver_inactive" |
+    "relay_new" | "relay_first" | "relay_regular" | "relay_inactive";
   min_deliveries: number;
+  min_completed_missions: number;
+  min_processed_parcels: number;
   inactive_days: number;
   max_exposures: number;
   frequency_days: number;
@@ -1150,9 +1154,22 @@ export type CampaignTargeting = {
 };
 
 export async function fetchCampaignOptions() {
-  const { data } = await api.get<{ audiences: {value: CampaignTargeting["audience"]; label: string}[]; targeting_defaults: CampaignTargeting }>("/api/admin/campaigns/options");
+  const { data } = await api.get<{
+    audiences: CampaignAudienceOption[];
+    audiences_by_role: Record<string, CampaignAudienceOption[]>;
+    targeting_defaults: CampaignTargeting;
+  }>("/api/admin/campaigns/options");
   return data;
 }
+
+export type CampaignAudienceOption = {
+  value: CampaignTargeting["audience"];
+  label: string;
+  help?: string;
+  threshold_field?: "min_deliveries" | "min_completed_missions" | "min_processed_parcels";
+  threshold_label?: string;
+  inactive?: boolean;
+};
 
 export type InAppCampaign = {
   targeting?: CampaignTargeting;

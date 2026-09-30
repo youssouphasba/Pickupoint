@@ -16,6 +16,11 @@ NOW = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
 
 
 class AudienceTests(unittest.TestCase):
+    def test_sender_filters_only_support_client_recipients(self):
+        self.assertTrue(targeting.valid_audience_for_roles(["client"], "no_send"))
+        for roles in ([], ["all"], ["driver"], ["relay_agent"], ["client", "driver"]):
+            with self.subTest(roles=roles):
+                self.assertFalse(targeting.valid_audience_for_roles(roles, "no_send"))
     def matches(self, audience, activity, **config):
         return targeting.audience_matches(targeting.CampaignTargeting(audience=audience, **config), activity, NOW)
 
@@ -127,6 +132,49 @@ class ExposureTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CampaignEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_rejects_sender_filters_for_professionals_and_mixed_roles(self):
+        from models.in_app_campaign import InAppCampaignCreate
+        for roles in (["all"], ["driver"], ["relay_agent"], ["client", "driver"]):
+            campaign = self.campaign(target_roles=roles)
+            campaign["action_value"] = "/client/create"
+            body = InAppCampaignCreate.model_validate(campaign)
+            with self.subTest(roles=roles), self.assertRaises(HTTPException) as error:
+                await router.create_campaign(body, {"user_id": "admin"})
+            self.assertEqual(error.exception.status_code, 400)
+
+    async def test_create_allows_unfiltered_professionals_and_filtered_clients(self):
+        from models.in_app_campaign import InAppCampaignCreate
+        collection = SimpleNamespace(insert_one=AsyncMock())
+        with patch.object(router, "db", SimpleNamespace(in_app_campaigns=collection)):
+            for roles, audience in ((["driver"], "all"), (["relay_agent"], "all"),
+                                    (["all"], "all"), (["client"], "no_send")):
+                body = InAppCampaignCreate.model_validate({
+                    **self.campaign(target_roles=roles, targeting={"audience": audience}),
+                    "action_value": "/client/create",
+                })
+                await router.create_campaign(body, {"user_id": "admin"})
+        self.assertEqual(collection.insert_one.await_count, 4)
+
+    async def test_role_change_requires_clearing_existing_sender_filter(self):
+        from models.in_app_campaign import InAppCampaignUpdate
+        collection = SimpleNamespace(find_one=AsyncMock(return_value=self.campaign()),
+                                     update_one=AsyncMock())
+        with patch.object(router, "db", SimpleNamespace(in_app_campaigns=collection)):
+            with self.assertRaises(HTTPException) as error:
+                await router.update_campaign("campaign", InAppCampaignUpdate(target_roles=["driver"]), {"user_id": "admin"})
+            self.assertEqual(error.exception.status_code, 400)
+            collection.update_one.assert_not_awaited()
+            await router.update_campaign("campaign", InAppCampaignUpdate(
+                target_roles=["driver"], targeting={"audience": "all", "max_exposures": 4}), {"user_id": "admin"})
+        stored = collection.update_one.await_args.args[1]["$set"]
+        self.assertEqual(stored["targeting"]["audience"], "all")
+        self.assertEqual(stored["targeting"]["max_exposures"], 4)
+
+    async def test_options_publish_supported_filter_roles(self):
+        options = await router.campaign_options({"user_id": "admin"})
+        self.assertEqual(set(options["audiences_by_role"]), {"client", "driver", "relay_agent"})
+        self.assertEqual(options["audiences"][0]["label"], "Sans filtre d’activité")
+
     def campaign(self, **overrides):
         return {"campaign_id": "campaign", "title": "Conseil", "body": "Votre message", "is_active": True,
                 "start_date": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1),
@@ -159,7 +207,7 @@ class CampaignEndpointTests(unittest.IsolatedAsyncioTestCase):
         states = {("dismissed", "dismiss"): {}, ("capped", "impression"): {"last_shown_at": datetime.now(timezone.utc)}}
         db = SimpleNamespace(in_app_campaigns=SimpleNamespace(find=MagicMock(return_value=cursor)))
         with patch.object(router, "db", db), patch.object(router, "campaign_state", AsyncMock(return_value=states)), \
-             patch.object(router, "sender_activity", AsyncMock(return_value={"user": {"delivered": 1}})):
+             patch.object(targeting, "sender_activity", AsyncMock(return_value={"user": {"delivered": 1}})):
             result = await router.active_campaigns(role="client", placement="home", current_user={"user_id": "user", "role": "driver"})
             self.assertEqual([item["campaign_id"] for item in result["campaigns"]], ["eligible"])
             result = await router.active_campaigns(role="client", placement="home", current_user={"user_id": "user", "notification_prefs": {"promotions": False}})
@@ -189,7 +237,7 @@ class CampaignEndpointTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(kwargs["category"], "promotions")
             self.assertEqual(kwargs["ref_id"], "campaign")
             return {"in_app_sent": 1, "sent": 1, "push_sent": 1}
-        with patch.object(router, "db", db), patch.object(router, "sender_activity", AsyncMock(return_value=activity)), \
+        with patch.object(router, "db", db), patch.object(targeting, "sender_activity", AsyncMock(return_value=activity)), \
              patch.object(router, "claim_exposure", AsyncMock(side_effect=claim)), \
              patch.object(router, "send_targeted_notifications", AsyncMock(side_effect=send)) as sender, \
              patch.object(router, "release_exposure", AsyncMock()) as release, \

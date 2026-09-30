@@ -1,5 +1,6 @@
 "use client";
 import { ReferralLedger } from "@/components/referral-ledger";
+import { audiencesForRecipients, resetRecipientAudience } from "@/lib/campaign-audience";
 
 import * as React from "react";
 import { isAxiosError } from "axios";
@@ -59,6 +60,20 @@ const PROMO_TARGETS = [
   { value: "tier_gold", label: "Fidélité Gold" },
   { value: "delivery_mode", label: "Mode de livraison" },
 ] as const;
+
+function PromotionField({ label, help, children, className = "" }: {
+  label: string;
+  help: string;
+  children: React.ReactElement<{ id?: string; "aria-describedby"?: string }>;
+  className?: string;
+}) {
+  const id = React.useId();
+  return <div className={`min-w-0 space-y-2 ${className}`}>
+    <label htmlFor={id} className="block text-sm font-medium">{label}</label>
+    {React.cloneElement(children, { id, "aria-describedby": `${id}-help` })}
+    <p id={`${id}-help`} className="text-xs text-muted-foreground">{help}</p>
+  </div>;
+}
 
 function PromotionManager() {
   const qc = useQueryClient();
@@ -253,10 +268,16 @@ function CampaignsSection() {
     setForm((current) => ({
       ...current,
       target_roles: role === "all" ? ["all"] : [role],
+      targeting: resetRecipientAudience(current.targeting, options.data?.targeting_defaults),
     }));
   }
 
+  const roleAudiences = audiencesForRecipients(form.target_roles, options.data?.audiences_by_role);
+  const selectedAudience = roleAudiences.find((item) => item.value === form.targeting?.audience);
+  const incompatibleFilter = Boolean(options.data && form.targeting && form.targeting.audience !== "all" && !selectedAudience);
+
   const canCreate =
+    !incompatibleFilter &&
     form.title.trim().length > 0 &&
     form.body.trim().length > 0 &&
     form.cta_label.trim().length > 0 &&
@@ -328,25 +349,45 @@ function CampaignsSection() {
             </label>
             <p className="text-xs text-muted-foreground">MP4 ou WebM, 12 Mo maximum. La vidéo sera chargée uniquement après appui dans l’application.</p>
           </div>
-      <select value={form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <div className="space-y-4 rounded-lg border p-4">
+          <PromotionField label="Destinataires" help="Choisissez les types de comptes qui peuvent voir cette communication.">
+      <select value={form.target_roles.length > 1 ? "mixed" : form.target_roles[0] ?? "all"} onChange={(e) => setRole(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+            {form.target_roles.length > 1 && <option disabled value="mixed">Sélection multiple enregistrée : {form.target_roles.map((role) => campaignRoleOptions.find((item) => item.value === role)?.label ?? role).join(", ")}</option>}
             {campaignRoleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
+          </PromotionField>
+          {form.targeting && roleAudiences.length > 0 && <>
+            <PromotionField label="Audience parmi ces destinataires" help={selectedAudience?.help ?? "Choisissez un groupe parmi les destinataires sélectionnés."}>
+              <select className="flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm" value={form.targeting.audience} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, audience: event.target.value as CampaignTargeting["audience"] } }))}>
+                {incompatibleFilter && <option disabled value={form.targeting.audience}>Ancien filtre incompatible</option>}
+                {roleAudiences.map((item) => <option key={item.value} value={item.value}>{item.value === "all" ? `Tous les ${campaignRoleOptions.find((option) => option.value === form.target_roles[0])?.label.toLowerCase() ?? "destinataires"}` : item.label}</option>)}
+              </select>
+            </PromotionField>
+            {selectedAudience?.threshold_field && <PromotionField label={selectedAudience.threshold_label ?? "Objectif minimum"} help="Seules les activités réellement confirmées sont comptées.">
+              <Input type="number" min={2} max={10000} step={1} value={form.targeting[selectedAudience.threshold_field] ?? options.data?.targeting_defaults[selectedAudience.threshold_field]} onChange={(event) => {
+                const field = selectedAudience.threshold_field!;
+                setForm((current) => ({ ...current, targeting: { ...current.targeting!, [field]: Number(event.target.value) } }));
+              }} />
+            </PromotionField>}
+            {selectedAudience?.inactive && <PromotionField label="Sans activité depuis (jours)" help="Les missions en cours et les colis encore en cours ou en stock empêchent le classement comme inactif.">
+              <Input type="number" min={1} max={3650} step={1} value={form.targeting.inactive_days} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, inactive_days: Number(event.target.value) } }))} />
+            </PromotionField>}
+          </>}
+          {roleAudiences.length === 0 && <p className="text-sm text-muted-foreground">Tous les destinataires sélectionnés sont concernés, sans filtre d’activité.</p>}
+          {incompatibleFilter && <div role="alert" className="space-y-2 text-sm text-red-600">
+            <p>Cette ancienne audience ne correspond pas aux destinataires. Choisissez une audience adaptée ou retirez le filtre avant d’enregistrer.</p>
+            <Button type="button" variant="outline" onClick={() => setForm((current) => ({ ...current, targeting: resetRecipientAudience(current.targeting, options.data?.targeting_defaults) }))}>Retirer l’ancien filtre</Button>
+          </div>}
+          </div>
           {form.targeting && options.data && (
             <div className="space-y-3 rounded-lg border p-4 lg:col-span-2">
-              <label className="block space-y-1"><span className="font-medium">Audience</span>
-                <select className="w-full rounded-md border bg-background p-2" value={form.targeting.audience} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, audience: event.target.value as CampaignTargeting["audience"] } }))}>
-                  {options.data.audiences.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
-              </label>
-              <p className="text-sm text-muted-foreground">Le ciblage repose sur les colis envoyés par le compte, y compris lorsqu’un partenaire utilise l’application comme client. « Premier colis livré » correspond à exactement un colis livré ; « Utilisateurs des relais » à au moins un envoi livré avec un relais.</p>
-              {form.targeting.audience === "regular" && <label className="block space-y-1"><span>Nombre minimum de colis livrés</span><Input type="number" value={form.targeting.min_deliveries} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, min_deliveries: Number(event.target.value) } }))} /></label>}
-              {form.targeting.audience === "inactive" && <label className="block space-y-1"><span>Aucun nouvel envoi depuis (jours)</span><Input type="number" value={form.targeting.inactive_days} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, inactive_days: Number(event.target.value) } }))} /><p className="text-sm text-muted-foreground">Comptes ayant déjà envoyé un colis, sans colis en cours. Ce critère ne mesure pas les ouvertures de l’application.</p></label>}
               <div className="grid gap-3 sm:grid-cols-3">
-                <label className="space-y-1"><span>Maximum par personne et par canal</span><Input type="number" value={form.targeting.max_exposures} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, max_exposures: Number(event.target.value) } }))} /></label>
+                <label className="space-y-1"><span>Nombre maximum par personne</span><Input type="number" value={form.targeting.max_exposures} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, max_exposures: Number(event.target.value) } }))} /></label>
                 <label className="space-y-1"><span>Sur une période de (jours)</span><Input type="number" value={form.targeting.frequency_days} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, frequency_days: Number(event.target.value) } }))} /></label>
                 <label className="space-y-1"><span>Intervalle minimum (heures)</span><Input type="number" value={form.targeting.cooldown_hours} onChange={(event) => setForm((current) => ({ ...current, targeting: { ...current.targeting!, cooldown_hours: Number(event.target.value) } }))} /></label>
               </div>
-              <p className="text-sm text-muted-foreground">Les cartes et notifications utilisent la même audience, avec des compteurs de fréquence séparés. Une communication fermée est masquée sur le compte et exclue des prochains envois de notifications. Les préférences marketing restent prioritaires.</p>
+              <p className="text-sm text-muted-foreground">Pour cette communication : au maximum {form.targeting.max_exposures} affichages dans l’application et {form.targeting.max_exposures} notifications par personne sur les {form.targeting.frequency_days} derniers jours, avec {form.targeting.cooldown_hours} heures entre deux affichages ou deux notifications. Ces limites ne déclenchent aucun envoi automatique.</p>
+              <p className="text-xs text-muted-foreground">Si une personne ferme cette communication avec la croix, elle ne lui est plus proposée. Les préférences marketing de son compte sont respectées.</p>
             </div>
           )}
           {options.isError && <p role="alert" className="text-sm text-red-600">Impossible de charger les règles de ciblage. <button onClick={() => options.refetch()}>Réessayer</button></p>}
