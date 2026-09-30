@@ -1,134 +1,31 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  LayoutDashboard,
-  Package,
-  Users,
-  FileText,
-  Wallet,
-  Store,
-  Map,
-  Truck,
-  Tag,
-  Banknote,
-  AlertTriangle,
-  Clock,
-  Flame,
-  History,
-  Scale,
-  UserRoundCog,
-  LogOut,
-  MessageCircle,
-  Settings,
-  Bell,
-  Trophy,
-  BarChart3,
-  X,
-} from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { ChevronDown, LogOut, Package, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout, type ActionCategory } from "@/lib/api";
 import { useActionCenter } from "@/lib/use-action-center";
-
-type BadgeSource = keyof ReturnType<typeof useActionCenter>["data"] extends never
-  ? never
-  : "payouts" | "applications" | "anomalies" | "stale_parcels" | "support";
-
-type Item = {
-  href: string;
-  label: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  badge?:
-    | "payouts"
-    | "applications"
-    | "anomalies"
-    | "stale_parcels"
-    | "support"
-    | "security"
-    | "incidents_payment"; // combo : incidents + paiements bloqués sous "Colis"
-};
-
-const items: Item[] = [
-  { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/dashboard/parcels", label: "Colis", Icon: Package, badge: "incidents_payment" },
-  { href: "/dashboard/users", label: "Utilisateurs", Icon: Users },
-  { href: "/dashboard/notifications", label: "Notifications", Icon: Bell },
-  { href: "/dashboard/applications", label: "Candidatures", Icon: FileText, badge: "applications" },
-  { href: "/dashboard/payouts", label: "Décaissements", Icon: Wallet, badge: "payouts" },
-  { href: "/dashboard/relays", label: "Relais", Icon: Store },
-  { href: "/dashboard/drivers", label: "Livreurs", Icon: Truck },
-  { href: "/dashboard/performances", label: "Performances", Icon: Trophy },
-  { href: "/dashboard/analytics", label: "Analyses", Icon: BarChart3 },
-  { href: "/dashboard/fleet", label: "Flotte live", Icon: Map },
-  { href: "/dashboard/promotions", label: "Promotions", Icon: Tag },
-  { href: "/dashboard/configuration", label: "Configuration", Icon: Settings },
-  { href: "/dashboard/finance", label: "Finance", Icon: Banknote },
-  { href: "/dashboard/anomalies", label: "Anomalies", Icon: AlertTriangle, badge: "anomalies" },
-  { href: "/dashboard/security", label: "Sécurité livreurs", Icon: AlertTriangle, badge: "security" },
-  { href: "/dashboard/support", label: "Support WhatsApp", Icon: MessageCircle, badge: "support" },
-  { href: "/dashboard/stale", label: "Colis stagnants", Icon: Clock, badge: "stale_parcels" },
-  { href: "/dashboard/heatmap", label: "Heatmap", Icon: Flame },
-  { href: "/dashboard/audit-log", label: "Audit log", Icon: History },
-  { href: "/dashboard/legal", label: "Juridique", Icon: Scale },
-  { href: "/dashboard/privacy-requests", label: "Demandes de données", Icon: UserRoundCog },
-];
+import { adminPageForPath, searchAdminNavigation, type AdminPage } from "@/lib/admin-navigation";
+import { Input } from "@/components/ui/input";
 
 function SidebarBadge({ category }: { category?: ActionCategory }) {
   if (!category || category.count === 0) return null;
-  const tone =
-    category.urgent_count > 0
-      ? "bg-red-600 text-white"
-      : category.warning_count > 0
-        ? "bg-amber-500 text-white"
-        : "bg-muted text-foreground";
+  const tone = category.urgent_count > 0
+    ? "bg-red-600 text-white"
+    : category.warning_count > 0 ? "bg-amber-100 text-amber-900" : "bg-muted text-foreground";
   return (
-    <span
-      className={cn(
-        "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
-        tone
-      )}
-      aria-label={`${category.count} à traiter`}
-    >
+    <span className={cn("ml-auto inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold", tone)}
+      aria-label={`${category.count} à traiter`}>
       {category.count > 99 ? "99+" : category.count}
     </span>
   );
 }
 
-function ComboBadge({
-  incidents,
-  payment,
-}: {
-  incidents?: ActionCategory;
-  payment?: ActionCategory;
-}) {
-  const total = (incidents?.count ?? 0) + (payment?.count ?? 0);
-  if (total === 0) return null;
-  const urgent = (incidents?.urgent_count ?? 0) + (payment?.urgent_count ?? 0);
-  const warning = (incidents?.warning_count ?? 0) + (payment?.warning_count ?? 0);
-  const tone =
-    urgent > 0
-      ? "bg-red-600 text-white"
-      : warning > 0
-        ? "bg-amber-500 text-white"
-        : "bg-muted text-foreground";
-  return (
-    <span
-      className={cn(
-        "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold",
-        tone
-      )}
-      aria-label={`${total} colis à traiter`}
-    >
-      {total > 99 ? "99+" : total}
-    </span>
-  );
-}
-
 export function Sidebar({
-  admin,
-  mobileOpen = false,
-  onMobileClose,
+  admin, mobileOpen = false, onMobileClose,
 }: {
   admin: { email?: string | null; full_name?: string | null };
   mobileOpen?: boolean;
@@ -136,108 +33,114 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { data: ac } = useActionCenter();
+  const { data: actionCenter } = useActionCenter();
+  const [query, setQuery] = React.useState("");
+  const [collapsed, setCollapsed] = React.useState<string[]>([]);
+  const activePage = adminPageForPath(pathname);
+  const groups = searchAdminNavigation(query);
 
-  async function handleLogout() {
-    await logout();
-    router.replace("/login");
+  React.useEffect(() => {
+    const activeGroup = searchAdminNavigation("").find((group) => group.pages.some((page) => page.href === adminPageForPath(pathname)?.href));
+    if (activeGroup) setCollapsed((current) => current.filter((id) => id !== activeGroup.id));
+    setQuery("");
+  }, [pathname]);
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = () => { if (media.matches) onMobileClose?.(); };
+    media.addEventListener("change", closeOnDesktop);
+    return () => media.removeEventListener("change", closeOnDesktop);
+  }, [onMobileClose]);
+
+  function resolveBadge(page: AdminPage) {
+    if (!actionCenter || !page.badge) return null;
+    if (page.badge !== "incidents_payment") {
+      return <SidebarBadge category={actionCenter.categories[page.badge]} />;
+    }
+    const incidents = actionCenter.categories.incidents;
+    const payment = actionCenter.categories.payment_blocked;
+    return <SidebarBadge category={{
+      ...incidents,
+      count: incidents.count + payment.count,
+      urgent_count: incidents.urgent_count + payment.urgent_count,
+      warning_count: incidents.warning_count + payment.warning_count,
+    }} />;
   }
 
-  function resolveBadge(item: Item) {
-    if (!ac || !item.badge) return null;
-    if (item.badge === "incidents_payment") {
-      return (
-        <ComboBadge
-          incidents={ac.categories.incidents}
-          payment={ac.categories.payment_blocked}
-        />
-      );
-    }
-    return <SidebarBadge category={ac.categories[item.badge]} />;
+  function toggleGroup(id: string) {
+    setCollapsed((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  }
+
+  function navigation(mobile: boolean) {
+    const prefix = mobile ? "mobile" : "desktop";
+    return (
+      <>
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b px-5">
+          <Link href="/dashboard" onClick={onMobileClose} className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Denkma, tableau de bord">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Package className="h-5 w-5" aria-hidden="true" /></span>
+            <span><span className="block text-sm font-bold">Denkma</span><span className="block text-xs text-muted-foreground">Administration</span></span>
+          </Link>
+          {mobile && <DialogPrimitive.Close className="ml-auto rounded-md p-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Fermer la navigation"><X className="h-5 w-5" /></DialogPrimitive.Close>}
+        </div>
+        <div className="px-3 pt-4">
+          <label htmlFor={`${prefix}-navigation-search`} className="sr-only">Rechercher un écran</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Input id={`${prefix}-navigation-search`} type="search" placeholder="Rechercher un écran…" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" />
+          </div>
+          {query.trim() && <p className="mt-2 text-xs text-muted-foreground" role="status">{groups.reduce((count, group) => count + group.pages.length, 0)} écran(s) trouvé(s)</p>}
+        </div>
+        <nav aria-label="Navigation principale" className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4">
+          {groups.length === 0 && <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">Aucun écran trouvé. Essayez « colis », « horaires » ou « commissions ».</p>}
+          {groups.map((group) => {
+            const expanded = query.trim() !== "" || !collapsed.includes(group.id);
+            return (
+              <div key={group.id}>
+                {group.id !== "home" && <button type="button" onClick={() => toggleGroup(group.id)}
+                  aria-expanded={expanded} aria-controls={`${prefix}-group-${group.id}`}
+                  className="mb-1 flex w-full items-center justify-between gap-2 rounded px-3 py-1 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {group.label}<ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", !expanded && "-rotate-90")} aria-hidden="true" />
+                </button>}
+                <ul hidden={!expanded} id={`${prefix}-group-${group.id}`} className="space-y-1">
+                  {group.pages.map((page) => {
+                    const active = page.href === activePage?.href;
+                    return <li key={page.href}>
+                      <Link href={page.href} onClick={onMobileClose} title={page.description} aria-current={active ? "page" : undefined}
+                        className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
+                        <page.Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 flex-1">{page.label}</span>
+                        {resolveBadge(page)}
+                      </Link>
+                    </li>;
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </nav>
+        <div className="shrink-0 border-t p-3">
+          <div className="mb-2 px-2"><div className="truncate text-sm font-medium">{admin.full_name || admin.email || "Administrateur"}</div><div className="truncate text-xs text-muted-foreground">{admin.email}</div></div>
+          <button type="button" onClick={async () => { await logout(); router.replace("/login"); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><LogOut className="h-4 w-4" aria-hidden="true" />Déconnexion</button>
+        </div>
+      </>
+    );
   }
 
   return (
     <>
-      {mobileOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-40 bg-black/45 lg:hidden"
-          onClick={onMobileClose}
-          aria-label="Fermer la navigation"
-        />
-      )}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[min(20rem,86vw)] shrink-0 flex-col border-r bg-background shadow-xl transition-transform duration-200 lg:sticky lg:top-0 lg:z-0 lg:h-screen lg:w-64 lg:translate-x-0 lg:bg-muted/30 lg:shadow-none",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-      <div className="flex h-16 items-center gap-2 border-b px-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Package className="h-5 w-5" />
-        </div>
-        <div>
-          <div className="text-sm font-bold leading-tight">Denkma</div>
-          <div className="text-[11px] text-muted-foreground">Admin console</div>
-        </div>
-        <button
-          type="button"
-          onClick={onMobileClose}
-          className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
-          aria-label="Fermer la navigation"
-        >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <ul className="space-y-1">
-          {items.map((item) => {
-            const { href, label, Icon } = item;
-            const active =
-              href === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname === href || pathname.startsWith(`${href}/`);
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  onClick={onMobileClose}
-                  className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span className="flex-1 truncate">{label}</span>
-                  {resolveBadge(item)}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      <div className="border-t p-3">
-        <div className="mb-2 px-2">
-          <div className="truncate text-sm font-medium">
-            {admin.full_name ?? admin.email ?? "Admin"}
-          </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {admin.email}
-          </div>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <LogOut className="h-4 w-4" />
-          Déconnexion
-        </button>
-      </div>
-      </aside>
+      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-r bg-background lg:flex">{navigation(false)}</aside>
+      <DialogPrimitive.Root open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/45" />
+          <DialogPrimitive.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(21rem,90vw)] flex-col border-r bg-background shadow-xl"
+            onCloseAutoFocus={(event) => { event.preventDefault(); document.getElementById("admin-navigation-toggle")?.focus(); }}>
+            <DialogPrimitive.Title className="sr-only">Navigation Denkma</DialogPrimitive.Title>
+            <DialogPrimitive.Description className="sr-only">Recherchez un écran ou choisissez une rubrique.</DialogPrimitive.Description>
+            {navigation(true)}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </>
   );
 }

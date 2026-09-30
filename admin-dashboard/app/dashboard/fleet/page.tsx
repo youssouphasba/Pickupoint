@@ -85,7 +85,7 @@ type SelectedPin =
 
 const FILTERS = [
   { value: "all", label: "Toute la flotte" },
-  { value: "live", label: "Positions live" },
+  { value: "live", label: "Positions récentes" },
   { value: "signal_lost", label: "Signal perdu" },
   { value: "idle", label: "Hors course" },
 ] as const;
@@ -227,9 +227,9 @@ export default function FleetPage() {
     <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Flotte live</h1>
+<h1 className="text-2xl font-bold">Suivi des livreurs</h1>
           <p className="text-sm text-muted-foreground">
-            Positions GPS temps réel des livreurs en mission et hors mission.
+            Dernières positions reçues des livreurs en mission et hors mission.
             Cliquez sur un marqueur pour voir le livreur, la course et l’état du signal.
           </p>
         </div>
@@ -252,7 +252,7 @@ export default function FleetPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <KpiTile label="Missions actives" value={summary.total_active ?? 0} color="blue" />
-        <KpiTile label="Missions live" value={summary.with_live_location ?? 0} color="green" />
+        <KpiTile label="Missions avec position récente" value={summary.with_live_location ?? 0} color="green" />
         <KpiTile label="Positions anciennes" value={summary.stale_locations ?? 0} color="orange" />
         <KpiTile label="Missions sans position" value={summary.missing_locations ?? 0} color="red" />
         <KpiTile label="Livreurs hors course" value={summary.idle_drivers ?? 0} color="purple" />

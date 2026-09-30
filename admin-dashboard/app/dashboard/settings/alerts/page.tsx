@@ -203,10 +203,10 @@ export default function AdminAlertsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Alertes admin</h1>
+        <h1 className="text-2xl font-semibold">Mes alertes admin</h1>
         <p className="text-sm text-muted-foreground">
           Choisissez les événements qui déclenchent une notification navigateur.
-          La cloche du dashboard reste toujours active.
+          Ces réglages concernent les administrateurs, pas les messages aux utilisateurs. La cloche reste active.
         </p>
       </div>
 

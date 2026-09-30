@@ -35,6 +35,7 @@ import {
   resolveLocationSignal,
 } from "@/lib/location-signal";
 import { formatDate } from "@/lib/utils";
+import { paymentStatusLabel, payerLabel, RELAY_SETTLEMENT_LABELS, settlementStatusLabel } from "@/lib/admin-display";
 import {
   ArrowLeft,
   Ban,
@@ -738,12 +739,12 @@ export default function ParcelDetailPage() {
                 parcel.paid_price ? `${xof.format(parcel.paid_price)} XOF` : "—"
               }
             />
-            <Row label="Statut paiement" value={parcel.payment_status ?? "—"} />
+            <Row label="Statut du paiement" value={paymentStatusLabel(parcel.payment_status)} />
             <Row
-              label="Override paiement"
+              label="Blocage de paiement levé par l’admin"
               value={parcel.payment_override ? "Oui" : "Non"}
             />
-            <Row label="Qui paie" value={parcel.who_pays ?? "—"} />
+            <Row label="Qui paie" value={payerLabel(parcel.who_pays)} />
           </CardContent>
         </Card>
 
@@ -896,6 +897,7 @@ export default function ParcelDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Répartition financière et règlements</CardTitle>
+            <p className="text-sm text-muted-foreground">Contrôlez la preuve du versement hors plateforme avant de valider une déclaration. La validation enregistre le règlement, elle n’envoie pas d’argent.</p>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4">
             <Row label="Prix du colis" value={`${xof.format(Number(financial.quoted_price ?? 0))} XOF`} />
@@ -906,8 +908,8 @@ export default function ParcelDetailPage() {
             <Row label="Solde minimum livreur" value={`${xof.format(Number(financial.wallet_balance_required_xof ?? 0))} XOF`} />
             {Object.entries(financial.relay_settlement ?? {}).filter(([key]) => key.endsWith("_status")).map(([key, value]) => (
               <div key={key} className="rounded-md border p-3">
-                <div className="text-muted-foreground">{key.replaceAll("_", " ")}</div>
-                <div className="mt-1 font-medium">{String(value)}</div>
+                <div className="text-muted-foreground">{RELAY_SETTLEMENT_LABELS[key] ?? "Règlement à vérifier"}</div>
+                <div className="mt-1 font-medium">{settlementStatusLabel(value)}</div>
                 {value === "declared" && (
                   <div className="mt-2 flex gap-2">
                     <Button size="sm" onClick={() => relaySettlementMut.mutate({ action: key.replace("_status", ""), status: "validated" })}>Valider</Button>
@@ -1151,7 +1153,7 @@ export default function ParcelDetailPage() {
       {audit.data?.events && audit.data.events.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Audit trail complet</CardTitle>
+            <CardTitle className="text-base">Historique détaillé du colis</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="max-h-96 space-y-2 overflow-y-auto">
@@ -1197,7 +1199,7 @@ export default function ParcelDetailPage() {
         open={confirmPayOpen}
         onOpenChange={setConfirmPayOpen}
         title="Confirmer le paiement manuellement"
-        description={`Le statut paiement sera forcé à "paid" pour le colis ${parcel.tracking_code}.`}
+        description={`Le paiement sera marqué comme réglé pour le colis ${parcel.tracking_code}.`}
         confirmLabel="Confirmer paiement"
         onConfirm={async () => {
           await confirmPayMut.mutateAsync();

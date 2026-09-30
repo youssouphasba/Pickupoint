@@ -313,7 +313,7 @@ export default function ParcelsPage() {
         <div>
           <h1 className="text-2xl font-bold">Colis</h1>
           <p className="text-sm text-muted-foreground">
-            Suivre l’ensemble des colis avec des filtres alignés sur les cartes finance.
+            Recherchez un colis et filtrez par statut, période ou situation de paiement. Ouvrez son code de suivi pour consulter son dossier.
           </p>
         </div>
         <div className="text-sm text-muted-foreground">
@@ -324,9 +324,9 @@ export default function ParcelsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <ParcelStatCard title="Colis" value={overviewData?.total ?? 0} hint="Tous les colis" tone="teal" onClick={() => setSelectedFilter("all")} />
         <ParcelStatCard title="Actifs" value={overviewData?.active ?? 0} hint="Colis en cours" tone="blue" onClick={() => setSelectedFilter("active")} />
-        <ParcelStatCard title="Colis livres" value={overviewData?.delivered ?? 0} hint="Livraisons terminees" tone="green" onClick={() => setSelectedFilter("delivered")} />
-        <ParcelStatCard title="Colis annules" value={overviewData?.cancelled ?? 0} hint="Annules sur la periode" tone="orange" onClick={() => setSelectedFilter("cancelled")} />
-        <ParcelStatCard title="Paiement bloque" value={overviewData?.payment_blocked ?? 0} hint="Blocage paiement" tone="purple" onClick={() => setSelectedFilter("payment_blocked")} />
+        <ParcelStatCard title="Colis livrés" value={overviewData?.delivered ?? 0} hint="Livraisons terminées" tone="green" onClick={() => setSelectedFilter("delivered")} />
+        <ParcelStatCard title="Colis annulés" value={overviewData?.cancelled ?? 0} hint="Annulés sur la période" tone="orange" onClick={() => setSelectedFilter("cancelled")} />
+        <ParcelStatCard title="Paiement bloqué" value={overviewData?.payment_blocked ?? 0} hint="Blocage paiement" tone="purple" onClick={() => setSelectedFilter("payment_blocked")} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

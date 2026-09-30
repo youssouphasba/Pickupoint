@@ -55,7 +55,7 @@ export default function AnomaliesPage() {
   return (
     <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Anomalies</h1>
+        <h1 className="text-2xl font-bold">Anomalies opérationnelles</h1>
         <p className="text-sm text-muted-foreground">
           Détection automatique : signal GPS perdu, missions trop longues et
           incidents qui demandent un contrôle.
@@ -73,10 +73,10 @@ export default function AnomaliesPage() {
         </div>
       )}
 
-      {alerts.length === 0 && !isLoading && (
+      {alerts.length === 0 && !isLoading && !isError && (
         <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Aucune anomalie détectée. Tout est normal.
+            Aucune anomalie signalée par les contrôles sur cette liste.
           </CardContent>
         </Card>
       )}

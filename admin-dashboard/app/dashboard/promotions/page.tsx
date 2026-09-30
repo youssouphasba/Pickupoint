@@ -1,5 +1,6 @@
 "use client";
 import { ReferralLedger } from "@/components/referral-ledger";
+import { PageSectionNav } from "@/components/page-section-nav";
 import { audiencesForRecipients, resetRecipientAudience } from "@/lib/campaign-audience";
 import { referralConditions, referralMetricCount } from "@/lib/referral-wording";
 
@@ -356,7 +357,7 @@ function CampaignsSection() {
           Communications
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Messages affichés dans l'app avec redirection vers une page.
+          Cartes affichées dans l’application avec visuel et bouton d’action. Le bouton de notification de chaque communication permet aussi de la diffuser par push.
         </p>
       </div>
 
@@ -867,15 +868,20 @@ export default function PromotionsPage() {
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Promotions & parrainage</h1>
+<h1 className="text-2xl font-bold">Offres et communications</h1>
         <p className="text-sm text-muted-foreground">
           Gérez les offres commerciales, les communications et le parrainage.
         </p>
       </div>
 
-      <PromotionManager />
+      <PageSectionNav page="/dashboard/promotions" hiddenSections={[
+        ...(!clientConfig || !driverConfig ? ["parrainage"] : []),
+        ...(!referralStats.data ? ["statistiques"] : []),
+      ]} />
 
-      <CampaignsSection />
+      <section id="offres" className="admin-section"><PromotionManager /></section>
+
+      <section id="communications" className="admin-section"><CampaignsSection /></section>
 
       {loading && (
         <div className="flex h-40 items-center justify-center">
@@ -884,8 +890,10 @@ export default function PromotionsPage() {
       )}
 
 
+      {settings.isError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">Impossible de charger les conditions du parrainage. <Button size="sm" variant="outline" onClick={() => settings.refetch()}>Réessayer</Button></p>}
+
       {clientConfig && driverConfig && (
-        <section>
+        <section id="parrainage" className="admin-section">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Conditions du parrainage selon le type de filleul
@@ -950,7 +958,7 @@ export default function PromotionsPage() {
         </section>
       )}
 
-      <ReferralLedger />
+      <section id="primes" className="admin-section"><ReferralLedger /></section>
       {referralStats.data && (() => {
         const rs = referralStats.data;
         const statKeys = [
@@ -968,9 +976,9 @@ export default function PromotionsPage() {
           { key: "legacy_wallet_credits_count", label: "Crédits wallet historiques (non inclus dans les paiements)" },
         ];
         return (
-          <section>
+          <section id="statistiques" className="admin-section">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Statistiques parrainage
+              Résultats du parrainage
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {statKeys.map(({ key, label }) => (

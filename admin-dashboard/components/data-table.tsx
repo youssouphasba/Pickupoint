@@ -37,6 +37,7 @@ export function DataTable<TData>({
 }: Props<TData>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [query, setQuery] = React.useState("");
+  const searchId = React.useId();
 
   const filtered = React.useMemo(() => {
     if (!query.trim() || !globalFilterFn) return data;
@@ -61,8 +62,11 @@ export function DataTable<TData>({
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         {globalFilterFn && (
           <div className="relative w-full sm:max-w-xs">
+            <label htmlFor={searchId} className="sr-only">{searchPlaceholder}</label>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id={searchId}
+              type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={searchPlaceholder}
@@ -88,6 +92,8 @@ export function DataTable<TData>({
                     return (
                       <th
                         key={header.id}
+                        scope="col"
+                        aria-sort={canSort ? sort === "asc" ? "ascending" : sort === "desc" ? "descending" : "none" : undefined}
                         className="whitespace-nowrap px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                       >
                         {header.isPlaceholder ? null : canSort ? (

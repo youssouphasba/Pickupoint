@@ -456,7 +456,7 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold">Utilisateurs</h1>
           <p className="text-sm text-muted-foreground">
-            Gérer les rôles, suspensions, KYC et photos de profil des comptes Denkma.
+            Retrouvez les comptes et gérez les rôles, les suspensions, les vérifications d’identité et les photos de profil.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

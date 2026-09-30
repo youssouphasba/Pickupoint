@@ -146,8 +146,8 @@ export function NotificationBell() {
         onClick={() => setOpen((v) => !v)}
         aria-label={
           unread > 0
-            ? `Notifications (${unread} non lue${unread > 1 ? "s" : ""})`
-            : "Notifications"
+            ? `Alertes administrateur (${unread} non lue${unread > 1 ? "s" : ""})`
+            : "Alertes administrateur"
         }
         className={cn(
           "relative inline-flex h-9 w-9 items-center justify-center rounded-full border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
@@ -172,11 +172,11 @@ export function NotificationBell() {
       {open && (
         <div
           ref={panelRef}
-          className="fixed left-3 right-3 top-14 z-50 overflow-hidden rounded-xl border bg-background shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+8px)] sm:w-[380px]"
+          className="fixed left-3 right-3 top-16 z-50 overflow-hidden rounded-xl border bg-background shadow-lg sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+8px)] sm:w-[380px]"
         >
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
-              <div className="text-sm font-semibold">Notifications</div>
+              <div className="text-sm font-semibold">Alertes administrateur</div>
               <div className="text-xs text-muted-foreground">
                 {unread > 0
                   ? `${unread} non lue${unread > 1 ? "s" : ""}`

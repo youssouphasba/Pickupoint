@@ -112,9 +112,10 @@ export default function RelaysPage() {
   const [suggestionsLoading, setSuggestionsLoading] = React.useState(false);
   const [locationSource, setLocationSource] = React.useState<"address" | "manual" | null>(null);
   const location = React.useMemo<RelayLocation>(() => {
+    if (!createForm.lat.trim() || !createForm.lng.trim()) return null;
     const lat = Number(createForm.lat);
     const lng = Number(createForm.lng);
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
   }, [createForm.lat, createForm.lng]);
   const hasOpeningDay = React.useMemo(
     () => Object.values(createForm.openingHours).some((entry) => entry.enabled),
@@ -167,9 +168,9 @@ export default function RelaysPage() {
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["relays"] });
       qc.invalidateQueries({ queryKey: ["relays-map"] });
-      toast(`${result.geocoded} relais géocodé(s). ${result.remaining} restant(s).`);
+      toast(`${result.geocoded} relais complété(s). ${result.remaining} restant(s).${result.errors.length ? ` ${result.errors.length} erreur(s) à vérifier.` : ""}`);
     },
-    onError: () => toast("Impossible de géocoder les relais incomplets."),
+    onError: () => toast("Impossible de compléter les adresses et positions. Réessayez.", "error"),
   });
   const createMut = useMutation({
     mutationFn: () => createRelayPoint({
@@ -431,7 +432,7 @@ export default function RelaysPage() {
           <div>
             <h1 className="text-2xl font-bold">Points relais</h1>
             <p className="text-sm text-muted-foreground">
-              Réseau complet des relais Denkma. Vérifiez les nouveaux.
+              Gérez les responsables, les horaires et les emplacements. Ouvrez la fiche du relais avant de le vérifier.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -444,11 +445,15 @@ export default function RelaysPage() {
               onClick={() => geocodeMut.mutate()}
             >
               {geocodeMut.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              Géocoder les incomplets
+              Compléter adresses et positions
             </Button>
           </div>
         </div>
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        « Compléter adresses et positions » recherche les informations manquantes des relais incomplets. Contrôlez ensuite le résultat sur la carte : une adresse retrouvée ne garantit pas l’entrée exacte du commerce.
+      </p>
 
       {createOpen && (
         <section className="rounded-xl border bg-card p-4">
@@ -511,11 +516,11 @@ export default function RelaysPage() {
               <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-900">
                 {locationSource === "manual"
                   ? "Position corrigée manuellement. L’adresse a été actualisée si Google a trouvé une correspondance."
-                  : "Position trouvée automatiquement. Déplace le marqueur si nécessaire pour la corriger."}
+                  : "Position trouvée automatiquement. Déplacez le marqueur si nécessaire pour la corriger."}
                 <div className="mt-1 font-mono">{location.lat.toFixed(6)}, {location.lng.toFixed(6)}</div>
               </div>
             ) : (
-              <p className="text-xs text-amber-700">Sélectionne une suggestion pour éviter une position approximative.</p>
+              <p className="text-xs text-amber-700">Sélectionnez une suggestion pour éviter une position approximative.</p>
             )}
           </div>
           <div className="mt-4">
@@ -541,7 +546,7 @@ export default function RelaysPage() {
 
       <div className="flex flex-wrap gap-4">
         <label className="min-w-60 flex-1 space-y-1 text-sm">
-          <span className="font-medium">Rechercher côté serveur</span>
+          <span className="font-medium">Rechercher dans tous les relais</span>
           <Input
             value={serverSearch}
             onChange={(e) => setServerSearch(e.target.value)}
@@ -549,7 +554,7 @@ export default function RelaysPage() {
           />
         </label>
         <label className="w-40 space-y-1 text-sm">
-          <span className="font-medium">Période</span>
+          <span className="font-medium">Mois des statistiques</span>
           <Input value={period} onChange={(e) => setPeriod(e.target.value)} />
         </label>
       </div>

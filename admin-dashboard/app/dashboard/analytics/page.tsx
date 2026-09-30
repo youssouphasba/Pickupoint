@@ -71,7 +71,7 @@ export default function AnalyticsPage() {
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Analyses opérationnelles</h1>
+          <h1 className="text-2xl font-bold">Analyses de l’activité</h1>
           <p className="text-sm text-muted-foreground">Performance, délais, finance, réseau et risques sur la période choisie.</p>
         </div>
         <div className="flex items-end gap-3">

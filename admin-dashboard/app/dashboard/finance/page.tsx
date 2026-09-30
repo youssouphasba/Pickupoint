@@ -10,6 +10,8 @@ import {
   fetchFinanceReconciliation,
   resolveFinanceMissionMismatch,
 } from "@/lib/api";
+import { PageSectionNav } from "@/components/page-section-nav";
+import { payerLabel } from "@/lib/admin-display";
 import { DateRangeFilter, type DateRange } from "@/components/date-range-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,15 +115,20 @@ function StatCard({
   hint?: string;
   onClick?: () => void;
 }) {
+  const card = (
+    <Card className="h-full">
+      <CardContent className="p-5">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="mt-1 text-xl font-bold">{value}</div>
+        {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
+        {onClick ? <div className="mt-3 text-xs font-medium text-primary">Voir les dossiers →</div> : null}
+      </CardContent>
+    </Card>
+  );
+  if (!onClick) return card;
   return (
-    <button type="button" onClick={onClick} className={`block h-full w-full text-left ${clickableClass(!onClick)}`}>
-      <Card className="h-full">
-        <CardContent className="p-5">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className="mt-1 text-xl font-bold">{value}</div>
-          {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
-        </CardContent>
-      </Card>
+    <button type="button" onClick={onClick} className={`block h-full w-full rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${clickableClass()}`}>
+      {card}
     </button>
   );
 }
@@ -265,7 +272,7 @@ function issueDetailItems(key: string, items: Record<string, unknown>[]): Financ
       title: value("tracking_code") === "—" ? value("parcel_id") : value("tracking_code"),
       subtitle: `Colis : ${value("parcel_id")}`,
       status: `Paiement : ${value("payment_status") === "paid" ? "Réglé" : "Non réglé"}`,
-      meta: `Payeur prévu : ${value("who_pays") === "sender" ? "Expéditeur" : "Destinataire"}`,
+      meta: `Payeur prévu : ${payerLabel(item.who_pays)}`,
       problem: "Le colis est livré, mais le règlement n’est pas confirmé dans le suivi.",
       recommendation: "Vérifier qui a encaissé le paiement, puis confirmer ou régulariser le règlement dans la fiche du colis.",
       href: `/dashboard/parcels/${encodeURIComponent(value("parcel_id"))}`,
@@ -324,7 +331,7 @@ function FinanceDetailModal({
                         <div className="mt-4 flex flex-wrap gap-2">
                           {item.href ? (
                             <Button asChild size="sm" variant="outline">
-                              <Link href={item.href}>Voir le colis</Link>
+                              <Link href={item.href}>Ouvrir le dossier</Link>
                             </Button>
                           ) : null}
                           {item.actionId ? (
@@ -358,7 +365,7 @@ function FinanceDetailModal({
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              Aucun élément à afficher pour ce KPI sur la période choisie.
+              Aucun dossier pour cet indicateur sur la période choisie.
             </div>
           )}
         </div>
@@ -382,7 +389,7 @@ function ReconciliationSection({
     .filter(({ items }) => items.length > 0);
 
   return (
-    <section className="space-y-3">
+    <section id="controles" className="admin-section space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           À traiter maintenant
@@ -390,7 +397,7 @@ function ReconciliationSection({
         {entries.length === 0 ? <Badge tone="success">Aucune incohérence</Badge> : null}
       </div>
       <p className="text-sm text-muted-foreground">
-        Contrôles entre les colis, les missions, les portefeuilles et les retraits. Ouvrez une carte pour voir le problème et l’action recommandée.
+        Contrôles entre les colis, les missions, les portefeuilles et les retraits. Ouvrez une carte pour voir le problème et l’action recommandée. Les soldes sont actuels ; vérifiez aussi les retraits hors période avant de corriger un montant réservé.
       </p>
       {entries.length > 0 ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -498,9 +505,9 @@ export default function FinancePage() {
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Finance</h1>
+          <h1 className="text-2xl font-bold">Synthèse financière</h1>
           <p className="text-sm text-muted-foreground">
-            Vue claire des commissions Denkma, des recharges livreurs, des relais et des retraits.
+            Commissions, recharges, règlements relais et retraits sur la période choisie. Les soldes des portefeuilles restent actuels.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -513,6 +520,8 @@ export default function FinancePage() {
           </Link>
         </div>
       </div>
+
+      {data && <PageSectionNav page="/dashboard/finance" hiddenSections={recon.data ? [] : ["controles"]} />}
 
       <FinanceDetailModal
         open={Boolean(detailModal)}
@@ -533,19 +542,21 @@ export default function FinancePage() {
 
       {overviewError ? (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Impossible de charger la synthèse financière pour le moment. Réessayez dans quelques instants.
+          Impossible de charger la synthèse financière pour le moment.
+          <Button size="sm" variant="outline" className="ml-3" onClick={() => overview.refetch()}>Réessayer</Button>
         </div>
       ) : null}
 
       {!overviewError && reconciliationError ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           La synthèse est disponible, mais le contrôle de cohérence financière est temporairement indisponible.
+          <Button size="sm" variant="outline" className="ml-3" onClick={() => recon.refetch()}>Réessayer le contrôle</Button>
         </div>
       ) : null}
 
       {data ? (
         <>
-          <section className="space-y-3">
+          <section id="synthese" className="admin-section space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Synthèse de trésorerie</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Commission reçue" value={formatXof(data.commissions.platform_received_xof)} hint="Effectivement prélevée" />
@@ -557,7 +568,7 @@ export default function FinancePage() {
               <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
                 <div><div className="text-xs text-muted-foreground">Recharges Stripe payées</div><div className="mt-1 text-lg font-semibold">{formatXof(data.topups.paid_amount_xof)}</div></div>
                 <div><div className="text-xs text-muted-foreground">Retraits approuvés</div><div className="mt-1 text-lg font-semibold">{formatXof(data.payouts.sent_amount_xof)}</div></div>
-                <div><div className="text-xs text-muted-foreground">Flux wallet brut</div><div className="mt-1 text-lg font-semibold">{formatXof((data.topups.paid_amount_xof ?? 0) - (data.payouts.sent_amount_xof ?? 0))}</div><div className="mt-1 text-xs text-muted-foreground">Recharges moins retraits, hors frais Stripe</div></div>
+                <div><div className="text-xs text-muted-foreground">Flux des portefeuilles</div><div className="mt-1 text-lg font-semibold">{formatXof((data.topups.paid_amount_xof ?? 0) - (data.payouts.sent_amount_xof ?? 0))}</div><div className="mt-1 text-xs text-muted-foreground">Recharges moins retraits, hors frais Stripe</div></div>
               </CardContent>
             </Card>
           </section>
@@ -594,7 +605,7 @@ export default function FinancePage() {
             onOpen={openDetails}
           />
 
-          <section className="space-y-3">
+          <section id="paiements-colis" className="admin-section space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Paiements colis</h2>
             <p className="text-sm text-muted-foreground">
               Le client paie hors application. Cette zone sert seulement à suivre les colis et le payeur choisi.
@@ -621,20 +632,20 @@ export default function FinancePage() {
             </div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Répartition du paiement des colis</CardTitle>
+                <CardTitle className="text-base">Payeur prévu pour les colis</CardTitle>
               </CardHeader>
               <CardContent>
                 <DetailRow
                   label="Expéditeur paie"
                   value={`${data.payments.sender_pays_parcels ?? 0} colis`}
                   hint="Tous statuts confondus sur la période choisie"
-                  onClick={() => openDetails("Colis payés par l'expéditeur", data.payments.details?.sender_pays ?? [])}
+                  onClick={() => openDetails("Colis à la charge de l’expéditeur", data.payments.details?.sender_pays ?? [])}
                 />
                 <DetailRow
                   label="Destinataire paie"
                   value={`${data.payments.recipient_pays_parcels ?? 0} colis`}
                   hint="Tous statuts confondus sur la période choisie"
-                  onClick={() => openDetails("Colis payés par le destinataire", data.payments.details?.recipient_pays ?? [])}
+                  onClick={() => openDetails("Colis à la charge du destinataire", data.payments.details?.recipient_pays ?? [])}
                 />
                 <DetailRow
                   label="Colis livrés"
@@ -646,7 +657,7 @@ export default function FinancePage() {
           </section>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <section className="space-y-3">
+            <section id="commissions" className="admin-section space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Commissions Denkma</h2>
               <p className="text-sm text-muted-foreground">
                 Denkma encaisse ses commissions depuis les soldes livreurs après leurs recharges.
@@ -711,7 +722,7 @@ export default function FinancePage() {
               </Card>
             </section>
 
-            <section className="space-y-3">
+            <section id="recharges" className="admin-section space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Recharges Stripe</h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard
@@ -737,9 +748,13 @@ export default function FinancePage() {
                   onClick={() => openDetails("Retraits en attente", data.payouts.details?.waiting ?? [])}
                 />
               </div>
+            </section>
+            <section id="relais" className="admin-section space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Règlements des relais</h2>
+              <p className="text-sm text-muted-foreground">Les versements se font hors plateforme. Ouvrez le colis concerné pour contrôler sa répartition et valider le règlement déclaré.</p>
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Relais</CardTitle>
+                  <CardTitle className="text-base">Montants dus aux relais</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <DetailRow
@@ -771,7 +786,7 @@ export default function FinancePage() {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <section className="space-y-3">
+            <section id="retraits" className="admin-section space-y-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Retraits</h2>
               <div className="grid gap-4 sm:grid-cols-3">
                 <StatCard
@@ -802,8 +817,9 @@ export default function FinancePage() {
               </Card>
             </section>
 
-            <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Soldes</h2>
+            <section id="soldes" className="admin-section space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Soldes actuels</h2>
+              <p className="text-sm text-muted-foreground">État actuel de tous les portefeuilles, sans filtre de période. Ces montants ne sont pas les soldes historiques à la fin de la période sélectionnée.</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <StatCard label="Solde disponible" value={formatXof(data.wallets.total_available_amount_xof)} />
                 <StatCard label="Montant en attente" value={formatXof(data.wallets.total_waiting_amount_xof)} />
@@ -828,14 +844,14 @@ export default function FinancePage() {
             </section>
           </div>
 
-          <section className="space-y-3">
+          <section id="mouvements" className="admin-section space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Flux financiers quotidiens</h2>
             <Card>
               <CardContent className="space-y-3 p-5">
                 {(data.daily ?? []).length === 0 ? <div className="text-sm text-muted-foreground">Aucun mouvement financier sur la période.</div> : null}
                 {(data.daily ?? []).map((day: any) => {
                   const maximum = Math.max(day.topups_xof ?? 0, day.payouts_xof ?? 0, 1);
-                  return <div key={day.date} className="grid grid-cols-[5.5rem_1fr_9rem] items-center gap-3 text-sm"><span className="text-muted-foreground">{day.date}</span><div className="space-y-1"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ((day.topups_xof ?? 0) / maximum) * 100)}%` }} /></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, ((day.payouts_xof ?? 0) / maximum) * 100)}%` }} /></div></div><div className="text-right text-xs"><div className="text-emerald-700">+{formatXof(day.topups_xof)}</div><div className="text-amber-700">−{formatXof(day.payouts_xof)}</div></div></div>;
+                  return <div key={day.date} className="grid grid-cols-[5.5rem_minmax(0,1fr)] sm:grid-cols-[5.5rem_minmax(0,1fr)_9rem] items-center gap-3 text-sm"><span className="text-muted-foreground">{day.date}</span><div className="space-y-1"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ((day.topups_xof ?? 0) / maximum) * 100)}%` }} /></div><div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, ((day.payouts_xof ?? 0) / maximum) * 100)}%` }} /></div></div><div className="text-right text-xs"><div className="text-emerald-700">+{formatXof(day.topups_xof)}</div><div className="text-amber-700">−{formatXof(day.payouts_xof)}</div></div></div>;
                 })}
                 {(data.daily ?? []).length > 0 ? <div className="flex gap-4 text-xs text-muted-foreground"><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Recharges payées</span><span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-500" />Retraits approuvés</span></div> : null}
               </CardContent>

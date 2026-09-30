@@ -251,7 +251,7 @@ export default function HeatmapPage() {
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold">Heatmap des demandes</h1>
+        <h1 className="text-2xl font-bold">Carte des demandes</h1>
         <p className="text-sm text-muted-foreground">
           Vue des secteurs où les collectes, livraisons et relais concentrent le
           plus d’activité. Filtre actif : {periodLabel(days).toLowerCase()},

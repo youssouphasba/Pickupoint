@@ -88,7 +88,7 @@ export default function DriverSecurityPage() {
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-red-100 p-2 text-red-700"><AlertTriangle className="h-5 w-5" /></div>
           <div>
-            <h1 className="text-2xl font-bold">Sécurité livreurs</h1>
+            <h1 className="text-2xl font-bold">Sécurité des livreurs</h1>
             <p className="text-sm text-muted-foreground">Blocages GPS et événements de protection liés aux missions des livreurs.</p>
           </div>
         </div>

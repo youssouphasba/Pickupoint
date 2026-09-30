@@ -28,7 +28,6 @@ import { ActionModal } from "@/components/action-modal";
 import { useToast } from "@/components/ui/toaster";
 import {
   approvePayout,
-  changeUserRole,
   rejectPayout,
   type ActionCategory,
   type ActionCenter,
@@ -37,6 +36,7 @@ import {
 } from "@/lib/api";
 import { useActionCenter } from "@/lib/use-action-center";
 import { cn } from "@/lib/utils";
+import { adminActionHref, paymentStatusLabel, parcelStatusLabel, payoutMethodLabel } from "@/lib/admin-display";
 
 const xof = new Intl.NumberFormat("fr-FR");
 
@@ -50,13 +50,14 @@ type Descriptor = {
 };
 
 const CATEGORIES: Descriptor[] = [
+  { key: "security", label: "Sécurité des livreurs", Icon: AlertTriangle, tone: "danger" },
   { key: "incidents", label: "Incidents signalés", Icon: AlertTriangle, tone: "danger" },
   { key: "disputes", label: "Litiges ouverts", Icon: Scale, tone: "danger" },
   { key: "payouts", label: "Retraits à valider", Icon: Wallet, tone: "warning" },
   { key: "applications", label: "Candidatures à traiter", Icon: FileText, tone: "info" },
   { key: "anomalies", label: "Anomalies flotte", Icon: Truck, tone: "warning" },
   { key: "payment_blocked", label: "Paiements bloqués", Icon: Package, tone: "warning" },
-  { key: "stale_parcels", label: "Colis stagnants", Icon: Clock, tone: "neutral" },
+  { key: "stale_parcels", label: "Colis en attente prolongée", Icon: Clock, tone: "neutral" },
   { key: "support", label: "Support WhatsApp", Icon: MessageCircle, tone: "info" },
 ];
 
@@ -107,7 +108,7 @@ export function ActionCenterSection() {
       <Card>
         <CardContent className="flex items-center gap-3 p-5 text-sm text-red-700">
           <AlertTriangle className="h-4 w-4" />
-          Impossible de charger le centre d'action.
+          Impossible de charger les actions à traiter.
           <Button size="sm" variant="outline" onClick={() => refetch()}>
             Réessayer
           </Button>
@@ -179,6 +180,7 @@ export function ActionCenterSection() {
         </label>
       </div>
 
+      {urgentOnly && data.total_urgent === 0 && <p className="rounded-lg border bg-background p-4 text-sm text-muted-foreground">Aucune action urgente signalée. Décochez le filtre pour consulter les autres éléments.</p>}
       <div className="grid gap-3">
         {visible.map((entry) => (
           <CategoryBlock
@@ -203,6 +205,7 @@ function CategoryBlock({
   urgentOnly: boolean;
 }) {
   const [open, setOpen] = React.useState(category.urgent_count > 0);
+  const panelId = React.useId();
   const filtered = urgentOnly
     ? category.items.filter((item) => item.urgency === "critical")
     : category.items;
@@ -218,46 +221,32 @@ function CategoryBlock({
 
   return (
     <Card>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-3 p-5 text-left"
-        aria-expanded={open}
-      >
-        <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", toneBg[descriptor.tone])}>
-          <descriptor.Icon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">{descriptor.label}</span>
-            {category.urgent_count > 0 && (
-              <Badge tone="danger">
-                {category.urgent_count} urgent{category.urgent_count > 1 ? "s" : ""}
-              </Badge>
-            )}
-            {category.warning_count > 0 && <Badge tone="warning">{category.warning_count} attention</Badge>}
+      <div className="flex items-center gap-3 p-4 sm:p-5">
+        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-controls={panelId}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", toneBg[descriptor.tone])}>
+            <descriptor.Icon className="h-5 w-5" aria-hidden="true" />
           </div>
-          <div className="text-sm text-muted-foreground">{category.count} au total</div>
-        </div>
-        <Link
-          href={category.href}
-          onClick={(event) => event.stopPropagation()}
-          className="hidden items-center gap-1 text-xs font-medium text-emerald-700 hover:underline sm:inline-flex"
-        >
-          Voir tout <ArrowRight className="h-3.5 w-3.5" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{descriptor.label}</span>
+              {category.urgent_count > 0 && <Badge tone="danger">{category.urgent_count} urgent{category.urgent_count > 1 ? "s" : ""}</Badge>}
+              {category.warning_count > 0 && <Badge tone="warning">{category.warning_count} à surveiller</Badge>}
+            </div>
+            <div className="text-sm text-muted-foreground">{category.count} au total</div>
+          </div>
+          {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+        </button>
+        <Link href={category.href} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-2 text-xs font-medium text-primary hover:bg-accent hover:underline" aria-label={`Voir la liste : ${descriptor.label}`}>
+          Voir tout <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
         </Link>
-        {open ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        )}
-      </button>
+      </div>
       {open && (
-        <div className="border-t">
+        <div id={panelId} className="border-t">
           <ul>
             {filtered.map((item) => (
               <li key={String(item.id)} className="border-b last:border-b-0">
-                <ItemRow categoryKey={descriptor.key} item={item} />
+                <ItemRow categoryKey={descriptor.key} item={item} fallbackHref={category.href} />
               </li>
             ))}
           </ul>
@@ -270,9 +259,11 @@ function CategoryBlock({
 function ItemRow({
   categoryKey,
   item,
+  fallbackHref,
 }: {
   categoryKey: CategoryKey;
   item: ActionItem;
+  fallbackHref: string;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
@@ -282,7 +273,7 @@ function ItemRow({
       <div className="flex items-center gap-2">
         <Badge tone={urgencyTone(item.urgency)}>{urgencyLabel(item.urgency)}</Badge>
         <span className="whitespace-nowrap text-xs text-muted-foreground">{formatAge(item.age_hours)}</span>
-        <RowActions categoryKey={categoryKey} item={item} />
+        <RowActions categoryKey={categoryKey} item={item} fallbackHref={fallbackHref} />
       </div>
     </div>
   );
@@ -296,6 +287,8 @@ function RowPrimary({
   item: ActionItem;
 }) {
   switch (categoryKey) {
+    case "security":
+      return <div><div className="font-medium">{asText(item.driver_name, "Livreur")} · Vérification de sécurité</div><div className="text-xs text-muted-foreground">{asText(item.message, "Consultez l’événement et le dossier avant toute intervention.")}</div></div>;
     case "payouts":
       return (
         <div>
@@ -303,7 +296,7 @@ function RowPrimary({
             {xof.format(asNumber(item.amount))} XOF - {asText(item.owner_name, "Utilisateur inconnu")}
           </div>
           <div className="text-xs text-muted-foreground">
-            {asText(item.method)} · {asText(item.phone)}
+            {payoutMethodLabel(item.method)} · {asText(item.phone)}
           </div>
         </div>
       );
@@ -343,7 +336,7 @@ function RowPrimary({
         <div>
           <div className="font-medium">Colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))}</div>
           <div className="text-xs text-muted-foreground">
-            {asText(item.parcel_status, "Statut inconnu")} · {asNumber(item.age_days)} j en relais
+            {parcelStatusLabel(item.parcel_status)} · {asNumber(item.age_days)} j en relais
           </div>
         </div>
       );
@@ -353,7 +346,7 @@ function RowPrimary({
           <div className="font-medium">
             Colis {asText(item.tracking_code, String(item.parcel_id ?? "-"))} - {xof.format(asNumber(item.amount))} XOF
           </div>
-          <div className="text-xs text-muted-foreground">Paiement {asText(item.payment_status, "inconnu")}</div>
+          <div className="text-xs text-muted-foreground">Paiement {paymentStatusLabel(item.payment_status)}</div>
         </div>
       );
     case "support":
@@ -369,15 +362,16 @@ function RowPrimary({
 function RowActions({
   categoryKey,
   item,
+  fallbackHref,
 }: {
   categoryKey: CategoryKey;
   item: ActionItem;
+  fallbackHref: string;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [approveOpen, setApproveOpen] = React.useState(false);
   const [rejectOpen, setRejectOpen] = React.useState(false);
-  const [promoteLoading, setPromoteLoading] = React.useState<string | null>(null);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["action-center"] });
@@ -385,18 +379,6 @@ function RowActions({
     queryClient.invalidateQueries({ queryKey: ["users"], exact: false });
   }
 
-  async function promote(role: "driver" | "relay_agent") {
-    setPromoteLoading(role);
-    try {
-      await changeUserRole(String(item.user_id), role);
-      invalidate();
-      toast(role === "driver" ? "Promu en livreur." : "Promu en agent relais.");
-    } catch (error: any) {
-      toast(error?.response?.data?.detail ?? "Erreur lors de la promotion.");
-    } finally {
-      setPromoteLoading(null);
-    }
-  }
 
   if (categoryKey === "payouts") {
     return (
@@ -410,16 +392,16 @@ function RowActions({
         <ActionModal
           open={approveOpen}
           onOpenChange={setApproveOpen}
-          title={`Confirmer l’envoi Wave de ${xof.format(asNumber(item.amount))} XOF`}
-          description="Effectuez l’envoi manuel via Wave, puis saisissez la référence de transaction."
-          inputLabel="Référence Wave"
+          title={`Confirmer le versement de ${xof.format(asNumber(item.amount))} XOF`}
+          description={`Effectuez le versement hors plateforme (${payoutMethodLabel(item.method)}), puis saisissez sa référence ou celle du justificatif.`}
+          inputLabel="Référence du versement ou du justificatif"
           inputPlaceholder="Ex: TX-20260620-001"
           confirmLabel="Confirmer l’envoi"
           required
           onConfirm={async (reference) => {
             await approvePayout(String(item.payout_id), reference);
             invalidate();
-            toast("Envoi Wave enregistré.");
+            toast("Versement enregistré.");
           }}
         />
         <ActionModal
@@ -441,42 +423,14 @@ function RowActions({
     );
   }
 
-  if (categoryKey === "applications") {
-    return (
-      <>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={promoteLoading !== null}
-          onClick={() => {
-            if (window.confirm("Promouvoir en livreur ?")) void promote("driver");
-          }}
-        >
-          {promoteLoading === "driver" && <Loader2 className="h-4 w-4 animate-spin" />}
-          Livreur
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={promoteLoading !== null}
-          onClick={() => {
-            if (window.confirm("Promouvoir en agent relais ?")) void promote("relay_agent");
-          }}
-        >
-          {promoteLoading === "relay_agent" && <Loader2 className="h-4 w-4 animate-spin" />}
-          Agent relais
-        </Button>
-      </>
-    );
-  }
-
-  const href = typeof item.href === "string" && item.href.trim().length > 0 ? item.href : "#";
+  const href = adminActionHref(item, fallbackHref);
+  if (!href) return <span className="text-xs text-muted-foreground">Dossier indisponible</span>;
   return (
     <Link
       href={href}
       className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent"
     >
-      Ouvrir <ExternalLink className="h-3 w-3" />
+      {categoryKey === "applications" ? "Vérifier le dossier" : "Ouvrir"} <ExternalLink className="h-3 w-3" />
     </Link>
   );
 }

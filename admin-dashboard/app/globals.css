@@ -45,6 +45,13 @@
   }
 }
 
+@layer components {
+  .admin-section {
+    scroll-margin-top: 9rem;
+  }
+
+}
+
 @layer base {
   * { @apply border-border; }
   body {

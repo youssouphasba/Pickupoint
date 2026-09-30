@@ -128,9 +128,9 @@ export default function AuditLogPage() {
     <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Audit log</h1>
+          <h1 className="text-2xl font-bold">Journal des actions</h1>
           <p className="text-sm text-muted-foreground">
-            Journal d'audit global — tous les événements système tracés.
+            Retrouvez les interventions administratives et les événements enregistrés. Filtrez par date, puis ouvrez les détails utiles.
           </p>
         </div>
         <DateRangeFilter value={dateRange} onChange={setDateRange} />

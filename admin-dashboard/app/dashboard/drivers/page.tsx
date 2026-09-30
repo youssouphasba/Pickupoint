@@ -69,7 +69,7 @@ const DRIVER_FILTERS: { value: DriverFilter; label: string }[] = [
   { value: "all", label: "Tous" },
   { value: "available", label: "Disponibles" },
   { value: "active_mission", label: "En mission" },
-  { value: "offline", label: "Hors ligne" },
+  { value: "offline", label: "Sans disponibilité ni mission" },
   { value: "banned", label: "Suspendus" },
 ];
 
@@ -222,13 +222,13 @@ export default function DriversPage() {
       },
       {
         id: "status",
-        header: "Statut",
+        header: "Compte / disponibilité",
         cell: ({ row }) => {
           const d = row.original;
-          if (d.is_banned) return <Badge tone="danger">Suspendu</Badge>;
-          if (!d.is_active) return <Badge tone="default">Inactif</Badge>;
+          if (d.is_banned) return <Badge tone="danger">Compte suspendu</Badge>;
+          if (!d.is_active) return <Badge tone="default">Compte inactif</Badge>;
           if (d.is_available) return <Badge tone="success">Disponible</Badge>;
-          return <Badge tone="info">Actif</Badge>;
+          return <Badge tone="info">Compte actif</Badge>;
         },
       },
       {
@@ -445,6 +445,10 @@ export default function DriversPage() {
           </button>
         ))}
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        « Compte actif » concerne les accès au compte, pas la présence en ligne. « Disponible » est la disponibilité déclarée. Vérifiez séparément la date de la dernière position GPS et la mission active.
+      </p>
 
       {rewardsOpen && (
         <Card>

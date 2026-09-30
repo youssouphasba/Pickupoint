@@ -231,11 +231,10 @@ export default function TargetedNotificationsPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Bell className="h-6 w-6 text-primary" />
-            Notifications ciblées
+            Messages aux utilisateurs
           </h1>
           <p className="text-sm text-muted-foreground">
-            Envoyer une notification in-app et push à un ou plusieurs
-            utilisateurs.
+            Envoyez un message ponctuel dans l’application et par notification push aux utilisateurs sélectionnés. Pour une communication avec visuel, utilisez « Offres et communications ».
           </p>
         </div>
         <Badge tone="info">

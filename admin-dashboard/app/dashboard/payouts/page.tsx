@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { payoutMethodLabel } from "@/lib/admin-display";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AdminPayout,
@@ -19,13 +21,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 const xof = new Intl.NumberFormat("fr-FR");
 
-const METHOD_LABELS: Record<string, string> = {
-  wave: "Wave",
-  orange_money: "Orange Money",
-  free_money: "Free Money",
-  bank: "Virement bancaire",
-  cash: "Espèces",
-};
+
 
 export default function PayoutsPage() {
   const qc = useQueryClient();
@@ -56,9 +52,9 @@ export default function PayoutsPage() {
     <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Demandes de décaissement</h1>
+          <h1 className="text-2xl font-bold">Demandes de retrait</h1>
           <p className="text-sm text-muted-foreground">
-            Valider ou rejeter les décaissements du solde des livreurs et relais.
+            Vérifiez le bénéficiaire, effectuez le versement hors plateforme, puis enregistrez sa référence. Confirmer un envoi ne transfère pas d’argent.
           </p>
         </div>
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
@@ -71,21 +67,21 @@ export default function PayoutsPage() {
       )}
       {isError && (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Erreur de chargement des décaissements.
+          Impossible de charger les demandes de retrait.
         </div>
       )}
 
       {data && payouts.length === 0 && (
         <Card>
           <CardContent className="p-10 text-center text-sm text-muted-foreground">
-            Aucune demande de décaissement en attente.
+            Aucune demande de retrait pour ce statut et cette période.
           </CardContent>
         </Card>
       )}
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium">Historique des décaissements</div>
+          <div className="text-sm font-medium">Demandes et historique des retraits</div>
           <div className="text-xs text-muted-foreground">Les demandes sont conservées après l’envoi ou le rejet.</div>
         </div>
         <label className="text-sm">Statut<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="mt-1 block h-9 rounded-md border border-input bg-background px-3 text-sm"><option value="pending">En attente</option><option value="approved">Envoyés</option><option value="rejected">Rejetés</option></select></label>
@@ -102,13 +98,12 @@ export default function PayoutsPage() {
         ))}
       </div>
 
-      {/* Approve modal */}
       <ActionModal
         open={!!approveTarget}
         onOpenChange={(o) => !o && setApproveTarget(null)}
-        title={`Confirmer l’envoi Wave de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
-        description="Effectuez d’abord l’envoi manuel via Wave, puis saisissez la référence de transaction."
-        inputLabel="Référence Wave"
+        title={`Confirmer le versement de ${approveTarget ? xof.format(approveTarget.amount) : ""} XOF`}
+        description={`Effectuez d’abord le versement hors plateforme (${payoutMethodLabel(approveTarget?.method)}), puis saisissez sa référence ou celle du justificatif.`}
+        inputLabel="Référence du versement ou du justificatif"
         inputPlaceholder="Ex: TX-20260417-001"
         confirmLabel="Confirmer l’envoi"
         confirmVariant="default"
@@ -116,12 +111,11 @@ export default function PayoutsPage() {
         onConfirm={async (reference) => {
           await approvePayout(approveTarget!.payout_id, reference);
           invalidate();
-          toast("Envoi Wave enregistré avec succès.");
+          toast("Versement enregistré avec succès.");
           setApproveTarget(null);
         }}
       />
 
-      {/* Reject modal */}
       <ActionModal
         open={!!rejectTarget}
         onOpenChange={(o) => !o && setRejectTarget(null)}
@@ -162,11 +156,11 @@ function PayoutCard({
             <Badge tone={payout.status === "approved" ? "success" : payout.status === "rejected" ? "danger" : "warning"}>{payout.status === "approved" ? "Envoyé" : payout.status === "rejected" ? "Rejeté" : "En attente"}</Badge>
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {METHOD_LABELS[payout.method] ?? payout.method}
+            {payoutMethodLabel(payout.method)}
             {payout.destination ? ` • ${payout.destination}` : ""}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {payout.user_name ?? `User #${payout.user_id}`}{payout.user_phone ? ` • ${payout.user_phone}` : ""} • demandé le {formatDate(payout.created_at)}
+            <Link href={`/dashboard/users/${encodeURIComponent(payout.user_id)}`} className="font-medium text-primary hover:underline">{payout.user_name || "Ouvrir le bénéficiaire"}</Link>{payout.user_phone ? ` • ${payout.user_phone}` : ""} • demandé le {formatDate(payout.created_at)}
             {payout.sent_at ? ` • envoyé le ${formatDate(payout.sent_at)}` : ""}
             {payout.transfer_reference ? ` • réf. ${payout.transfer_reference}` : ""}
             {payout.rejection_reason ? ` • motif : ${payout.rejection_reason}` : ""}

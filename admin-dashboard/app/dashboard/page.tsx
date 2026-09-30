@@ -3,6 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { ADMIN_PAGES } from "@/lib/admin-navigation";
+import { adminActionHref, paymentStatusLabel, parcelStatusLabel } from "@/lib/admin-display";
 import { api, type ActionItem } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { ActionCenterSection } from "@/components/action-center-section";
@@ -31,6 +34,7 @@ import {
   Loader2,
   TrendingUp,
   ArrowUpRight,
+  RefreshCw,
 } from "lucide-react";
 
 type DashboardKpis = {
@@ -57,6 +61,7 @@ type DetailState = {
   title: string;
   description?: string;
   items: ActionItem[];
+  href?: string;
 } | null;
 
 async function fetchDashboard(): Promise<DashboardKpis> {
@@ -167,23 +172,25 @@ function DashboardDetailModal({
                   </div>
                   <div className="mt-1 text-sm text-muted-foreground">
                     {[
-                      asText(item.parcel_status, ""),
-                      asText(item.payment_status, ""),
+                      item.parcel_status ? parcelStatusLabel(item.parcel_status) : "",
+                      item.payment_status ? paymentStatusLabel(item.payment_status) : "",
                       asText(item.phone, ""),
                       asText(item.preview, ""),
                     ]
                       .filter(Boolean)
                       .join(" · ") || "Aucun détail complémentaire."}
                   </div>
+                  {adminActionHref(item, state?.href) && <Link href={adminActionHref(item, state?.href)!} className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">Consulter le dossier <ArrowUpRight className="h-4 w-4" aria-hidden="true" /></Link>}
                 </div>
               ))}
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              Aucun élément à afficher pour ce KPI.
+              Aucun dossier affichable ici. Consultez la liste pour vérifier la situation actuelle.
             </div>
           )}
         </div>
+        {state?.href && <div className="border-t px-6 py-4"><Button variant="outline" asChild><Link href={state.href}>Voir la liste complète</Link></Button></div>}
       </DialogContent>
     </Dialog>
   );
@@ -191,12 +198,12 @@ function DashboardDetailModal({
 
 export default function DashboardHome() {
   const [detailState, setDetailState] = React.useState<DetailState>(null);
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ["dashboard"],
     queryFn: fetchDashboard,
     refetchInterval: 30_000,
   });
-  const { data: actionCenter } = useActionCenter();
+  const { data: actionCenter, refetch: refetchActions } = useActionCenter();
 
   if (isLoading) {
     return (
@@ -207,7 +214,7 @@ export default function DashboardHome() {
   }
 
   if (isError || !data) {
-    return <div className="p-8 text-sm text-red-700">Erreur de chargement du tableau de bord.</div>;
+    return <div className="space-y-3 p-8" role="alert"><h1 className="text-2xl font-bold">Tableau de bord</h1><p className="text-sm text-red-700">Impossible de charger les indicateurs. Les autres rubriques restent accessibles dans le menu.</p><Button variant="outline" onClick={() => refetch()}>Réessayer</Button></div>;
   }
 
   const category = actionCenter?.categories;
@@ -218,20 +225,25 @@ export default function DashboardHome() {
     stale: category?.stale_parcels.count ?? data.stale_parcels,
   };
 
-  function openDetails(title: string, items: ActionItem[], description?: string) {
-    setDetailState({ title, items, description });
+  function openDetails(title: string, items: ActionItem[], description?: string, href?: string) {
+    setDetailState({ title, items, description, href });
   }
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <DashboardDetailModal state={detailState} onOpenChange={(open) => !open && setDetailState(null)} />
 
-      <div>
-        <h1 className="text-2xl font-bold">Tableau de bord</h1>
-        <p className="text-sm text-muted-foreground">
-          Vue temps réel. Les alertes ouvrent directement les éléments concernés.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><h1 className="text-2xl font-bold">Tableau de bord</h1><p className="text-sm text-muted-foreground">Traitez les priorités, puis consultez les indicateurs et les dossiers concernés.</p></div>
+        <div className="flex flex-wrap items-center gap-3"><span className="text-xs text-muted-foreground">{dataUpdatedAt ? `Actualisé à ${new Date(dataUpdatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "Actualisation automatique"}</span><Button variant="outline" size="sm" disabled={isFetching} onClick={() => { void Promise.all([refetch(), refetchActions()]); }}><RefreshCw className={isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />Actualiser</Button></div>
       </div>
+
+      <nav aria-label="Accès fréquents" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {["/dashboard/parcels", "/dashboard/support", "/dashboard/finance", "/dashboard/applications"].map((href) => {
+          const page = ADMIN_PAGES.find((entry) => entry.href === href)!;
+          return <Link key={href} href={href} className="group rounded-xl border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><div className="flex items-center gap-2 text-sm font-semibold"><page.Icon className="h-4 w-4 text-primary" aria-hidden="true" /><span className="min-w-0 flex-1">{page.label}</span><ArrowUpRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" aria-hidden="true" /></div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">{page.description}</p></Link>;
+        })}
+      </nav>
 
       <ActionCenterSection />
 
@@ -290,17 +302,17 @@ export default function DashboardHome() {
             Icon={Banknote}
             tone="warning"
             hint="Colis à débloquer"
-            onClick={() => openDetails("Paiements bloqués", category?.payment_blocked.items ?? [], "Colis encore bloqués côté exploitation.")}
+            onClick={() => openDetails("Paiements bloqués", category?.payment_blocked.items ?? [], "Vérifiez le paiement et le dossier avant de lever un blocage.", category?.payment_blocked.href ?? "/dashboard/parcels")}
           />
           <KpiCard
             label="Retraits à valider"
             value={actionCounts.payouts}
             Icon={Wallet}
             tone="warning"
-            onClick={() => openDetails("Retraits à valider", category?.payouts.items ?? [], "Demandes en attente de validation admin.")}
+            onClick={() => openDetails("Retraits à valider", category?.payouts.items ?? [], "Vérifiez le bénéficiaire et la preuve de versement.", "/dashboard/payouts")}
           />
           <KpiCard
-            label="Colis total"
+            label="Total des colis"
             value={data.total_parcels}
             Icon={Package}
             href="/dashboard/parcels"
@@ -328,7 +340,7 @@ export default function DashboardHome() {
             href="/dashboard/relays?active=true"
           />
           <KpiCard
-            label="Positions live"
+            label="Positions reçues"
             value={data.live_fleet}
             Icon={Radar}
             tone="success"
@@ -341,7 +353,7 @@ export default function DashboardHome() {
             Icon={RadioTower}
             tone={actionCounts.anomalies > 0 ? "danger" : "neutral"}
             hint="GPS perdu ou mission trop longue"
-            onClick={() => openDetails("Anomalies flotte", category?.anomalies.items ?? [], "Signaux GPS perdus et retards critiques.")}
+            onClick={() => openDetails("Anomalies flotte", category?.anomalies.items ?? [], "Signaux GPS perdus et retards critiques.", "/dashboard/anomalies")}
           />
         </div>
       </section>
@@ -360,7 +372,8 @@ export default function DashboardHome() {
               openDetails(
                 "Retards critiques",
                 (category?.anomalies.items ?? []).filter((item) => item.type === "critical_delay"),
-                "Missions encore ouvertes avec un retard critique."
+                "Missions encore ouvertes avec un retard critique.",
+                "/dashboard/anomalies"
               )
             }
           />
@@ -370,7 +383,7 @@ export default function DashboardHome() {
             Icon={Clock}
             tone={actionCounts.stale > 0 ? "warning" : "neutral"}
             hint="Plus de 7 jours en relais"
-            onClick={() => openDetails("Colis stagnants", category?.stale_parcels.items ?? [], "Colis à relancer en priorité.")}
+            onClick={() => openDetails("Colis stagnants", category?.stale_parcels.items ?? [], "Colis à relancer en priorité.", "/dashboard/stale")}
           />
           <KpiCard
             label="Échecs de livraison"

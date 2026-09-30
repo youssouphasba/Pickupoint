@@ -106,7 +106,7 @@ export default function StaleParcelsPage() {
   return (
     <div className="space-y-5 p-4 sm:p-6 lg:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Colis stagnants</h1>
+<h1 className="text-2xl font-bold">Colis en attente prolongée</h1>
         <p className="text-sm text-muted-foreground">
           Colis immobilisés en relais depuis plus de 7 jours.
         </p>

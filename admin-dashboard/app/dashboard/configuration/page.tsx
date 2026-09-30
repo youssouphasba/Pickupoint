@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toaster";
 import { SendingGuideSettingsCard } from "@/components/sending-guide-settings-card";
+import { PageSectionNav } from "@/components/page-section-nav";
+import { useAdminDraft } from "@/lib/use-admin-draft";
 
 export const runtime = "edge";
 
@@ -238,35 +240,25 @@ function buildInitialPerformanceRewardsPayload(settings: any): PerformanceReward
 export default function ConfigurationPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
   });
 
-  const [form, setForm] = React.useState<OperationalSettingsPayload | null>(
-    null
-  );
-  const [appUpdateForm, setAppUpdateForm] =
-    React.useState<AppUpdateSettingsPayload | null>(null);
-  const [deliveryDispatchStages, setDeliveryDispatchStages] =
-    React.useState<DeliveryDispatchStage[] | null>(null);
-  const [performanceRewardsForm, setPerformanceRewardsForm] =
-    React.useState<PerformanceRewardsPayload | null>(null);
-
-  React.useEffect(() => {
-    if (data) {
-      setForm(buildInitialPayload(data));
-      setAppUpdateForm(buildInitialAppUpdatePayload(data));
-      setDeliveryDispatchStages(buildInitialDeliveryDispatchStages(data));
-      setPerformanceRewardsForm(buildInitialPerformanceRewardsPayload(data));
-    }
-  }, [data]);
+  const operationalSource = React.useMemo(() => data ? buildInitialPayload(data) : null, [data]);
+  const appUpdateSource = React.useMemo(() => data ? buildInitialAppUpdatePayload(data) : null, [data]);
+  const dispatchSource = React.useMemo(() => data ? buildInitialDeliveryDispatchStages(data) : null, [data]);
+  const rewardsSource = React.useMemo(() => data ? buildInitialPerformanceRewardsPayload(data) : null, [data]);
+  const { draft: form, setDraft: setForm, acceptSaved: acceptOperational } = useAdminDraft(operationalSource);
+  const { draft: appUpdateForm, setDraft: setAppUpdateForm, acceptSaved: acceptAppUpdate } = useAdminDraft(appUpdateSource);
+  const { draft: deliveryDispatchStages, setDraft: setDeliveryDispatchStages, acceptSaved: acceptDispatch } = useAdminDraft(dispatchSource);
+  const { draft: performanceRewardsForm, setDraft: setPerformanceRewardsForm, acceptSaved: acceptRewards } = useAdminDraft(rewardsSource);
 
   const mutation = useMutation({
     mutationFn: () => updateOperationalSettings(form!),
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ["settings"] });
-      setForm(buildInitialPayload(updated));
+      acceptOperational(buildInitialPayload(updated));
       toast("Configuration opérationnelle sauvegardée.");
     },
   });
@@ -275,7 +267,7 @@ export default function ConfigurationPage() {
     mutationFn: () => updateAppUpdateSettings(appUpdateForm!),
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ["settings"] });
-      setAppUpdateForm(updated.app_update);
+      acceptAppUpdate(updated.app_update);
       toast("Règles de mise à jour sauvegardées.");
     },
   });
@@ -306,7 +298,7 @@ export default function ConfigurationPage() {
       updateDeliveryDispatchSettings({ stages: deliveryDispatchStages! }),
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ["settings"] });
-      setDeliveryDispatchStages(
+      acceptDispatch(
         buildInitialDeliveryDispatchStages({
           delivery_dispatch: updated.delivery_dispatch,
         })
@@ -319,7 +311,7 @@ export default function ConfigurationPage() {
     mutationFn: () => updatePerformanceRewardsSettings(performanceRewardsForm!),
     onSuccess: (updated) => {
       qc.invalidateQueries({ queryKey: ["settings"] });
-      setPerformanceRewardsForm(updated.performance_rewards);
+      acceptRewards(updated.performance_rewards);
       toast("Récompenses de performance sauvegardées.");
     },
   });
@@ -363,6 +355,10 @@ export default function ConfigurationPage() {
     );
   }
 
+  if (isError && !data) {
+    return <div className="space-y-3 p-6" role="alert"><h1 className="text-2xl font-bold">Configuration</h1><p className="text-sm text-red-700">Impossible de charger les réglages. Aucune modification n’a été enregistrée.</p><Button variant="outline" onClick={() => refetch()}>Réessayer</Button></div>;
+  }
+
   if (
     isLoading ||
     !form ||
@@ -381,10 +377,9 @@ export default function ConfigurationPage() {
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Configuration opérationnelle</h1>
+          <h1 className="text-2xl font-bold">Configuration</h1>
           <p className="text-sm text-muted-foreground">
-            Pilotez les règles métier sans redéployer : tarifs, express et relais
-            de repli. Les secrets restent dans Railway.
+            Tarifs, commissions, livraison et fonctionnalités. Chaque section indique les réglages qu’elle enregistre.
           </p>
         </div>
         <Button
@@ -397,9 +392,12 @@ export default function ConfigurationPage() {
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Sauvegarder
+          Sauvegarder tarifs et livraison
         </Button>
       </div>
+
+      <PageSectionNav page="/dashboard/configuration" />
+      <p className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">Le bouton « Sauvegarder tarifs et livraison » enregistre les tarifs, la répartition des commissions et les règles de livraison. La diffusion, les récompenses, la vidéo et les mises à jour ont chacun leur propre bouton.</p>
 
       {mutation.isError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -407,8 +405,6 @@ export default function ConfigurationPage() {
             "Erreur de sauvegarde."}
         </div>
       )}
-
-      <SendingGuideSettingsCard />
 
       {appUpdateMutation.isError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -427,616 +423,633 @@ export default function ConfigurationPage() {
       {performanceRewardsMutation.isError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {(performanceRewardsMutation.error as any)?.response?.data?.detail ??
-            "Erreur de sauvegarde des r?compenses."}
+            "Erreur de sauvegarde des récompenses."}
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Tarifs</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {PRICING_FIELDS.map((field) => (
-            <NumberField
-              key={field.key}
-              field={field}
-              value={Number(form[field.key])}
-              onChange={(value) => setField(field.key, value)}
-            />
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Répartition des commissions</CardTitle>
-          <p className="text-sm text-muted-foreground">Chaque ligne doit totaliser 100 %. Les taux sont conservés sur le colis au moment de sa création.</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {Object.entries(form.commission_rules).map(([mode, rule]) => {
-            const labels: Record<string, string> = {
-              home_to_home: "Domicile → domicile",
-              home_to_relay: "Domicile → relais",
-              relay_to_home: "Relais → domicile",
-              relay_to_relay: "Relais → relais",
-            };
-            const fields = [
-              ["platform_rate", "Denkma"],
-              ["origin_relay_rate", "Relais départ"],
-              ["destination_relay_rate", "Relais arrivée"],
-              ["driver_rate", "Livreur"],
-            ] as const;
-            return (
-              <div key={mode} className="rounded-lg border p-4">
-                <div className="mb-3 font-medium">{labels[mode] ?? mode}</div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {fields.map(([key, label]) => (
-                    <label key={key} className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">{label} (%)</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.1"
-                        value={Number(rule[key] ?? 0) * 100}
-                        onChange={(event) => setForm((current) => current ? {
-                          ...current,
-                          commission_rules: {
-                            ...current.commission_rules,
-                            [mode]: { ...current.commission_rules[mode], [key]: Number(event.target.value) / 100 },
-                          },
-                        } : current)}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Mises à jour mobiles</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="font-medium">Contrôle de version</div>
-              <div className="text-sm text-muted-foreground">
-                Force ou recommande une mise à jour sans republier l'application.
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={appUpdateForm.enabled}
-              onClick={() =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, enabled: !current.enabled } : current
-                )
-              }
-              className={`inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                appUpdateForm.enabled
-                  ? "border-emerald-600 bg-emerald-600"
-                  : "border-input bg-muted"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                  appUpdateForm.enabled ? "translate-x-5" : "translate-x-0.5"
-                }`}
+      <fieldset disabled={mutation.isPending} aria-label="Tarifs, commissions et livraison" className="min-w-0 space-y-6">
+        <Card id="tarifs" className="admin-section">
+          <CardHeader>
+            <CardTitle>Tarifs</CardTitle>
+            <p className="text-sm text-muted-foreground">Prix de base et suppléments utilisés pour calculer le prix d’une nouvelle livraison.</p>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {PRICING_FIELDS.map((field) => (
+              <NumberField
+                key={field.key}
+                field={field}
+                value={Number(form[field.key])}
+                onChange={(value) => setField(field.key, value)}
               />
-            </button>
-          </div>
+            ))}
+          </CardContent>
+        </Card>
 
-          <div className="rounded-lg border p-4">
-            <div className="mb-3">
-              <div className="font-medium">Notifier une nouvelle version</div>
-              <div className="text-sm text-muted-foreground">
-                Envoyez la notification lorsque la version est disponible sur le store concerné.
+        <Card id="commissions" className="admin-section">
+          <CardHeader>
+            <CardTitle>Répartition des commissions</CardTitle>
+            <p className="text-sm text-muted-foreground">Chaque ligne doit totaliser 100 %. Les taux sont conservés sur le colis au moment de sa création.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {Object.entries(form.commission_rules).map(([mode, rule]) => {
+              const labels: Record<string, string> = {
+                home_to_home: "Domicile → domicile",
+                home_to_relay: "Domicile → relais",
+                relay_to_home: "Relais → domicile",
+                relay_to_relay: "Relais → relais",
+              };
+              const fields = [
+                ["platform_rate", "Denkma"],
+                ["origin_relay_rate", "Relais départ"],
+                ["destination_relay_rate", "Relais arrivée"],
+                ["driver_rate", "Livreur"],
+              ] as const;
+              return (
+                <div key={mode} className="rounded-lg border p-4">
+                  <div className="mb-3 font-medium">{labels[mode] ?? mode}</div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {fields.map(([key, label]) => (
+                      <label key={key} className="space-y-1 text-sm">
+                        <span className="text-muted-foreground">{label} (%)</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="0.1"
+                          value={Number(rule[key] ?? 0) * 100}
+                          onChange={(event) => setForm((current) => current ? {
+                            ...current,
+                            commission_rules: {
+                              ...current.commission_rules,
+                              [mode]: { ...current.commission_rules[mode], [key]: Number(event.target.value) / 100 },
+                            },
+                          } : current)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card id="livraison" className="admin-section">
+          <CardHeader>
+            <CardTitle>Livraison et relais</CardTitle>
+            <p className="text-sm text-muted-foreground">Délais, livraison express et règles de relais de repli. Ces valeurs sont enregistrées avec les tarifs.</p>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            {DELIVERY_FIELDS.map((field) => (
+              <NumberField
+                key={field.key}
+                field={field}
+                value={Number(form[field.key])}
+                onChange={(value) => setField(field.key, value)}
+              />
+            ))}
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">Mode Express</div>
+                  <div className="text-sm text-muted-foreground">
+                    Active ou désactive la facturation Express dans l'application.
+                  </div>
+                </div>
+                <Badge tone={form.express_enabled ? "success" : "default"}>
+                  {form.express_enabled ? "Activé" : "Désactivé"}
+                </Badge>
               </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => confirmAppUpdateNotification("android")}
-                disabled={
-                  appUpdateNotificationMutation.isPending ||
-                  !appUpdateForm.android_latest_version.trim() ||
-                  !appUpdateForm.android_store_url.trim()
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.express_enabled}
+                aria-label="Activer le mode Express"
+                onClick={() =>
+                  setForm((current) =>
+                    current
+                      ? { ...current, express_enabled: !current.express_enabled }
+                      : current
+                  )
                 }
+                className={`mt-4 inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                  form.express_enabled
+                    ? "border-emerald-600 bg-emerald-600"
+                    : "border-input bg-muted"
+                }`}
               >
-                {appUpdateNotificationMutation.isPending &&
-                appUpdateNotificationMutation.variables === "android" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <BellRing className="h-4 w-4" />
-                )}
-                Notifier les utilisateurs Android
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => confirmAppUpdateNotification("ios")}
-                disabled={
-                  appUpdateNotificationMutation.isPending ||
-                  !appUpdateForm.ios_latest_version.trim() ||
-                  !appUpdateForm.ios_store_url.trim()
-                }
-              >
-                {appUpdateNotificationMutation.isPending &&
-                appUpdateNotificationMutation.variables === "ios" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <BellRing className="h-4 w-4" />
-                )}
-                Notifier les utilisateurs iOS
-              </Button>
+                <span
+                  className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                    form.express_enabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
             </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <TextField
-              label="Message"
-              value={appUpdateForm.message}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, message: value } : current
-                )
-              }
-            />
-            <div className="hidden md:block" />
-            <TextField
-              label="Android dernière version"
-              value={appUpdateForm.android_latest_version}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current
-                    ? { ...current, android_latest_version: value }
-                    : current
-                )
-              }
-            />
-            <TextField
-              label="Android version minimale"
-              value={appUpdateForm.android_min_version}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, android_min_version: value } : current
-                )
-              }
-            />
-            <TextField
-              label="Lien Play Store"
-              value={appUpdateForm.android_store_url}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, android_store_url: value } : current
-                )
-              }
-            />
-            <div className="hidden md:block" />
-            <TextField
-              label="iOS dernière version"
-              value={appUpdateForm.ios_latest_version}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, ios_latest_version: value } : current
-                )
-              }
-            />
-            <TextField
-              label="iOS version minimale"
-              value={appUpdateForm.ios_min_version}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, ios_min_version: value } : current
-                )
-              }
-            />
-            <TextField
-              label="Lien App Store"
-              value={appUpdateForm.ios_store_url}
-              onChange={(value) =>
-                setAppUpdateForm((current) =>
-                  current ? { ...current, ios_store_url: value } : current
-                )
-              }
-            />
-          </div>
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">Commissions Denkma</div>
+                  <div className="text-sm text-muted-foreground">
+                    Quand c'est désactivé, aucune commission n'est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
+                  </div>
+                </div>
+                <Badge tone={form.delivery_commissions_enabled ? "success" : "default"}>
+                  {form.delivery_commissions_enabled ? "Activées" : "Désactivées"}
+                </Badge>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.delivery_commissions_enabled}
+                aria-label="Activer les commissions de livraison"
+                onClick={() =>
+                  setForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          delivery_commissions_enabled: !current.delivery_commissions_enabled,
+                        }
+                      : current
+                  )
+                }
+                className={`mt-4 inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                  form.delivery_commissions_enabled
+                    ? "border-emerald-600 bg-emerald-600"
+                    : "border-input bg-muted"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                    form.delivery_commissions_enabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+          </CardContent>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 sm:p-6"><p className="text-xs text-muted-foreground">Enregistre les sections Tarifs, Commissions et Livraison et relais.</p><Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>{mutation.isPending ? "Sauvegarde…" : "Sauvegarder tarifs et livraison"}</Button></div>
+        </Card>
+      </fieldset>
 
-          <div className="flex justify-end">
+      <fieldset disabled={deliveryDispatchMutation.isPending} aria-label="Diffusion des courses" className="min-w-0">
+        <Card id="diffusion" className="admin-section">
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Diffusion des courses</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Définissez les rayons successifs et le moment où chaque palier devient visible avec notification push.
+              </p>
+            </div>
             <Button
-              onClick={() => appUpdateMutation.mutate()}
-              disabled={appUpdateMutation.isPending}
+              onClick={() => deliveryDispatchMutation.mutate()}
+              disabled={deliveryDispatchMutation.isPending}
+              className="w-full md:w-auto"
             >
-              {appUpdateMutation.isPending ? (
+              {deliveryDispatchMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Sauvegarder les mises à jour
+              Sauvegarder la diffusion
             </Button>
-          </div>
-
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Livraison et relais</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          {DELIVERY_FIELDS.map((field) => (
-            <NumberField
-              key={field.key}
-              field={field}
-              value={Number(form[field.key])}
-              onChange={(value) => setField(field.key, value)}
-            />
-          ))}
-
-          <div className="rounded-lg border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-medium">Mode Express</div>
-                <div className="text-sm text-muted-foreground">
-                  Active ou désactive la facturation Express dans l'application.
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {deliveryDispatchStages.map((stage, index) => (
+                <div key={`${index}-${stage.start_after_seconds}`} className="rounded-lg border p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="font-medium">Palier {index + 1}</div>
+                    <Badge tone={index === deliveryDispatchStages.length - 1 ? "success" : "default"}>
+                      {index === 0 ? "Initial" : index === deliveryDispatchStages.length - 1 ? "Portée max" : "Extension"}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-3">
+                    <label className="space-y-2 text-sm">
+                      <span className="text-muted-foreground">Rayon visible</span>
+                      <Input
+                        type="number"
+                        min={0.1}
+                        max={10}
+                        step="0.1"
+                        value={stage.radius_km}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setDeliveryDispatchStages((current) =>
+                            current
+                              ? current.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, radius_km: Number.isFinite(value) ? value : item.radius_km }
+                                    : item
+                                )
+                              : current
+                          );
+                        }}
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm">
+                      <span className="text-muted-foreground">Départ après</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="1"
+                        value={stage.start_after_seconds}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          setDeliveryDispatchStages((current) =>
+                            current
+                              ? current.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? {
+                                        ...item,
+                                        start_after_seconds: Number.isFinite(value)
+                                          ? Math.max(0, Math.round(value))
+                                          : item.start_after_seconds,
+                                      }
+                                    : item
+                                )
+                              : current
+                          );
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
-              </div>
-              <Badge tone={form.express_enabled ? "success" : "default"}>
-                {form.express_enabled ? "Activé" : "Désactivé"}
-              </Badge>
+              ))}
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={form.express_enabled}
-              onClick={() =>
-                setForm((current) =>
-                  current
-                    ? { ...current, express_enabled: !current.express_enabled }
-                    : current
-                )
-              }
-              className={`mt-4 inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                form.express_enabled
-                  ? "border-emerald-600 bg-emerald-600"
-                  : "border-input bg-muted"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                  form.express_enabled ? "translate-x-5" : "translate-x-0.5"
-                }`}
-              />
-            </button>
-          </div>
+          </CardContent>
+        </Card>
+      </fieldset>
 
-          <div className="rounded-lg border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="font-medium">Commissions Denkma</div>
-                <div className="text-sm text-muted-foreground">
-                  Quand c'est désactivé, aucune commission n'est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
-                </div>
-              </div>
-              <Badge tone={form.delivery_commissions_enabled ? "success" : "default"}>
-                {form.delivery_commissions_enabled ? "Activées" : "Désactivées"}
-              </Badge>
+      <fieldset disabled={performanceRewardsMutation.isPending} aria-label="Récompenses de performance" className="min-w-0">
+        <Card id="recompenses" className="admin-section">
+          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Récompenses de performance</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Ces règles alimentent les bonus mensuels, objectifs, points client
+                et tableaux de monitoring.
+              </p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={form.delivery_commissions_enabled}
-              onClick={() =>
-                setForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        delivery_commissions_enabled: !current.delivery_commissions_enabled,
-                      }
-                    : current
-                )
-              }
-              className={`mt-4 inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                form.delivery_commissions_enabled
-                  ? "border-emerald-600 bg-emerald-600"
-                  : "border-input bg-muted"
-              }`}
+            <Button
+              onClick={() => performanceRewardsMutation.mutate()}
+              disabled={performanceRewardsMutation.isPending}
+              className="w-full md:w-auto"
             >
-              <span
-                className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                  form.delivery_commissions_enabled ? "translate-x-5" : "translate-x-0.5"
-                }`}
+              {performanceRewardsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Sauvegarder les récompenses
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              <SimpleNumberCard
+                label="Objectif livreur mensuel"
+                help="Utilisé dans la progression et le message de motivation."
+                value={performanceRewardsForm.driver.monthly_goal_deliveries}
+                suffix="courses"
+                onChange={(value) =>
+                  setPerformanceRewardsForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          driver: {
+                            ...current.driver,
+                            monthly_goal_deliveries: value,
+                          },
+                        }
+                      : current
+                  )
+                }
               />
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+              <SimpleNumberCard
+                label="Points client par colis livré"
+                help="Crédités quand un colis client est livré."
+                value={
+                  performanceRewardsForm.client.loyalty_points_per_delivered_parcel
+                }
+                suffix="points"
+                onChange={(value) =>
+                  setPerformanceRewardsForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          client: {
+                            ...current.client,
+                            loyalty_points_per_delivered_parcel: value,
+                          },
+                        }
+                      : current
+                  )
+                }
+              />
+              <SimpleNumberCard
+                label="Objectif client mensuel"
+                help="Base pour les futures cartes client et le monitoring."
+                value={performanceRewardsForm.client.monthly_goal_sent_parcels}
+                suffix="colis"
+                onChange={(value) =>
+                  setPerformanceRewardsForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          client: {
+                            ...current.client,
+                            monthly_goal_sent_parcels: value,
+                          },
+                        }
+                      : current
+                  )
+                }
+              />
+            </div>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>Diffusion des courses</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Définissez les rayons successifs et le moment où chaque palier devient visible avec notification push.
-            </p>
-          </div>
-          <Button
-            onClick={() => deliveryDispatchMutation.mutate()}
-            disabled={deliveryDispatchMutation.isPending}
-            className="w-full md:w-auto"
-          >
-            {deliveryDispatchMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Sauvegarder la diffusion
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {deliveryDispatchStages.map((stage, index) => (
-              <div key={`${index}-${stage.start_after_seconds}`} className="rounded-lg border p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="font-medium">Palier {index + 1}</div>
-                  <Badge tone={index === deliveryDispatchStages.length - 1 ? "success" : "default"}>
-                    {index === 0 ? "Initial" : index === deliveryDispatchStages.length - 1 ? "Portée max" : "Extension"}
-                  </Badge>
+            <div className="rounded-lg border p-4 space-y-3">
+              <div className="font-medium">Niveaux de fidélité client</div>
+              <p className="text-sm text-muted-foreground">Les points acquis sont conservés. Les seuils et réductions sauvegardés s’appliquent aux nouveaux devis ; les prix déjà confirmés ne changent pas. Les réductions restent soumises au tarif minimum et aux arrondis.</p>
+              {performanceRewardsForm.client.loyalty_tiers.map((tier, index) => (
+                <div key={tier.key} className="grid gap-3 sm:grid-cols-3 items-end">
+                  <div className="font-medium">{tier.label}</div>
+                  <label className="space-y-1"><span className="text-sm">Seuil en points</span><Input type="number" min={0} step={1} disabled={tier.key === "bronze"} value={tier.min_points} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
+                    ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, min_points: Number(event.target.value) } : item) },
+                  } : current)} /></label>
+                  <label className="space-y-1"><span className="text-sm">Réduction (%)</span><Input type="number" min={0} max={100} step={1} value={tier.discount_percent} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
+                    ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, discount_percent: Number(event.target.value) } : item) },
+                  } : current)} /></label>
                 </div>
-                <div className="grid gap-3">
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted-foreground">Rayon visible</span>
-                    <Input
-                      type="number"
-                      min={0.1}
-                      max={10}
-                      step="0.1"
-                      value={stage.radius_km}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-                        setDeliveryDispatchStages((current) =>
+              ))}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border p-4">
+                <div className="mb-3 font-medium">Bonus fiabilité livreur</div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={performanceRewardsForm.driver.success_bonus.enabled}
+                      onChange={(e) =>
+                        setPerformanceRewardsForm((current) =>
                           current
-                            ? current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? { ...item, radius_km: Number.isFinite(value) ? value : item.radius_km }
-                                  : item
-                              )
-                            : current
-                        );
-                      }}
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-muted-foreground">Départ après</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="1"
-                      value={stage.start_after_seconds}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-                        setDeliveryDispatchStages((current) =>
-                          current
-                            ? current.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      start_after_seconds: Number.isFinite(value)
-                                        ? Math.max(0, Math.round(value))
-                                        : item.start_after_seconds,
-                                    }
-                                  : item
-                              )
-                            : current
-                        );
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>Récompenses de performance</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Ces règles alimentent les bonus mensuels, objectifs, points client
-              et tableaux de monitoring.
-            </p>
-          </div>
-          <Button
-            onClick={() => performanceRewardsMutation.mutate()}
-            disabled={performanceRewardsMutation.isPending}
-            className="w-full md:w-auto"
-          >
-            {performanceRewardsMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Sauvegarder les récompenses
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-3">
-            <SimpleNumberCard
-              label="Objectif livreur mensuel"
-              help="Utilisé dans la progression et le message de motivation."
-              value={performanceRewardsForm.driver.monthly_goal_deliveries}
-              suffix="courses"
-              onChange={(value) =>
-                setPerformanceRewardsForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        driver: {
-                          ...current.driver,
-                          monthly_goal_deliveries: value,
-                        },
-                      }
-                    : current
-                )
-              }
-            />
-            <SimpleNumberCard
-              label="Points client par colis livré"
-              help="Crédités quand un colis client est livré."
-              value={
-                performanceRewardsForm.client.loyalty_points_per_delivered_parcel
-              }
-              suffix="points"
-              onChange={(value) =>
-                setPerformanceRewardsForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        client: {
-                          ...current.client,
-                          loyalty_points_per_delivered_parcel: value,
-                        },
-                      }
-                    : current
-                )
-              }
-            />
-            <SimpleNumberCard
-              label="Objectif client mensuel"
-              help="Base pour les futures cartes client et le monitoring."
-              value={performanceRewardsForm.client.monthly_goal_sent_parcels}
-              suffix="colis"
-              onChange={(value) =>
-                setPerformanceRewardsForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        client: {
-                          ...current.client,
-                          monthly_goal_sent_parcels: value,
-                        },
-                      }
-                    : current
-                )
-              }
-            />
-          </div>
-
-          <div className="rounded-lg border p-4 space-y-3">
-            <div className="font-medium">Niveaux de fidélité client</div>
-            <p className="text-sm text-muted-foreground">Les points acquis sont conservés. Les seuils et réductions sauvegardés s’appliquent aux nouveaux devis ; les prix déjà confirmés ne changent pas. Les réductions restent soumises au tarif minimum et aux arrondis.</p>
-            {performanceRewardsForm.client.loyalty_tiers.map((tier, index) => (
-              <div key={tier.key} className="grid gap-3 sm:grid-cols-3 items-end">
-                <div className="font-medium">{tier.label}</div>
-                <label className="space-y-1"><span className="text-sm">Seuil en points</span><Input type="number" min={0} step={1} disabled={tier.key === "bronze"} value={tier.min_points} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
-                  ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, min_points: Number(event.target.value) } : item) },
-                } : current)} /></label>
-                <label className="space-y-1"><span className="text-sm">Réduction (%)</span><Input type="number" min={0} max={100} step={1} value={tier.discount_percent} onChange={(event) => setPerformanceRewardsForm((current) => current ? {
-                  ...current, client: { ...current.client, loyalty_tiers: current.client.loyalty_tiers.map((item, i) => i === index ? { ...item, discount_percent: Number(event.target.value) } : item) },
-                } : current)} /></label>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border p-4">
-              <div className="mb-3 font-medium">Bonus fiabilité livreur</div>
-              <div className="grid gap-3 md:grid-cols-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={performanceRewardsForm.driver.success_bonus.enabled}
-                    onChange={(e) =>
-                      setPerformanceRewardsForm((current) =>
-                        current
-                          ? {
-                              ...current,
-                              driver: {
-                                ...current.driver,
-                                success_bonus: {
-                                  ...current.driver.success_bonus,
-                                  enabled: e.target.checked,
+                            ? {
+                                ...current,
+                                driver: {
+                                  ...current.driver,
+                                  success_bonus: {
+                                    ...current.driver.success_bonus,
+                                    enabled: e.target.checked,
+                                  },
                                 },
-                              },
-                            }
-                          : current
-                      )
+                              }
+                            : current
+                        )
+                      }
+                    />
+                    Actif
+                  </label>
+                  <MiniNumber
+                    label="Réussite min."
+                    suffix="%"
+                    value={
+                      performanceRewardsForm.driver.success_bonus.min_success_rate
+                    }
+                    onChange={(value) =>
+                      updateDriverSuccessBonus("min_success_rate", value)
                     }
                   />
-                  Actif
-                </label>
-                <MiniNumber
-                  label="Réussite min."
-                  suffix="%"
-                  value={
-                    performanceRewardsForm.driver.success_bonus.min_success_rate
-                  }
-                  onChange={(value) =>
-                    updateDriverSuccessBonus("min_success_rate", value)
-                  }
+                  <MiniNumber
+                    label="Courses min."
+                    value={performanceRewardsForm.driver.success_bonus.min_deliveries}
+                    onChange={(value) =>
+                      updateDriverSuccessBonus("min_deliveries", value)
+                    }
+                  />
+                  <MiniNumber
+                    label="Montant"
+                    suffix="XOF"
+                    value={performanceRewardsForm.driver.success_bonus.amount_xof}
+                    onChange={(value) =>
+                      updateDriverSuccessBonus("amount_xof", value)
+                    }
+                  />
+                </div>
+              </div>
+
+              <RewardRulesEditor
+                title="Bonus volume livreur"
+                rows={performanceRewardsForm.driver.volume_bonuses}
+                thresholdKey="min_deliveries"
+                thresholdLabel="Courses min."
+                onChange={(rows) =>
+                  setPerformanceRewardsForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          driver: { ...current.driver, volume_bonuses: rows },
+                        }
+                      : current
+                  )
+                }
+              />
+
+              <RewardRulesEditor
+                title="Bonus volume relais"
+                rows={performanceRewardsForm.relay.volume_bonuses}
+                thresholdKey="min_parcels"
+                thresholdLabel="Colis min."
+                onChange={(rows) =>
+                  setPerformanceRewardsForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          relay: { ...current.relay, volume_bonuses: rows },
+                        }
+                      : current
+                  )
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </fieldset>
+
+      <section id="guide" className="admin-section"><SendingGuideSettingsCard /></section>
+
+      <fieldset disabled={appUpdateMutation.isPending || appUpdateNotificationMutation.isPending} aria-label="Mises à jour mobiles" className="min-w-0">
+        <Card id="mises-a-jour" className="admin-section">
+          <CardHeader>
+            <CardTitle>Mises à jour mobiles</CardTitle>
+            <p className="text-sm text-muted-foreground">Versions annoncées aux utilisateurs et liens vers les boutiques. Ces réglages ne lancent pas de build ni de publication.</p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="font-medium">Contrôle de version</div>
+                <div className="text-sm text-muted-foreground">
+                  Force ou recommande une mise à jour sans republier l'application.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={appUpdateForm.enabled}
+                aria-label="Activer le contrôle de version mobile"
+                onClick={() =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, enabled: !current.enabled } : current
+                  )
+                }
+                className={`inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                  appUpdateForm.enabled
+                    ? "border-emerald-600 bg-emerald-600"
+                    : "border-input bg-muted"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                    appUpdateForm.enabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
                 />
-                <MiniNumber
-                  label="Courses min."
-                  value={performanceRewardsForm.driver.success_bonus.min_deliveries}
-                  onChange={(value) =>
-                    updateDriverSuccessBonus("min_deliveries", value)
+              </button>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="mb-3">
+                <div className="font-medium">Notifier une nouvelle version</div>
+                <div className="text-sm text-muted-foreground">
+                  Envoyez la notification lorsque la version est disponible sur le store concerné.
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => confirmAppUpdateNotification("android")}
+                  disabled={
+                    appUpdateNotificationMutation.isPending ||
+                    !appUpdateForm.android_latest_version.trim() ||
+                    !appUpdateForm.android_store_url.trim()
                   }
-                />
-                <MiniNumber
-                  label="Montant"
-                  suffix="XOF"
-                  value={performanceRewardsForm.driver.success_bonus.amount_xof}
-                  onChange={(value) =>
-                    updateDriverSuccessBonus("amount_xof", value)
+                >
+                  {appUpdateNotificationMutation.isPending &&
+                  appUpdateNotificationMutation.variables === "android" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <BellRing className="h-4 w-4" />
+                  )}
+                  Notifier les utilisateurs Android
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => confirmAppUpdateNotification("ios")}
+                  disabled={
+                    appUpdateNotificationMutation.isPending ||
+                    !appUpdateForm.ios_latest_version.trim() ||
+                    !appUpdateForm.ios_store_url.trim()
                   }
-                />
+                >
+                  {appUpdateNotificationMutation.isPending &&
+                  appUpdateNotificationMutation.variables === "ios" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <BellRing className="h-4 w-4" />
+                  )}
+                  Notifier les utilisateurs iOS
+                </Button>
               </div>
             </div>
 
-            <RewardRulesEditor
-              title="Bonus volume livreur"
-              rows={performanceRewardsForm.driver.volume_bonuses}
-              thresholdKey="min_deliveries"
-              thresholdLabel="Courses min."
-              onChange={(rows) =>
-                setPerformanceRewardsForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        driver: { ...current.driver, volume_bonuses: rows },
-                      }
-                    : current
-                )
-              }
-            />
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField
+                label="Message"
+                value={appUpdateForm.message}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, message: value } : current
+                  )
+                }
+              />
+              <div className="hidden md:block" />
+              <TextField
+                label="Android dernière version"
+                value={appUpdateForm.android_latest_version}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current
+                      ? { ...current, android_latest_version: value }
+                      : current
+                  )
+                }
+              />
+              <TextField
+                label="Android version minimale"
+                value={appUpdateForm.android_min_version}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, android_min_version: value } : current
+                  )
+                }
+              />
+              <TextField
+                label="Lien Play Store"
+                value={appUpdateForm.android_store_url}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, android_store_url: value } : current
+                  )
+                }
+              />
+              <div className="hidden md:block" />
+              <TextField
+                label="iOS dernière version"
+                value={appUpdateForm.ios_latest_version}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, ios_latest_version: value } : current
+                  )
+                }
+              />
+              <TextField
+                label="iOS version minimale"
+                value={appUpdateForm.ios_min_version}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, ios_min_version: value } : current
+                  )
+                }
+              />
+              <TextField
+                label="Lien App Store"
+                value={appUpdateForm.ios_store_url}
+                onChange={(value) =>
+                  setAppUpdateForm((current) =>
+                    current ? { ...current, ios_store_url: value } : current
+                  )
+                }
+              />
+            </div>
 
-            <RewardRulesEditor
-              title="Bonus volume relais"
-              rows={performanceRewardsForm.relay.volume_bonuses}
-              thresholdKey="min_parcels"
-              thresholdLabel="Colis min."
-              onChange={(rows) =>
-                setPerformanceRewardsForm((current) =>
-                  current
-                    ? {
-                        ...current,
-                        relay: { ...current.relay, volume_bonuses: rows },
-                      }
-                    : current
-                )
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => appUpdateMutation.mutate()}
+                disabled={appUpdateMutation.isPending}
+              >
+                {appUpdateMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                Sauvegarder les mises à jour
+              </Button>
+            </div>
+
+          </CardContent>
+        </Card>
+      </fieldset>
 
       <Card>
         <CardContent className="p-5 text-sm text-muted-foreground">
@@ -1058,14 +1071,17 @@ function NumberField({
   value: number;
   onChange: (value: number) => void;
 }) {
+  const fieldId = React.useId();
   return (
     <div className="rounded-lg border p-4">
-      <label className="block text-sm font-medium">{field.label}</label>
-      <p className="mt-1 min-h-10 text-xs text-muted-foreground">
+      <label htmlFor={fieldId} className="block text-sm font-medium">{field.label}</label>
+      <p id={`${fieldId}-help`} className="mt-1 min-h-10 text-xs text-muted-foreground">
         {field.help}
       </p>
       <div className="mt-3 flex items-center gap-2">
         <Input
+          id={fieldId}
+          aria-describedby={`${fieldId}-help`}
           type="number"
           min={field.min ?? 0}
           step={field.step ?? "1"}
@@ -1091,10 +1107,12 @@ function TextField({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const fieldId = React.useId();
   return (
     <div className="rounded-lg border p-4">
-      <label className="block text-sm font-medium">{label}</label>
+      <label htmlFor={fieldId} className="block text-sm font-medium">{label}</label>
       <Input
+        id={fieldId}
         className="mt-3"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -1116,12 +1134,15 @@ function SimpleNumberCard({
   suffix?: string;
   onChange: (value: number) => void;
 }) {
+  const fieldId = React.useId();
   return (
     <div className="rounded-lg border p-4">
-      <label className="block text-sm font-medium">{label}</label>
-      <p className="mt-1 min-h-10 text-xs text-muted-foreground">{help}</p>
+      <label htmlFor={fieldId} className="block text-sm font-medium">{label}</label>
+      <p id={`${fieldId}-help`} className="mt-1 min-h-10 text-xs text-muted-foreground">{help}</p>
       <div className="mt-3 flex items-center gap-2">
         <Input
+          id={fieldId}
+          aria-describedby={`${fieldId}-help`}
           type="number"
           min={0}
           value={value}
