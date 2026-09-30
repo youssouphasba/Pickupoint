@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/support_whatsapp_tile.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -58,13 +59,11 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
           const AccountSwitcherButton(),
           const NotificationsBellButton(route: '/relay/notifications'),
           IconButton(
-            icon: const Icon(Icons.settings),
+            tooltip: 'Mon profil relais',
+            icon: const Icon(Icons.person_outline),
             onPressed: () => context.push('/relay/profile'),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => ref.read(authProvider.notifier).logout(),
-          ),
+          const SupportWhatsAppButton(),
         ],
       ),
       body: RefreshIndicator(

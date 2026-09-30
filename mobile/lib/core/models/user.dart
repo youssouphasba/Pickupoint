@@ -33,6 +33,8 @@ class User {
     this.kycIdCardExpiresAt,
     this.kycLicenseExpiresAt,
     this.profilePictureUrl,
+    this.profilePictureStatus,
+    this.profilePictureRejectedReason,
     this.favoriteAddresses = const [],
     this.notificationPrefs = const NotificationPrefs(),
     this.isPhoneVerified = false,
@@ -48,6 +50,8 @@ class User {
 
   /// Rôles : 'client' | 'relay_agent' | 'driver' | 'admin'
   final String? profilePictureUrl;
+  final String? profilePictureStatus;
+  final String? profilePictureRejectedReason;
   final String role;
   final String? fullName;
   final String? email;
@@ -117,6 +121,9 @@ class User {
       // On le convertit en string si jamais c'est un enum Backend (UserRole.XXX)
       role: json['role']?.toString() ?? 'client',
       profilePictureUrl: profilePictureUrl,
+      profilePictureStatus: json['profile_picture_status'] as String?,
+      profilePictureRejectedReason:
+          json['profile_picture_rejected_reason'] as String?,
       fullName: json['name'] as String? ?? json['full_name'] as String?,
       email: json['email'] as String?,
       avatarUrl: avatarUrl,
@@ -180,6 +187,8 @@ class User {
         'user_id': id,
         'phone': phone,
         'profile_picture_url': profilePictureUrl,
+        'profile_picture_status': profilePictureStatus,
+        'profile_picture_rejected_reason': profilePictureRejectedReason,
         'role': role,
         'name': fullName,
         'email': email,
@@ -187,10 +196,29 @@ class User {
         'relay_point_id': relayPointId,
         'user_type': userType,
         'is_active': isActive,
+        'is_available': isAvailable,
+        'xp': xp,
+        'level': level,
+        'badges': badges,
+        'deliveries_completed': deliveriesCompleted,
+        'on_time_deliveries': onTimeDeliveries,
+        'average_rating': averageRating,
+        'total_earned': totalEarned,
+        'total_ratings_count': totalRatingsCount,
+        'loyalty_points': loyaltyPoints,
+        'loyalty_tier': loyaltyTier,
+        'referral_code': referralCode,
         'is_banned': isBanned,
+        'accepted_legal': acceptedLegal,
+        'accepted_legal_at': acceptedLegalAt?.toIso8601String(),
         'bio': bio,
+        'kyc_status': kycStatus,
+        'kyc_id_card_url': kycIdCardUrl,
+        'kyc_license_url': kycLicenseUrl,
         'kyc_id_card_expires_at': kycIdCardExpiresAt?.toIso8601String(),
         'kyc_license_expires_at': kycLicenseExpiresAt?.toIso8601String(),
+        'favorite_addresses':
+            favoriteAddresses.map((address) => address.toJson()).toList(),
         'notification_prefs': notificationPrefs.toJson(),
         'is_phone_verified': isPhoneVerified,
         'language': language,
@@ -211,6 +239,8 @@ class User {
     String? id,
     String? phone,
     String? profilePictureUrl, // Added this line
+    String? profilePictureStatus,
+    String? profilePictureRejectedReason,
     String? role,
     String? fullName,
     String? email,
@@ -254,6 +284,9 @@ class User {
         id: id ?? this.id,
         phone: phone ?? this.phone,
         profilePictureUrl: profilePictureUrl ?? this.profilePictureUrl,
+        profilePictureStatus: profilePictureStatus ?? this.profilePictureStatus,
+        profilePictureRejectedReason:
+            profilePictureRejectedReason ?? this.profilePictureRejectedReason,
         role: role ?? this.role,
         fullName: fullName ?? this.fullName,
         email: email ?? this.email,

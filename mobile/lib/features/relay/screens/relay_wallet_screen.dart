@@ -41,7 +41,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final compact = constraints.maxWidth < 380;
-                  final title = const Text(
+                  const title = Text(
                     'Dernières transactions',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   );
@@ -60,7 +60,7 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
                         )
                       : Row(
                           children: [
-                            Expanded(child: title),
+                            const Expanded(child: title),
                             filter,
                           ],
                         );

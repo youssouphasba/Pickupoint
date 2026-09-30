@@ -10,6 +10,7 @@ class ApiClient {
     String? token,
     String? Function()? currentToken,
     Future<String?> Function()? refreshToken,
+    HttpClientAdapter? httpClientAdapter,
   }) {
     _dio = Dio(
       BaseOptions(
@@ -19,18 +20,26 @@ class ApiClient {
       ),
     );
 
+    if (httpClientAdapter != null) _dio.httpClientAdapter = httpClientAdapter;
+
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
           final requestToken = currentToken?.call() ?? token;
-          if (requestToken != null && requestToken.isNotEmpty) {
+          final trusted = ApiEndpoints.isTrustedUri(options.uri);
+          if (trusted && requestToken != null && requestToken.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $requestToken';
+            options.followRedirects = false;
+          } else if (!trusted) {
+            options.headers
+                .removeWhere((key, _) => key.toLowerCase() == 'authorization');
           }
           return handler.next(options);
         },
         onError: (DioException error, handler) async {
           final requestToken = currentToken?.call() ?? token;
           if (error.response?.statusCode == 401 &&
+              ApiEndpoints.isTrustedUri(error.requestOptions.uri) &&
               requestToken != null &&
               refreshToken != null &&
               error.requestOptions.extra['authRetry'] != true) {
@@ -58,9 +67,10 @@ class ApiClient {
   }
 
   Future<Response> uploadAvatar(File file) async {
-    final fileName = file.path.split('/').last;
+    final fileName = file.path.split(RegExp(r'[\\/]')).last;
     final formData = FormData.fromMap({
-      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+      "file": await MultipartFile.fromFile(file.path,
+          filename: fileName, contentType: _uploadContentType(fileName)),
     });
     return _dio.post(ApiEndpoints.userAvatar, data: formData);
   }
@@ -70,12 +80,11 @@ class ApiClient {
     String docType, {
     DateTime? expiresOn,
   }) async {
-    final fileName = file.path.split('/').last;
+    final fileName = file.path.split(RegExp(r'[\\/]')).last;
     final formData = FormData.fromMap({
-      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+      "file": await MultipartFile.fromFile(file.path,
+          filename: fileName, contentType: _uploadContentType(fileName)),
     });
-    // doc_type est passé en query param ou multipart ?
-    // Mon backend le prend en query param par défaut si non spécifié comme Form (...)
     return _dio.post(
       ApiEndpoints.userKyc,
       queryParameters: {
@@ -85,6 +94,17 @@ class ApiClient {
       },
       data: formData,
     );
+  }
+
+  DioMediaType _uploadContentType(String filename) {
+    final extension = filename.split('.').last.toLowerCase();
+    return DioMediaType.parse(switch (extension) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'pdf' => 'application/pdf',
+      _ => 'application/octet-stream',
+    });
   }
 
   // --- Auth & Profile ---
@@ -362,6 +382,8 @@ class ApiClient {
     String code, {
     double? lat,
     double? lng,
+    double? accuracy,
+    DateTime? capturedAt,
   }) =>
       _dio.post(
         ApiEndpoints.confirmPickup(id),
@@ -369,6 +391,9 @@ class ApiClient {
           'code': code,
           if (lat != null) 'lat': lat,
           if (lng != null) 'lng': lng,
+          if (accuracy != null) 'accuracy': accuracy,
+          if (capturedAt != null)
+            'captured_at': capturedAt.toUtc().toIso8601String(),
         },
       );
 
@@ -376,10 +401,18 @@ class ApiClient {
     String parcelId, {
     required double lat,
     required double lng,
+    double? accuracy,
+    DateTime? capturedAt,
   }) =>
       _dio.post(
         ApiEndpoints.arriveAtDestination(parcelId),
-        data: {'lat': lat, 'lng': lng},
+        data: {
+          'lat': lat,
+          'lng': lng,
+          if (accuracy != null) 'accuracy': accuracy,
+          if (capturedAt != null)
+            'captured_at': capturedAt.toUtc().toIso8601String()
+        },
       );
 
   Future<Response> releaseMission(String id) =>
@@ -417,6 +450,11 @@ class ApiClient {
 
   Future<Response> updateMyDriverLocation(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.myDriverLocation, data: body);
+
+  Future<Response> uploadDriverTrace(
+          String id, List<Map<String, dynamic>> points) =>
+      _dio.post(ApiEndpoints.deliveryLocationTrace(id),
+          data: {'points': points});
 
   Future<Response> getRankings({String? period}) => _dio.get(
         ApiEndpoints.rankings,
@@ -499,6 +537,9 @@ class ApiClient {
       rethrow;
     }
   }
+
+  Future<Response> getAdminMissionTrace(String id) =>
+      _dio.get(ApiEndpoints.adminMissionTrace(id));
 
   Future<Response> getAdminAuditLog({int limit = 100}) =>
       _dio.get(ApiEndpoints.adminAuditLog, queryParameters: {'limit': limit});
@@ -945,6 +986,9 @@ class ApiClient {
   }
 
   Future<Uint8List> downloadBytes(String url) async {
+    if (!ApiEndpoints.isTrustedUri(Uri.parse(ApiEndpoints.resolve(url)))) {
+      throw ArgumentError('Ce lien de document ne provient pas de Denkma.');
+    }
     final response = await _dio.get(
       ApiEndpoints.resolve(url),
       options: Options(responseType: ResponseType.bytes),

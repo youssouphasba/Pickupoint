@@ -977,7 +977,7 @@ export default function ParcelDetailPage() {
                       disableDefaultUI={false}
                     >
                       <TraceBounds points={[...selectedTrail, selectedPickup, selectedDelivery, selectedDriver].filter((point): point is { lat: number; lng: number } => point !== null)} />
-                      {traceSegments.filter((segment) => segment.length > 2).map((segment, index) => (
+                      {traceSegments.filter((segment) => segment.length >= 2).map((segment, index) => (
                         <Polyline
                           key={index}
                           path={segment}
@@ -1019,7 +1019,7 @@ export default function ParcelDetailPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">Parcours enregistré de la collecte à la livraison. Trait vert : positions GPS successives · Orange : collecte · Vert : livraison · Bleu : dernière position. La distance est une estimation entre les points GPS, hors interruptions.</p>
-              {!traceSegments.some((segment) => segment.length > 2) && <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">Données GPS insuffisantes pour afficher le parcours effectué. Les repères indiquent les lieux, pas le chemin emprunté.</p>}
+              {!traceSegments.some((segment) => segment.length >= 2) && <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">Données GPS insuffisantes pour afficher le parcours effectué. Les repères indiquent les lieux, pas le chemin emprunté.</p>}
               {traceSummary && traceSummary.gaps.length > 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
                   <p>{traceSummary.gaps.length} interruption(s) ou anomalie(s). Les portions concernées ne sont pas reliées sur la carte.</p>
@@ -1030,7 +1030,7 @@ export default function ParcelDetailPage() {
               )}
               <p className="text-xs text-muted-foreground">L’historique peut être partiel pour les anciennes missions ou en cas de perte du signal. Une absence de déplacement GPS ne prouve pas un arrêt.</p>
               <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                <Row label="Distance GPS enregistrée" value={traceSegments.some((segment) => segment.length > 2) && traceSummary ? formatDistanceMeters(traceSummary.recorded_distance_meters) : "—"} />
+                <Row label="Distance GPS enregistrée" value={traceSegments.some((segment) => segment.length >= 2) && traceSummary ? formatDistanceMeters(traceSummary.recorded_distance_meters) : "—"} />
                 <Row label="Avant collecte" value={traceDuration(selectedRouteMission?.duration_summary?.assigned_to_pickup_seconds)} />
                 <Row label="Collecte → livraison" value={traceDuration(selectedRouteMission?.duration_summary?.pickup_to_completion_seconds)} />
                 <Row label="Durée totale" value={traceDuration(selectedRouteMission?.duration_summary?.assigned_to_completion_seconds)} />

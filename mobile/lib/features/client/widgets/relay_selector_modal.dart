@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/relay_public_details.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -241,8 +242,6 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
       return;
     }
 
-    final area = _relayArea(relay);
-    final hours = _relayOpeningHours(relay);
     final distance = _relayDistance(relay);
     showModalBottomSheet<void>(
       context: context,
@@ -255,65 +254,7 @@ class _RelaySelectorModalState extends ConsumerState<RelaySelectorModal> {
           ),
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(relay.name,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold)),
-                if (relay.addressLabel.trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(relay.addressLabel.trim()),
-                ],
-                if (area.isNotEmpty)
-                  Text(area, style: const TextStyle(color: Colors.blueGrey)),
-                if (relay.phone.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(relay.phone.trim()),
-                ],
-                if (distance != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.near_me_outlined,
-                          size: 18, color: Colors.blueGrey),
-                      const SizedBox(width: 6),
-                      Text('Depuis ma position : $distance'),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  'Places disponibles : ${relay.availableSlots.clamp(0, relay.capacity)}',
-                  style: const TextStyle(color: Colors.blueGrey),
-                ),
-                if (hours != null) ...[
-                  const SizedBox(height: 8),
-                  const Text('Horaires d’ouverture',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  ...relayOpeningHoursLines(relay.openingHours).map(
-                    (line) => Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text(line),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  relay.openingStatusLabel ??
-                      (relay.isOpen ? 'Ouvert maintenant' : 'Fermé maintenant'),
-                  style: TextStyle(
-                    color: _relayStatusColor(relay),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (relay.description?.trim().isNotEmpty == true) ...[
-                  const SizedBox(height: 8),
-                  Text(relay.description!.trim()),
-                ],
-              ],
-            ),
+            child: RelayPublicDetails(relay: relay, distance: distance),
           ),
         ),
       ),

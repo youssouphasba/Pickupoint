@@ -16,14 +16,14 @@ from datetime import timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 
 from core.exceptions import not_found_exception, bad_request_exception
 from core.limiter import limiter
 from config import UPLOADS_DIR, settings
 from database import db
 from models.parcel import ParcelQuote
-from services.parcel_service import _record_event, ensure_live_location_accuracy
+from services.parcel_service import _record_event, ensure_live_location_accuracy, sync_active_mission_with_parcel
 from services.pricing_service import calculate_price
 from services.payment_service import create_payment_link
 from services.google_maps_service import reverse_geocode
@@ -251,6 +251,8 @@ class LocationPayload(BaseModel):
     lat:       float = Field(..., ge=-90, le=90)
     lng:       float = Field(..., ge=-180, le=180)
     accuracy:  Optional[float] = Field(None, ge=0)
+    source: Literal["gps", "manual"] = "gps"
+    label: Optional[str] = Field(None, max_length=500)
     voice_note: Optional[str]  = None  # base64 ou URL enregistrement vocal
 
 
@@ -799,6 +801,7 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     ensure_live_location_accuracy(
         payload.accuracy,
         context="la confirmation de position",
+        source=payload.source,
     )
     is_recipient = parcel.get("recipient_confirm_token") == token
     field_prefix = "delivery" if is_recipient else "pickup"
@@ -816,7 +819,7 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     reverse_address = await reverse_geocode(payload.lat, payload.lng)
 
     location = {
-        "label":    _clean_text(previous_location.get("label")),
+        "label":    _clean_text(payload.label) or _clean_text(previous_location.get("label")),
         "district": _clean_text(previous_location.get("district")),
         "city":     _clean_text(previous_location.get("city")),
         "notes":    _clean_text(previous_location.get("notes")),
@@ -824,6 +827,7 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
             "lat":      payload.lat,
             "lng":      payload.lng,
             "accuracy": payload.accuracy,
+            "source": payload.source,
         },
         "source":    "gps_recipient" if is_recipient else "gps_sender",
         "confirmed": True,
@@ -916,6 +920,8 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
         if (not is_recipient) and mode.startswith("home_to_") and status == ParcelStatus.CREATED.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
 
+        await sync_active_mission_with_parcel(updated_parcel)
+
     return {"ok": True, "confirmed": field_prefix}
 
 
@@ -964,9 +970,10 @@ async def choose_destination_relay(token: str, payload: RelayChoicePayload, requ
     refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
     if refreshed:
         try:
-            await _refresh_quote_if_ready(refreshed)
+            refreshed, _ = await _refresh_quote_if_ready(refreshed)
         except Exception:
             pass
+        await sync_active_mission_with_parcel(refreshed)
 
     return {"ok": True, "relay_id": payload.relay_id}
 

@@ -4,12 +4,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from core.limiter import limiter
+from core.private_documents import PublicUploadFiles, is_private_upload_path
 
 from config import UPLOADS_DIR, settings
 from database import connect_db, close_db, db
@@ -640,14 +640,6 @@ async def lifespan(app: FastAPI):
     logger.info("Denkma API stopped")
 
 
-LEGACY_PRIVATE_UPLOAD_PREFIXES = (
-    "/uploads/parcel_photos/",
-    "/uploads/voice/",
-    "/uploads/profiles/",
-    "/uploads/kyc/",
-)
-
-
 app = FastAPI(
     title="Denkma API",
     description="Plateforme de livraison et points relais — Sénégal",
@@ -671,7 +663,7 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    if any(request.url.path.startswith(prefix) for prefix in LEGACY_PRIVATE_UPLOAD_PREFIXES):
+    if is_private_upload_path(request.url.path):
         return JSONResponse(status_code=404, content={"detail": "Not found"})
 
     response = await call_next(request)
@@ -707,7 +699,7 @@ async def add_security_headers(request: Request, call_next):
 # servir les URLs legacy déjà stockées en base — à retirer après migration
 # côté mobile (Dio + JWT sur le chargement d'image).
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+app.mount("/uploads", PublicUploadFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Routers — publics (sans auth)
 app.include_router(tracking.router, prefix="/api/tracking", tags=["Tracking"])

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/location/gps_trace.dart';
 import '../../../shared/utils/error_utils.dart';
 
 final adminParcelAuditProvider =
@@ -263,8 +264,8 @@ class _AdminParcelAuditScreenState
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         leading: const Icon(Icons.history),
-                        title: Text(
-                            event['event_type'] as String? ?? 'Événement'),
+                        title:
+                            Text(event['event_type'] as String? ?? 'Événement'),
                         subtitle: Text(
                           [
                             _formatDateTime(event['timestamp']) ??
@@ -296,9 +297,9 @@ class _AdminParcelAuditScreenState
 
   void _showReassignDialog(BuildContext context, String missionId) {
     final driverController = TextEditingController();
-      final reasonController = TextEditingController(
-        text: "Reaffectation manuelle par l'administration",
-      );
+    final reasonController = TextEditingController(
+      text: "Reaffectation manuelle par l'administration",
+    );
     var assignmentMode = 'normal';
     showDialog<void>(
       context: context,
@@ -544,7 +545,8 @@ class _AuditMissionMapState extends State<_AuditMissionMap> {
     final pickup = _latLngFromLocation(widget.mission['pickup']);
     final delivery = _latLngFromLocation(widget.mission['delivery']);
     final driver = _latLngFromMap(widget.mission['driver_location']);
-    final trail = _trailPoints(widget.mission);
+    final segments = recordedTraceSegments(widget.mission);
+    final trail = segments.expand((segment) => segment).toList();
     final planned = _decodePolyline(
       widget.mission['encoded_polyline'] as String?,
     );
@@ -625,22 +627,14 @@ class _AuditMissionMapState extends State<_AuditMissionMap> {
         ),
       );
     }
-    if (trail.length >= 2) {
+    for (var index = 0; index < segments.length; index++) {
+      if (segments[index].length < 2) continue;
       polylines.add(
         Polyline(
-          polylineId: const PolylineId('actual_route'),
-          points: trail,
+          polylineId: PolylineId('actual_route_$index'),
+          points: segments[index],
           color: Colors.green.shade600,
           width: 6,
-        ),
-      );
-    } else if (planned.length < 2 && pickup != null && delivery != null) {
-      polylines.add(
-        Polyline(
-          polylineId: const PolylineId('fallback_route'),
-          points: [pickup, delivery],
-          color: Colors.orange.shade700,
-          width: 4,
         ),
       );
     }
@@ -839,12 +833,6 @@ String? _locationLabel(Object? location) {
     return relay['label'] as String? ?? relay['name'] as String?;
   }
   return null;
-}
-
-List<LatLng> _trailPoints(Map<String, dynamic> mission) {
-  return List<Map<String, dynamic>>.from(
-    mission['gps_trail'] as List? ?? const [],
-  ).map<LatLng?>((point) => _latLngFromMap(point)).whereType<LatLng>().toList();
 }
 
 List<LatLng> _decodePolyline(String? encodedPolyline) {

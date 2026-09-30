@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/auth/auth_provider.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -13,10 +12,10 @@ import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../../../shared/widgets/account_switcher.dart';
+import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/state_feedback.dart';
 import '../../../shared/widgets/sending_guide.dart';
-import '../../driver/providers/driver_provider.dart';
 import '../providers/client_provider.dart';
 import '../widgets/client_loyalty_card.dart';
 import '../widgets/client_referral_entry.dart';
@@ -79,11 +78,7 @@ class _ClientHomeState extends ConsumerState<ClientHome>
         icon: const Icon(Icons.handshake_outlined),
         onPressed: () => context.push('/client/partnership'),
       ),
-      IconButton(
-        tooltip: 'Se déconnecter',
-        icon: const Icon(Icons.logout),
-        onPressed: () => _logout(context, ref),
-      ),
+      const SupportWhatsAppButton(),
     ];
 
     return DefaultTabController(
@@ -201,44 +196,6 @@ class _ClientHomeState extends ConsumerState<ClientHome>
       'disputed',
       'returned',
     }.contains(status);
-  }
-
-  Future<void> _logout(BuildContext context, WidgetRef ref) async {
-    if (!await _canLogout(context, ref) || !context.mounted) return;
-    await ref.read(authProvider.notifier).logout();
-  }
-
-  Future<bool> _canLogout(BuildContext context, WidgetRef ref) async {
-    final user = ref.read(authProvider).valueOrNull?.user;
-    if (user?.role != 'driver') return true;
-
-    try {
-      final canLeave = await canLeaveDriverAccount(ref);
-      if (canLeave) return true;
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Terminez ou libérez votre course active avant de quitter votre compte.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return false;
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Impossible de vérifier vos courses en cours. Réessayez dans un instant.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return false;
-    }
   }
 }
 

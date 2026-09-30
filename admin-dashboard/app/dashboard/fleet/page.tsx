@@ -12,7 +12,7 @@ import {
   Pin,
   Polyline,
 } from "@vis.gl/react-google-maps";
-import { fetchFleetLive } from "@/lib/api";
+import { fetchFleetLive, fetchFleetMissionTrace } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,6 +41,7 @@ type FleetMission = {
   location_updated_at?: string;
   location_source?: string | null;
   is_stale?: boolean;
+  is_live?: boolean;
   eta_text?: string;
   distance_text?: string;
   encoded_polyline?: string;
@@ -58,6 +59,7 @@ type FleetMission = {
     geopin?: GeoPoint | null;
   };
   gps_trail?: GeoPoint[];
+  trace_summary?: { segments?: GeoPoint[][]; gaps?: { reason: string }[] };
   route_summary?: {
     speed_kmh?: number;
     gps_points_count?: number;
@@ -173,14 +175,14 @@ export default function FleetPage() {
     if (selectedFilter === "live") {
       return missions.filter((mission) => {
         const location = readLatLng(mission.driver_location);
-        return Boolean(location && !mission.is_stale);
+        return Boolean(location && mission.is_live);
       });
     }
     if (selectedFilter === "signal_lost") {
       return missions.filter(
         (mission) =>
           mission.is_stale &&
-          ["assigned", "in_progress"].includes(mission.status ?? "")
+          ["assigned", "in_progress", "incident_reported"].includes(mission.status ?? "")
       );
     }
     if (selectedFilter === "idle") return [];
@@ -189,7 +191,7 @@ export default function FleetPage() {
 
   const filteredIdle = useMemo(() => {
     if (selectedFilter === "live") {
-      return idleDrivers.filter((driver) => Boolean(readLatLng(driver.driver_location)) && !driver.is_stale);
+      return idleDrivers.filter((driver) => Boolean(readLatLng(driver.driver_location)) && driver.is_live);
     }
     if (selectedFilter === "signal_lost") {
       return idleDrivers.filter((driver) => driver.is_stale);
@@ -213,13 +215,29 @@ export default function FleetPage() {
   }, [filteredMissions, filteredIdle]);
 
   const totalVisible = filteredMissions.length + filteredIdle.length;
-  const infoPin = selectedPin ?? hoveredPin;
+  const pin = selectedPin ?? hoveredPin;
+  let infoPin: SelectedPin = null;
+  if (pin?.kind === "mission") {
+    const current = missions.find((mission) => mission.mission_id === pin.data.mission_id);
+    if (current) infoPin = { kind: "mission", data: current };
+  } else if (pin?.kind === "idle") {
+    const current = idleDrivers.find((driver) => driver.driver_id === pin.data.driver_id);
+    if (current) infoPin = { kind: "idle", data: current };
+  }
   const compactPopup = !selectedPin && hoveredPin !== null;
   const selectedMission =
     infoPin?.kind === "mission" ? infoPin.data : null;
-  const selectedTrail = selectedMission?.gps_trail
-    ?.map(readLatLng)
-    .filter((point): point is { lat: number; lng: number } => point !== null) ?? [];
+  const { data: completeTrace } = useQuery<{ trace_summary: FleetMission["trace_summary"] }>({
+    queryKey: ["fleet-mission-trace", selectedMission?.mission_id],
+    queryFn: () => fetchFleetMissionTrace(selectedMission!.mission_id),
+    enabled: Boolean(selectedMission?.mission_id),
+    refetchInterval: 15_000,
+    staleTime: 15_000,
+  });
+  const selectedSegments = (completeTrace?.trace_summary ?? selectedMission?.trace_summary)?.segments?.map(
+    (segment) => segment.map(readLatLng)
+      .filter((point): point is { lat: number; lng: number } => point !== null)
+  ) ?? [];
   const selectedPickup = readLatLng(selectedMission?.pickup?.geopin);
   const selectedDelivery = readLatLng(selectedMission?.delivery?.geopin);
 
@@ -375,15 +393,16 @@ export default function FleetPage() {
                   />
                 )}
 
-                {selectedTrail.length > 1 && (
+                {selectedSegments.filter((segment) => segment.length > 1).map((segment, index) => (
                   <Polyline
-                    path={selectedTrail}
+                    key={`trace-${index}`}
+                    path={segment}
                     strokeColor="#0f766e"
                     strokeOpacity={0.95}
                     strokeWeight={5}
                     zIndex={20}
                   />
-                )}
+                ))}
 
                 {selectedPickup && (
                   <AdvancedMarker position={selectedPickup}>

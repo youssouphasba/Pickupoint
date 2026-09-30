@@ -370,15 +370,17 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
               ? LatLng(_originLat!, _originLng!)
               : null,
           favoriteAddresses: _originFavoriteAddresses,
+          initialSource: _originWasAdjusted ? 'manual' : 'gps',
+          initialAccuracy: _originAccuracy,
         ),
       );
       if (!mounted || result == null) return;
       setState(() {
         _originLat = result.position.latitude;
         _originLng = result.position.longitude;
-        _originAccuracy = null;
+        _originAccuracy = result.accuracy;
         _originAddress = result.address;
-        _originWasAdjusted = true;
+        _originWasAdjusted = result.source == 'manual';
       });
       _scrollTo(_destinationSectionKey);
       if ((result.address ?? '').trim().isEmpty) {

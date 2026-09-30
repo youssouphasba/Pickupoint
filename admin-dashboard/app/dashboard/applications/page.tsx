@@ -224,6 +224,7 @@ export default function ApplicationsPage() {
         cell: ({ row }) => {
           const application = row.original;
           const pending = application.status === "pending";
+          const canReview = application.type !== "driver" || application.can_review_documents === true;
           return (
             <div className="flex flex-wrap gap-2">
               <Button asChild size="sm" variant="outline">
@@ -235,7 +236,8 @@ export default function ApplicationsPage() {
               {pending && (
                 <Button
                   size="sm"
-                  disabled={approveMut.isPending}
+                  disabled={approveMut.isPending || !canReview}
+                  title={!canReview ? "Habilitation aux pièces d’identité requise" : undefined}
                   onClick={() => {
                     const notes = window.prompt("Note interne optionnelle") ?? undefined;
                     approveMut.mutate({ id: application.application_id, notes });
@@ -249,7 +251,8 @@ export default function ApplicationsPage() {
                 <Button
                   size="sm"
                   variant="destructive"
-                  disabled={rejectMut.isPending}
+                  disabled={rejectMut.isPending || !canReview}
+                  title={!canReview ? "Habilitation aux pièces d’identité requise" : undefined}
                   onClick={() => {
                     const notes = window.prompt("Raison du rejet");
                     if (!notes) return;

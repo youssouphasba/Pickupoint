@@ -41,6 +41,7 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
       final position = await FreshPositionHelper.getStrictFreshPosition(
         context: 'la préparation de la confirmation de votre position',
       );
+      if (!mounted) return;
       setState(() {
         _pendingLat = position.latitude;
         _pendingLng = position.longitude;
@@ -71,7 +72,10 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
   }
 
   Future<void> _confirmLocation() async {
-    if (_isSubmitting || _confirmed || _pendingLat == null || _pendingLng == null) {
+    if (_isSubmitting ||
+        _confirmed ||
+        _pendingLat == null ||
+        _pendingLng == null) {
       return;
     }
     setState(() {
@@ -86,6 +90,8 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
           'lat': _pendingLat,
           'lng': _pendingLng,
           'accuracy': _pendingAccuracy,
+          'source': _pendingWasAdjusted ? 'manual' : 'gps',
+          'label': _pendingAddress,
         },
       );
       if (!mounted) return;
@@ -115,15 +121,17 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
       builder: (_) => MapPickerModal(
         title: 'Vérifier votre position',
         initialPosition: LatLng(_pendingLat!, _pendingLng!),
+        initialSource: _pendingWasAdjusted ? 'manual' : 'gps',
+        initialAccuracy: _pendingAccuracy,
       ),
     );
     if (!mounted || result == null) return;
     setState(() {
       _pendingLat = result.position.latitude;
       _pendingLng = result.position.longitude;
-      _pendingAccuracy = null;
+      _pendingAccuracy = result.accuracy;
       _pendingAddress = result.address;
-      _pendingWasAdjusted = true;
+      _pendingWasAdjusted = result.source == 'manual';
     });
   }
 
@@ -170,9 +178,8 @@ class _ConfirmLocationScreenState extends ConsumerState<ConfirmLocationScreen> {
                       ? 'Détecter ma position'
                       : 'Confirmer cette position',
                   isLoading: _isSubmitting,
-                  onPressed: _pendingLat == null
-                      ? _prepareLocation
-                      : _confirmLocation,
+                  onPressed:
+                      _pendingLat == null ? _prepareLocation : _confirmLocation,
                 ),
               ],
               if (_error != null) ...[

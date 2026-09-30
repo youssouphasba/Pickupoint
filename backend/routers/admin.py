@@ -16,14 +16,16 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core.dependencies import require_role
-from core.exceptions import not_found_exception, bad_request_exception
+from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
+from core.private_documents import can_access_kyc_documents, has_kyc_document, require_kyc_access, serialize_private_user
 from core.limiter import limiter
 from core.security import hash_password
 from core.utils import normalize_phone
 from database import db
 from services.sending_guide import SendingGuideSettings, sending_guide_payload
 from services.loyalty_rules import compute_tier
-from services.mission_trace import load_trace, summarize_trace
+from services.mission_trace import load_trace, summarize_trace, timestamp
+from services.location_quality import location_is_live
 from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
@@ -1028,7 +1030,7 @@ async def reply_whatsapp_support_conversation_voice(
     return _support_send_result(message)
 
 
-def _user_identity_snapshot(user: dict | None) -> dict | None:
+def _user_identity_snapshot(user: dict | None, viewer: dict | None = None) -> dict | None:
     if not user:
         return None
     user_id = user.get("user_id")
@@ -1055,8 +1057,8 @@ def _user_identity_snapshot(user: dict | None) -> dict | None:
         "is_banned": user.get("is_banned", False),
         "is_available": user.get("is_available", False),
         "kyc_status": user.get("kyc_status", "none"),
-        "kyc_id_card_url": _admin_kyc_document_url(user_id, "id_card") if has_id_card else None,
-        "kyc_license_url": _admin_kyc_document_url(user_id, "license") if has_license else None,
+        "kyc_id_card_url": _admin_kyc_document_url(user_id, "id_card") if has_id_card and can_access_kyc_documents(viewer or {}) else None,
+        "kyc_license_url": _admin_kyc_document_url(user_id, "license") if has_license and can_access_kyc_documents(viewer or {}) else None,
         "relay_point_id": user.get("relay_point_id"),
         "deliveries_completed": user.get("deliveries_completed", 0),
         "average_rating": user.get("average_rating", 0.0),
@@ -1114,12 +1116,16 @@ async def _admin_sponsored_referral_summary(user_id: str) -> dict:
 def _application_snapshot(
     application: dict | None,
     user: dict | None = None,
+    viewer: dict | None = None,
 ) -> dict | None:
     if not application:
         return None
     data = dict(application.get("data") or {})
+    if not can_access_kyc_documents(viewer or {}):
+        for field in ("id_card_url", "license_url", "id_card_number", "license_number"):
+            data.pop(field, None)
     user_id = application.get("user_id") or (user or {}).get("user_id")
-    if application.get("type") == "driver" and user_id:
+    if application.get("type") == "driver" and user_id and can_access_kyc_documents(viewer or {}):
         if data.get("id_card_url") or (user or {}).get("kyc_id_card_path"):
             data["id_card_url"] = _admin_kyc_document_url(user_id, "id_card")
         if data.get("license_url") or (user or {}).get("kyc_license_path"):
@@ -2579,7 +2585,7 @@ async def admin_list_users(
             user["total_ranked_drivers"] = len(period_stats)
     total = await db.users.count_documents(query)
     
-    return {"users": users, "total": total}
+    return {"users": [serialize_private_user(user, _admin) for user in users], "total": total}
 
 
 @router.post("/notifications/send", summary="Envoyer une notification ciblée")
@@ -2720,7 +2726,7 @@ async def admin_moderate_profile_photo(
 
     updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     updated_user["profile_picture_status"] = _profile_picture_status(updated_user)
-    return {"user": updated_user}
+    return {"user": serialize_private_user(updated_user, admin_user)}
 
 
 @router.patch("/users/{user_id}/kyc", summary="Moderer le statut KYC d'un utilisateur")
@@ -2729,12 +2735,13 @@ async def admin_moderate_user_kyc(
     body: UserKycModerationRequest,
     admin_user=Depends(require_admin_dep),
 ):
+    require_kyc_access(admin_user)
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise not_found_exception("Utilisateur")
 
-    id_card_url = (user.get("kyc_id_card_url") or "").strip()
-    license_url = (user.get("kyc_license_url") or "").strip()
+    id_card_url = has_kyc_document(user, "id_card")
+    license_url = has_kyc_document(user, "license")
 
     if body.status == "verified":
         if user.get("role") == UserRole.DRIVER.value:
@@ -2774,7 +2781,34 @@ async def admin_moderate_user_kyc(
 
     updated_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     updated_user["profile_picture_status"] = _profile_picture_status(updated_user)
-    return {"user": updated_user}
+    return {"user": serialize_private_user(updated_user, admin_user)}
+
+
+class UserKycAccessRequest(BaseModel):
+    enabled: bool
+
+
+@router.put("/users/{user_id}/kyc-access", summary="Habiliter un administrateur à consulter les pièces d’identité")
+async def admin_set_kyc_access(user_id: str, body: UserKycAccessRequest, admin_user=Depends(require_admin_dep)):
+    if admin_user.get("role") != UserRole.SUPERADMIN.value:
+        raise forbidden_exception("Seul un superadmin peut modifier cette habilitation.")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise not_found_exception("Utilisateur")
+    if target.get("role") != UserRole.ADMIN.value:
+        raise bad_request_exception("Cette habilitation concerne uniquement les administrateurs.")
+    now = datetime.now(timezone.utc)
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "kyc_access_enabled": body.enabled, "kyc_access_updated_at": now,
+        "kyc_access_updated_by": admin_user["user_id"], "updated_at": now,
+    }})
+    await _record_event(
+        event_type="KYC_ACCESS_GRANTED" if body.enabled else "KYC_ACCESS_REVOKED",
+        actor_id=admin_user["user_id"], actor_role=admin_user["role"],
+        notes="Habilitation aux pièces d’identité modifiée",
+        metadata={"target_user_id": user_id, "enabled": body.enabled},
+    )
+    return {"enabled": body.enabled}
 
 
 @router.get("/users/{user_id}/detail", summary="Fiche detaillee d'un utilisateur")
@@ -2966,7 +3000,9 @@ async def admin_user_detail(
         }
 
     return {
-        "user": user,
+        "user": serialize_private_user(user, _admin),
+        "can_access_kyc_documents": can_access_kyc_documents(_admin),
+        "can_manage_kyc_access": _admin.get("role") == UserRole.SUPERADMIN.value,
         "summary": {
             "parcels_sent": await db.parcels.count_documents({"sender_user_id": user_id}),
             "parcels_received": await db.parcels.count_documents(received_query),
@@ -3030,7 +3066,7 @@ async def admin_user_detail(
         "recent_timeline": recent_timeline,
         "applications": [
             snapshot
-            for snapshot in (_application_snapshot(application, user) for application in applications)
+            for snapshot in (_application_snapshot(application, user, _admin) for application in applications)
             if snapshot
         ],
         "referral": {
@@ -3647,13 +3683,16 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         if last_seen_at and last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
         is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
-        is_live = bool(last_seen_at and last_seen_at >= fresh_cutoff)
+        is_live = location_is_live(live_location, last_seen_at, now=now, max_age_seconds=fresh_window_minutes * 60)
         if live_location and is_live:
             active_live_locations += 1
         if is_stale:
             stale_locations += 1
 
         trail = _normalize_trail(mission.get("gps_trail"))
+        trace_start = timestamp(mission.get("started_at"))
+        recorded_trail = [point for point in trail if trace_start is not None
+                          and timestamp(point.get("ts")) is not None and timestamp(point["ts"]) >= trace_start]
         pickup = _resolve_mission_pickup(parcel, mission, relay_lookup)
         delivery = _resolve_mission_delivery(parcel, mission, relay_lookup)
         fleet.append(
@@ -3673,11 +3712,12 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
                 "location_updated_at": last_seen_at,
                 "is_live": is_live,
                 "is_stale": is_stale,
-                "eta_seconds": mission.get("eta_seconds"),
-                "eta_text": mission.get("eta_text"),
-                "distance_text": mission.get("distance_text"),
-                "encoded_polyline": mission.get("encoded_polyline"),
+                "eta_seconds": mission.get("eta_seconds") if is_live and location_source == "mission" else None,
+                "eta_text": mission.get("eta_text") if is_live and location_source == "mission" else None,
+                "distance_text": mission.get("distance_text") if is_live and location_source == "mission" else None,
+                "encoded_polyline": mission.get("encoded_polyline") if location_source == "mission" else None,
                 "gps_trail": trail,
+                "trace_summary": summarize_trace(recorded_trail),
                 "pickup": pickup,
                 "delivery": delivery,
                 "sender_name": parcel.get("sender_name"),
@@ -3720,7 +3760,7 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
         if last_seen_at and last_seen_at.tzinfo is None:
             last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
         is_stale = bool(last_seen_at and last_seen_at < stale_cutoff)
-        is_live = bool(last_seen_at and last_seen_at >= fresh_cutoff)
+        is_live = location_is_live(location, last_seen_at, now=now, max_age_seconds=fresh_window_minutes * 60)
         if is_live:
             idle_live_drivers += 1
         elif is_stale:
@@ -3759,6 +3799,14 @@ async def get_live_fleet_rich(_admin=Depends(require_admin_dep)):
             "incident_reported": sum(1 for item in fleet if item["status"] == "incident_reported"),
         },
     }
+
+
+@router.get("/fleet/missions/{mission_id}/trace", summary="Parcours GPS réel complet d'une mission")
+async def get_fleet_mission_trace(mission_id: str, _admin=Depends(require_admin_dep)):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    return {"mission_id": mission_id, "trace_summary": summarize_trace(await load_trace(mission))}
 
 
 @router.get("/analytics/heatmap-rich", summary="Donnees heatmap des demandes (enrichi)")
@@ -4144,7 +4192,7 @@ async def get_user_history(user_id: str, _admin=Depends(require_admin_dep)):
     events = [item for item in timeline if item.get("kind") == "event"]
 
     return {
-        "user": user,
+        "user": serialize_private_user(user, _admin),
         "parcels_sent": parcels_sent,
         "parcels_received": parcels_received,
         "missions": missions,
@@ -4234,8 +4282,8 @@ async def admin_relay_point_detail(
 
     return {
         "relay_point": relay,
-        "owner": _user_identity_snapshot(owner),
-        "agents": [_user_identity_snapshot(agent) for agent in agents],
+        "owner": _user_identity_snapshot(owner, _admin),
+        "agents": [_user_identity_snapshot(agent, _admin) for agent in agents],
         "stock_summary": stock_summary,
         "wallet": _pick_snapshot(
             relay_wallet,
@@ -4251,7 +4299,7 @@ async def admin_relay_point_detail(
         "recent_parcels": recent_parcels,
         "applications": [
             snapshot
-            for snapshot in (_application_snapshot(application) for application in applications)
+            for snapshot in (_application_snapshot(application, viewer=_admin) for application in applications)
             if snapshot
         ],
     }
@@ -5250,12 +5298,17 @@ async def admin_get_audit_log(
             {"actor_id": {"$regex": pattern, "$options": "i"}},
             {"parcel_id": {"$regex": pattern, "$options": "i"}},
             {"notes": {"$regex": pattern, "$options": "i"}},
+            {"metadata.target_user_id": {"$regex": pattern, "$options": "i"}},
         ]
     cursor = db.parcel_events.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
     events = await cursor.to_list(length=limit)
     
     # Enrichissement avec les noms des acteurs et codes de colis
     for ev in events:
+        target_id = (ev.get("metadata") or {}).get("target_user_id")
+        if target_id:
+            target = await db.users.find_one({"user_id": target_id}, {"_id": 0, "name": 1})
+            ev["target_user_name"] = (target or {}).get("name")
         if ev.get("actor_id"):
             actor = await db.users.find_one({"user_id": ev["actor_id"]}, {"_id": 0, "name": 1})
             if actor:

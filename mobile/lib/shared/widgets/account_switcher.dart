@@ -22,7 +22,8 @@ class AccountSwitcherButton extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final isPro = effectiveRole == user.role;
+    final foreground =
+        IconTheme.of(context).color ?? Theme.of(context).colorScheme.onSurface;
 
     return PopupMenuButton<String>(
       icon: Stack(
@@ -30,7 +31,7 @@ class AccountSwitcherButton extends ConsumerWidget {
         children: [
           CircleAvatar(
             radius: 16,
-            backgroundColor: isPro ? Colors.white24 : Colors.white,
+            backgroundColor: foreground.withValues(alpha: .12),
             child: Icon(
               effectiveRole == 'client'
                   ? Icons.person
@@ -38,25 +39,12 @@ class AccountSwitcherButton extends ConsumerWidget {
                       ? Icons.delivery_dining
                       : Icons.store,
               size: 18,
-              color: isPro ? Colors.white : Theme.of(context).primaryColor,
-            ),
-          ),
-          Positioned(
-            right: -2,
-            bottom: -2,
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: Colors.green,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1.5),
-              ),
+              color: foreground,
             ),
           ),
         ],
       ),
-      tooltip: 'Changer de compte',
+      tooltip: 'Changer de mode',
       onSelected: (value) {
         _onSwitch(context, ref, value);
       },
@@ -85,7 +73,7 @@ class AccountSwitcherButton extends ConsumerWidget {
         _menuItem(
           value: 'client',
           icon: Icons.person,
-          label: 'Mode Client',
+          label: 'Mode client',
           subtitle: 'Envoyer & recevoir des colis',
           isActive: effectiveRole == 'client',
           color: Colors.indigo,
@@ -93,7 +81,7 @@ class AccountSwitcherButton extends ConsumerWidget {
         _menuItem(
           value: user.role,
           icon: user.role == 'driver' ? Icons.delivery_dining : Icons.store,
-          label: user.role == 'driver' ? 'Mode Livreur' : 'Mode Point Relais',
+          label: user.role == 'driver' ? 'Mode livreur' : 'Mode point relais',
           subtitle: user.role == 'driver'
               ? 'Voir mes missions & gains'
               : 'Gérer mon stock & scanner',
@@ -152,7 +140,7 @@ class AccountSwitcherButton extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          'Actif',
+                          'Vue actuelle',
                           style: TextStyle(
                             color: color,
                             fontSize: 10,

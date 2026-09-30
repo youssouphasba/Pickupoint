@@ -25,28 +25,32 @@ async def _purge_collection(collection_name: str, field: str, cutoff: datetime, 
 
 
 async def _purge_mission_traces(cutoff: datetime) -> dict[str, int]:
-    missions = await db.delivery_missions.find(
-        {
-            "status": {"$nin": list(ACTIVE_MISSION_STATUSES)},
-            "completed_at": {"$lt": cutoff},
-        },
-        {"_id": 0, "mission_id": 1},
-    ).to_list(length=5000)
-    mission_ids = [item["mission_id"] for item in missions if item.get("mission_id")]
     points_deleted = 0
-    for start in range(0, len(mission_ids), 500):
-        batch = mission_ids[start : start + 500]
-        if not batch:
-            continue
-        result = await db.mission_gps_points.delete_many({"mission_id": {"$in": batch}})
-        points_deleted += result.deleted_count
     missions_updated = 0
-    if mission_ids:
+    last_id = None
+    while True:
+        query = {
+            "status": {"$nin": [*ACTIVE_MISSION_STATUSES, "pending"]},
+            "gps_trace_purged_at": {"$exists": False},
+            "$or": [
+                {"completed_at": {"$lt": cutoff}},
+                {"completed_at": None, "updated_at": {"$lt": cutoff}},
+            ],
+        }
+        if last_id is not None:
+            query["mission_id"] = {"$gt": last_id}
+        missions = await db.delivery_missions.find(query, {"_id": 0, "mission_id": 1}).sort("mission_id", 1).to_list(length=500)
+        mission_ids = [item["mission_id"] for item in missions if item.get("mission_id")]
+        if not mission_ids:
+            break
+        last_id = mission_ids[-1]
+        points_deleted += (await db.mission_gps_points.delete_many({"mission_id": {"$in": mission_ids}, "ts": {"$lt": cutoff}})).deleted_count
         result = await db.delivery_missions.update_many(
-            {"mission_id": {"$in": mission_ids}},
-            {"$unset": {"gps_trail": "", "driver_location": "", "encoded_polyline": ""}},
+            {**query, "mission_id": {"$in": mission_ids}},
+            {"$unset": {"gps_trail": "", "driver_location": "", "encoded_polyline": ""},
+             "$set": {"gps_trace_purged_at": datetime.now(timezone.utc)}},
         )
-        missions_updated = result.modified_count
+        missions_updated += result.modified_count
     return {"mission_points": points_deleted, "missions": missions_updated}
 
 
@@ -235,6 +239,25 @@ async def _purge_deleted_account_kyc(cutoff: datetime) -> int:
     return modified
 
 
+async def _purge_orphaned_kyc(cutoff: datetime) -> int:
+    bucket = AsyncIOMotorGridFSBucket(get_db(), bucket_name="kyc_documents")
+    deleted = 0
+    cursor = db["kyc_documents.files"].find({"uploadDate": {"$lt": cutoff}}, {"_id": 1})
+    async for document in cursor:
+        file_id = document["_id"]
+        referenced = await db.users.find_one({"$or": [
+            {"kyc_id_card_file_id": str(file_id)}, {"kyc_license_file_id": str(file_id)},
+        ]}, {"_id": 1})
+        if referenced:
+            continue
+        try:
+            await bucket.delete(file_id)
+            deleted += 1
+        except NoFile:
+            pass
+    return deleted
+
+
 async def purge_expired_data() -> dict[str, int]:
     now = datetime.now(timezone.utc)
     result: dict[str, int] = {}
@@ -249,6 +272,10 @@ async def purge_expired_data() -> dict[str, int]:
     )
     result["audit_events"] = await _purge_collection(
         "admin_events", "created_at", _cutoff(settings.AUDIT_LOG_RETENTION_DAYS, now)
+    )
+    result["kyc_audit_events"] = await _purge_collection(
+        "parcel_events", "created_at", _cutoff(settings.AUDIT_LOG_RETENTION_DAYS, now),
+        {"event_type": {"$regex": "^KYC_"}},
     )
     result["delivery_logs"] = await _purge_collection(
         "delivery_logs", "created_at", _cutoff(settings.TECHNICAL_LOG_RETENTION_DAYS, now)
@@ -301,6 +328,7 @@ async def purge_expired_data() -> dict[str, int]:
     result["kyc_files"] = await _purge_deleted_account_kyc(
         _cutoff(settings.KYC_RETENTION_DAYS, now)
     )
+    result["kyc_orphans"] = await _purge_orphaned_kyc(now - timedelta(hours=settings.KYC_ORPHAN_GRACE_HOURS))
     result["campaign_media"] = await _purge_campaign_media(
         _cutoff(settings.CAMPAIGN_MEDIA_ORPHAN_GRACE_DAYS, now)
     )

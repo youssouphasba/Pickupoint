@@ -13,6 +13,7 @@ import '../providers/driver_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/account_switcher.dart';
+import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
@@ -20,7 +21,7 @@ import '../../../shared/notifications/notification_permission_banner.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_presence_service.dart';
-import '../../../core/location/location_tracking_service.dart';
+import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../widgets/completed_mission_card.dart';
@@ -215,22 +216,11 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     });
     await _fetchDriverLocation();
     if (!mounted) return false;
-    ref.read(locationTrackingServiceProvider);
     unawaited(ref.read(driverPresenceServiceProvider).reconcile(
           ref.read(authProvider).valueOrNull,
           forceUpload: true,
         ));
     return _driverLat != null && _driverLng != null;
-  }
-
-  Future<void> _syncDriverPresenceLocation(Position pos) async {
-    try {
-      await ref.read(apiClientProvider).updateMyDriverLocation({
-        'lat': pos.latitude,
-        'lng': pos.longitude,
-        'accuracy': pos.accuracy,
-      });
-    } catch (_) {}
   }
 
   /// Capture la position du livreur pour filtrer les missions par proximité.
@@ -266,7 +256,6 @@ class _DriverHomeState extends ConsumerState<DriverHome>
           _gpsLoading = false;
           _locationError = null;
         });
-        unawaited(_syncDriverPresenceLocation(pos));
       }
     } catch (_) {
       if (mounted) {
@@ -498,12 +487,12 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                 unselectedLabelColor: Colors.white70,
                 indicatorColor: Colors.white,
                 indicatorWeight: 3,
-                labelPadding: EdgeInsets.symmetric(horizontal: 4),
+                labelPadding: const EdgeInsets.symmetric(horizontal: 4),
                 labelStyle:
-                    TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                 unselectedLabelStyle:
-                    TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                tabs: [
+                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                tabs: const [
                   Tab(
                     height: 46,
                     child: _CompactTab(
@@ -606,17 +595,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                 ),
               ),
             ),
-          IconButton(
-            icon: Icon(
-              hasLockedMission ? Icons.lock_outline : Icons.logout,
-            ),
-            tooltip: hasLockedMission
-                ? 'Déconnexion bloquée pendant une course active'
-                : 'Se déconnecter',
-            onPressed: hasLockedMission
-                ? null
-                : () => ref.read(authProvider.notifier).logout(),
-          ),
+          const SupportWhatsAppButton(),
         ],
       ),
       body: Column(
@@ -1662,21 +1641,15 @@ class _MissionCard extends ConsumerWidget {
         return;
       }
       final api = ref.read(apiClientProvider);
-      Position? position;
-      try {
-        position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        ).timeout(const Duration(seconds: 10));
-      } catch (_) {}
+      final position = await FreshPositionHelper.getDriverSearchPosition();
       await api.acceptMission(
         mission.id,
-        location: position == null
-            ? null
-            : {
-                'lat': position.latitude,
-                'lng': position.longitude,
-                'accuracy': position.accuracy,
-              },
+        location: {
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'accuracy': position.accuracy,
+          'captured_at': position.timestamp.toUtc().toIso8601String(),
+        },
       );
       ref.invalidate(availableMissionsProvider);
       ref.invalidate(myMissionsProvider);
@@ -1687,7 +1660,7 @@ class _MissionCard extends ConsumerWidget {
       router.push('/driver/mission/${mission.id}');
     } catch (e) {
       if (context.mounted) {
-        String msg = 'Erreur lors de l\'acceptation';
+        String msg = friendlyError(e);
         if (e is DioException) {
           final data = e.response?.data;
           if (data is Map) msg = data['detail']?.toString() ?? msg;

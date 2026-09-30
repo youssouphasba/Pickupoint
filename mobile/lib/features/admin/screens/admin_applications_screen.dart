@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/api/api_endpoints.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/private_document_preview.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/relay_opening_hours_editor.dart';
@@ -141,25 +141,22 @@ class _ApplicationCard extends ConsumerWidget {
     final status = app['status']?.toString() ?? 'pending';
     final data = _asMap(app['data']);
     final user = _asMap(app['user']);
-    final authState = ref.watch(authProvider).valueOrNull;
-    final accessToken = authState?.accessToken;
     final phone = app['user_phone']?.toString() ?? '-';
     final name = app['user_name']?.toString() ?? phone;
     final appId = app['application_id']?.toString() ?? '';
     final userId = app['user_id']?.toString() ?? '';
     final isDriver = type == 'driver';
+    final canReview = !isDriver || app['can_review_documents'] == true;
     final color = isDriver ? Colors.blue : Colors.orange;
     final icon = isDriver ? Icons.delivery_dining : Icons.storefront_outlined;
     final createdAt = _formatDate(app['created_at']);
     final updatedAt = _formatDate(app['updated_at']);
     final message = _stringValue(data['message']);
     final adminNotes = _stringValue(app['admin_notes']);
-    final idCardUrl = userId.isNotEmpty
-        ? ApiEndpoints.adminUserKyc(userId, 'id_card')
-        : _stringValue(data['id_card_url']);
-    final licenseUrl = userId.isNotEmpty
-        ? ApiEndpoints.adminUserKyc(userId, 'license')
-        : _stringValue(data['license_url']);
+    final idCardUrl =
+        isDriver && canReview ? _stringValue(data['id_card_url']) : '';
+    final licenseUrl =
+        isDriver && canReview ? _stringValue(data['license_url']) : '';
     final geoLabel = _geopinLabel(data['geopin']);
     final geoMapUrl = _geopinMapUrl(data['geopin']);
     final profilePhotoUrl = _stringValue(
@@ -222,10 +219,12 @@ class _ApplicationCard extends ConsumerWidget {
               ),
             ],
             if (isDriver) ...[
-              _row(Icons.badge_outlined, 'CNI',
-                  _stringOrDash(data['id_card_number'])),
-              _row(Icons.credit_card_outlined, 'Permis',
-                  _stringOrDash(data['license_number'])),
+              if (data.containsKey('id_card_number'))
+                _row(Icons.badge_outlined, 'CNI',
+                    _stringOrDash(data['id_card_number'])),
+              if (data.containsKey('license_number'))
+                _row(Icons.credit_card_outlined, 'Permis',
+                    _stringOrDash(data['license_number'])),
               _row(
                 Icons.event_outlined,
                 'Expiration CNI',
@@ -299,33 +298,31 @@ class _ApplicationCard extends ConsumerWidget {
                   ),
                 if (idCardUrl.isNotEmpty)
                   OutlinedButton.icon(
-                    onPressed: accessToken == null || accessToken.isEmpty
-                        ? null
-                        : () => _previewDocument(
-                              context,
-                              accessToken,
-                              idCardUrl,
-                              title: 'Pièce d’identité (recto + verso)',
-                            ),
+                    onPressed: () => _previewDocument(
+                      context,
+                      ref,
+                      idCardUrl,
+                      title: 'Pièce d’identité (recto + verso)',
+                    ),
                     icon: const Icon(Icons.badge_outlined, size: 16),
                     label: const Text('Pièce d’identité R/V'),
                   ),
                 if (licenseUrl.isNotEmpty)
                   OutlinedButton.icon(
-                    onPressed: accessToken == null || accessToken.isEmpty
-                        ? null
-                        : () => _previewDocument(
-                              context,
-                              accessToken,
-                              licenseUrl,
-                              title: 'Permis (recto + verso)',
-                            ),
+                    onPressed: () => _previewDocument(
+                      context,
+                      ref,
+                      licenseUrl,
+                      title: 'Permis (recto + verso)',
+                    ),
                     icon: const Icon(Icons.credit_card_outlined, size: 16),
                     label: const Text('Permis RV'),
                   ),
                 if (status == 'pending')
                   OutlinedButton.icon(
-                    onPressed: () => _showRejectDialog(context, ref, appId),
+                    onPressed: canReview
+                        ? () => _showRejectDialog(context, ref, appId)
+                        : null,
                     icon: const Icon(Icons.close, size: 16),
                     label: const Text('Rejeter'),
                     style:
@@ -333,8 +330,9 @@ class _ApplicationCard extends ConsumerWidget {
                   ),
                 if (status == 'pending')
                   ElevatedButton.icon(
-                    onPressed: () =>
-                        _showApproveDialog(context, ref, appId, type),
+                    onPressed: canReview
+                        ? () => _showApproveDialog(context, ref, appId, type)
+                        : null,
                     icon: const Icon(Icons.check, size: 16),
                     label: const Text('Approuver'),
                     style: ElevatedButton.styleFrom(
@@ -343,7 +341,13 @@ class _ApplicationCard extends ConsumerWidget {
                   ),
               ],
             ),
-            if (status == 'pending' &&
+            if (isDriver && !canReview) ...[
+              const SizedBox(height: 12),
+              const Text(
+                  'Une habilitation aux pièces d’identité est nécessaire pour examiner cette candidature.'),
+            ],
+            if (canReview &&
+                status == 'pending' &&
                 idCardUrl.isEmpty &&
                 licenseUrl.isEmpty &&
                 geoMapUrl == null) ...[
@@ -414,86 +418,14 @@ class _ApplicationCard extends ConsumerWidget {
 
   Future<void> _previewDocument(
     BuildContext context,
-    String accessToken,
+    WidgetRef ref,
     String url, {
     required String title,
   }) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: InteractiveViewer(
-                minScale: 0.8,
-                maxScale: 4,
-                child: Image.network(
-                  url,
-                  headers: {'Authorization': 'Bearer $accessToken'},
-                  fit: BoxFit.contain,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) {
-                      return child;
-                    }
-                    return const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    return Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.broken_image_outlined,
-                            size: 40,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Impossible d’afficher l’image directement.',
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () => _openExternal(context, url),
-                            icon: const Icon(Icons.open_in_browser_outlined),
-                            label: const Text('Ouvrir le lien'),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    await showPrivateDocumentPreview(
+      context,
+      title: title,
+      loadDocument: () => ref.read(apiClientProvider).downloadBytes(url),
     );
   }
 

@@ -13,6 +13,7 @@ import re
 
 from config import settings
 from core.dependencies import get_current_user, require_role
+from core.private_documents import can_access_kyc_documents, has_kyc_document, kyc_document_url, require_kyc_access, validate_kyc_reference
 from core.exceptions import not_found_exception, bad_request_exception
 from core.date_filters import date_range_query
 from database import db
@@ -30,7 +31,7 @@ def _admin_kyc_document_url(user_id: str | None, doc_type: str) -> str | None:
     return f"{settings.BASE_URL.rstrip('/')}/api/users/{user_id}/kyc/{doc_type}"
 
 
-async def _normalize_admin_application_documents(applications: list[dict]) -> None:
+async def _normalize_admin_application_documents(applications: list[dict], viewer: dict) -> None:
     user_ids = [
         application.get("user_id")
         for application in applications
@@ -53,11 +54,14 @@ async def _normalize_admin_application_documents(applications: list[dict]) -> No
                 "profile_picture_rejected_reason": 1,
                 "kyc_id_card_path": 1,
                 "kyc_license_path": 1,
+                "kyc_id_card_file_id": 1,
+                "kyc_license_file_id": 1,
             },
         ).to_list(length=len(unique_user_ids))
         users_by_id = {user["user_id"]: user for user in users if user.get("user_id")}
 
     for application in applications:
+        application["can_review_documents"] = can_access_kyc_documents(viewer)
         user_id = application.get("user_id")
         if not user_id:
             continue
@@ -85,9 +89,14 @@ async def _normalize_admin_application_documents(applications: list[dict]) -> No
         if application.get("type") != "driver":
             application["data"] = data
             continue
-        if data.get("id_card_url") or user.get("kyc_id_card_path"):
+        if not can_access_kyc_documents(viewer):
+            for field in ("id_card_url", "license_url", "id_card_number", "license_number"):
+                data.pop(field, None)
+            application["data"] = data
+            continue
+        if data.get("id_card_url") or has_kyc_document(user, "id_card"):
             data["id_card_url"] = _admin_kyc_document_url(user_id, "id_card")
-        if data.get("license_url") or user.get("kyc_license_path"):
+        if data.get("license_url") or has_kyc_document(user, "license"):
             data["license_url"] = _admin_kyc_document_url(user_id, "license")
         application["data"] = data
 
@@ -171,6 +180,11 @@ async def apply_driver(
     if existing:
         raise bad_request_exception("Vous avez déjà une candidature en attente")
 
+    for doc_type in ("id_card", "license"):
+        validate_kyc_reference(getattr(body, f"{doc_type}_url"), current_user["user_id"], doc_type)
+        if not has_kyc_document(current_user, doc_type):
+            raise bad_request_exception("Téléversez votre pièce d’identité et votre permis avant d’envoyer la candidature.")
+
     now = datetime.now(timezone.utc)
     doc = {
         "application_id": f"app_{uuid.uuid4().hex[:12]}",
@@ -184,6 +198,8 @@ async def apply_driver(
         "created_at":      now,
         "updated_at":      now,
     }
+    for doc_type in ("id_card", "license"):
+        doc["data"][f"{doc_type}_url"] = kyc_document_url(current_user["user_id"], doc_type)
     await db.applications.insert_one(doc)
     await record_admin_event(
         AdminEventType.APPLICATION_SUBMITTED,
@@ -370,7 +386,7 @@ async def list_applications(
     cursor = db.applications.find(query, {"_id": 0}).sort("created_at", 1).skip(skip).limit(limit)
     total = await db.applications.count_documents(query)
     applications = await cursor.to_list(length=limit)
-    await _normalize_admin_application_documents(applications)
+    await _normalize_admin_application_documents(applications, _admin)
     return {"applications": applications, "total": total}
 
 
@@ -395,6 +411,7 @@ async def approve_application(
     user_id = app["user_id"]
 
     if app["type"] == "driver":
+        require_kyc_access(_admin)
         data = app["data"]
         user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
         if user and user.get("role") == UserRole.RELAY_AGENT.value:
@@ -405,6 +422,8 @@ async def approve_application(
             raise bad_request_exception("Le livreur doit ajouter une photo de profil avant validation")
         if user.get("profile_picture_status") != "approved":
             raise bad_request_exception("La photo de profil du livreur doit être approuvée avant validation")
+        if not all(has_kyc_document(user, doc_type) for doc_type in ("id_card", "license")):
+            raise bad_request_exception("La pièce d’identité et le permis doivent être téléversés avant validation.")
 
         def expiration_datetime(value: Any) -> datetime | None:
             if not value:
@@ -419,8 +438,8 @@ async def approve_application(
             {"user_id": user_id},
             {"$set": {
                 "role": UserRole.DRIVER.value,
-                "kyc_id_card_url": data.get("id_card_url"),
-                "kyc_license_url": data.get("license_url"),
+                "kyc_id_card_url": kyc_document_url(user_id, "id_card"),
+                "kyc_license_url": kyc_document_url(user_id, "license"),
                 "kyc_id_card_expires_at": expiration_datetime(
                     data.get("id_card_expires_on")
                 ),
@@ -505,6 +524,8 @@ async def reject_application(
     if app["status"] != "pending":
         raise bad_request_exception("Candidature déjà traitée")
 
+    if app["type"] == "driver":
+        require_kyc_access(_admin)
     await db.applications.update_one(
         {"application_id": application_id},
         {"$set": {

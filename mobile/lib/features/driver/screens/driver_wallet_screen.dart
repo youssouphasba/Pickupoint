@@ -65,7 +65,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final compact = constraints.maxWidth < 380;
-                  final title = const Text(
+                  const title = Text(
                     'Mouvements',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   );
@@ -84,7 +84,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                         )
                       : Row(
                           children: [
-                            Expanded(child: title),
+                            const Expanded(child: title),
                             filter,
                           ],
                         );

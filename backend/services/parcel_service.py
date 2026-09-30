@@ -450,22 +450,22 @@ async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5
     cutoff = datetime.now(timezone.utc) - timedelta(
         minutes=settings.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES
     )
-    
+
     cursor = db.users.find({
         "role": UserRole.DRIVER.value,
         "is_active": True,
         "is_available": True,
         "last_driver_location_at": {"$gte": cutoff}
     })
-    drivers = await cursor.to_list(length=100)
-    
+    drivers = await cursor.to_list(length=None)
+
     candidates = []
     for d in drivers:
         loc = d.get("last_driver_location")
-        if loc and loc.get("lat") and loc.get("lng"):
+        if loc and loc.get("lat") is not None and loc.get("lng") is not None and (loc.get("accuracy") is None or loc["accuracy"] <= settings.DRIVER_GPS_MAX_ACCURACY_METERS):
             dist = _haversine_km(lat, lng, loc["lat"], loc["lng"])
             candidates.append({"id": d["user_id"], "dist": dist})
-    
+
     candidates.sort(key=lambda x: x["dist"])
     return [c["id"] for c in candidates[:limit]]
 
@@ -489,12 +489,12 @@ async def _find_candidate_drivers_within_radius(
         },
         {"_id": 0, "user_id": 1, "last_driver_location": 1},
     )
-    drivers = await cursor.to_list(length=100)
+    drivers = await cursor.to_list(length=None)
 
     candidates = []
     for driver in drivers:
         location = driver.get("last_driver_location")
-        if location and location.get("lat") is not None and location.get("lng") is not None:
+        if location and location.get("lat") is not None and location.get("lng") is not None and (location.get("accuracy") is None or location["accuracy"] <= settings.DRIVER_GPS_MAX_ACCURACY_METERS):
             dist = _haversine_km(
                 lat,
                 lng,
@@ -562,7 +562,7 @@ async def sync_active_mission_with_parcel(
     mission = await db.delivery_missions.find_one(
         {
             "parcel_id": parcel["parcel_id"],
-            "status": {"$in": ["pending", "assigned", "in_progress"]},
+            "status": {"$in": ["pending", "assigned", "in_progress", "incident_reported"]},
         },
         {"_id": 0},
     )
@@ -570,7 +570,14 @@ async def sync_active_mission_with_parcel(
         return
 
     delivery_source = _current_delivery_location(parcel)
-    delivery_geopin = _normalize_geopin(delivery_source)
+    delivery_relay_id = mission.get("delivery_relay_id")
+    if mission.get("delivery_type") == "relay":
+        if delivery_relay_id != parcel.get("transit_relay_id"):
+            delivery_relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id") or delivery_relay_id
+        relay = await db.relay_points.find_one({"relay_id": delivery_relay_id}, {"_id": 0}) if delivery_relay_id else None
+        if relay:
+            delivery_source = {**(relay.get("address") or {}), "label": relay.get("name")}
+    delivery_geopin = _normalize_geopin(delivery_source) or mission.get("delivery_geopin")
     delivery_label = (
         delivery_source.get("label")
         or delivery_source.get("notes")
@@ -588,6 +595,7 @@ async def sync_active_mission_with_parcel(
         "delivery_label": delivery_label,
         "delivery_city": delivery_city,
         "delivery_area_label": delivery_area_label,
+        "delivery_relay_id": delivery_relay_id,
         "payment_status": parcel.get("payment_status"),
         "payment_method": parcel.get("payment_method"),
         "who_pays": parcel.get("who_pays"),
@@ -598,9 +606,35 @@ async def sync_active_mission_with_parcel(
     if earn_amount is not None:
         update_doc["earn_amount"] = earn_amount
 
+    if mission.get("status") in {"pending", "assigned"}:
+        pickup_source = parcel.get("origin_location") or parcel.get("pickup_location") or {}
+        if mission.get("pickup_type") == "relay":
+            relay_id = mission.get("pickup_relay_id") or parcel.get("origin_relay_id")
+            relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0}) if relay_id else None
+            pickup_source = {**((relay or {}).get("address") or {}), "label": (relay or {}).get("name")}
+        update_doc.update({
+            "pickup_geopin": _normalize_geopin(pickup_source) or mission.get("pickup_geopin"),
+            "pickup_label": pickup_source.get("label") or mission.get("pickup_label"),
+            "pickup_city": pickup_source.get("city") or mission.get("pickup_city") or "",
+            "pickup_area_label": build_location_area_label(pickup_source, mission.get("pickup_area_label") or mission.get("pickup_label") or "Collecte"),
+        })
+
+    def coordinates(point):
+        point = point or {}
+        return point.get("lat"), point.get("lng")
+
+    target_prefix = "pickup" if mission.get("status") in {"pending", "assigned"} else "delivery"
+    target_changed = coordinates(mission.get(f"{target_prefix}_geopin")) != coordinates(update_doc.get(f"{target_prefix}_geopin"))
+    update = {"$set": update_doc}
+    if target_changed:
+        update["$unset"] = {key: "" for key in (
+            "eta_seconds", "eta_text", "distance_text", "encoded_polyline", "eta_updated_at", "eta_attempted_at", "eta_target_status",
+            "pickup_relay_approaching_notified" if target_prefix == "pickup" else "approaching_notified",
+        )}
+
     await db.delivery_missions.update_one(
-        {"mission_id": mission["mission_id"]},
-        {"$set": update_doc},
+        {"mission_id": mission["mission_id"], "status": mission.get("status")},
+        update,
     )
 
 
@@ -1485,7 +1519,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     # Éviter les doublons — seules les missions actives bloquent (pas les complétées/échouées)
     existing = await db.delivery_missions.find_one({
         "parcel_id": parcel["parcel_id"],
-        "status": {"$in": ["pending", "assigned", "in_progress"]},
+        "status": {"$in": ["pending", "assigned", "in_progress", "incident_reported"]},
     })
     if existing:
         return

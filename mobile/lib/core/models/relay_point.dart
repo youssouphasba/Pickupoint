@@ -11,6 +11,7 @@ class RelayPoint {
     this.lat,
     this.lng,
     this.district,
+    this.addressNotes,
     this.capacity = 20,
     this.currentStock = 0,
     this.isVerified = false,
@@ -31,6 +32,7 @@ class RelayPoint {
   final double? lat;
   final double? lng;
   final String? district;
+  final String? addressNotes;
   final int capacity;
   final int currentStock;
   final bool isVerified;
@@ -78,6 +80,7 @@ class RelayPoint {
       addressLabel: addressLabel,
       city: addr['city'] as String? ?? '',
       district: addr['district'] as String?,
+      addressNotes: addr['notes'] as String?,
       agentId: json['owner_user_id'] as String? ?? '',
       lat: (geopin?['lat'] as num?)?.toDouble(),
       lng: (geopin?['lng'] as num?)?.toDouble(),

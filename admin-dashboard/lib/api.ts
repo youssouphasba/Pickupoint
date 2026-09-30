@@ -9,6 +9,15 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+api.interceptors.request.use((config) => {
+  const destination = new URL(config.url ?? "", config.baseURL ?? baseURL);
+  const expected = new URL(baseURL);
+  if (destination.origin !== expected.origin || destination.username || destination.password) {
+    throw new Error("Cette adresse ne provient pas du serveur Denkma.");
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
@@ -27,6 +36,7 @@ export type AdminMe = {
   full_name: string | null;
   role: string;
   avatar_url?: string | null;
+  can_access_kyc_documents?: boolean;
 };
 
 export async function fetchMe(): Promise<AdminMe> {
@@ -34,13 +44,14 @@ export async function fetchMe(): Promise<AdminMe> {
   return data as AdminMe;
 }
 
-export async function login(email: string, password: string) {
-  const { data } = await api.post("/api/admin/auth/login", { email, password });
+export async function login(email: string, password: string, otp?: string) {
+  const { data } = await api.post("/api/admin/auth/login", { email, password, ...(otp ? { otp } : {}) });
   return data;
 }
 
 export async function logout() {
   await api.post("/api/admin/auth/logout").catch(() => {});
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("denkma-admin-logout"));
 }
 
 export type PrivacyRequest = {
@@ -206,8 +217,14 @@ export async function moderateUserKyc(
   return data;
 }
 
+export async function setUserKycAccess(userId: string, enabled: boolean) {
+  const { data } = await api.put(`/api/admin/users/${userId}/kyc-access`, { enabled });
+  return data;
+}
+
 export type AdminApplication = {
   application_id: string;
+  can_review_documents?: boolean;
   user_id: string;
   user_phone?: string | null;
   user_name?: string | null;
@@ -488,6 +505,7 @@ export async function fetchWhatsappSupportConversations(params?: {status?: strin
     "/api/admin/support/whatsapp/conversations", {params});
   return data;
 }
+
 const supportPath = (id: string) => `/api/admin/support/whatsapp/conversations/${encodeURIComponent(id)}`;
 export async function fetchWhatsappSupportConversation(conversationId: string, params?: {before?: string; limit?: number}) {
   const {data} = await api.get<{conversation: WhatsAppSupportConversation; messages: WhatsAppSupportMessage[];
@@ -992,6 +1010,11 @@ export async function overrideParcelStatus(
 
 export async function fetchParcelAudit(parcelId: string) {
   const { data } = await api.get(`/api/admin/parcels/${parcelId}/audit-rich`);
+  return data;
+}
+
+export async function fetchFleetMissionTrace(missionId: string) {
+  const { data } = await api.get(`/api/admin/fleet/missions/${encodeURIComponent(missionId)}/trace`);
   return data;
 }
 

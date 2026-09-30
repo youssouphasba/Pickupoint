@@ -10,6 +10,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/admin_provider.dart';
+import '../../../core/location/gps_trace.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class AdminFleetMapScreen extends ConsumerStatefulWidget {
@@ -31,6 +32,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
     super.initState();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       ref.invalidate(adminFleetProvider);
+      ref.invalidate(adminMissionTraceProvider);
     });
   }
 
@@ -54,6 +56,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
             onPressed: () {
               _lastCameraKey = null;
               ref.invalidate(adminFleetProvider);
+              ref.invalidate(adminMissionTraceProvider);
             },
           ),
         ],
@@ -69,7 +72,20 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           final summary = Map<String, dynamic>.from(
             payload['summary'] as Map? ?? const {},
           );
-          final selectedMission = _resolveSelectedMission(fleet);
+          final selection = _resolveSelectedMission(fleet);
+          final fullTrace = selection == null
+              ? null
+              : ref
+                  .watch(adminMissionTraceProvider(
+                      selection['mission_id'] as String))
+                  .valueOrNull;
+          final selectedMission = selection == null
+              ? null
+              : {
+                  ...selection,
+                  if (fullTrace?['trace_summary'] != null)
+                    'trace_summary': fullTrace!['trace_summary'],
+                };
           final visiblePoints =
               _cameraSeedPoints(fleet, idleDrivers, selectedMission);
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -375,7 +391,7 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
 
       final plannedPoints =
           _decodePolyline(selectedMission['encoded_polyline'] as String?);
-      final trailPoints = _trailPoints(selectedMission);
+      final segments = recordedTraceSegments(selectedMission);
       if (plannedPoints.length >= 2) {
         polylines.add(
           Polyline(
@@ -386,24 +402,14 @@ class _AdminFleetMapScreenState extends ConsumerState<AdminFleetMapScreen> {
           ),
         );
       }
-      if (trailPoints.length >= 2) {
+      for (var index = 0; index < segments.length; index++) {
+        if (segments[index].length < 2) continue;
         polylines.add(
           Polyline(
-            polylineId: const PolylineId('actual_route'),
-            points: trailPoints,
+            polylineId: PolylineId('actual_route_$index'),
+            points: segments[index],
             color: Colors.green.shade600,
             width: 6,
-          ),
-        );
-      } else if (plannedPoints.length < 2 &&
-          pickup != null &&
-          delivery != null) {
-        polylines.add(
-          Polyline(
-            polylineId: const PolylineId('fallback_route'),
-            points: [pickup, delivery],
-            color: Colors.orange.shade600,
-            width: 4,
           ),
         );
       }
@@ -971,7 +977,7 @@ String _fleetLocationLabel(Map<String, dynamic> mission) {
   if (mission['driver_location'] == null) {
     return 'Aucune position live disponible pour ce livreur.';
   }
-  if (isStale) {
+  if (isStale || mission['is_live'] != true) {
     return lastSeen == null
         ? 'Signal GPS ancien'
         : 'Dernier point connu: $lastSeen';

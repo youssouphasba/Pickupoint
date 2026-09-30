@@ -4,7 +4,6 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  api,
   assignRelayPoint,
   banUser,
   changeUserRole,
@@ -16,6 +15,7 @@ import {
   moderateUserKyc,
   setReferralAccess,
   setUserPayoutBlock,
+  setUserKycAccess,
   startWhatsappSupport,
   unbanUser,
 } from "@/lib/api";
@@ -26,6 +26,7 @@ import { ActionModal, ConfirmModal } from "@/components/action-modal";
 import { LocationPreviewMap } from "@/components/location-preview-map";
 import { formatRelayOpeningHours } from "@/components/relay-opening-hours-editor";
 import { SecureProfileImage } from "@/components/secure-profile-image";
+import { openSecureDocument } from "@/lib/private-documents";
 import { resolveLocationSignal } from "@/lib/location-signal";
 import {
   Select,
@@ -141,24 +142,6 @@ function applicationStatusTone(status: unknown): BadgeTone {
       return "warning";
     default:
       return "default";
-  }
-}
-
-async function openSecureDocument(url: string) {
-  const popup = window.open("about:blank", "_blank");
-  try {
-    const response = await api.get(url, { responseType: "blob" });
-    const objectUrl = URL.createObjectURL(response.data);
-    if (popup) {
-      popup.opener = null;
-      popup.location.href = objectUrl;
-    } else {
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-    }
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-  } catch (error) {
-    popup?.close();
-    throw error;
   }
 }
 
@@ -325,6 +308,15 @@ export default function UserDetailPage() {
       invalidate();
       toast(vars.blocked ? "Décaissements bloqués." : "Décaissements débloqués.");
     },
+  });
+
+  const kycAccessMut = useMutation({
+    mutationFn: (enabled: boolean) => setUserKycAccess(id, enabled),
+    onSuccess: (_, enabled) => {
+      invalidate();
+      toast(enabled ? "Accès aux pièces d’identité autorisé." : "Accès aux pièces d’identité retiré.");
+    },
+    onError: () => toast("Impossible de modifier cette habilitation."),
   });
 
   if (isLoading) {
@@ -552,9 +544,23 @@ export default function UserDetailPage() {
         </CardContent>
       </Card>
 
+      {user.role === "admin" && data.can_manage_kyc_access && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Accès aux pièces d’identité</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Autorisez uniquement les administrateurs chargés de vérifier les documents. Les consultations sont enregistrées dans le journal des actions.
+            </p>
+            <Button variant="outline" disabled={kycAccessMut.isPending}
+              onClick={() => kycAccessMut.mutate(user.kyc_access_enabled !== true)}>
+              {user.kyc_access_enabled ? "Retirer l’accès aux documents" : "Autoriser l’accès aux documents"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">KYC</CardTitle>
+          <CardTitle className="text-base">Vérification d’identité</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -586,7 +592,9 @@ export default function UserDetailPage() {
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">
-              Aucun document KYC transmis pour le moment.
+              {data.can_access_kyc_documents === false
+                ? "La consultation des pièces est réservée aux administrateurs habilités."
+                : "Aucun document transmis pour le moment."}
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -595,7 +603,7 @@ export default function UserDetailPage() {
               disabled={kycDocuments.length === 0 || kycModerationMut.isPending}
               onClick={() => setApproveKycOpen(true)}
             >
-              Verifier
+              Valider les documents
             </Button>
             <Button
               size="sm"

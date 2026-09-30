@@ -1,28 +1,20 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_background_location_tile.dart';
+import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_presence_service.dart';
-import '../../../core/models/user.dart';
+import '../../../shared/profile/profile_widgets.dart';
 import '../../../shared/utils/currency_format.dart';
-import '../../../shared/widgets/authenticated_avatar.dart';
-import '../../../shared/widgets/change_pin_tile.dart';
+import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/driver_provider.dart';
-import '../../../shared/utils/error_utils.dart';
 
 class DriverProfileScreen extends ConsumerStatefulWidget {
   const DriverProfileScreen({super.key, this.initialSection});
-
   final String? initialSection;
 
   @override
@@ -32,29 +24,24 @@ class DriverProfileScreen extends ConsumerStatefulWidget {
 
 class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
   final _scrollController = ScrollController();
-  final _performanceKey = GlobalKey();
-  final _identityKey = GlobalKey();
-  final _walletKey = GlobalKey();
-  final _referralKey = GlobalKey();
-  final _kycKey = GlobalKey();
-  final _notificationsKey = GlobalKey();
+  final _availabilityKey = GlobalKey();
+  final _documentsKey = GlobalKey();
+  final _activityKey = GlobalKey();
+  final _moneyKey = GlobalKey();
+  final _settingsKey = GlobalKey();
   final _supportKey = GlobalKey();
-  bool _busyAvailability = false;
-  bool _busyAvatar = false;
-  String? _busyDocType;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    _scrollToInitialSection();
+    _scrollToSection();
   }
 
   @override
   void didUpdateWidget(covariant DriverProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialSection != widget.initialSection) {
-      _scrollToInitialSection();
-    }
+    if (oldWidget.initialSection != widget.initialSection) _scrollToSection();
   }
 
   @override
@@ -63,32 +50,21 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
     super.dispose();
   }
 
-  void _scrollToInitialSection() {
+  void _scrollToSection() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final context = _sectionContext(widget.initialSection);
-      if (context == null) return;
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
-        alignment: 0.08,
-      );
+      final key = switch (widget.initialSection?.toLowerCase()) {
+        'performance' => _activityKey,
+        'availability' => _availabilityKey,
+        'kyc' || 'documents' => _documentsKey,
+        'wallet' || 'referral' || 'parrainage' => _moneyKey,
+        'support' => _supportKey,
+        'identity' || 'notifications' || 'security' => _settingsKey,
+        _ => null,
+      };
+      final target = key?.currentContext;
+      if (target != null) Scrollable.ensureVisible(target, alignment: 0.05);
     });
-  }
-
-  BuildContext? _sectionContext(String? section) {
-    final key = switch ((section ?? '').trim().toLowerCase()) {
-      'performance' => _performanceKey,
-      'identity' => _identityKey,
-      'wallet' => _walletKey,
-      'referral' || 'parrainage' => _referralKey,
-      'kyc' || 'documents' => _kycKey,
-      'notifications' => _notificationsKey,
-      'support' || 'security' => _supportKey,
-      _ => null,
-    };
-    return key?.currentContext;
   }
 
   Future<void> _refresh() async {
@@ -98,1050 +74,197 @@ class _DriverProfileScreenState extends ConsumerState<DriverProfileScreen> {
   }
 
   Future<void> _toggleAvailability() async {
-    if (_busyAvailability) return;
-    setState(() => _busyAvailability = true);
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
-      final currentlyAvailable =
-          ref.read(authProvider).valueOrNull?.user?.isAvailable ?? false;
-      if (!currentlyAvailable &&
+      final user = ref.read(authProvider).valueOrNull?.user;
+      if (user == null) return;
+      if (!await canLeaveDriverAccount(ref)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Terminez ou libérez votre course active avant de modifier votre disponibilité.')));
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (!user.isAvailable &&
           !await DriverLocationConsent.ensureForWork(context)) {
         return;
       }
       if (!mounted) return;
-      final res = await ref.read(apiClientProvider).toggleAvailability();
-      final newValue = res.data['is_available'] as bool? ?? false;
-      ref.read(authProvider.notifier).updateUserAvailability(newValue);
-      if (newValue) {
-        unawaited(ref.read(driverPresenceServiceProvider).reconcile(
-              ref.read(authProvider).valueOrNull,
-              forceUpload: true,
-            ));
+      final response = await ref.read(apiClientProvider).toggleAvailability();
+      final available = response.data['is_available'] as bool? ?? false;
+      ref.read(authProvider.notifier).updateUserAvailability(available);
+      unawaited(ref.read(driverPresenceServiceProvider).reconcile(
+          ref.read(authProvider).valueOrNull,
+          forceUpload: available));
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(error))));
       }
-    } catch (e) {
-      _snack('Impossible de changer la disponibilité : $e', error: true);
     } finally {
-      if (mounted) setState(() => _busyAvailability = false);
+      if (mounted) setState(() => _busy = false);
     }
-  }
-
-  Future<void> _pickAvatar() async {
-    final image = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 75,
-    );
-    if (image == null) return;
-    setState(() => _busyAvatar = true);
-    try {
-      await ref.read(apiClientProvider).uploadAvatar(File(image.path));
-      await ref.read(authProvider.notifier).fetchMe();
-      _snack('Photo mise à jour.');
-    } catch (e) {
-      _snack('Upload photo impossible: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _busyAvatar = false);
-    }
-  }
-
-  Future<void> _pickKyc(String docType, String label) async {
-    final now = DateTime.now();
-    final expiresOn = await showDatePicker(
-      context: context,
-      initialDate: DateTime(now.year + 1),
-      firstDate: now,
-      lastDate: DateTime(now.year + 20),
-      helpText: "Date d'expiration du document",
-    );
-    if (expiresOn == null || !mounted) return;
-    final image = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-    );
-    if (image == null) return;
-    setState(() => _busyDocType = docType);
-    try {
-      await ref.read(apiClientProvider).uploadKyc(
-            File(image.path),
-            docType,
-            expiresOn: expiresOn,
-          );
-      await ref.read(authProvider.notifier).fetchMe();
-      _snack('$label envoyé pour vérification.');
-    } catch (e) {
-      _snack('Envoi impossible: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _busyDocType = null);
-    }
-  }
-
-  Future<void> _editProfile(User user) async {
-    final emailCtrl = TextEditingController(text: user.email ?? '');
-    final bioCtrl = TextEditingController(text: user.bio ?? '');
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Mettre à jour mon profil'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                initialValue: user.fullName ?? '',
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'Nom complet',
-                  helperText:
-                      'Le nom n’est pas modifiable pour des raisons de sécurité.',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                initialValue: user.phone,
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'Téléphone',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'E-mail',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: bioCtrl,
-                maxLines: 4,
-                maxLength: 160,
-                decoration: const InputDecoration(
-                  labelText: 'Bio professionnelle',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final body = <String, dynamic>{'bio': bioCtrl.text.trim()};
-                if (emailCtrl.text.trim().isNotEmpty) {
-                  body['email'] = emailCtrl.text.trim();
-                }
-                await ref.read(apiClientProvider).updateProfile(body);
-                await ref.read(authProvider.notifier).fetchMe();
-                if (!dialogContext.mounted) return;
-                Navigator.pop(dialogContext);
-                _snack('Profil mis à jour.');
-              } catch (e) {
-                _snack('Mise à jour impossible: $e', error: true);
-              }
-            },
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _updatePrefs(String key, bool value, User user) async {
-    final prefs = <String, dynamic>{
-      'push': user.notificationPrefs.pushEnabled,
-      'email': user.notificationPrefs.emailEnabled,
-      'whatsapp': user.notificationPrefs.whatsappEnabled,
-      'parcel_updates': user.notificationPrefs.parcelUpdatesEnabled,
-      'promotions': user.notificationPrefs.promotionsEnabled,
-    };
-    prefs[key] = value;
-    try {
-      await ref.read(apiClientProvider).updateProfile({
-        'notification_prefs': prefs,
-      });
-      await ref.read(authProvider.notifier).fetchMe();
-      _snack('Préférences mises à jour.');
-    } catch (e) {
-      _snack('Impossible de mettre à jour les préférences: $e', error: true);
-    }
-  }
-
-  Future<bool> _canLeaveAccount() async {
-    try {
-      if (!await canLeaveDriverAccount(ref)) {
-        _snack(
-          'Terminez ou libérez votre course active avant de quitter votre compte.',
-          error: true,
-        );
-        return false;
-      }
-      return true;
-    } catch (_) {
-      _snack(
-        'Impossible de vérifier vos courses en cours. Réessayez dans un instant.',
-        error: true,
-      );
-      return false;
-    }
-  }
-
-  Future<void> _logout() async {
-    if (!await _canLeaveAccount()) return;
-    if (!mounted) return;
-    await ref.read(authProvider.notifier).logout();
-  }
-
-  Future<void> _deleteAccount() async {
-    if (!await _canLeaveAccount()) return;
-    if (!mounted) return;
-    final firstConfirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Supprimer le compte ?'),
-        content: const Text(
-          'Cette action supprimera votre accès, effacera vos sessions et anonymisera vos informations personnelles. Elle ne peut pas être annulée.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Continuer'),
-          ),
-        ],
-      ),
-    );
-    if (firstConfirm != true || !mounted) return;
-
-    final controller = TextEditingController();
-    final secondConfirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirmation finale'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Tapez SUPPRIMER pour confirmer la suppression.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'SUPPRIMER',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(
-              dialogContext,
-            ).pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
-            child: const Text('Supprimer définitivement'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (secondConfirm != true || !mounted) return;
-
-    try {
-      await ref.read(authProvider.notifier).deleteAccount();
-    } catch (e) {
-      _snack(friendlyError(e), error: true);
-    }
-  }
-
-  void _copy(String value) {
-    Clipboard.setData(ClipboardData(text: value));
-    _snack('Information copiée.');
-  }
-
-  void _snack(String message, {bool error = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error ? Colors.red : Colors.green,
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider).valueOrNull;
-    final user = authState?.user;
-    final walletAsync = ref.watch(driverWalletProvider);
-    if (user == null) {
-      return const Scaffold(body: Center(child: Text('Non connecte')));
-    }
-
+    final auth = ref.watch(authProvider).valueOrNull;
+    final user = auth?.user;
+    final wallet = ref.watch(driverWalletProvider);
+    final missions = ref.watch(myMissionsProvider);
+    final hasLockedMission = hasActiveDriverMission(missions.valueOrNull ?? []);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mon profil livreur'),
-        actions: [
-          IconButton(
-            onPressed: () => _editProfile(user),
-            icon: const Icon(Icons.edit_outlined),
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          controller: _scrollController,
-          padding: const EdgeInsets.all(20),
-          children: [
-            _buildHeader(context, user, authState?.canSwitchToClient ?? false),
-            const SizedBox(height: 16),
-            Container(
-              key: _performanceKey,
-              child: Row(
+          title: const Text('Mon profil'),
+          actions: const [ProfileAppBarActions()]),
+      body: user == null
+          ? const Center(
+              child: Text('Connectez-vous pour accéder à votre profil.'))
+          : RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
                 children: [
-                  Expanded(
-                    child: _statCard(
-                      icon: Icons.local_shipping_outlined,
-                      label: 'Livraisons',
-                      value: '${user.deliveriesCompleted}',
-                      footer: 'terminées',
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _statCard(
-                      icon: Icons.star_outline,
-                      label: 'Note',
-                      value: user.averageRating.toStringAsFixed(1),
-                      footer: '${user.totalRatingsCount} avis',
-                      color: Colors.amber.shade700,
-                    ),
-                  ),
+                  ProfileHeader(user: user, role: auth!.effectiveRole),
+                  ProfileSection(
+                      key: _availabilityKey,
+                      title: 'Ma disponibilité',
+                      subtitle:
+                          'Votre disponibilité pour les nouvelles courses est distincte de votre connexion et du suivi GPS.',
+                      child: Column(children: [
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(user.isAvailable
+                              ? 'Disponible pour les nouvelles courses'
+                              : 'Non disponible pour les nouvelles courses'),
+                          subtitle: Text(hasLockedMission
+                              ? 'Une course est en cours. Terminez-la ou libérez-la avant de modifier votre disponibilité.'
+                              : 'Une course déjà acceptée reste à effectuer et à suivre.'),
+                          value: user.isAvailable,
+                          onChanged: _busy ||
+                                  user.isBanned ||
+                                  !user.isActive ||
+                                  hasLockedMission ||
+                                  missions.isLoading ||
+                                  missions.hasError
+                              ? null
+                              : (_) => _toggleAvailability(),
+                        ),
+                        if (missions.hasError)
+                          ProfileNotice(
+                              message:
+                                  'Impossible de vérifier vos courses en cours. Actualisez avant de modifier votre disponibilité.',
+                              onRetry: () =>
+                                  ref.invalidate(myMissionsProvider)),
+                        if (!user.isActive || user.isBanned)
+                          const ProfileNotice(
+                              message:
+                                  'Votre compte ne permet pas de vous rendre disponible. Contactez le support.'),
+                        if (user.profilePictureStatus != 'approved')
+                          ProfileAction(
+                              title: profilePhotoLabel(user),
+                              subtitle:
+                                  'Une photo approuvée est nécessaire pour recevoir les missions.',
+                              icon: Icons.account_circle_outlined,
+                              route: '/settings/account'),
+                        const DriverBackgroundLocationTile(),
+                      ])),
+                  ProfileSection(
+                      key: _documentsKey,
+                      title: 'Mes documents',
+                      child: ProfileAction(
+                        title: identityVerificationLabel(user.kycStatus),
+                        subtitle:
+                            'Pièce d’identité, justificatif livreur et dates d’expiration',
+                        icon: Icons.verified_user_outlined,
+                        route: '/driver/documents',
+                      )),
+                  ProfileSection(
+                      key: _activityKey,
+                      title: 'Mes missions et performances',
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                                '${user.deliveriesCompleted} livraisons terminées · Niveau ${user.level}'),
+                            const SizedBox(height: 6),
+                            Text(user.totalRatingsCount == 0
+                                ? 'Aucun avis pour le moment'
+                                : '${user.averageRating.toStringAsFixed(1)} / 5 · ${user.totalRatingsCount} avis'),
+                            const ProfileAction(
+                                title: 'Mes missions',
+                                icon: Icons.two_wheeler,
+                                route: '/driver'),
+                            const ProfileAction(
+                                title: 'Missions terminées',
+                                subtitle:
+                                    'Ouvrir le récapitulatif d’une livraison',
+                                icon: Icons.task_alt,
+                                route: '/driver/missions/completed'),
+                            const ProfileAction(
+                                title: 'Mes performances',
+                                icon: Icons.insights_outlined,
+                                route: '/driver/performance'),
+                          ])),
+                  ProfileSection(
+                      key: _moneyKey,
+                      title: 'Mes gains et commissions',
+                      subtitle:
+                          'Les paiements des clients et le solde destiné aux commissions sont distincts.',
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            wallet.when(
+                              data: (value) => Text(
+                                  'Solde pour les commissions : ${formatXof(value.balance)}'),
+                              loading: () => const LinearProgressIndicator(),
+                              error: (_, __) => ProfileNotice(
+                                  message: 'Solde momentanément indisponible.',
+                                  onRetry: () =>
+                                      ref.invalidate(driverWalletProvider)),
+                            ),
+                            const ProfileAction(
+                                title: 'Solde et transactions',
+                                subtitle:
+                                    'Rechargements et commissions des courses',
+                                icon: Icons.account_balance_wallet_outlined,
+                                route: '/driver/wallet'),
+                            const ProfileAction(
+                                title: 'Mon parrainage',
+                                subtitle:
+                                    'Conditions, objectifs et primes réglées hors plateforme',
+                                icon: Icons.card_giftcard_outlined,
+                                route: '/driver/referral'),
+                          ])),
+                  ProfileSection(
+                      key: _supportKey,
+                      title: 'Besoin d’aide ?',
+                      child: const SupportWhatsAppTile(
+                          contentPadding: EdgeInsets.zero)),
+                  ProfileSection(
+                      key: _settingsKey,
+                      title: 'Mon compte et mes préférences',
+                      child: const Column(children: [
+                        ProfileAction(
+                            title: 'Mes données',
+                            subtitle: 'Consulter ou télécharger mes données',
+                            icon: Icons.folder_shared_outlined,
+                            route: '/my-data'),
+                        ProfileAction(
+                            title: 'Paramètres',
+                            subtitle:
+                                'Notifications, sécurité et confidentialité',
+                            icon: Icons.settings_outlined,
+                            route: '/settings'),
+                      ])),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            Container(
-              key: _identityKey,
-              child: _section(
-                title: 'Identité',
-                subtitle: 'Informations de référence du compte livreur.',
-                trailing: IconButton(
-                  onPressed: () => _editProfile(user),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                child: Column(
-                  children: [
-                    _infoRow(
-                      Icons.badge_outlined,
-                      'Nom',
-                      user.fullName ?? '-',
-                      helper: 'Non modifiable pour des raisons de sécurité.',
-                    ),
-                    _infoRow(
-                      Icons.phone_outlined,
-                      'Téléphone',
-                      user.phone,
-                      helper: user.isPhoneVerified
-                          ? 'Numéro vérifié'
-                          : 'Numéro non vérifié',
-                    ),
-                    _infoRow(
-                      Icons.alternate_email,
-                      'E-mail',
-                      (user.email ?? '').isEmpty
-                          ? 'Non renseigné'
-                          : user.email!,
-                    ),
-                    _infoRow(
-                      Icons.fingerprint,
-                      'ID livreur',
-                      user.id,
-                      actionLabel: 'Copier',
-                      onAction: () => _copy(user.id),
-                    ),
-                    _infoRow(
-                      Icons.calendar_today_outlined,
-                      'Membre depuis',
-                      _formatDate(user.createdAt),
-                    ),
-                    _infoRow(
-                      Icons.language_outlined,
-                      'Langue / devise',
-                      '${user.language.toUpperCase()} - ${user.currency}',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              key: _walletKey,
-              child: _section(
-                title: 'Activité',
-                subtitle: 'Contrôle terrain et accès rapides.',
-                child: Column(
-                  children: [
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Disponibilité'),
-                      subtitle: Text(
-                        user.isAvailable
-                            ? 'Vous apparaissez dans les missions disponibles.'
-                            : 'Vous êtes hors ligne pour les nouvelles missions.',
-                      ),
-                      value: user.isAvailable,
-                      onChanged: _busyAvailability
-                          ? null
-                          : (_) => _toggleAvailability(),
-                    ),
-                    const Divider(height: 24),
-                    walletAsync.when(
-                      data: (wallet) => ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.account_balance_wallet_outlined),
-                        ),
-                        title: Text(formatXof(wallet.balance)),
-                        subtitle: Text(
-                          'En attente: ${formatXof(wallet.pendingBalance)}',
-                        ),
-                        trailing: TextButton(
-                          onPressed: () => context.go('/driver/wallet'),
-                          child: const Text('Voir'),
-                        ),
-                      ),
-                      loading: () => const ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text('Chargement du wallet...'),
-                      ),
-                      error: (_, __) => const ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text('Wallet indisponible'),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () =>
-                                context.push('/driver/performance'),
-                            icon: const Icon(Icons.insights_outlined),
-                            label: const Text('Performance'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => context.go('/driver/wallet'),
-                            icon: const Icon(Icons.payments_outlined),
-                            label: const Text('Solde'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              key: _referralKey,
-              child: _buildReferralSection(user),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              key: _kycKey,
-              child: _section(
-                title: 'Conformité',
-                subtitle:
-                    'Documents utiles pour la vérification et le contrôle admin.',
-                child: Column(
-                  children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor: _kycColor(
-                          user.kycStatus,
-                        ).withValues(alpha: 0.12),
-                        child: Icon(
-                          Icons.verified_user_outlined,
-                          color: _kycColor(user.kycStatus),
-                        ),
-                      ),
-                      title: Text(_kycLabel(user.kycStatus)),
-                      subtitle: const Text(
-                        'Gardez vos pièces à jour pour fluidifier les opérations.',
-                      ),
-                    ),
-                    const Divider(height: 24),
-                    _docTile(
-                      icon: Icons.credit_card_outlined,
-                      title: "Pièce d'identité",
-                      subtitle: (user.kycIdCardUrl ?? '').isNotEmpty
-                          ? _documentSubtitle(user.kycIdCardExpiresAt)
-                          : 'Envoyer votre pièce officielle',
-                      isLoading: _busyDocType == 'id_card',
-                      onPressed: () => _pickKyc('id_card', "Pièce d'identité"),
-                    ),
-                    const SizedBox(height: 12),
-                    _docTile(
-                      icon: Icons.two_wheeler_outlined,
-                      title: 'Permis ou justificatif livreur',
-                      subtitle: (user.kycLicenseUrl ?? '').isNotEmpty
-                          ? _documentSubtitle(user.kycLicenseExpiresAt)
-                          : 'Envoyer votre permis ou justificatif',
-                      isLoading: _busyDocType == 'license',
-                      onPressed: () =>
-                          _pickKyc('license', 'Justificatif livreur'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              key: _notificationsKey,
-              child: _section(
-                title: 'Notifications',
-                subtitle: 'Canaux et alertes que vous souhaitez recevoir.',
-                child: Column(
-                  children: [
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Push'),
-                      subtitle: const Text('Alertes dans l application.'),
-                      value: user.notificationPrefs.pushEnabled,
-                      onChanged: (value) => _updatePrefs('push', value, user),
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('WhatsApp'),
-                      subtitle: const Text('Suivi et alertes complémentaires.'),
-                      value: user.notificationPrefs.whatsappEnabled,
-                      onChanged: (value) =>
-                          _updatePrefs('whatsapp', value, user),
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Mises à jour colis'),
-                      subtitle:
-                          const Text('Infos sur vos missions et remises.'),
-                      value: user.notificationPrefs.parcelUpdatesEnabled,
-                      onChanged: (value) =>
-                          _updatePrefs('parcel_updates', value, user),
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Promotions'),
-                      subtitle: const Text('Bonus et campagnes Denkma.'),
-                      value: user.notificationPrefs.promotionsEnabled,
-                      onChanged: (value) =>
-                          _updatePrefs('promotions', value, user),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              key: _supportKey,
-              child: _section(
-                title: 'Sécurité et liens utiles',
-                subtitle:
-                    'Repère rapide pour le compte, les documents légaux et la navigation.',
-                child: Column(
-                  children: [
-                    _infoRow(
-                      Icons.verified_user,
-                      'État du compte',
-                      user.isBanned ? 'Suspendu' : 'Actif',
-                    ),
-                    _infoRow(
-                      Icons.gavel_outlined,
-                      'Acceptation légale',
-                      user.acceptedLegal ? 'Acceptée' : 'Non acceptée',
-                      helper: user.acceptedLegalAt != null
-                          ? 'Le ${_formatDate(user.acceptedLegalAt)}'
-                          : null,
-                    ),
-                    _infoRow(
-                      Icons.schedule_outlined,
-                      'Dernière mise à jour',
-                      _formatDate(user.updatedAt),
-                    ),
-                    const ChangePinTile(contentPadding: EdgeInsets.zero),
-                    const DriverBackgroundLocationTile(),
-                    const SupportWhatsAppTile(contentPadding: EdgeInsets.zero),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.folder_shared_outlined),
-                      title: const Text('Mes données'),
-                      subtitle:
-                          const Text('Consulter ou télécharger mes données'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push('/my-data'),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.privacy_tip_outlined),
-                      title: const Text('Politique de confidentialité'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push('/legal/privacy'),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.gavel_outlined),
-                      title: const Text('Conditions générales'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => context.push('/legal/cgu'),
-                    ),
-                    if (authState?.canSwitchToClient ?? false)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.swap_horiz),
-                        title: const Text('Passer à la vue client'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          if (!await _canLeaveAccount()) return;
-                          if (!context.mounted) return;
-                          ref.read(authProvider.notifier).switchView('client');
-                          context.go('/client');
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-              label: const Text('Se déconnecter'),
-            ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: Colors.red.shade800),
-              onPressed: _deleteAccount,
-              icon: const Icon(Icons.delete_forever_outlined),
-              label: const Text('Supprimer mon compte'),
-            ),
-          ],
-        ),
-      ),
     );
-  }
-
-  Widget _buildReferralSection(User user) {
-    return _section(
-      title: 'Parrainage',
-      subtitle: 'Invitations, objectifs et primes payées hors plateforme.',
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.card_giftcard_outlined),
-        title: const Text('Mon parrainage'),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => context.push('/driver/referral'),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context, User user, bool canSwitchToClient) {
-    final avatarUrl = user.profilePictureUrl ?? user.avatarUrl;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.blueGrey.shade900, Colors.blueGrey.shade700],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.bottomRight,
-            children: [
-              CircleAvatar(
-                radius: 46,
-                backgroundColor: Colors.white24,
-                child: AuthenticatedAvatar(
-                  imageUrl: avatarUrl,
-                  radius: 42,
-                  backgroundColor: Colors.white,
-                  fallback: Text(
-                    _initials(user.fullName ?? user.phone),
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blueGrey,
-                    ),
-                  ),
-                ),
-              ),
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: Colors.white,
-                child: IconButton(
-                  padding: EdgeInsets.zero,
-                  iconSize: 18,
-                  onPressed: _busyAvatar ? null : _pickAvatar,
-                  icon: _busyAvatar
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.camera_alt_outlined),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            user.fullName ?? 'Livreur Denkma',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(user.phone, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: [
-              _chip(user.isAvailable ? 'Disponible' : 'Hors ligne'),
-              _chip(_kycLabel(user.kycStatus)),
-              _chip('Niveau ${user.level}'),
-            ],
-          ),
-          if ((user.bio ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(
-              user.bio!.trim(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-          ],
-          if (canSwitchToClient) ...[
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white24),
-              ),
-              onPressed: () async {
-                if (!await _canLeaveAccount()) return;
-                if (!context.mounted) return;
-                ref.read(authProvider.notifier).switchView('client');
-                context.go('/client');
-              },
-              icon: const Icon(Icons.storefront_outlined),
-              label: const Text('Voir aussi ma vue client'),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _section({
-    required String title,
-    required String subtitle,
-    required Widget child,
-    Widget? trailing,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              if (trailing != null) trailing,
-            ],
-          ),
-          const SizedBox(height: 16),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _statCard({
-    required IconData icon,
-    required String label,
-    required String value,
-    required String footer,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: color.withValues(alpha: 0.12),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(height: 12),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            footer,
-            style: const TextStyle(color: Colors.grey, fontSize: 11),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoRow(
-    IconData icon,
-    String label,
-    String value, {
-    String? helper,
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 18, color: Colors.blueGrey),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (helper != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    helper,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (actionLabel != null && onAction != null)
-            TextButton(onPressed: onAction, child: Text(actionLabel)),
-        ],
-      ),
-    );
-  }
-
-  Widget _docTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool isLoading,
-    required VoidCallback onPressed,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                backgroundColor: Colors.blueGrey.withValues(alpha: 0.1),
-                child: Icon(icon, color: Colors.blueGrey),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: isLoading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : OutlinedButton(
-                    onPressed: onPressed,
-                    child: const Text('Envoyer'),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  String _initials(String value) {
-    final parts =
-        value.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return 'D';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
-        .toUpperCase();
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'Non renseigné';
-    return DateFormat('dd/MM/yyyy').format(date.toLocal());
-  }
-
-  String _documentSubtitle(DateTime? expiresAt) {
-    if (expiresAt == null) return "Document envoyé · expiration à renseigner";
-    return "Document envoyé · expire le ${_formatDate(expiresAt)}";
-  }
-
-  String _kycLabel(String status) {
-    switch (status) {
-      case 'verified':
-        return 'KYC vérifié';
-      case 'pending':
-        return 'KYC en attente';
-      case 'rejected':
-        return 'KYC à corriger';
-      default:
-        return 'KYC non complété';
-    }
-  }
-
-  Color _kycColor(String status) {
-    switch (status) {
-      case 'verified':
-        return Colors.green;
-      case 'pending':
-        return Colors.orange;
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
   }
 }

@@ -19,7 +19,8 @@ from core.exceptions import not_found_exception, bad_request_exception, forbidde
 from database import db
 from services.mission_trace import archive_position, load_trace, summarize_completion, timestamp
 from models.common import UserRole, ParcelStatus
-from models.delivery import MissionStatus, LocationUpdate
+from models.delivery import MissionStatus, LocationUpdate, LocationTraceBatch
+from services.location_quality import client_live_tracking_allowed, validate_capture
 from pydantic import BaseModel, Field
 from services.parcel_service import (
     _current_delivery_location,
@@ -995,6 +996,8 @@ class ConfirmPickupRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=12)
     lat: Optional[float] = Field(None, ge=-90, le=90)
     lng: Optional[float] = Field(None, ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    captured_at: Optional[datetime] = None
 
 
 class WhatsAppCallConnectRequest(BaseModel):
@@ -1034,6 +1037,9 @@ async def confirm_pickup(
 
     is_admin = current_user["role"] in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
     is_debug_simulation = bool(parcel.get("is_simulation") and settings.DEBUG and is_admin)
+
+    if not is_admin and body.lat is not None and body.lng is not None:
+        validate_capture(body.accuracy, body.captured_at, strict=body.captured_at is not None)
 
     if not is_admin and not is_debug_simulation and (body.lat is None or body.lng is None):
         metadata = {
@@ -1193,7 +1199,7 @@ async def confirm_pickup(
 
     await notify_sender_parcel_collected(parcel)
 
-    return {"message": "Collecte confirmée", "mission_id": mission_id}
+    return {"message": "Collecte confirmée", "mission_id": mission_id, "started_at": now}
 
 
 @router.get("/{mission_id}", summary="Détail mission")
@@ -1339,6 +1345,7 @@ async def accept_mission(
 ):
     if current_user["role"] != UserRole.DRIVER.value:
         raise forbidden_exception("Seuls les livreurs peuvent accepter une mission")
+    measured_at = validate_capture(body.accuracy, body.captured_at) if body is not None else None
     if not _driver_has_profile_photo(current_user):
         raise bad_request_exception("Votre photo de profil doit être ajoutée puis approuvée avant d'accepter une mission.")
 
@@ -1402,9 +1409,9 @@ async def accept_mission(
     mission_push = None
     if body is not None:
         driver_location = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy}
-        trail_point = {**driver_location, "ts": now}
+        trail_point = {**driver_location, "ts": measured_at}
         mission_set["driver_location"] = driver_location
-        mission_set["location_updated_at"] = now
+        mission_set["location_updated_at"] = measured_at
         mission_push = {"gps_trail": {"$each": [trail_point], "$slice": -300}}
 
     mission_update = {"$set": mission_set}
@@ -1494,14 +1501,20 @@ async def accept_mission(
         )
     if body is not None:
         await db.users.update_one(
-            {"user_id": current_user["user_id"]},
+            {
+                "user_id": current_user["user_id"],
+                "$or": [
+                    {"last_driver_location_at": {"$lte": measured_at}},
+                    {"last_driver_location_at": None},
+                ],
+            },
             {"$set": {
                 "last_driver_location": {
                     "lat": body.lat,
                     "lng": body.lng,
                     "accuracy": body.accuracy,
                 },
-                "last_driver_location_at": now,
+                "last_driver_location_at": measured_at,
                 "updated_at": now,
             }},
         )
@@ -1633,8 +1646,16 @@ async def _update_driver_presence_location(
         raise forbidden_exception("Seuls les livreurs peuvent mettre a jour cette position")
 
     now = datetime.now(timezone.utc)
-    await db.users.update_one(
-        {"user_id": current_user["user_id"]},
+    measured_at = validate_capture(body.accuracy, body.captured_at, now=now)
+    location_filter = {
+        "user_id": current_user["user_id"],
+        "$or": [
+            {"last_driver_location_at": {"$lte": measured_at}},
+            {"last_driver_location_at": None},
+        ],
+    }
+    result = await db.users.update_one(
+        location_filter,
         {
             "$set": {
                 "last_driver_location": {
@@ -1642,13 +1663,14 @@ async def _update_driver_presence_location(
                     "lng": body.lng,
                     "accuracy": body.accuracy,
                 },
-                "last_driver_location_at": now,
+                "last_driver_location_at": measured_at,
                 "updated_at": now,
             }
         },
     )
     if (
-        current_user.get("is_available", False)
+        result.matched_count
+        and current_user.get("is_available", False)
         and _driver_has_profile_photo(current_user)
     ):
         await _notify_driver_when_entering_dispatch_radius(
@@ -1695,7 +1717,8 @@ async def update_location(
     )),
 ):
     now = datetime.now(timezone.utc)
-    driver_loc = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy, "ts": now}
+    measured_at = validate_capture(body.accuracy, body.captured_at, now=now)
+    driver_loc = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy, "ts": measured_at}
     
     # ── Récupérer la mission pour voir si on doit refresh l'ETA ──
     mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
@@ -1704,11 +1727,17 @@ async def update_location(
     is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
     if not is_admin and mission.get("driver_id") != current_user["user_id"]:
         raise forbidden_exception("Seul le livreur assigné peut mettre à jour la position")
+    active_statuses = {"assigned", "in_progress", "incident_reported"}
+    if mission.get("status") not in active_statuses:
+        raise bad_request_exception("Le suivi live est terminé pour cette mission.")
+    previous_location_at = timestamp(mission.get("location_updated_at"))
+    if previous_location_at is not None and measured_at <= previous_location_at:
+        return {"message": "Une position plus récente est déjà enregistrée", "trace_recorded": False}
 
     update_query = {
         "$set": {
             "driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
-            "location_updated_at": now,
+            "location_updated_at": measured_at,
             "updated_at": now,
         },
         "$push": {
@@ -1721,15 +1750,17 @@ async def update_location(
 
     # ── Calculer l'ETA si nécessaire (max 1 fois toutes les 5 minutes pour budget API) ──
     last_eta_update = _as_aware_utc(mission.get("eta_updated_at"))
+    last_eta_attempt = timestamp(mission.get("eta_attempted_at"))
     route_status = mission.get("status")
     eta_target_status = mission.get("eta_target_status")
     previous_eta_target_status = eta_target_status
     should_update_eta = (
-        route_status in {MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value}
+        route_status in active_statuses
+        and (last_eta_attempt is None or (now - last_eta_attempt).total_seconds() >= settings.GPS_ETA_RETRY_SECONDS)
         and (
             eta_target_status != route_status
             or last_eta_update is None
-            or (now - last_eta_update).total_seconds() > 300
+            or (now - last_eta_update).total_seconds() > settings.GPS_ETA_REFRESH_SECONDS
         )
     )
 
@@ -1738,11 +1769,13 @@ async def update_location(
     route_target = pickup_geopin if route_status == MissionStatus.ASSIGNED.value else delivery_geopin
     eta_data = None
     if should_update_eta:
-        update_query["$set"].update({"eta_updated_at": now, "eta_target_status": route_status})
+        update_query["$set"]["eta_attempted_at"] = now
         if route_target and route_target.get("lat") is not None and route_target.get("lng") is not None:
             eta_data = await get_directions_eta(body.lat, body.lng, route_target["lat"], route_target["lng"])
         if eta_data:
             update_query["$set"].update({
+                "eta_updated_at": now,
+                "eta_target_status": route_status,
                 "eta_seconds": eta_data["duration_seconds"],
                 "eta_text": eta_data["duration_text"],
                 "distance_text": eta_data["distance_text"],
@@ -1752,6 +1785,7 @@ async def update_location(
         elif previous_eta_target_status != route_status:
             update_query["$unset"] = {"eta_seconds": "", "eta_text": "", "distance_text": "", "encoded_polyline": ""}
 
+    approaching_notifications = []
     if (
         mission["status"] == MissionStatus.ASSIGNED.value
         and mission.get("pickup_relay_id")
@@ -1773,10 +1807,7 @@ async def update_location(
                     {"_id": 0},
                 )
                 if parcel:
-                    await notify_relay_driver_approaching(
-                        mission["pickup_relay_id"],
-                        parcel,
-                    )
+                    approaching_notifications.append((notify_relay_driver_approaching, (mission["pickup_relay_id"], parcel)))
                     update_query["$set"]["pickup_relay_approaching_notified"] = True
 
     # ── Géofence : Notification "Votre livreur approche" (< 500m) ──
@@ -1785,40 +1816,53 @@ async def update_location(
         
         dest_lat = delivery_geopin.get("lat") if delivery_geopin else None
         dest_lng = delivery_geopin.get("lng") if delivery_geopin else None
-        if dest_lat and dest_lng:
+        if dest_lat is not None and dest_lng is not None:
             dist_m = _haversine_km(body.lat, body.lng, dest_lat, dest_lng) * 1000
             if dist_m < 500:
                 # Récupérer le colis pour avoir le tracking_code
                 parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]})
                 if parcel:
-                    await notify_approaching_driver(parcel)
+                    approaching_notifications.append((notify_approaching_driver, (parcel,)))
                     update_query["$set"]["approaching_notified"] = True
-
-    mission_query = {"mission_id": mission_id}
+    mission_query = {
+        "mission_id": mission_id,
+        "status": route_status,
+        "pickup_geopin" if route_status == MissionStatus.ASSIGNED.value else "delivery_geopin": mission.get(
+            "pickup_geopin" if route_status == MissionStatus.ASSIGNED.value else "delivery_geopin"
+        ),
+        "$or": [{"location_updated_at": {"$lt": measured_at}}, {"location_updated_at": None}],
+    }
     if not is_admin:
         mission_query["driver_id"] = current_user["user_id"]
     location_result = await db.delivery_missions.update_one(mission_query, update_query)
-    if (location_result.matched_count and mission.get("started_at")
-            and not mission.get("completed_at")
-            and mission.get("status") in {"in_progress", "incident_reported"}):
+    if not location_result.matched_count:
+        return {"message": "La mission ou la position a été actualisée entre-temps", "trace_recorded": False}
+    for notify, args in approaching_notifications:
+        await notify(*args)
+    trace_recorded = bool(mission.get("started_at") and not mission.get("completed_at")
+                          and mission.get("status") in {"in_progress", "incident_reported"})
+    if trace_recorded:
         if not mission.get("gps_archive_initialized"):
             for old_point in mission.get("gps_trail") or []:
                 if (timestamp(old_point.get("ts")) is not None
                         and timestamp(old_point["ts"]) >= timestamp(mission["started_at"])):
                     await archive_position(mission_id, old_point, mission.get("driver_id"))
-            await db.delivery_missions.update_one(mission_query, {"$set": {"gps_archive_initialized": True}})
+            await db.delivery_missions.update_one({"mission_id": mission_id}, {"$set": {"gps_archive_initialized": True}})
         await archive_position(mission_id, driver_loc, mission.get("driver_id"))
     
     # ── Mettre à jour la position globale du livreur (pour le dispatch/heatmap) ──
     await db.users.update_one(
-        {"user_id": current_user["user_id"]},
+        {
+            "user_id": mission.get("driver_id") or current_user["user_id"],
+            "$or": [{"last_driver_location_at": {"$lte": measured_at}}, {"last_driver_location_at": None}],
+        },
         {"$set": {
             "last_driver_location": {
                 "lat": body.lat,
                 "lng": body.lng,
                 "accuracy": body.accuracy,
             },
-            "last_driver_location_at": now,
+            "last_driver_location_at": measured_at,
             "updated_at": now
         }}
     )
@@ -1854,15 +1898,15 @@ async def update_location(
                     "recipient_user_id": 1,
                     "tracking_code": 1,
                     "status": 1,
+                    "delivery_mode": 1,
                 },
             )
-            if parcel and parcel.get("status") != ParcelStatus.SUSPENDED.value:
+            if (parcel and parcel.get("status") != ParcelStatus.SUSPENDED.value
+                    and client_live_tracking_allowed(parcel, mission, is_recipient=True)):
+                audience = (parcel.get("sender_user_id"), parcel.get("recipient_user_id")) if parcel.get("delivery_mode") == "home_to_home" else (parcel.get("recipient_user_id"),)
                 user_ids = [
                     user_id
-                    for user_id in (
-                        parcel.get("sender_user_id"),
-                        parcel.get("recipient_user_id"),
-                    )
+                    for user_id in audience
                     if user_id
                 ]
                 current_route_estimate = eta_data or (
@@ -1881,7 +1925,38 @@ async def update_location(
                     eta_text=current_route_estimate.get("duration_text") or current_route_estimate.get("eta_text") or "",
                 )
 
-    return {"message": "Position mise à jour"}
+    return {"message": "Position mise à jour", "trace_recorded": trace_recorded}
+
+
+@router.post("/{mission_id}/location-trace", summary="Récupérer les mesures GPS enregistrées hors connexion")
+async def upload_location_trace(
+    mission_id: str,
+    body: LocationTraceBatch,
+    current_user: dict = Depends(require_role(UserRole.DRIVER)),
+):
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission:
+        raise not_found_exception("Mission")
+    if mission.get("driver_id") != current_user["user_id"]:
+        raise forbidden_exception("Seul le livreur assigné peut transmettre ce parcours")
+    if mission.get("gps_trace_purged_at"):
+        raise bad_request_exception("La durée de conservation de ce parcours est dépassée.")
+    start = timestamp(mission.get("started_at"))
+    end = timestamp(mission.get("completed_at"))
+    if start is None:
+        return {"recorded": 0}
+    if mission.get("status") not in {"in_progress", "incident_reported", "completed", "failed", "cancelled"}:
+        raise bad_request_exception("Cette mission ne peut pas recevoir de trace GPS.")
+    points = []
+    for point in body.points:
+        if point.captured_at is None:
+            raise bad_request_exception("Chaque mesure du parcours doit être horodatée.")
+        ts = validate_capture(point.accuracy, point.captured_at, historical=True)
+        if ts >= start and (end is None or ts <= end):
+            points.append({"lat": point.lat, "lng": point.lng, "accuracy": point.accuracy, "ts": ts})
+    for point in points:
+        await archive_position(mission_id, point, current_user["user_id"])
+    return {"recorded": len(points)}
 
 
 @router.post("/{mission_id}/contact-recipient", summary="Contacter le destinataire via Denkma")

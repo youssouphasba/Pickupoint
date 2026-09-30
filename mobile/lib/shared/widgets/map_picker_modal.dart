@@ -9,24 +9,35 @@ import 'package:geolocator/geolocator.dart';
 
 import '../../core/api/api_endpoints.dart';
 import '../../core/models/user.dart';
+import '../../core/location/fresh_position_helper.dart';
 
 class MapPickerResult {
   final LatLng position;
   final String? address;
+  final String source;
+  final double? accuracy;
 
-  const MapPickerResult({required this.position, this.address});
+  const MapPickerResult(
+      {required this.position,
+      this.address,
+      this.source = 'manual',
+      this.accuracy});
 }
 
 class MapPickerModal extends StatefulWidget {
   final String title;
   final LatLng? initialPosition;
   final List<FavoriteAddress> favoriteAddresses;
+  final double? initialAccuracy;
+  final String initialSource;
 
   const MapPickerModal({
     super.key,
     this.title = 'Choisir une position',
     this.initialPosition,
     this.favoriteAddresses = const [],
+    this.initialAccuracy,
+    this.initialSource = 'manual',
   });
 
   @override
@@ -35,6 +46,14 @@ class MapPickerModal extends StatefulWidget {
 
 class _MapPickerModalState extends State<MapPickerModal> {
   LatLng? _selectedPosition;
+  LatLng _mapCenter = const LatLng(14.6928, -17.4467);
+  bool _userMoving = false;
+  bool _gpsLoading = false;
+  bool _hasGpsAccess = false;
+  String? _locationError;
+  String _source = 'manual';
+  double? _accuracy;
+  int _searchGeneration = 0;
   bool _loading = true;
   GoogleMapController? _mapController;
 
@@ -64,40 +83,61 @@ class _MapPickerModalState extends State<MapPickerModal> {
     _searchCancel?.cancel();
     _searchCtrl.dispose();
     _searchFocus.dispose();
+    _dio.close();
+    _mapController?.dispose();
     super.dispose();
   }
 
   Future<void> _initLocation() async {
     if (widget.initialPosition != null) {
       _selectedPosition = widget.initialPosition;
+      _mapCenter = widget.initialPosition!;
+      _source = widget.initialSource;
+      _accuracy = widget.initialAccuracy;
       setState(() => _loading = false);
       return;
     }
 
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+    await _useMyPosition();
+    if (mounted) setState(() => _loading = false);
+  }
 
-      if (permission == LocationPermission.always ||
-          permission == LocationPermission.whileInUse) {
-        final pos = await Geolocator.getCurrentPosition().timeout(
-          const Duration(seconds: 10),
-        );
-        _selectedPosition = LatLng(pos.latitude, pos.longitude);
-      } else {
-        _selectedPosition = const LatLng(14.6928, -17.4467);
-      }
+  Future<void> _useMyPosition() async {
+    if (_gpsLoading) return;
+    setState(() {
+      _gpsLoading = true;
+      _locationError = null;
+    });
+    try {
+      final position = await FreshPositionHelper.getStrictFreshPosition(
+          context: 'la sélection de votre position');
+      if (!mounted) return;
+      final selected = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _selectedPosition = selected;
+        _mapCenter = selected;
+        _source = 'gps';
+        _accuracy = position.accuracy;
+        _hasGpsAccess = true;
+        _selectedAddress = null;
+        _selectedAddressForPosition = null;
+        _userMoving = false;
+      });
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(selected, 16));
     } catch (_) {
-      _selectedPosition = const LatLng(14.6928, -17.4467);
+      if (mounted) {
+        setState(() => _locationError =
+            'Position GPS indisponible. Recherchez une adresse, choisissez un favori ou déplacez la carte pour sélectionner le lieu.');
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _gpsLoading = false);
     }
   }
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
+    _searchGeneration++;
+    _searchCancel?.cancel();
     final query = value.trim();
     if (query.length < 3) {
       setState(() {
@@ -111,6 +151,7 @@ class _MapPickerModalState extends State<MapPickerModal> {
   }
 
   Future<void> _fetchSuggestions(String query) async {
+    final generation = _searchGeneration;
     _searchCancel?.cancel();
     _searchCancel = CancelToken();
     setState(() => _searching = true);
@@ -133,56 +174,19 @@ class _MapPickerModalState extends State<MapPickerModal> {
               (s) => _PlaceSuggestion.tryParse(s as Map<String, dynamic>))
           .whereType<_PlaceSuggestion>()
           .toList();
-      if (list.isEmpty) {
-        final fallbackList =
-            await _fetchPhotonSuggestions(query, biasLat, biasLon);
-        if (!mounted) return;
-        setState(() {
-          _suggestions = fallbackList;
-          _searching = false;
-        });
-        return;
-      }
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _suggestions = list;
         _searching = false;
       });
     } catch (_) {
-      final fallbackList =
-          await _fetchPhotonSuggestions(query, biasLat, biasLon);
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
-        _suggestions = fallbackList;
+        _suggestions = [];
         _searching = false;
+        _locationError =
+            'Recherche d’adresse indisponible. Réessayez ou sélectionnez le lieu sur la carte.';
       });
-    }
-  }
-
-  Future<List<_PlaceSuggestion>> _fetchPhotonSuggestions(
-    String query,
-    double biasLat,
-    double biasLon,
-  ) async {
-    try {
-      final res = await _dio.get(
-        'https://photon.komoot.io/api/',
-        queryParameters: {
-          'q': query,
-          'limit': 6,
-          'lang': 'fr',
-          'lat': biasLat,
-          'lon': biasLon,
-        },
-      );
-      final features = (res.data['features'] as List?) ?? [];
-      return features
-          .map<_PlaceSuggestion?>(
-              (f) => _PlaceSuggestion.tryParse(f as Map<String, dynamic>))
-          .whereType<_PlaceSuggestion>()
-          .toList();
-    } catch (_) {
-      return [];
     }
   }
 
@@ -196,6 +200,11 @@ class _MapPickerModalState extends State<MapPickerModal> {
     setState(() {
       _suggestions = [];
       _selectedPosition = pos;
+      _mapCenter = pos;
+      _source = 'manual';
+      _accuracy = null;
+      _locationError = null;
+      _userMoving = false;
       _selectedAddress = fullAddress;
       _selectedAddressForPosition = pos;
     });
@@ -209,6 +218,11 @@ class _MapPickerModalState extends State<MapPickerModal> {
     setState(() {
       _suggestions = [];
       _selectedPosition = pos;
+      _mapCenter = pos;
+      _source = 'manual';
+      _accuracy = null;
+      _locationError = null;
+      _userMoving = false;
       _selectedAddress = favorite.address;
       _selectedAddressForPosition = pos;
     });
@@ -232,26 +246,7 @@ class _MapPickerModalState extends State<MapPickerModal> {
       if (formatted != null && formatted.isNotEmpty) return formatted;
     } catch (_) {}
 
-    try {
-      final res = await _dio.get(
-        'https://photon.komoot.io/reverse',
-        queryParameters: {
-          'lat': pos.latitude,
-          'lon': pos.longitude,
-          'lang': 'fr'
-        },
-      );
-      final features = (res.data['features'] as List?) ?? [];
-      if (features.isEmpty) return null;
-      final s =
-          _PlaceSuggestion.tryParse(features.first as Map<String, dynamic>);
-      if (s == null) return null;
-      return s.subtitle == null || s.subtitle!.isEmpty
-          ? s.label
-          : '${s.label}, ${s.subtitle!}';
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   Future<void> _onConfirm() async {
@@ -268,7 +263,13 @@ class _MapPickerModalState extends State<MapPickerModal> {
       setState(() => _confirming = false);
     }
     if (!mounted) return;
-    Navigator.pop(context, MapPickerResult(position: pos, address: address));
+    Navigator.pop(
+        context,
+        MapPickerResult(
+            position: pos,
+            address: address,
+            source: _source,
+            accuracy: _accuracy));
   }
 
   @override
@@ -400,44 +401,81 @@ class _MapPickerModalState extends State<MapPickerModal> {
                       ],
                     ),
                   ),
+                if (_locationError != null || _selectedPosition == null)
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text(
+                        _locationError ??
+                            'Choisissez explicitement le lieu sur la carte ou recherchez une adresse.',
+                        style: const TextStyle(
+                            color: Colors.deepOrange, fontSize: 13)),
+                  ),
                 Expanded(
                   child: Stack(
                     children: [
-                      GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: _selectedPosition!,
-                          zoom: 15,
+                      Listener(
+                          onPointerDown: (_) => _userMoving = true,
+                          child: GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: _mapCenter,
+                              zoom: 15,
+                            ),
+                            onMapCreated: (c) => _mapController = c,
+                            onCameraMove: (position) {
+                              _mapCenter = position.target;
+                              if (!_userMoving) return;
+                              setState(() {
+                                _selectedPosition = position.target;
+                                _source = 'manual';
+                                _accuracy = null;
+                                _locationError = null;
+                              });
+                            },
+                            onCameraIdle: () {
+                              _userMoving = false;
+                              final addressPosition =
+                                  _selectedAddressForPosition;
+                              final selectedPosition = _selectedPosition;
+                              if (addressPosition != null &&
+                                  selectedPosition != null &&
+                                  Geolocator.distanceBetween(
+                                        addressPosition.latitude,
+                                        addressPosition.longitude,
+                                        selectedPosition.latitude,
+                                        selectedPosition.longitude,
+                                      ) >
+                                      25) {
+                                _selectedAddress = null;
+                                _selectedAddressForPosition = null;
+                              }
+                            },
+                            myLocationEnabled: _hasGpsAccess,
+                            myLocationButtonEnabled: false,
+                            mapToolbarEnabled: false,
+                            zoomControlsEnabled: false,
+                            gestureRecognizers: <Factory<
+                                OneSequenceGestureRecognizer>>{
+                              Factory<OneSequenceGestureRecognizer>(
+                                () => EagerGestureRecognizer(),
+                              ),
+                            },
+                          )),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: FloatingActionButton.small(
+                          heroTag: null,
+                          tooltip: 'Ma position GPS',
+                          onPressed: _gpsLoading ? null : _useMyPosition,
+                          child: _gpsLoading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.my_location),
                         ),
-                        onMapCreated: (c) => _mapController = c,
-                        onCameraMove: (position) {
-                          _selectedPosition = position.target;
-                        },
-                        onCameraIdle: () {
-                          final addressPosition = _selectedAddressForPosition;
-                          final selectedPosition = _selectedPosition;
-                          if (addressPosition != null &&
-                              selectedPosition != null &&
-                              Geolocator.distanceBetween(
-                                    addressPosition.latitude,
-                                    addressPosition.longitude,
-                                    selectedPosition.latitude,
-                                    selectedPosition.longitude,
-                                  ) >
-                                  25) {
-                            _selectedAddress = null;
-                            _selectedAddressForPosition = null;
-                          }
-                        },
-                        myLocationEnabled: true,
-                        myLocationButtonEnabled: true,
-                        mapToolbarEnabled: false,
-                        zoomControlsEnabled: false,
-                        gestureRecognizers: <Factory<
-                            OneSequenceGestureRecognizer>>{
-                          Factory<OneSequenceGestureRecognizer>(
-                            () => EagerGestureRecognizer(),
-                          ),
-                        },
                       ),
                       IgnorePointer(
                         child: Center(
@@ -499,7 +537,11 @@ class _MapPickerModalState extends State<MapPickerModal> {
                   child: SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _confirming ? null : _onConfirm,
+                      onPressed: _confirming ||
+                              _selectedPosition == null ||
+                              _gpsLoading
+                          ? null
+                          : _onConfirm,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(

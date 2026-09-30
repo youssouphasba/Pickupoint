@@ -4,7 +4,6 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  api,
   archiveRelay,
   fetchRelayDetail,
   getRelayAddressLabel,
@@ -20,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toaster";
 import { RelayOpeningHoursEditor, formatRelayOpeningHours, type RelayOpeningHours } from "@/components/relay-opening-hours-editor";
 import { formatDate } from "@/lib/utils";
+import { openSecureDocument } from "@/lib/private-documents";
 import {
   ArrowLeft,
   Archive,
@@ -71,24 +71,6 @@ function applicationStatusTone(status: unknown): BadgeTone {
       return "warning";
     default:
       return "default";
-  }
-}
-
-async function openSecureDocument(url: string) {
-  const popup = window.open("about:blank", "_blank");
-  try {
-    const response = await api.get(url, { responseType: "blob" });
-    const objectUrl = URL.createObjectURL(response.data);
-    if (popup) {
-      popup.opener = null;
-      popup.location.href = objectUrl;
-    } else {
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-    }
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-  } catch (error) {
-    popup?.close();
-    throw error;
   }
 }
 

@@ -48,11 +48,18 @@ class CodeDelivery(BaseModel):
     delivery_code: str = Field(..., min_length=6, max_length=6)
     driver_lat: Optional[float] = Field(None, ge=-90, le=90)
     driver_lng: Optional[float] = Field(None, ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    captured_at: Optional[datetime] = None
     proof_type: Optional[str] = None
     proof_data: Optional[str] = None
 
 
 class LocationUpdate(BaseModel):
-    lat: float = Field(..., ge=-90, le=90)
-    lng: float = Field(..., ge=-180, le=180)
-    accuracy: Optional[float] = Field(None, ge=0)
+    lat: float = Field(..., ge=-90, le=90, allow_inf_nan=False)
+    lng: float = Field(..., ge=-180, le=180, allow_inf_nan=False)
+    accuracy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    captured_at: Optional[datetime] = None
+
+
+class LocationTraceBatch(BaseModel):
+    points: list[LocationUpdate] = Field(..., min_length=1, max_length=300)

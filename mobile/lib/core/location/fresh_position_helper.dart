@@ -1,12 +1,16 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:geolocator/geolocator.dart';
+import 'location_policy.dart';
 
 class FreshPositionHelper {
-  static const double strictMaxAccuracyMeters = 60;
-  static const double driverSearchMaxAccuracyMeters = 150;
+  static double get strictMaxAccuracyMeters =>
+      LocationPolicy.current.strictAccuracy;
+  static double get driverSearchMaxAccuracyMeters =>
+      LocationPolicy.current.driverAccuracy;
 
-  static Future<void> ensureLocationAccess() async {
+  static Future<void> ensureLocationAccess(
+      {bool requestPermission = true}) async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       throw const _LocationError(
@@ -15,7 +19,7 @@ class FreshPositionHelper {
     }
 
     var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
+    if (permission == LocationPermission.denied && requestPermission) {
       permission = await Geolocator.requestPermission();
     }
 
@@ -58,13 +62,13 @@ class FreshPositionHelper {
 
   static Future<Position> getDriverPresencePosition() {
     return _resolveFreshPosition(
-      maxAccuracyMeters: 500,
-      attempts: 4,
+      maxAccuracyMeters: driverSearchMaxAccuracyMeters,
+      attempts: 1,
       timeoutPerAttempt: const Duration(seconds: 8),
       desiredAccuracy: LocationAccuracy.high,
       failureMessage:
           'Localisation indisponible. Vérifiez le GPS puis réessayez.',
-      returnBestMeasuredPosition: true,
+      requestPermission: false,
     );
   }
 
@@ -74,9 +78,13 @@ class FreshPositionHelper {
     required Duration timeoutPerAttempt,
     required LocationAccuracy desiredAccuracy,
     required String failureMessage,
-    bool returnBestMeasuredPosition = false,
+    bool requestPermission = true,
   }) async {
-    await ensureLocationAccess();
+    await ensureLocationAccess(requestPermission: requestPermission);
+    await LocationPolicy.refresh();
+    maxAccuracyMeters = desiredAccuracy == LocationAccuracy.bestForNavigation
+        ? LocationPolicy.current.strictAccuracy
+        : LocationPolicy.current.driverAccuracy;
 
     Position? bestPosition;
     Object? lastError;
@@ -86,11 +94,23 @@ class FreshPositionHelper {
           desiredAccuracy: desiredAccuracy,
           timeLimit: timeoutPerAttempt,
         ).timeout(timeoutPerAttempt);
-        if (bestPosition == null ||
-            position.accuracy < bestPosition.accuracy) {
+        final age = DateTime.now().difference(position.timestamp);
+        if (age > LocationPolicy.current.maxAge ||
+            age < -LocationPolicy.current.clockTolerance ||
+            position.isMocked ||
+            !position.accuracy.isFinite ||
+            position.accuracy < 0) {
+          lastError = const _LocationError(
+              'La mesure GPS n’est pas exploitable ou n’est pas récente. Relancez la localisation.');
+          continue;
+        }
+        if (bestPosition == null || position.accuracy < bestPosition.accuracy) {
           bestPosition = position;
         }
-        if (position.accuracy <= maxAccuracyMeters) {
+        if (position.accuracy <= maxAccuracyMeters &&
+            LocationPolicy.current.accepts(position,
+                strict:
+                    desiredAccuracy == LocationAccuracy.bestForNavigation)) {
           return position;
         }
       } on TimeoutException catch (error) {
@@ -105,15 +125,13 @@ class FreshPositionHelper {
     }
 
     final measuredAccuracy = bestPosition?.accuracy;
-    if (returnBestMeasuredPosition && bestPosition != null) {
-      return bestPosition;
-    }
     if (measuredAccuracy != null) {
       throw _LocationError(
         '$failureMessage (précision actuelle : ${measuredAccuracy.round()} m).',
       );
     }
     if (lastError != null) {
+      if (lastError is _LocationError) throw lastError;
       throw _LocationError(failureMessage);
     }
     throw _LocationError(failureMessage);

@@ -1,764 +1,257 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
-import '../../../core/models/user.dart';
 import '../../../core/models/relay_point.dart';
+import '../../../shared/profile/profile_widgets.dart';
 import '../../../shared/utils/currency_format.dart';
-import '../../../shared/widgets/change_pin_tile.dart';
-import '../../../shared/widgets/loading_button.dart';
+import '../../../shared/widgets/relay_public_details.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
-import '../../../shared/widgets/relay_opening_hours_editor.dart';
 import '../providers/relay_provider.dart';
-import '../../../shared/utils/error_utils.dart';
 
 class RelayProfileScreen extends ConsumerStatefulWidget {
   const RelayProfileScreen({super.key, this.initialSection});
-
   final String? initialSection;
 
   @override
   ConsumerState<RelayProfileScreen> createState() => _RelayProfileScreenState();
 }
 
-class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen> {
+class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen>
+    with WidgetsBindingObserver {
   final _scrollController = ScrollController();
-  final _formKey = GlobalKey<FormState>();
-  final _identityKey = GlobalKey();
-  final _infoKey = GlobalKey();
-  final _operationsKey = GlobalKey();
+  final _relayKey = GlobalKey();
+  final _activityKey = GlobalKey();
+  final _moneyKey = GlobalKey();
+  final _settingsKey = GlobalKey();
   final _supportKey = GlobalKey();
-  final _nameCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-
-  bool _isLoading = true;
-  bool _isSaving = false;
-  RelayPoint? _relay;
-  Map<String, dynamic> _openingHours = normalizeRelayOpeningHours(null);
+  Timer? _refreshTimer;
+  bool _initialScrollDone = false;
 
   @override
   void initState() {
     super.initState();
-    _loadRelay();
-    _scrollToInitialSection();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        ref.invalidate(relayPointProfileProvider);
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(relayPointProfileProvider);
+    }
   }
 
   @override
   void didUpdateWidget(covariant RelayProfileScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.initialSection != widget.initialSection) {
-      _scrollToInitialSection();
+      _initialScrollDone = false;
     }
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
-    _nameCtrl.dispose();
-    _phoneCtrl.dispose();
-    _descCtrl.dispose();
     super.dispose();
   }
 
-  void _scrollToInitialSection() {
+  void _scrollToSection() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final context = _sectionContext(widget.initialSection);
-      if (context == null) return;
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOut,
-        alignment: 0.08,
-      );
+      if (!mounted || _initialScrollDone) return;
+      final key = switch (widget.initialSection?.toLowerCase()) {
+        'info' => _relayKey,
+        'operations' => _activityKey,
+        'wallet' => _moneyKey,
+        'support' => _supportKey,
+        'security' || 'identity' => _settingsKey,
+        _ => null,
+      };
+      final target = key?.currentContext;
+      if (target != null) {
+        _initialScrollDone = true;
+        Scrollable.ensureVisible(target, alignment: 0.05);
+      }
     });
   }
 
-  BuildContext? _sectionContext(String? section) {
-    final key = switch ((section ?? '').trim().toLowerCase()) {
-      'identity' => _identityKey,
-      'info' => _infoKey,
-      'operations' || 'wallet' => _operationsKey,
-      'support' || 'security' => _supportKey,
-      _ => null,
-    };
-    return key?.currentContext;
-  }
-
-  Future<void> _loadRelay() async {
-    final user = ref.read(authProvider).valueOrNull?.user;
-    if (user?.relayPointId == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
-
-    try {
-      final api = ref.read(apiClientProvider);
-      final res = await api.getRelayPoint(user!.relayPointId!);
-      final relay = RelayPoint.fromJson(res.data as Map<String, dynamic>);
-      _relay = relay;
-      _nameCtrl.text = relay.name;
-      _phoneCtrl.text = relay.phone;
-      _descCtrl.text = relay.description ?? '';
-      _openingHours = normalizeRelayOpeningHours(relay.openingHours);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate() || _relay == null) return;
-    if (!_openingHours.values.any(
-      (entry) => entry is Map && entry['enabled'] == true,
-    )) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sélectionnez au moins un jour d’ouverture.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-    setState(() => _isSaving = true);
-    try {
-      final api = ref.read(apiClientProvider);
-      await api.updateRelayPoint(_relay!.id, {
-        'name': _nameCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
-        'description': _descCtrl.text.trim(),
-        'opening_hours': _openingHours,
-      });
-      await _loadRelay();
-      ref.invalidate(relayWalletProvider);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profil du relais mis à jour avec succès.'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
-      );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _editAgentAccount(User user) async {
-    final emailCtrl = TextEditingController(text: user.email ?? '');
-    final bioCtrl = TextEditingController(text: user.bio ?? '');
-    await showDialog<void>(
+  void _preview(RelayPoint relay) {
+    showModalBottomSheet<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Modifier le compte agent'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                initialValue: user.fullName ?? user.phone,
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'Nom',
-                  helperText:
-                      'Le nom n’est pas modifiable pour des raisons de sécurité.',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                initialValue: user.phone,
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'Téléphone',
-                  helperText:
-                      'Le numéro principal du compte agent reste verrouillé.',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'E-mail',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: bioCtrl,
-                maxLines: 4,
-                maxLength: 160,
-                decoration: const InputDecoration(
-                  labelText: 'Bio agent',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                final body = <String, dynamic>{
-                  'bio': bioCtrl.text.trim(),
-                };
-                if (emailCtrl.text.trim().isNotEmpty) {
-                  body['email'] = emailCtrl.text.trim();
-                }
-                await ref.read(apiClientProvider).updateProfile(body);
-                await ref.read(authProvider.notifier).fetchMe();
-                if (!dialogContext.mounted) return;
-                Navigator.pop(dialogContext);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Compte agent mis à jour.'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Mise à jour impossible : $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+          child: ConstrainedBox(
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .8),
+        child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: RelayPublicDetails(relay: relay)),
+      )),
     );
-  }
-
-  Future<void> _deleteAccount() async {
-    final firstConfirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Supprimer le compte ?'),
-        content: const Text(
-          'Cette action supprimera votre accès, effacera vos sessions et anonymisera vos informations personnelles. Elle ne peut pas être annulée.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Continuer'),
-          ),
-        ],
-      ),
-    );
-    if (firstConfirm != true || !mounted) return;
-
-    final controller = TextEditingController();
-    final secondConfirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Confirmation finale'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Tapez SUPPRIMER pour confirmer la suppression.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'SUPPRIMER',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(dialogContext)
-                .pop(controller.text.trim().toUpperCase() == 'SUPPRIMER'),
-            child: const Text('Supprimer définitivement'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (secondConfirm != true || !mounted) return;
-
-    try {
-      await ref.read(authProvider.notifier).deleteAccount();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyError(e)), backgroundColor: Colors.red),
-      );
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = ref.watch(authProvider).valueOrNull?.user;
-    final walletAsync = ref.watch(relayWalletProvider);
-
+    final auth = ref.watch(authProvider).valueOrNull;
+    final user = auth?.user;
+    final relay = ref.watch(relayPointProfileProvider);
+    final wallet = ref.watch(relayWalletProvider);
+    _scrollToSection();
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil du relais')),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _relay == null || user == null
-              ? const Center(
-                  child: Text('Aucun point relais associé à ce compte.'))
-              : RefreshIndicator(
-                  onRefresh: _loadRelay,
-                  child: ListView(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _buildHeader(user, _relay!),
-                      const SizedBox(height: 16),
-                      Container(
-                        key: _identityKey,
-                        child: _SectionCard(
-                          title: 'Compte agent',
-                          subtitle:
-                              'Informations utiles pour vous identifier et pour le contrôle admin.',
-                          trailing: IconButton(
-                            onPressed: () => _editAgentAccount(user),
-                            icon: const Icon(Icons.edit_outlined),
-                          ),
-                          child: Column(
-                            children: [
-                              _infoRow('Nom', user.fullName ?? user.phone),
-                              _infoRow('Téléphone', user.phone),
-                              _infoRow(
-                                'E-mail',
-                                (user.email ?? '').isEmpty
-                                    ? 'Non renseigné'
-                                    : user.email!,
-                              ),
-                              _infoRow('Rôle', 'Agent relais'),
-                              _infoRow('User ID', user.id),
-                              _infoRow(
-                                'État du compte',
-                                user.isBanned
-                                    ? 'Suspendu'
-                                    : (user.isActive ? 'Actif' : 'Inactif'),
-                              ),
-                              _infoRow('KYC', _kycLabel(user.kycStatus)),
-                              if ((user.bio ?? '').trim().isNotEmpty)
-                                _infoRow('Bio', user.bio!.trim()),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        key: _infoKey,
-                        child: _SectionCard(
-                          title: 'Fiche publique du point relais',
-                          subtitle:
-                              'Ces informations sont visibles par les clients lors du choix du relais.',
-                          child: Form(
-                            key: _formKey,
-                            child: Column(
-                              children: [
-                                TextFormField(
-                                  controller: _nameCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Nom du relais',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  validator: (value) =>
-                                      value == null || value.trim().isEmpty
-                                          ? 'Nom requis'
-                                          : null,
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _phoneCtrl,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Téléphone de contact',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                RelayOpeningHoursEditor(
-                                  value: _openingHours,
-                                  onChanged: (value) =>
-                                      setState(() => _openingHours = value),
-                                ),
-                                const SizedBox(height: 12),
-                                TextFormField(
-                                  controller: _descCtrl,
-                                  maxLines: 3,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Instructions ou accès',
-                                    hintText:
-                                        'Repere utile pour les clients et les livreurs',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: LoadingButton(
-                                    label: 'Enregistrer',
-                                    isLoading: _isSaving,
-                                    onPressed: _save,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        key: _operationsKey,
-                        child: _SectionCard(
-                          title: 'Operationnel',
-                          subtitle:
-                              'Vue rapide pour piloter le point relais et vérifier sa capacité.',
-                          child: Column(
-                            children: [
-                              _infoRow('Adresse', _relay!.addressLabel),
-                              _infoRow('Ville', _relay!.city),
-                              _infoRow(
-                                'Capacité',
-                                '${_relay!.currentStock} / ${_relay!.capacity}',
-                              ),
-                              _infoRow(
-                                'Disponibilité',
-                                _relay!.isActive ? 'Active' : 'Inactive',
-                              ),
-                              _infoRow(
-                                'Vérification',
-                                _relay!.isVerified ? 'Vérifié' : 'En attente',
-                              ),
-                              walletAsync.when(
-                                data: (wallet) => _infoRow(
-                                  'Solde relais',
-                                  formatXof(wallet.balance),
-                                ),
-                                loading: () => _infoRow(
-                                  'Solde relais',
-                                  'Chargement...',
-                                ),
-                                error: (_, __) =>
-                                    _infoRow('Solde relais', 'Indisponible'),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () =>
-                                          context.go('/relay/wallet'),
-                                      icon: const Icon(Icons.payments_outlined),
-                                      label: const Text('Gains'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () => context.go('/relay'),
-                                      icon: const Icon(
-                                          Icons.inventory_2_outlined),
-                                      label: const Text('Stock'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        key: _supportKey,
-                        child: _SectionCard(
-                          title: 'Documents et mentions légales',
-                          subtitle:
-                              'Accès rapide aux documents utiles et aux informations de conformité.',
-                          child: Column(
-                            children: [
-                              const SupportWhatsAppTile(
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                              const Divider(height: 1),
-                              const ChangePinTile(
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                              const Divider(height: 1),
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading:
-                                    const Icon(Icons.folder_shared_outlined),
-                                title: const Text('Mes données'),
-                                subtitle: const Text(
-                                    'Consulter ou télécharger mes données'),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => context.push('/my-data'),
-                              ),
-                              const Divider(height: 1),
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.privacy_tip_outlined),
-                                title:
-                                    const Text('Politique de confidentialité'),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => context.push('/legal/privacy'),
-                              ),
-                              const Divider(height: 1),
-                              ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: const Icon(Icons.gavel_outlined),
-                                title: const Text('Conditions générales'),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => context.push('/legal/cgu'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
-                        ),
-                        onPressed: () =>
-                            ref.read(authProvider.notifier).logout(),
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Se déconnecter'),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red.shade800,
-                        ),
-                        onPressed: _deleteAccount,
-                        icon: const Icon(Icons.delete_forever_outlined),
-                        label: const Text('Supprimer mon compte'),
-                      ),
-                    ],
-                  ),
-                ),
-    );
-  }
-
-  Widget _buildHeader(User user, RelayPoint relay) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.orange.shade800, Colors.orange.shade500],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const CircleAvatar(
-                radius: 28,
-                backgroundColor: Colors.white24,
-                child: Icon(Icons.store, color: Colors.white, size: 28),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: AppBar(
+          title: const Text('Mon profil'),
+          actions: const [ProfileAppBarActions()]),
+      body: user == null
+          ? const Center(
+              child: Text('Connectez-vous pour accéder à votre profil.'))
+          : RefreshIndicator(
+              onRefresh: () async {
+                await ref.read(authProvider.notifier).fetchMe();
+                ref.invalidate(relayPointProfileProvider);
+                ref.invalidate(relayPerformanceProvider);
+                ref.invalidate(relayWalletProvider);
+              },
+              child: ListView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
                   children: [
-                    Text(
-                      relay.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      user.fullName ?? user.phone,
-                      style: const TextStyle(color: Colors.white70),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _StatusChip(
-                label: relay.isVerified ? 'Vérifié' : 'Non vérifié',
-                color: relay.isVerified ? Colors.green : Colors.orange.shade100,
-                textColor: relay.isVerified ? Colors.white : Colors.brown,
-              ),
-              _StatusChip(
-                label: relay.isActive ? 'Actif' : 'Inactif',
-                color: relay.isActive
-                    ? Colors.green.shade700
-                    : Colors.grey.shade300,
-                textColor: relay.isActive ? Colors.white : Colors.black87,
-              ),
-              _StatusChip(
-                label: '${relay.currentStock}/${relay.capacity} en stock',
-                color: Colors.white24,
-                textColor: Colors.white,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _kycLabel(String status) {
-    switch (status) {
-      case 'verified':
-        return 'Vérifié';
-      case 'pending':
-        return 'En attente';
-      case 'rejected':
-        return 'Rejeté';
-      default:
-        return 'Non fourni';
-    }
-  }
-
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ProfileHeader(user: user, role: auth!.effectiveRole),
+                    ProfileSection(
+                        key: _relayKey,
+                        title: 'Mon point relais',
+                        child: relay.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error: (_, __) => ProfileNotice(
+                              message:
+                                  'Impossible de charger la fiche du relais. Votre compte et le support restent accessibles.',
+                              onRetry: () =>
+                                  ref.invalidate(relayPointProfileProvider)),
+                          data: (point) => point == null
+                              ? const Text(
+                                  'Aucun point relais n’est encore rattaché à votre compte. Contactez le support pour vérifier le rattachement.')
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                      Text(point.name,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge),
+                                      const SizedBox(height: 8),
+                                      Text(point.addressLabel),
+                                      Text(point.city),
+                                      const SizedBox(height: 8),
+                                      Text(relayOpeningLabel(point),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 6),
+                                      Text(point.isVerified
+                                          ? 'Relais validé par Denkma'
+                                          : 'Validation du relais en attente'),
+                                      Text(point.isActive
+                                          ? 'Relais activé dans Denkma'
+                                          : 'Relais désactivé dans Denkma'),
+                                      const SizedBox(height: 12),
+                                      const ProfileAction(
+                                          title: 'Modifier ma fiche publique',
+                                          subtitle:
+                                              'Adresse, position, contact, jours et horaires',
+                                          icon:
+                                              Icons.edit_location_alt_outlined,
+                                          route: '/relay/profile/edit'),
+                                      ProfileAction(
+                                          title:
+                                              'Voir ma fiche comme un client',
+                                          subtitle:
+                                              'Aperçu des informations actuellement enregistrées',
+                                          icon: Icons.visibility_outlined,
+                                          onTap: () => _preview(point)),
+                                    ]),
+                        )),
+                    ProfileSection(
+                        key: _activityKey,
+                        title: 'Mon activité et mon stock',
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (relay.valueOrNull != null)
+                                Text(
+                                    '${relay.valueOrNull!.currentStock} colis en stock · ${relay.valueOrNull!.availableSlots.clamp(0, relay.valueOrNull!.capacity)} places disponibles'),
+                              const ProfileAction(
+                                  title: 'Stock et historique des remises',
+                                  icon: Icons.inventory_2_outlined,
+                                  route: '/relay'),
+                              const ProfileAction(
+                                  title: 'Réceptionner un colis',
+                                  icon: Icons.qr_code_scanner,
+                                  route: '/relay/scan-in'),
+                            ])),
+                    ProfileSection(
+                        key: _moneyKey,
+                        title: 'Mes gains et règlements',
+                        subtitle:
+                            'Les règlements avec Denkma sont effectués hors plateforme. Leur validation est distincte de votre solde.',
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              wallet.when(
+                                  data: (value) => Text(
+                                      'Solde enregistré : ${formatXof(value.balance)}'),
+                                  loading: () =>
+                                      const LinearProgressIndicator(),
+                                  error: (_, __) => ProfileNotice(
+                                      message:
+                                          'Solde momentanément indisponible.',
+                                      onRetry: () =>
+                                          ref.invalidate(relayWalletProvider))),
+                              const ProfileAction(
+                                  title: 'Gains et transactions',
+                                  icon: Icons.payments_outlined,
+                                  route: '/relay/wallet'),
+                              const ProfileAction(
+                                  title: 'Actions de paiement par colis',
+                                  subtitle:
+                                      'Ouvrez un colis dans le stock pour consulter les montants et actions.',
+                                  icon: Icons.receipt_long_outlined,
+                                  route: '/relay'),
+                            ])),
+                    ProfileSection(
+                        key: _supportKey,
+                        title: 'Besoin d’aide ?',
+                        child: const SupportWhatsAppTile(
+                            contentPadding: EdgeInsets.zero)),
+                    ProfileSection(
+                        key: _settingsKey,
+                        title: 'Mon compte personnel',
+                        subtitle:
+                            'Ces informations concernent le responsable, pas la fiche publique du relais.',
+                        child: const Column(children: [
+                          ProfileAction(
+                              title: 'Mes données',
+                              subtitle: 'Consulter ou télécharger mes données',
+                              icon: Icons.folder_shared_outlined,
+                              route: '/my-data'),
+                          ProfileAction(
+                              title: 'Paramètres',
+                              subtitle:
+                                  'Notifications, sécurité et confidentialité',
+                              icon: Icons.settings_outlined,
+                              route: '/settings'),
+                        ])),
+                  ]),
             ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-    this.trailing,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget child;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (trailing != null) trailing!,
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-            const SizedBox(height: 16),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.label,
-    required this.color,
-    required this.textColor,
-  });
-
-  final String label;
-  final Color color;
-  final Color textColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: textColor,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
     );
   }
 }

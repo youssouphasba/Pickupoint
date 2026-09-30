@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +8,7 @@ import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/private_document_preview.dart';
 import '../providers/admin_provider.dart';
 import 'admin_parcel_audit_screen.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -76,7 +75,8 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                   address: address,
                   geopin: geopin,
                   onCall: () => _callPhone(context, relay.phone),
-                  onEdit: () => _editRelay(context, ref, relay, address, geopin),
+                  onEdit: () =>
+                      _editRelay(context, ref, relay, address, geopin),
                   onArchive: relay.isActive
                       ? () => _archiveRelay(context, ref, relay.id)
                       : null,
@@ -243,9 +243,12 @@ class AdminRelayDetailScreen extends ConsumerWidget {
   ) async {
     final name = TextEditingController(text: relay.name);
     final phone = TextEditingController(text: relay.phone);
-    final label = TextEditingController(text: address['label']?.toString() ?? '');
-    final city = TextEditingController(text: address['city']?.toString() ?? relay.city);
-    final district = TextEditingController(text: address['district']?.toString() ?? '');
+    final label =
+        TextEditingController(text: address['label']?.toString() ?? '');
+    final city =
+        TextEditingController(text: address['city']?.toString() ?? relay.city);
+    final district =
+        TextEditingController(text: address['district']?.toString() ?? '');
     final lat = TextEditingController(text: geopin['lat']?.toString() ?? '');
     final lng = TextEditingController(text: geopin['lng']?.toString() ?? '');
     final capacity = TextEditingController(text: relay.capacity.toString());
@@ -275,8 +278,11 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: TextField(
                         controller: field.$1,
-                        keyboardType: field.$2 == 'Latitude' || field.$2 == 'Longitude' || field.$2 == 'Capacité'
-                            ? const TextInputType.numberWithOptions(decimal: true)
+                        keyboardType: field.$2 == 'Latitude' ||
+                                field.$2 == 'Longitude' ||
+                                field.$2 == 'Capacité'
+                            ? const TextInputType.numberWithOptions(
+                                decimal: true)
                             : null,
                         decoration: InputDecoration(labelText: field.$2),
                       ),
@@ -302,21 +308,32 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                             {
                               'name': name.text.trim(),
                               'phone': phone.text.trim(),
-                              'max_capacity': int.tryParse(capacity.text.trim()) ?? relay.capacity,
+                              'max_capacity':
+                                  int.tryParse(capacity.text.trim()) ??
+                                      relay.capacity,
                               'address': {
-                                'label': label.text.trim().isEmpty ? null : label.text.trim(),
-                                'city': city.text.trim().isEmpty ? null : city.text.trim(),
-                                'district': district.text.trim().isEmpty ? null : district.text.trim(),
+                                'label': label.text.trim().isEmpty
+                                    ? null
+                                    : label.text.trim(),
+                                'city': city.text.trim().isEmpty
+                                    ? null
+                                    : city.text.trim(),
+                                'district': district.text.trim().isEmpty
+                                    ? null
+                                    : district.text.trim(),
                                 if (latValue != null && lngValue != null)
                                   'geopin': {'lat': latValue, 'lng': lngValue},
                               },
                             },
                           );
-                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
                           ref.invalidate(adminRelayDetailProvider(relay.id));
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Relais modifié avec succès.')),
+                              const SnackBar(
+                                  content: Text('Relais modifié avec succès.')),
                             );
                           }
                         } catch (error) {
@@ -328,7 +345,11 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                           }
                         }
                       },
-                child: saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Enregistrer'),
+                child: saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Enregistrer'),
               ),
             ],
           ),
@@ -980,59 +1001,10 @@ Future<void> _openDocumentPreview(
   String title,
   String url,
 ) async {
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: FutureBuilder<Uint8List>(
-            future: ref.read(apiClientProvider).downloadBytes(url),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
-                  height: 220,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError || !snapshot.hasData) {
-                return Text(
-                  friendlyError(snapshot.error ?? 'Document introuvable'),
-                );
-              }
-              return InteractiveViewer(
-                child: Image.memory(
-                  snapshot.data!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Aperçu non disponible sur mobile pour ce format.',
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Fermer'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final uri = Uri.tryParse(url);
-              if (uri != null && await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
-            },
-            child: const Text('Ouvrir le lien'),
-          ),
-        ],
-      );
-    },
+  await showPrivateDocumentPreview(
+    context,
+    title: title,
+    loadDocument: () => ref.read(apiClientProvider).downloadBytes(url),
   );
 }
 

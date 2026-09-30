@@ -1,6 +1,10 @@
 import httpx
 import logging
 import hashlib
+import asyncio
+from collections import OrderedDict
+from copy import deepcopy
+from time import monotonic
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -9,6 +13,36 @@ from config import settings
 
 GOOGLE_DIRECTIONS_API_URL = "https://maps.googleapis.com/maps/api/directions/json"
 GOOGLE_GEOCODE_API_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+_geocode_cache = OrderedDict()
+_geocode_requests = {}
+
+
+async def _cached_geocode(key, loader):
+    now = monotonic()
+    cached = _geocode_cache.get(key)
+    if cached is not None and cached[0] > now:
+        _geocode_cache.move_to_end(key)
+        return deepcopy(cached[1])
+    task = _geocode_requests.get(key)
+    if task is None:
+        task = asyncio.create_task(loader())
+        _geocode_requests[key] = task
+        def finished(completed):
+            if _geocode_requests.get(key) is completed:
+                del _geocode_requests[key]
+            if not completed.cancelled():
+                completed.exception()
+        task.add_done_callback(finished)
+    try:
+        result = await asyncio.shield(task)
+        if result:
+            _geocode_cache[key] = (monotonic() + settings.GEOCODING_CACHE_SECONDS, deepcopy(result))
+            while len(_geocode_cache) > settings.GEOCODING_CACHE_MAX_ENTRIES:
+                _geocode_cache.popitem(last=False)
+        return deepcopy(result)
+    finally:
+        if task.done() and _geocode_requests.get(key) is task:
+            del _geocode_requests[key]
 
 
 def _api_key() -> str:
@@ -77,6 +111,10 @@ def _component_value(components: list[dict], *types: str) -> Optional[str]:
 
 
 async def reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
+    return await _cached_geocode(("reverse", round(lat, 5), round(lng, 5)), lambda: _reverse_geocode(lat, lng))
+
+
+async def _reverse_geocode(lat: float, lng: float) -> Optional[Dict]:
     api_key = _api_key()
     if not api_key:
         logger.info("GOOGLE_DIRECTIONS_API_KEY not set — skipping reverse geocoding")
@@ -164,6 +202,16 @@ def _suggestion_from_geocode_result(result: dict[str, Any]) -> Optional[dict[str
 
 
 async def geocode_address_suggestions(
+    query: str,
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    return await _cached_geocode(("search", query.strip().casefold(), lat, lng, limit),
+        lambda: _geocode_address_suggestions(query, lat=lat, lng=lng, limit=limit))
+
+
+async def _geocode_address_suggestions(
     query: str,
     lat: Optional[float] = None,
     lng: Optional[float] = None,

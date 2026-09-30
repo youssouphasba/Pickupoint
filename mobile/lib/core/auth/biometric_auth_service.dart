@@ -1,7 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'token_storage.dart';
+
+final biometricAuthServiceProvider = Provider<BiometricAuthService>(
+    (ref) => BiometricAuthService(TokenStorage()));
 
 class BiometricAuthService {
   BiometricAuthService(this._storage);
@@ -44,4 +48,11 @@ class BiometricAuthService {
   }
 
   Future<void> disable() => _storage.clearBiometricCredentials();
+
+  Future<void> updatePinIfEnabled(String phone, String pin) async {
+    if (await _storage.getBiometricPhone() == phone &&
+        (await _storage.getBiometricPin())?.isNotEmpty == true) {
+      await saveCredentials(phone: phone, pin: pin);
+    }
+  }
 }

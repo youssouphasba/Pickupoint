@@ -12,6 +12,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +22,11 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(email.trim().toLowerCase(), password);
+      const result = await login(email.trim().toLowerCase(), password, otp || undefined);
+      if (result.mfa_required) {
+        setMfaRequired(true);
+        return;
+      }
       router.replace("/dashboard");
     } catch (e: any) {
       setError(
@@ -72,6 +78,15 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+            {mfaRequired && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">Code de double authentification</label>
+                <Input value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
+                  required autoFocus aria-label="Code de double authentification" />
+                <p className="text-xs text-muted-foreground">Saisissez le code affiché dans votre application d’authentification.</p>
+              </div>
+            )}
             {error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}

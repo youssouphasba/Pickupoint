@@ -21,6 +21,14 @@ class ApiEndpoints {
     return '$_base/$value';
   }
 
+  static bool isTrustedUri(Uri uri) {
+    final base = Uri.parse(_base);
+    return uri.userInfo.isEmpty &&
+        uri.scheme == base.scheme &&
+        uri.host == base.host &&
+        uri.port == base.port;
+  }
+
   // ─── Auth ────────────────────────────────────────────────────────────────
   static const checkPhone = '$_base/api/auth/check-phone';
   static const loginPin = '$_base/api/auth/login-pin';
@@ -95,6 +103,9 @@ class ApiEndpoints {
       '$_base/api/deliveries/$id/location';
   static const myDriverLocation =
       '$_base/api/deliveries/driver-presence/location';
+  static const locationPolicy = '$_base/api/geo/location-policy';
+  static String deliveryLocationTrace(String id) =>
+      '$_base/api/deliveries/$id/location-trace';
   static String acceptMission(String id) => '$_base/api/deliveries/$id/accept';
   static String declineMission(String id) =>
       '$_base/api/deliveries/$id/decline';
@@ -179,6 +190,8 @@ class ApiEndpoints {
 
   // Control Max (Phase 9)
   static const adminFleetLive = '$_base/api/admin/fleet/live-rich';
+  static String adminMissionTrace(String id) =>
+      '$_base/api/admin/fleet/missions/$id/trace';
   static const adminFleetLiveLegacy = '$_base/api/admin/fleet/live';
   static const adminStaleParcels = '$_base/api/admin/analytics/stale-parcels';
   static const adminAnomalyAlerts = '$_base/api/admin/analytics/anomaly-alerts';

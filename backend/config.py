@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "changeme_minimum_32_chars_here_please"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     REFRESH_TOKEN_EXPIRE_DAYS: int = 365
+    ADMIN_MFA_TOTP_SECRETS: dict[str, str] = Field(default_factory=dict, repr=False)
+    ADMIN_REQUIRE_MFA: bool = False
+    ADMIN_MFA_MAX_ATTEMPTS: int = 5
+    ADMIN_MFA_LOCK_SECONDS: int = 600
 
     # Firebase
     FIREBASE_CREDENTIALS_PATH: Optional[str] = "firebase-service-account.json"
@@ -94,6 +98,16 @@ class Settings(BaseSettings):
     DEFAULT_DISTANCE_KM: float = 8.0    # fallback si GPS inconnu
     REDIRECT_RELAY_MAX_DISTANCE_KM: float = 1.0  # relais de repli proche du destinataire uniquement
     STRICT_GPS_MAX_ACCURACY_METERS: float = 60.0
+    DRIVER_GPS_MAX_ACCURACY_METERS: float = 150.0
+    GPS_CAPTURE_MAX_AGE_SECONDS: int = 60
+    GPS_CLOCK_TOLERANCE_SECONDS: int = 30
+    GPS_UPLOAD_INTERVAL_SECONDS: int = 15
+    GPS_HEARTBEAT_INTERVAL_SECONDS: int = 30
+    GPS_ETA_REFRESH_SECONDS: int = 300
+    GPS_ETA_RETRY_SECONDS: int = 30
+    GPS_OFFLINE_BUFFER_HOURS: int = 24
+    GEOCODING_CACHE_SECONDS: int = 900
+    GEOCODING_CACHE_MAX_ENTRIES: int = 1000
     ASSIGNED_MISSION_AUTO_RELEASE_MINUTES: int = 30
     PUBLIC_TRACKING_RETENTION_DAYS: int = 30
     DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES: int = 5
@@ -112,6 +126,16 @@ class Settings(BaseSettings):
     PROOF_MEDIA_RETENTION_DAYS: int = 365
     CAMPAIGN_MEDIA_ORPHAN_GRACE_DAYS: int = 30
     KYC_RETENTION_DAYS: int = 1825
+    KYC_MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+    KYC_MAX_IMAGE_PIXELS: int = 24_000_000
+    KYC_JPEG_QUALITY: int = 90
+    KYC_ORPHAN_GRACE_HOURS: int = 24
+    KYC_CLAMAV_HOST: Optional[str] = None
+    KYC_CLAMAV_PORT: int = 3310
+    KYC_CLAMAV_TIMEOUT_SECONDS: int = 20
+    KYC_REQUIRE_ANTIVIRUS: bool = False
+    KYC_ENCRYPTION_KEYS: str = Field(default="", repr=False)
+    KYC_REQUIRE_ENCRYPTION: bool = False
 
     # Commission splits — 15 % plateforme, 15 % relais, 70 % livreur = 100 %
     PLATFORM_RATE:    float = 0.15
@@ -128,6 +152,22 @@ class Settings(BaseSettings):
         weak_default_secret = "changeme_minimum_32_chars_here_please"
         if is_prod and (not self.JWT_SECRET or self.JWT_SECRET == weak_default_secret or len(self.JWT_SECRET) < 32):
             raise ValueError("JWT_SECRET must be configured with at least 32 chars in production")
+        if self.ADMIN_MFA_MAX_ATTEMPTS < 1 or self.ADMIN_MFA_LOCK_SECONDS < 1:
+            raise ValueError("Invalid admin MFA attempt settings")
+        if self.ADMIN_REQUIRE_MFA and not self.ADMIN_MFA_TOTP_SECRETS:
+            raise ValueError("Configure admin MFA secrets before requiring MFA")
+        if self.ADMIN_MFA_TOTP_SECRETS:
+            import base64
+            normalized_secrets = {}
+            try:
+                for email, secret in self.ADMIN_MFA_TOTP_SECRETS.items():
+                    value = secret.replace(" ", "").upper()
+                    if len(base64.b32decode(value + "=" * (-len(value) % 8))) < 20:
+                        raise ValueError("Insufficient MFA secret length")
+                    normalized_secrets[email.strip().lower()] = value
+            except (ValueError, UnicodeError):
+                raise ValueError("Invalid admin MFA secret configuration") from None
+            self.ADMIN_MFA_TOTP_SECRETS = normalized_secrets
 
         if self.GPS_REMINDER_INITIAL_MINUTES < 1 or self.GPS_REMINDER_ESCALATION_MINUTES < 1:
             raise ValueError("GPS reminder delays must be >= 1 minute")
@@ -136,6 +176,15 @@ class Settings(BaseSettings):
             raise ValueError("GPS_REMINDER_MAX_COUNT must be >= 1")
         if self.STRICT_GPS_MAX_ACCURACY_METERS <= 0:
             raise ValueError("STRICT_GPS_MAX_ACCURACY_METERS must be > 0")
+        if self.DRIVER_GPS_MAX_ACCURACY_METERS < self.STRICT_GPS_MAX_ACCURACY_METERS:
+            raise ValueError("DRIVER_GPS_MAX_ACCURACY_METERS must be >= STRICT_GPS_MAX_ACCURACY_METERS")
+        if any(getattr(self, key) <= 0 for key in (
+            "GPS_CAPTURE_MAX_AGE_SECONDS", "GPS_CLOCK_TOLERANCE_SECONDS",
+            "GPS_UPLOAD_INTERVAL_SECONDS", "GPS_HEARTBEAT_INTERVAL_SECONDS",
+            "GPS_ETA_REFRESH_SECONDS", "GPS_ETA_RETRY_SECONDS", "GPS_OFFLINE_BUFFER_HOURS",
+            "GEOCODING_CACHE_SECONDS", "GEOCODING_CACHE_MAX_ENTRIES",
+        )):
+            raise ValueError("GPS timing settings must be > 0")
         if self.ASSIGNED_MISSION_AUTO_RELEASE_MINUTES < 5:
             raise ValueError("ASSIGNED_MISSION_AUTO_RELEASE_MINUTES must be >= 5")
         if self.PUBLIC_TRACKING_RETENTION_DAYS < 1:
@@ -162,6 +211,22 @@ class Settings(BaseSettings):
         )
         if any(getattr(self, key) < 1 for key in retention_settings):
             raise ValueError("Retention settings must be >= 1")
+        if any(getattr(self, key) < 1 for key in (
+            "KYC_MAX_UPLOAD_BYTES", "KYC_MAX_IMAGE_PIXELS", "KYC_ORPHAN_GRACE_HOURS",
+            "KYC_CLAMAV_TIMEOUT_SECONDS",
+        )) or not 1 <= self.KYC_CLAMAV_PORT <= 65535 or not 1 <= self.KYC_JPEG_QUALITY <= 100:
+            raise ValueError("Invalid KYC security settings")
+        if self.KYC_REQUIRE_ANTIVIRUS and not self.KYC_CLAMAV_HOST:
+            raise ValueError("KYC_CLAMAV_HOST is required when KYC_REQUIRE_ANTIVIRUS is enabled")
+        if self.KYC_REQUIRE_ENCRYPTION and not self.KYC_ENCRYPTION_KEYS.strip():
+            raise ValueError("KYC_ENCRYPTION_KEYS is required when KYC_REQUIRE_ENCRYPTION is enabled")
+        if self.KYC_ENCRYPTION_KEYS.strip():
+            from cryptography.fernet import Fernet
+            try:
+                for key in self.KYC_ENCRYPTION_KEYS.split(","):
+                    Fernet(key.strip().encode("ascii"))
+            except (ValueError, UnicodeError):
+                raise ValueError("Invalid KYC encryption key configuration") from None
 
         if is_prod and self.WHATSAPP_ACCESS_TOKEN and not self.WHATSAPP_APP_SECRET:
             raise ValueError("WHATSAPP_APP_SECRET must be configured in production when WhatsApp webhooks are enabled")
@@ -176,6 +241,7 @@ class Settings(BaseSettings):
         env_file=[".env", "../.env"],  # cherche dans backend/ puis dans la racine
         case_sensitive=True,
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
 

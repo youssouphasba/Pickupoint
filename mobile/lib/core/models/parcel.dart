@@ -59,9 +59,9 @@ class Parcel {
     this.initiatedBy = 'sender',
     this.deliveryConfirmed = false,
     this.pickupConfirmed = false,
-      this.deliveryLocation,
-      this.pickupLocation,
-      this.originLocation,
+    this.deliveryLocation,
+    this.pickupLocation,
+    this.originLocation,
     this.deliveryCode,
     this.pinCode,
     this.pickupCode,
@@ -81,6 +81,7 @@ class Parcel {
     this.driverName,
     this.driverPhone,
     this.driverLocation,
+    this.liveTrackingAllowed,
     this.etaText,
     this.distanceText,
     this.etaSeconds,
@@ -166,6 +167,7 @@ class Parcel {
   final String? driverName;
   final String? driverPhone;
   final Map<String, dynamic>? driverLocation;
+  final bool? liveTrackingAllowed;
   final String? etaText;
   final String? distanceText;
   final int? etaSeconds;
@@ -229,8 +231,8 @@ class Parcel {
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
       declaredValue: (json['declared_value'] as num?)?.toDouble(),
       hasInsurance: json['is_insured'] as bool? ?? false,
-        totalPrice: (json['paid_price'] as num?)?.toDouble() ??
-            (json['quoted_price'] as num?)?.toDouble(),
+      totalPrice: (json['paid_price'] as num?)?.toDouble() ??
+          (json['quoted_price'] as num?)?.toDouble(),
       paymentStatus: json['payment_status']?.toString(),
       externalRef: json['external_ref']?.toString(),
       events: (json['events'] as List<dynamic>?)
@@ -275,6 +277,7 @@ class Parcel {
       driverName: json['driver_name'] as String?,
       driverPhone: json['driver_phone'] as String?,
       driverLocation: json['driver_location'] as Map<String, dynamic>?,
+      liveTrackingAllowed: json['live_tracking_allowed'] as bool?,
       etaText: json['eta_text'] as String?,
       distanceText: json['distance_text'] as String?,
       etaSeconds: (json['eta_seconds'] as num?)?.toInt(),
@@ -297,19 +300,15 @@ class Parcel {
       originRelayCommissionXof:
           (json['origin_relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
       destinationRelayCommissionXof:
-          (json['destination_relay_commission_xof'] as num?)?.toDouble() ??
-              0.0,
-      totalCommissionXof:
-          (json['total_commission_xof'] as num?)?.toDouble() ??
+          (json['destination_relay_commission_xof'] as num?)?.toDouble() ?? 0.0,
+      totalCommissionXof: (json['total_commission_xof'] as num?)?.toDouble() ??
+          (((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
+              ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0)),
+      walletBalanceRequiredXof: (json['wallet_balance_required_xof'] as num?)
+              ?.toDouble() ??
+          ((json['total_commission_xof'] as num?)?.toDouble() ??
               (((json['platform_commission_xof'] as num?)?.toDouble() ?? 0.0) +
-                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0)),
-      walletBalanceRequiredXof:
-          (json['wallet_balance_required_xof'] as num?)?.toDouble() ??
-              ((json['total_commission_xof'] as num?)?.toDouble() ??
-                  (((json['platform_commission_xof'] as num?)?.toDouble() ??
-                          0.0) +
-                      ((json['relay_commission_xof'] as num?)?.toDouble() ??
-                          0.0))),
+                  ((json['relay_commission_xof'] as num?)?.toDouble() ?? 0.0))),
       expiresAt: DateTime.tryParse(json['expires_at']?.toString() ?? ''),
       commissionChargeMode: json['commission_charge_mode']?.toString(),
       adminAssignmentStatus: json['admin_assignment_status']?.toString(),

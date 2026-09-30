@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from core.security import verify_access_token
+from core.admin_mfa import valid_admin_mfa_session
 from core.exceptions import credentials_exception, forbidden_exception
 from database import db
 from models.common import UserRole
@@ -74,6 +75,10 @@ async def get_current_user(
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user:
         raise credentials_exception()
+    uses_admin_cookie = not (credentials and credentials.credentials) and request.cookies.get(ADMIN_COOKIE_NAME)
+    if uses_admin_cookie and user.get("role") in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}:
+        if not valid_admin_mfa_session(user, payload):
+            raise credentials_exception()
     if not user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -102,6 +107,10 @@ async def get_current_user_optional(
         user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
         if not user or not user.get("is_active", True) or user.get("is_banned"):
             return None
+        uses_admin_cookie = not (credentials and credentials.credentials) and request.cookies.get(ADMIN_COOKIE_NAME)
+        if uses_admin_cookie and user.get("role") in {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}:
+            if not valid_admin_mfa_session(user, payload):
+                return None
         return await _normalize_deleted_relay_assignment(user)
     except Exception:
         return None

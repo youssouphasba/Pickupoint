@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
 import '../../features/auth/screens/phone_screen.dart';
@@ -36,6 +35,10 @@ import '../../features/relay/screens/relay_wallet_screen.dart';
 import '../../features/driver/screens/driver_home.dart';
 import '../../features/driver/screens/mission_detail_screen.dart';
 import '../../features/driver/screens/driver_profile_screen.dart';
+import '../../features/driver/screens/driver_documents_screen.dart';
+import '../../features/relay/screens/relay_public_profile_editor.dart';
+import '../../shared/screens/account_settings_screen.dart';
+import '../../shared/screens/account_details_screen.dart';
 import '../../features/driver/screens/driver_wallet_screen.dart';
 import '../../features/driver/screens/driver_performance_screen.dart';
 import '../../features/driver/screens/completed_missions_screen.dart';
@@ -444,6 +447,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               LegalDocumentScreen(docType: s.pathParameters['docType']!)),
       GoRoute(path: '/my-data', builder: (_, __) => const MyDataScreen()),
       GoRoute(
+          path: '/settings', builder: (_, __) => const AccountSettingsScreen()),
+      GoRoute(
+          path: '/settings/account',
+          builder: (_, __) => const AccountDetailsScreen()),
+      GoRoute(
+          path: '/settings/notifications',
+          builder: (_, __) => const NotificationSettingsScreen()),
+      GoRoute(
         path: '/confirm/:token',
         builder: (_, s) => ConfirmLocationScreen(
           token: s.pathParameters['token']!,
@@ -627,7 +638,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/client/notifications',
               builder: (_, __) => const NotificationsInboxScreen(
-                    settingsRoute: '/client/notifications/settings',
+                    settingsRoute: '/settings/notifications',
                     parcelDetailsRoutePrefix: '/client/parcel',
                   )),
           GoRoute(
@@ -662,6 +673,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     initialSection: state.uri.queryParameters['section'],
                   )),
           GoRoute(
+              path: '/relay/profile/edit',
+              builder: (_, __) => const RelayPublicProfileEditor()),
+          GoRoute(
               path: '/relay/scan-in', builder: (_, __) => const ScanInScreen()),
           GoRoute(
               path: '/relay/scan-out',
@@ -679,7 +693,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const RelayWalletScreen()),
           GoRoute(
               path: '/relay/notifications',
-              builder: (_, __) => const NotificationsInboxScreen()),
+              builder: (_, __) => const NotificationsInboxScreen(
+                  settingsRoute: '/settings/notifications')),
         ],
       ),
 
@@ -722,6 +737,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                     initialSection: state.uri.queryParameters['section'],
                   )),
           GoRoute(
+              path: '/driver/documents',
+              builder: (_, __) => const DriverDocumentsScreen()),
+          GoRoute(
               path: '/driver/performance',
               builder: (_, __) => const DriverPerformanceScreen()),
           GoRoute(
@@ -730,7 +748,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   ReferralScreen(initialCode: s.uri.queryParameters['ref'])),
           GoRoute(
               path: '/driver/notifications',
-              builder: (_, __) => const NotificationsInboxScreen()),
+              builder: (_, __) => const NotificationsInboxScreen(
+                  settingsRoute: '/settings/notifications')),
         ],
       ),
 
@@ -886,13 +905,6 @@ class DriverShell extends ConsumerStatefulWidget {
 
 class _DriverShellState extends ConsumerState<DriverShell>
     with WidgetsBindingObserver {
-  static const _trackingInterval = Duration(seconds: 5);
-  int _trackingGeneration = 0;
-  String? _requestedMissionId;
-  bool _trackingStarting = false;
-  StreamSubscription<Position>? _positionStream;
-  DateTime? _lastBackendUpdate;
-  String? _trackingMissionId;
   bool _locationConsentPrepared = false;
 
   @override
@@ -911,104 +923,8 @@ class _DriverShellState extends ConsumerState<DriverShell>
 
   @override
   void dispose() {
-    _trackingGeneration++;
     WidgetsBinding.instance.removeObserver(this);
-    _positionStream?.cancel();
     super.dispose();
-  }
-
-  Future<void> _syncDriverTracking(String? missionId) async {
-    if (!mounted) return;
-    if (missionId == _trackingMissionId && _positionStream != null) return;
-    if (_trackingStarting && missionId == _requestedMissionId) return;
-    final generation = ++_trackingGeneration;
-    _requestedMissionId = missionId;
-    _trackingStarting = true;
-
-    try {
-      await _positionStream?.cancel();
-      if (!mounted || generation != _trackingGeneration) return;
-      _positionStream = null;
-      _trackingMissionId = null;
-      _lastBackendUpdate = null;
-
-      if (missionId == null || missionId.isEmpty) {
-        return;
-      }
-
-      if (!await DriverLocationConsent.hasAccepted()) return;
-      final permission = await Geolocator.checkPermission();
-      if (!mounted || generation != _trackingGeneration) return;
-      final hasRequiredPermission =
-          defaultTargetPlatform == TargetPlatform.android
-              ? permission == LocationPermission.always
-              : permission == LocationPermission.always;
-      if (!hasRequiredPermission) {
-        return;
-      }
-      _trackingMissionId = missionId;
-
-      final LocationSettings locationSettings;
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        locationSettings = AndroidSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
-          intervalDuration: _trackingInterval,
-          foregroundNotificationConfig: const ForegroundNotificationConfig(
-            notificationTitle: 'Denkma suit votre livraison',
-            notificationText:
-                'Votre position est partagée en continu pendant la course.',
-            enableWakeLock: true,
-          ),
-        );
-      } else if (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.macOS) {
-        locationSettings = AppleSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 10,
-          activityType: ActivityType.automotiveNavigation,
-          pauseLocationUpdatesAutomatically: false,
-          showBackgroundLocationIndicator: true,
-          allowBackgroundLocationUpdates: true,
-        );
-      } else {
-        locationSettings = const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10,
-        );
-      }
-
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: locationSettings,
-      ).listen((position) async {
-        final now = DateTime.now();
-        if (!mounted || generation != _trackingGeneration) return;
-        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) return;
-        if (_lastBackendUpdate != null &&
-            now.difference(_lastBackendUpdate!) < _trackingInterval) {
-          return;
-        }
-        _lastBackendUpdate = now;
-        try {
-          if (!mounted || generation != _trackingGeneration) return;
-          await ref.read(apiClientProvider).updateLocation(missionId, {
-            'lat': position.latitude,
-            'lng': position.longitude,
-            'accuracy': position.accuracy,
-          });
-        } catch (_) {
-          if (generation == _trackingGeneration) _lastBackendUpdate = null;
-        }
-      }, onError: (Object error) {
-        if (!mounted || generation != _trackingGeneration) return;
-        _positionStream?.cancel();
-        _positionStream = null;
-        _trackingMissionId = null;
-      });
-    } finally {
-      if (generation == _trackingGeneration) _trackingStarting = false;
-    }
   }
 
   Future<void> _prepareLocationConsent() async {
@@ -1037,15 +953,6 @@ class _DriverShellState extends ConsumerState<DriverShell>
           mission.status == 'in_progress' ||
           mission.status == 'incident_reported',
     );
-    String? activeMissionId;
-    for (final mission in myMissions) {
-      if (mission.startedAt != null &&
-          (mission.status == 'in_progress' ||
-              mission.status == 'incident_reported')) {
-        activeMissionId = mission.id;
-        break;
-      }
-    }
     final isAvailable =
         ref.watch(authProvider).valueOrNull?.user?.isAvailable ?? false;
     if (!_locationConsentPrepared && (isAvailable || hasTrackableMission)) {
@@ -1054,9 +961,6 @@ class _DriverShellState extends ConsumerState<DriverShell>
         _prepareLocationConsent();
       });
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncDriverTracking(activeMissionId);
-    });
 
     final int idx;
     if (location.startsWith('/driver/wallet')) {

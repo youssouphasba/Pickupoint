@@ -9,6 +9,7 @@ import { DateRangeFilter, type DateRange } from "@/components/date-range-filter"
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 type AuditEvent = {
   event_type: string;
@@ -19,6 +20,8 @@ type AuditEvent = {
   tracking_code?: string;
   notes?: string;
   created_at?: string;
+  target_user_name?: string;
+  metadata?: { target_user_id?: string; document_type?: string };
 };
 
 const EVENT_TONES: Record<string, "default" | "info" | "success" | "warning" | "danger"> = {
@@ -32,10 +35,22 @@ const EVENT_TONES: Record<string, "default" | "info" | "success" | "warning" | "
   USER_UNBANNED: "success",
   USER_ROLE_CHANGED: "warning",
   SECURITY_GPS_BLOCKED: "danger",
+  KYC_DOCUMENT_ACCESS_DENIED: "danger",
+  KYC_DOCUMENT_VIEWED: "info",
+  KYC_DOCUMENT_UPLOADED: "info",
+  KYC_DOCUMENT_REPLACED: "warning",
+  KYC_ACCESS_GRANTED: "warning",
+  KYC_ACCESS_REVOKED: "warning",
 };
 
 const EVENT_LABELS: Record<string, string> = {
   SECURITY_GPS_BLOCKED: "BLOCAGE SÉCURITÉ GPS",
+  KYC_DOCUMENT_ACCESS_DENIED: "Accès à une pièce refusé",
+  KYC_DOCUMENT_VIEWED: "Pièce d’identité consultée",
+  KYC_DOCUMENT_UPLOADED: "Pièce d’identité téléversée",
+  KYC_DOCUMENT_REPLACED: "Pièce d’identité remplacée",
+  KYC_ACCESS_GRANTED: "Accès aux pièces autorisé",
+  KYC_ACCESS_REVOKED: "Accès aux pièces retiré",
 };
 
 function fmtDate(iso?: string) {
@@ -114,10 +129,16 @@ export default function AuditLogPage() {
         header: "Notes",
         accessorKey: "notes",
         enableSorting: false,
-        cell: ({ getValue }) => (
-          <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">
-            {(getValue() as string) ?? "—"}
-          </span>
+        cell: ({ getValue, row }) => (
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <span className="line-clamp-2 max-w-xs">{(getValue() as string) ?? "—"}</span>
+            {row.original.metadata?.target_user_id && (
+              <Link href={`/dashboard/users/${encodeURIComponent(row.original.metadata.target_user_id)}`} className="block text-primary underline">
+                {row.original.target_user_name ?? row.original.metadata.target_user_id}
+                {row.original.metadata.document_type === "license" ? " · Permis" : row.original.metadata.document_type === "id_card" ? " · Pièce d’identité" : ""}
+              </Link>
+            )}
+          </div>
         ),
       },
     ],

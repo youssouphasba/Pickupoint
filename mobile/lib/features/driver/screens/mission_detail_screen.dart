@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../core/location/fresh_position_helper.dart';
+import '../../../core/location/driver_presence_service.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
@@ -431,16 +433,22 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
     setState(() => _isProcessing = true);
     try {
       final api = ref.read(apiClientProvider);
-      double? lat, lng;
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        ).timeout(const Duration(seconds: 8));
-        lat = pos.latitude;
-        lng = pos.longitude;
-      } catch (_) {}
-      await api.confirmPickup(widget.id, code, lat: lat, lng: lng);
+      final pos = await FreshPositionHelper.getStrictFreshPosition(
+          context: 'la collecte du colis');
+      final response = await api.confirmPickup(widget.id, code,
+          lat: pos.latitude,
+          lng: pos.longitude,
+          accuracy: pos.accuracy,
+          capturedAt: pos.timestamp);
       if (mounted) {
+        final startedAt =
+            DateTime.tryParse(response.data['started_at']?.toString() ?? '');
+        if (startedAt != null) {
+          ref
+              .read(driverPresenceServiceProvider)
+              .registerCollection(widget.id, startedAt);
+        }
+        ref.invalidate(myMissionsProvider);
         ref.invalidate(missionProvider(widget.id));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -480,15 +488,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
       if (!gpsReady) {
         return;
       }
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      ).timeout(const Duration(seconds: 8));
+      final pos = await FreshPositionHelper.getStrictFreshPosition(
+          context: 'la confirmation de votre arrivée');
 
       final api = ref.read(apiClientProvider);
       await api.arriveAtDestination(
         parcelId,
         lat: pos.latitude,
         lng: pos.longitude,
+        accuracy: pos.accuracy,
+        capturedAt: pos.timestamp,
       );
       if (mounted) {
         ref.invalidate(missionProvider(widget.id));
@@ -586,21 +595,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
     setState(() => _isProcessing = true);
     try {
-      // Récupérer position GPS actuelle pour la géofence
-      double? driverLat, driverLng;
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        ).timeout(const Duration(seconds: 8));
-        driverLat = pos.latitude;
-        driverLng = pos.longitude;
-      } catch (_) {}
+      final pos = await FreshPositionHelper.getStrictFreshPosition(
+          context: 'la remise du colis');
 
       final api = ref.read(apiClientProvider);
       await api.deliverParcel(parcelId, {
         'delivery_code': code,
-        'driver_lat': driverLat,
-        'driver_lng': driverLng,
+        'driver_lat': pos.latitude,
+        'driver_lng': pos.longitude,
+        'accuracy': pos.accuracy,
+        'captured_at': pos.timestamp.toUtc().toIso8601String(),
         'proof_type': _proofBase64 != null ? 'photo' : null,
         'proof_data': _proofBase64,
       });

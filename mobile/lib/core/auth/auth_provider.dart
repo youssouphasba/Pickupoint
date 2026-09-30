@@ -355,9 +355,8 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
     final current = state.valueOrNull;
     if (current == null || !current.isAuthenticated) return;
 
-    state = const AsyncLoading();
     try {
-      final client = ApiClient(token: current.accessToken);
+      final client = ref.read(apiClientProvider);
       final body = <String, dynamic>{};
       if (email != null) body['email'] = email;
       if (userType != null) body['user_type'] = userType;
@@ -369,10 +368,22 @@ class AuthNotifier extends AsyncNotifier<AuthState> {
 
       final res = await client.updateProfile(body);
       final updatedUser = User.fromJson(res.data as Map<String, dynamic>);
-
-      state = AsyncData(current.copyWith(user: updatedUser));
+      final latest = state.valueOrNull;
+      if (latest?.user?.id == current.user?.id &&
+          latest?.isAuthenticated == true) {
+        await _storage.saveUser(updatedUser);
+        final afterSave = state.valueOrNull;
+        if (afterSave?.user?.id == current.user?.id &&
+            afterSave?.isAuthenticated == true) {
+          state = AsyncData(afterSave!.copyWith(user: updatedUser));
+        }
+      }
     } catch (e) {
-      state = AsyncData(current.copyWith(error: _extractError(e)));
+      final latest = state.valueOrNull;
+      if (latest?.user?.id == current.user?.id &&
+          latest?.isAuthenticated == true) {
+        state = AsyncData(latest!.copyWith(error: _extractError(e)));
+      }
       rethrow;
     }
   }

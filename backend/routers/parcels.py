@@ -46,6 +46,8 @@ from models.parcel import (
     AddressChangeApplyRequest,
 )
 from models.delivery import ProofOfDelivery, CodeDelivery
+from services.location_quality import client_live_tracking_allowed, location_captured_after_collection, location_is_live, validate_capture
+from services.mission_trace import summarize_trace, timestamp
 from services.parcel_service import (
     create_parcel,
     transition_status,
@@ -773,9 +775,13 @@ async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_c
     if not parcel:
         raise not_found_exception("Colis")
 
-    allowed, _, _, _ = _can_access_parcel(parcel, current_user)
+    allowed, _, is_recipient, _ = _can_access_parcel(parcel, current_user)
     if not allowed:
         raise forbidden_exception("Accès refusé à ce suivi live")
+    is_admin = _is_admin(current_user)
+    is_relay_to_home = parcel.get("delivery_mode") == "relay_to_home"
+    if not is_admin and parcel.get("delivery_mode") != "home_to_home" and not (is_relay_to_home and is_recipient):
+        return {"available": False, "location": None}
 
     mission = await db.delivery_missions.find_one(
         {
@@ -793,21 +799,41 @@ async def get_driver_location(parcel_id: str, current_user: dict = Depends(get_c
             "delivery_label": 1,
             "location_updated_at": 1,
             "gps_trail": {"$slice": -_LIVE_TRACKING_TRAIL_LIMIT},
+            "started_at": 1,
+            "completed_at": 1,
+            "status": 1,
+            "delivery_type": 1,
+            "eta_target_status": 1,
         },
     )
     if not mission or not mission.get("driver_location"):
         return {"available": False, "location": None}
+    if not is_admin and not client_live_tracking_allowed(parcel, mission, is_recipient=is_recipient):
+        return {"available": False, "location": None}
+    if not is_admin and is_relay_to_home and not location_captured_after_collection(mission):
+        return {"available": False, "location": None}
 
+    is_live = location_is_live(mission.get("driver_location"), mission.get("location_updated_at"))
+    show_estimate = is_admin or not is_relay_to_home or mission.get("eta_target_status") == mission.get("status")
+    trace_points = [
+        point for point in mission.get("gps_trail") or []
+        if timestamp(mission.get("started_at")) is not None and timestamp(point.get("ts")) is not None
+        and timestamp(point["ts"]) >= timestamp(mission["started_at"])
+    ]
     return {
-        "available": True,
+        "available": is_live,
+        "is_live": is_live,
+        "has_location": True,
+        "max_age_seconds": settings.GPS_CAPTURE_MAX_AGE_SECONDS,
         "location": mission.get("driver_location"),
-        "eta_text": mission.get("eta_text"),
-        "distance_text": mission.get("distance_text"),
-        "eta_seconds": mission.get("eta_seconds"),
-        "encoded_polyline": mission.get("encoded_polyline"),
+        "eta_text": mission.get("eta_text") if is_live and show_estimate else None,
+        "distance_text": mission.get("distance_text") if is_live and show_estimate else None,
+        "eta_seconds": mission.get("eta_seconds") if is_live and show_estimate else None,
+        "encoded_polyline": mission.get("encoded_polyline") if show_estimate else None,
+        "trace_summary": summarize_trace(trace_points),
         "trail": [
             {"lat": point.get("lat"), "lng": point.get("lng")}
-            for point in mission.get("gps_trail") or []
+            for point in (trace_points if is_relay_to_home and not is_admin else mission.get("gps_trail") or [])
             if isinstance(point.get("lat"), (int, float))
             and isinstance(point.get("lng"), (int, float))
         ],
@@ -847,6 +873,11 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             "driver_id": 1,
             "status": 1,
             "driver_location": 1,
+            "location_updated_at": 1,
+            "started_at": 1,
+            "completed_at": 1,
+            "delivery_type": 1,
+            "eta_target_status": 1,
             "eta_text": 1,
             "distance_text": 1,
             "eta_seconds": 1,
@@ -873,12 +904,19 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
     parcel["delivery_area_label"] = build_location_area_label(
         parcel.get("delivery_address"),
     )
+    parcel["live_tracking_allowed"] = client_live_tracking_allowed(parcel, active_mission, is_recipient=is_recipient)
     if active_mission:
-        parcel["driver_location"] = active_mission.get("driver_location")
-        parcel["eta_text"] = active_mission.get("eta_text")
-        parcel["distance_text"] = active_mission.get("distance_text")
-        parcel["eta_seconds"] = active_mission.get("eta_seconds")
-        parcel["encoded_polyline"] = active_mission.get("encoded_polyline")
+        is_relay_to_home = parcel.get("delivery_mode") == "relay_to_home"
+        show_tracking = is_admin or parcel["live_tracking_allowed"]
+        show_location = show_tracking and (is_admin or not is_relay_to_home or location_captured_after_collection(active_mission))
+        show_estimate = show_location and (is_admin or not is_relay_to_home or active_mission.get("eta_target_status") == active_mission.get("status"))
+        is_live = show_location and location_is_live(active_mission.get("driver_location"), active_mission.get("location_updated_at"))
+        parcel["driver_location"] = active_mission.get("driver_location") if show_location else None
+        parcel["location_updated_at"] = active_mission.get("location_updated_at") if show_location else None
+        parcel["eta_text"] = active_mission.get("eta_text") if is_live and show_estimate else None
+        parcel["distance_text"] = active_mission.get("distance_text") if is_live and show_estimate else None
+        parcel["eta_seconds"] = active_mission.get("eta_seconds") if is_live and show_estimate else None
+        parcel["encoded_polyline"] = active_mission.get("encoded_polyline") if show_estimate else None
         parcel["payment_method"] = active_mission.get("payment_method") or parcel.get("payment_method")
         parcel["who_pays"] = active_mission.get("who_pays") or parcel.get("who_pays")
         parcel["pickup_voice_note"] = active_mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
@@ -1082,6 +1120,7 @@ async def confirm_location_authenticated(
 
     _ensure_delivery_location_can_change(parcel, current_user)
 
+    ensure_live_location_accuracy(payload.accuracy, context="la confirmation de position", source=payload.source)
     location = _build_confirmed_location_payload(
         payload,
         source="app_recipient",
@@ -1692,6 +1731,8 @@ async def pickup_parcel(
 class ArriveAtDestinationRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lng: float = Field(..., ge=-180, le=180)
+    accuracy: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
+    captured_at: Optional[datetime] = None
 
 @router.post("/{parcel_id}/arrive-at-destination", summary="Driver signale son arrivée au domicile destinataire")
 async def arrive_at_destination(
@@ -1711,10 +1752,12 @@ async def arrive_at_destination(
     _ensure_driver_action_allowed(parcel, current_user)
     if parcel.get("status") != ParcelStatus.IN_TRANSIT.value:
         raise bad_request_exception("Le colis doit être en transit pour signaler l'arrivée à destination")
+    if not _is_admin(current_user):
+        validate_capture(body.accuracy, body.captured_at, strict=body.captured_at is not None)
 
     # Vérification proximité : driver doit être à < 500m de la destination
     dest_geopin = (parcel.get("delivery_address") or {}).get("geopin")
-    if dest_geopin and dest_geopin.get("lat") and dest_geopin.get("lng"):
+    if dest_geopin and dest_geopin.get("lat") is not None and dest_geopin.get("lng") is not None:
         from services.parcel_service import _haversine_km
         dist_m = _haversine_km(body.lat, body.lng, dest_geopin["lat"], dest_geopin["lng"]) * 1000
         if dist_m > 500:
@@ -1759,6 +1802,9 @@ async def deliver_parcel(
 
     is_admin = _is_admin(current_user)
     is_debug_simulation = bool(parcel.get("is_simulation") and settings.DEBUG and is_admin)
+
+    if not is_admin and body.driver_lat is not None and body.driver_lng is not None:
+        validate_capture(body.accuracy, body.captured_at, strict=body.captured_at is not None)
 
     if not is_admin and not is_debug_simulation and (
         body.driver_lat is None or body.driver_lng is None

@@ -21,6 +21,7 @@ import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../../core/location/location_snapshot.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -56,6 +57,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   double? _liveDestinationLat;
   double? _liveDestinationLng;
   bool _driverOnline = false;
+  bool _fetchingDriverLocation = false;
+  bool _trackingConnectionError = false;
   GoogleMapController? _mapController;
   bool _isConfirmingLocation = false;
   String? _confirmLocationStatus;
@@ -64,7 +67,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   String? _liveEtaText;
   String? _liveDistanceText;
   String? _liveEncodedPolyline;
-  List<LatLng> _liveTrailPoints = const [];
+  List<List<LatLng>> _liveTrailSegments = const [];
   final Map<String, Future<RelayPoint?>> _relayFutureCache = {};
   final GlobalKey _chatKey = GlobalKey();
   bool _messageRevealScheduled = false;
@@ -243,42 +246,52 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
       ModalRoute.of(context)?.isCurrent == true;
 
   Future<void> _fetchDriverLocation() async {
+    if (_fetchingDriverLocation) return;
+    _fetchingDriverLocation = true;
     try {
       final api = ref.read(apiClientProvider);
       final res = await api.getDriverLocation(widget.id);
       final data = res.data as Map<String, dynamic>;
-      if (data['available'] == true && data['location'] != null) {
+      if (data['location'] != null) {
         final loc = data['location'] as Map<String, dynamic>;
         final destination = data['destination'] as Map<String, dynamic>?;
         final geopin = destination?['geopin'] as Map<String, dynamic>?;
         if (mounted) {
           final latitude = (loc['lat'] as num).toDouble();
           final longitude = (loc['lng'] as num).toDouble();
-          final trail = (data['trail'] as List? ?? const [])
-              .whereType<Map>()
-              .map((point) => Map<String, dynamic>.from(point))
-              .where(
-                (point) => point['lat'] is num && point['lng'] is num,
-              )
-              .map(
-                (point) => LatLng(
-                  (point['lat'] as num).toDouble(),
-                  (point['lng'] as num).toDouble(),
-                ),
-              )
+          final rawSegments =
+              (data['trace_summary'] as Map?)?['segments'] as List? ?? const [];
+          final segments = rawSegments
+              .whereType<List>()
+              .map((segment) => segment
+                  .whereType<Map>()
+                  .map((point) => Map<String, dynamic>.from(point))
+                  .where(
+                    (point) => point['lat'] is num && point['lng'] is num,
+                  )
+                  .map(
+                    (point) => LatLng(
+                      (point['lat'] as num).toDouble(),
+                      (point['lng'] as num).toDouble(),
+                    ),
+                  )
+                  .toList(growable: false))
               .toList(growable: false);
+          final firstDriverPosition = _driverLat == null;
           _moveDriverMarker(latitude, longitude);
           setState(() {
-            _driverOnline = true;
-            _liveEtaText = data['eta_text']?.toString();
-            _liveDistanceText = data['distance_text']?.toString();
+            _driverOnline = isLiveLocationSnapshot(data);
+            _trackingConnectionError = false;
+            _liveEtaText = _driverOnline ? data['eta_text']?.toString() : null;
+            _liveDistanceText =
+                _driverOnline ? data['distance_text']?.toString() : null;
             _liveEncodedPolyline = data['encoded_polyline']?.toString();
-            _liveTrailPoints = trail;
+            _liveTrailSegments = segments;
             _liveDestinationLat = (geopin?['lat'] as num?)?.toDouble();
             _liveDestinationLng = (geopin?['lng'] as num?)?.toDouble();
           });
 
-          if (_mapController != null) {
+          if (_mapController != null && firstDriverPosition) {
             _mapController!.animateCamera(
               CameraUpdate.newLatLng(LatLng(latitude, longitude)),
             );
@@ -288,14 +301,26 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
         if (mounted) {
           setState(() {
             _driverOnline = false;
+            _trackingConnectionError = false;
             _liveEtaText = null;
             _liveDistanceText = null;
             _liveEncodedPolyline = null;
-            _liveTrailPoints = const [];
+            _liveTrailSegments = const [];
           });
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _driverOnline = false;
+          _trackingConnectionError = true;
+          _liveEtaText = null;
+          _liveDistanceText = null;
+        });
+      }
+    } finally {
+      _fetchingDriverLocation = false;
+    }
   }
 
   Future<RelayPoint?> _loadRelayPoint(String relayId) async {
@@ -311,8 +336,20 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   @override
   Widget build(BuildContext context) {
     ref.listen(parcelProvider(widget.id), (previous, next) {
+      final currentParcel = next.asData?.value;
+      final previousParcel = previous?.asData?.value;
+      if (currentParcel != null &&
+          _shouldShowLiveTracking(currentParcel) &&
+          (previousParcel == null ||
+              !_shouldShowLiveTracking(previousParcel))) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_canRefresh) unawaited(_fetchDriverLocation());
+        });
+      }
       final award = next.asData?.value.loyaltyAward;
-      if (award != null && award['event_id'] != previous?.asData?.value.loyaltyAward?['event_id']) {
+      if (award != null &&
+          award['event_id'] !=
+              previous?.asData?.value.loyaltyAward?['event_id']) {
         ref.invalidate(clientLoyaltyProvider);
         ref.invalidate(clientReferralProvider);
       }
@@ -332,13 +369,16 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(context, parcel, isRecipient: isRecipient),
-                if (parcel.status == 'delivered' && parcel.loyaltyAward != null &&
-                    parcel.senderId == ref.watch(authProvider).valueOrNull?.user?.id)
+                if (parcel.status == 'delivered' &&
+                    parcel.loyaltyAward != null &&
+                    parcel.senderId ==
+                        ref.watch(authProvider).valueOrNull?.user?.id)
                   ClientLoyaltyAward(award: parcel.loyaltyAward!),
                 const SizedBox(height: 16),
                 _buildPriceCard(parcel),
                 if (parcel.status == 'delivered' &&
-                    parcel.senderId == ref.watch(authProvider).valueOrNull?.user?.id)
+                    parcel.senderId ==
+                        ref.watch(authProvider).valueOrNull?.user?.id)
                   const ReferralInviteCard(),
                 const SizedBox(height: 16),
                 if (parcel.parcelPhotoUrl != null &&
@@ -486,11 +526,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     if (!isRecipient) return false;
     final isHomeDel = parcel.deliveryMode.endsWith('_to_home');
     return isHomeDel &&
-        !['delivered', 'cancelled', 'returned'].contains(parcel.status);
+        {'created', 'dropped_at_origin_relay'}.contains(parcel.status);
   }
 
   bool _shouldShowLiveTracking(Parcel parcel) {
-    final isHomeDelivery = parcel.deliveryMode.endsWith('_to_home');
+    final isHomeDelivery = supportsClientLiveTracking(parcel.deliveryMode,
+        isRecipient: parcel.isRecipientView == true,
+        afterRelayCollection: parcel.liveTrackingAllowed == true);
     final hasAssignedDriver =
         (parcel.assignedDriverId?.trim().isNotEmpty ?? false) ||
             (parcel.driverName?.trim().isNotEmpty ?? false);
@@ -603,7 +645,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
               Icon(Icons.location_on, color: Colors.orange.shade800),
               const SizedBox(width: 8),
               Text(
-                'Action requise : Confirmer votre adresse',
+                parcel.deliveryConfirmed
+                    ? 'Adresse de livraison confirmée'
+                    : 'Action requise : Confirmer votre adresse',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.orange.shade900,
@@ -612,9 +656,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Pour que le livreur puisse vous trouver, confirmez votre position GPS actuelle.',
-            style: TextStyle(fontSize: 13),
+          Text(
+            parcel.deliveryConfirmed
+                ? 'Vous pouvez encore corriger le lieu de livraison avant la collecte du colis.'
+                : 'Pour que le livreur puisse vous trouver, confirmez votre position GPS actuelle.',
+            style: const TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -773,8 +819,8 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
       final body = <String, dynamic>{
         'lat': selected.position.latitude,
         'lng': selected.position.longitude,
-        'accuracy': null,
-        'source': 'manual',
+        'accuracy': selected.accuracy,
+        'source': selected.source,
         if ((selected.address ?? '').trim().isNotEmpty)
           'label': selected.address!.trim(),
       };
@@ -1138,7 +1184,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   }
 
   Widget _buildLiveMap(dynamic parcel) {
-    final distanceText = _liveDistanceText ?? parcel.distanceText;
+    final distanceText = _driverOnline ? _liveDistanceText : null;
     // Coordonnées destination depuis le colis
     final destLat = _liveDestinationLat ?? (parcel.deliveryLat as double?);
     final destLng = _liveDestinationLng ?? (parcel.deliveryLng as double?);
@@ -1161,13 +1207,14 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
             .map((point) => LatLng(point.latitude, point.longitude))
             .toList();
     final polylines = <Polyline>{
-      if (_liveTrailPoints.length > 1)
-        Polyline(
-          polylineId: const PolylineId('travelled_route'),
-          points: _liveTrailPoints,
-          color: Colors.green.shade700,
-          width: 5,
-        ),
+      for (var index = 0; index < _liveTrailSegments.length; index++)
+        if (_liveTrailSegments[index].length > 1)
+          Polyline(
+            polylineId: PolylineId('travelled_route_$index'),
+            points: _liveTrailSegments[index],
+            color: Colors.green.shade700,
+            width: 5,
+          ),
       if (routePoints.isNotEmpty)
         Polyline(
           polylineId: const PolylineId('remaining_route'),
@@ -1250,10 +1297,12 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                     _driverOnline
                         ? (_liveEtaText != null
                             ? 'En route • $_liveEtaText'
-                            : (parcel.etaText != null
-                                ? 'En route • ${parcel.etaText}'
-                                : 'En route'))
-                        : 'Signal GPS faible',
+                            : 'En route')
+                        : _trackingConnectionError
+                            ? 'Connexion au suivi interrompue'
+                            : markerLat == null
+                                ? 'Localisation indisponible'
+                                : 'Dernière position connue',
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ],

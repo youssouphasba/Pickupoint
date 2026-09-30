@@ -3,6 +3,7 @@ Router relay_points : gestion des points relais.
 """
 import uuid
 import re
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -103,25 +104,25 @@ async def list_relay_points(
 @limiter.limit("10/minute")
 async def nearby_relay_points(
     request: Request,
-    lat: float = Query(...),
-    lng: float = Query(...),
-    radius_km: float = Query(5.0),
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(5.0, gt=0, le=100),
 ):
-    """
-    Recherche approximative par bounding box (Phase 1).
-    Phase 2 : utiliser un index géospatial MongoDB 2dsphere.
-    """
     delta = radius_km / 111.0  # ~1 degré = 111 km
+    longitude_delta = min(180, delta / max(abs(math.cos(math.radians(lat))), 0.001))
     query = {
         "is_active": True,
         "is_verified": True,
         "address.geopin.lat": {"$gte": lat - delta, "$lte": lat + delta},
-        "address.geopin.lng": {"$gte": lng - delta, "$lte": lng + delta},
+        "address.geopin.lng": {"$gte": lng - longitude_delta, "$lte": lng + longitude_delta},
     }
-    cursor = db.relay_points.find(query, {"_id": 0}).limit(50)
-    relay_list = await cursor.to_list(length=50)
+    cursor = db.relay_points.find(query, {"_id": 0})
+    relay_list = await cursor.to_list(length=None)
 
     from services.pricing_service import _haversine_km
+    relay_list = [relay for relay in relay_list if _haversine_km(
+        lat, lng, relay["address"]["geopin"]["lat"], relay["address"]["geopin"]["lng"]
+    ) <= radius_km]
     relay_list.sort(
         key=lambda r: _haversine_km(lat, lng, r["address"]["geopin"]["lat"], r["address"]["geopin"]["lng"])
     )
@@ -342,6 +343,8 @@ async def update_relay_point(
         raise forbidden_exception()
 
     updates = body.model_dump(exclude_none=True)
+    if "description" in body.model_fields_set:
+        updates["description"] = body.description
     if "opening_hours" in updates:
         updates["opening_hours"] = normalize_opening_hours(updates["opening_hours"])
         if not has_enabled_opening_day(updates["opening_hours"]):

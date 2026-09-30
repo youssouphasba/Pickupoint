@@ -2,6 +2,7 @@
 Router users : gestion utilisateurs, enregistrement driver/agent relais.
 """
 from html import escape
+import logging
 import mimetypes
 import os
 import uuid
@@ -20,7 +21,11 @@ from pydantic import BaseModel, Field
 
 from config import UPLOADS_DIR, settings
 from core.dependencies import get_current_user, require_role
-from core.exceptions import bad_request_exception, forbidden_exception, not_found_exception
+from core.exceptions import bad_request_exception, conflict_exception, forbidden_exception, not_found_exception
+from core.private_documents import (
+    can_access_kyc_documents, kyc_document_url, legacy_kyc_path,
+    serialize_private_user,
+)
 from core.limiter import limiter
 from core.security import hash_password, verify_password
 from core.utils import normalize_phone, phones_match
@@ -50,11 +55,13 @@ from services.user_service import (
     is_referral_sponsor_enabled_for_user,
 )
 from services.performance_rewards_service import get_performance_rewards_settings
+from services.kyc_security import decrypt_kyc_content, encrypt_kyc_content, sanitize_kyc_image, scan_kyc_upload
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 MAX_AVATAR_SIZE = 5 * 1024 * 1024
-MAX_KYC_SIZE = 10 * 1024 * 1024
+MAX_KYC_SIZE = settings.KYC_MAX_UPLOAD_BYTES
 PRIVATE_UPLOADS_DIR = UPLOADS_DIR.parent / "private_uploads"
 PRIVATE_KYC_DIR = PRIVATE_UPLOADS_DIR / "kyc"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -264,7 +271,7 @@ async def _resolve_kyc_response(
     user_doc: dict,
     doc_type: Literal["id_card", "license"],
 ) -> Response:
-    _, path_field, content_type_field = _kyc_fields(doc_type)
+    _, _, content_type_field = _kyc_fields(doc_type)
     media_type = user_doc.get(content_type_field)
     file_id = user_doc.get(_kyc_file_id_field(doc_type))
     if file_id:
@@ -272,26 +279,37 @@ async def _resolve_kyc_response(
             grid_file = await _kyc_documents_bucket().open_download_stream(ObjectId(file_id))
             content = await grid_file.read()
             metadata = grid_file.metadata or {}
+            if metadata.get("user_id") and metadata["user_id"] != user_doc.get("user_id"):
+                raise not_found_exception("Document KYC")
+            if metadata.get("doc_type") and metadata["doc_type"] != doc_type:
+                raise not_found_exception("Document KYC")
+            content = decrypt_kyc_content(content, metadata.get("encryption"))
             filename = grid_file.filename or f"{doc_type}"
             return Response(
                 content=content,
                 media_type=metadata.get("content_type") or media_type or "application/octet-stream",
-                headers={"Content-Disposition": f'inline; filename="{filename}"'},
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"',
+                    "Cache-Control": "private, no-store, max-age=0",
+                    "Pragma": "no-cache",
+                    "X-Content-Type-Options": "nosniff",
+                    "Referrer-Policy": "no-referrer",
+                    "Content-Security-Policy": "sandbox; default-src 'none'; frame-ancestors 'none'",
+                },
             )
         except (NoFile, InvalidId):
             pass
 
-    stored_path = user_doc.get(path_field)
-    if stored_path:
-        candidate = Path(stored_path)
-        if candidate.is_file():
-            guessed_type = (
-                media_type
-                or mimetypes.guess_type(str(candidate))[0]
-                or "application/octet-stream"
-            )
-            filename = f"{doc_type}{candidate.suffix}"
-            return FileResponse(path=candidate, media_type=guessed_type, filename=filename)
+    candidate = legacy_kyc_path(user_doc, doc_type)
+    if candidate:
+        guessed_type = media_type or mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
+        filename = f"{doc_type}{candidate.suffix}"
+        return FileResponse(path=candidate, media_type=guessed_type, filename=filename, headers={
+            "Cache-Control": "private, no-store, max-age=0",
+            "Pragma": "no-cache", "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": "sandbox; default-src 'none'; frame-ancestors 'none'",
+        })
 
     raise not_found_exception("Document KYC")
 
@@ -301,15 +319,25 @@ async def _serve_kyc_file(
     doc_type: Literal["id_card", "license"],
     current_user: dict,
 ):
-    is_admin = current_user["role"] in [UserRole.ADMIN.value, UserRole.SUPERADMIN.value]
-    if not is_admin and current_user["user_id"] != user_id:
-        raise forbidden_exception("Vous ne pouvez consulter que vos propres documents KYC.")
+    if current_user["user_id"] != user_id and not can_access_kyc_documents(current_user):
+        await _record_event(
+            event_type="KYC_DOCUMENT_ACCESS_DENIED", actor_id=current_user["user_id"],
+            actor_role=current_user.get("role"), notes="Accès à une pièce d’identité refusé",
+            metadata={"target_user_id": user_id, "document_type": doc_type},
+        )
+        raise forbidden_exception("Vous ne pouvez consulter que vos documents ou ceux pour lesquels vous êtes habilité.")
 
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
 
-    return await _resolve_kyc_response(user_doc, doc_type)
+    response = await _resolve_kyc_response(user_doc, doc_type)
+    await _record_event(
+        event_type="KYC_DOCUMENT_VIEWED", actor_id=current_user["user_id"],
+        actor_role=current_user.get("role"), notes="Pièce d’identité consultée",
+        metadata={"target_user_id": user_id, "document_type": doc_type},
+    )
+    return response
 
 
 @router.get("", summary="Liste utilisateurs (admin)")
@@ -320,7 +348,7 @@ async def list_users(
 ):
     cursor = db.users.find({}, {"_id": 0}).skip(skip).limit(limit)
     users = await cursor.to_list(length=limit)
-    return {"users": users, "total": await db.users.count_documents({})}
+    return {"users": [serialize_private_user(user, _admin) for user in users], "total": await db.users.count_documents({})}
 
 
 @router.get("/{user_id}", response_model=User, summary="Detail utilisateur")
@@ -332,7 +360,7 @@ async def get_user(user_id: str, current_user: dict = Depends(get_current_user))
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not user_doc:
         raise not_found_exception("Utilisateur")
-    return User(**user_doc)
+    return User(**serialize_private_user(user_doc, current_user))
 
 
 @router.put("/{user_id}/role", summary="Changer role (admin)")
@@ -349,6 +377,11 @@ async def change_role(
         raise not_found_exception("Utilisateur")
 
     current_role = user.get("role")
+    privileged_roles = {UserRole.ADMIN.value, UserRole.SUPERADMIN.value}
+    if _admin.get("role") != UserRole.SUPERADMIN.value and (
+        current_role in privileged_roles or role.value in privileged_roles
+    ):
+        raise forbidden_exception("Seul un superadmin peut attribuer ou modifier un rôle administrateur.")
     if current_role == UserRole.DRIVER.value and role == UserRole.RELAY_AGENT:
         raise bad_request_exception(
             "Un livreur ne peut pas être converti en agent relais sans quitter d'abord son rôle de livreur."
@@ -406,6 +439,8 @@ async def change_role(
         "role": role.value,
         "updated_at": datetime.now(timezone.utc),
     }
+    if role != UserRole.ADMIN:
+        updates["kyc_access_enabled"] = False
     if role != UserRole.RELAY_AGENT:
         updates["relay_point_id"] = None
 
@@ -707,14 +742,12 @@ async def delete_my_account(current_user: dict = Depends(get_current_user)):
         except (NoFile, InvalidId):
             pass
 
-    for path_field in ("kyc_id_card_path", "kyc_license_path"):
-        stored_path = current_user.get(path_field)
-        if not stored_path:
+    for doc_type in ("id_card", "license"):
+        path = legacy_kyc_path(current_user, doc_type)
+        if path is None:
             continue
         try:
-            path = Path(stored_path)
-            if path.is_file():
-                path.unlink()
+            path.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -735,8 +768,11 @@ async def update_my_profile(
     current_user: dict = Depends(get_current_user),
 ):
     updates = body.model_dump(exclude_none=True)
+    for field in ("email", "bio"):
+        if field in body.model_fields_set:
+            updates[field] = getattr(body, field)
     if not updates:
-        return current_user
+        return serialize_private_user(current_user, current_user)
 
     updates["updated_at"] = datetime.now(timezone.utc)
     if body.email:
@@ -755,7 +791,7 @@ async def update_my_profile(
         {"user_id": current_user["user_id"]},
         {"_id": 0},
     )
-    return updated_user
+    return serialize_private_user(updated_user, current_user)
 
 
 @router.put("/me/pin", summary="Modifier mon code PIN")
@@ -953,16 +989,29 @@ async def upload_kyc(
     """Enregistre un document d'identite pour verification."""
     content = await _read_upload_bytes(file, MAX_KYC_SIZE)
     ext, content_type = _validate_kyc_upload(file, content)
+    scan_status = await scan_kyc_upload(content, required=content_type == "application/pdf")
+    if content_type != "application/pdf":
+        content, ext, content_type = sanitize_kyc_image(content)
+    stored_content, encryption = encrypt_kyc_content(content)
+    previous = await db.users.find_one({"user_id": current_user["user_id"]}, {"_id": 0})
+    if not previous:
+        raise not_found_exception("Utilisateur")
+    if previous.get("deleted_account") or not previous.get("is_active", True) or previous.get("is_banned"):
+        raise forbidden_exception("Compte désactivé")
+    previous_id = previous.get(_kyc_file_id_field(doc_type))
+    previous_path = legacy_kyc_path(previous, doc_type)
 
     filename = f"kyc_{doc_type}_{uuid.uuid4().hex}{ext}"
     file_id = await _kyc_documents_bucket().upload_from_stream(
         filename,
-        content,
+        stored_content,
         metadata={
             "content_type": content_type,
             "user_id": current_user["user_id"],
             "doc_type": doc_type,
             "created_at": datetime.now(timezone.utc),
+            "encryption": encryption,
+            "security_check": scan_status,
         },
     )
 
@@ -985,9 +1034,35 @@ async def upload_kyc(
     if expiration:
         updates[f"kyc_{doc_type}_expires_at"] = expiration
         updates["document_reminders"] = {}
-    await db.users.update_one(
-        {"user_id": current_user["user_id"]},
-        {"$set": updates},
+    try:
+        result = await db.users.update_one(
+            {"user_id": current_user["user_id"], _kyc_file_id_field(doc_type): previous_id,
+             "deleted_account": {"$ne": True}, "is_active": {"$ne": False}, "is_banned": {"$ne": True}},
+            {"$set": updates},
+        )
+    except Exception:
+        await _kyc_documents_bucket().delete(file_id)
+        raise
+    if result.modified_count != 1:
+        await _kyc_documents_bucket().delete(file_id)
+        raise conflict_exception("Ce document a été modifié entre-temps. Réessayez.")
+    if previous_id and previous_id != str(file_id):
+        try:
+            await _kyc_documents_bucket().delete(ObjectId(previous_id))
+        except (NoFile, InvalidId):
+            pass
+        except Exception:
+            logger.warning("KYC replacement cleanup deferred to orphan retention job")
+    if previous_path:
+        try:
+            previous_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Legacy KYC replacement cleanup deferred")
+    await _record_event(
+        event_type="KYC_DOCUMENT_REPLACED" if previous_id or previous_path else "KYC_DOCUMENT_UPLOADED",
+        actor_id=current_user["user_id"], actor_role=current_user.get("role"),
+        notes="Pièce d’identité téléversée",
+        metadata={"target_user_id": current_user["user_id"], "document_type": doc_type},
     )
 
     return {

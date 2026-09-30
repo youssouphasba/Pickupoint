@@ -4,17 +4,15 @@ from services.google_maps_service import geocode_address_suggestions, reverse_ge
 
 async def geocode_relay_address(address: Address) -> Address:
     if address.geopin is not None:
-        if address.label and address.city:
-            return address
         reverse_result = await reverse_geocode(address.geopin.lat, address.geopin.lng)
         if not reverse_result:
             return address
         address_data = address.model_dump()
-        if not address_data.get("label"):
+        if reverse_result.get("formatted_address"):
             address_data["label"] = reverse_result.get("formatted_address")
-        if not address_data.get("city"):
+        if reverse_result.get("city"):
             address_data["city"] = reverse_result.get("city")
-        if not address_data.get("district"):
+        if reverse_result.get("district"):
             address_data["district"] = reverse_result.get("district")
         return Address.model_validate(address_data)
 
@@ -37,4 +35,4 @@ async def geocode_relay_address(address: Address) -> Address:
         address_data["label"] = suggestion.get("label")
     if not address_data.get("city") and suggestion.get("subtitle"):
         address_data["city"] = suggestion["subtitle"].split(",", 1)[0]
-    return Address.model_validate(address_data)
+    return await geocode_relay_address(Address.model_validate(address_data))

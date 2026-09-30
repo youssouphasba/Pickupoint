@@ -251,6 +251,13 @@ final adminFleetProvider = FutureProvider<Map<String, dynamic>>((ref) async {
   return res.data as Map<String, dynamic>;
 });
 
+final adminMissionTraceProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, String>((ref, missionId) async {
+  final response =
+      await ref.watch(apiClientProvider).getAdminMissionTrace(missionId);
+  return response.data as Map<String, dynamic>;
+});
+
 /// Provider pour les colis stagnants.
 final adminStaleParcelsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {

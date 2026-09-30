@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +9,7 @@ import '../../../core/models/user.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
+import '../../../shared/widgets/private_document_preview.dart';
 import '../providers/admin_provider.dart';
 import '../widgets/referral_payment_dialog.dart';
 import 'admin_parcel_audit_screen.dart';
@@ -37,6 +36,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
             data['user'] as Map<String, dynamic>? ?? const {},
           );
           final user = User.fromJson(userData);
+          final canAccessKyc = data['can_access_kyc_documents'] == true;
           final summary = Map<String, dynamic>.from(
             data['summary'] as Map<String, dynamic>? ?? const {},
           );
@@ -122,7 +122,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                 ],
                 const SizedBox(height: 16),
                 _SectionCard(
-                  title: 'KYC',
+                  title: 'Vérification d’identité',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -147,9 +147,14 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      if (kycDocuments.isEmpty)
+                      if (!canAccessKyc)
                         const Text(
-                          'Aucun document KYC transmis pour le moment.',
+                          'Vous n’êtes pas habilité à consulter ou valider les pièces d’identité. Un superadmin peut vous accorder cet accès.',
+                          style: TextStyle(color: Colors.grey),
+                        )
+                      else if (kycDocuments.isEmpty)
+                        const Text(
+                          'Aucune pièce d’identité transmise pour le moment.',
                           style: TextStyle(color: Colors.grey),
                         )
                       else
@@ -176,7 +181,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                         runSpacing: 8,
                         children: [
                           FilledButton.icon(
-                            onPressed: kycDocuments.isEmpty
+                            onPressed: !canAccessKyc || kycDocuments.isEmpty
                                 ? null
                                 : () => _moderateKyc(
                                       context,
@@ -188,7 +193,7 @@ class AdminUserDetailScreen extends ConsumerWidget {
                             label: const Text('Vérifier'),
                           ),
                           OutlinedButton.icon(
-                            onPressed: kycDocuments.isEmpty
+                            onPressed: !canAccessKyc || kycDocuments.isEmpty
                                 ? null
                                 : () => _moderateKyc(
                                       context,
@@ -1597,8 +1602,10 @@ class _ApplicationCard extends ConsumerWidget {
           _InfoRow('Mise à jour', _formatDateValue(application['updated_at'])),
           if (isDriver) ...[
             _InfoRow('Nom déclaré', _stringOrDash(data['full_name'])),
-            _InfoRow('Numéro CNI', _stringOrDash(data['id_card_number'])),
-            _InfoRow('Numéro permis', _stringOrDash(data['license_number'])),
+            if (data.containsKey('id_card_number'))
+              _InfoRow('Numéro CNI', _stringOrDash(data['id_card_number'])),
+            if (data.containsKey('license_number'))
+              _InfoRow('Numéro permis', _stringOrDash(data['license_number'])),
             _InfoRow('Véhicule', _stringOrDash(data['vehicle_type'])),
           ] else ...[
             _InfoRow('Nom du commerce', _stringOrDash(data['business_name'])),
@@ -1799,59 +1806,10 @@ Future<void> _openDocumentPreview(
   String title,
   String url,
 ) async {
-  await showDialog<void>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: FutureBuilder<Uint8List>(
-            future: ref.read(apiClientProvider).downloadBytes(url),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const SizedBox(
-                  height: 220,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snapshot.hasError || !snapshot.hasData) {
-                return Text(
-                  friendlyError(snapshot.error ?? 'Document introuvable'),
-                );
-              }
-              return InteractiveViewer(
-                child: Image.memory(
-                  snapshot.data!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'Aperçu non disponible sur mobile pour ce format.',
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Fermer'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final uri = Uri.tryParse(url);
-              if (uri != null && await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
-            },
-            child: const Text('Ouvrir le lien'),
-          ),
-        ],
-      );
-    },
+  await showPrivateDocumentPreview(
+    context,
+    title: title,
+    loadDocument: () => ref.read(apiClientProvider).downloadBytes(url),
   );
 }
 
