@@ -17,6 +17,13 @@ class MissionStatus(str, Enum):
     INCIDENT_REPORTED = "incident_reported"
 
 
+ACTIVE_MISSION_STATUSES = (
+    MissionStatus.ASSIGNED.value,
+    MissionStatus.IN_PROGRESS.value,
+    MissionStatus.INCIDENT_REPORTED.value,
+)
+
+
 class DeliveryMission(BaseModel):
     mission_id: str
     parcel_id: str

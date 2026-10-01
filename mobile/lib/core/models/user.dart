@@ -373,6 +373,7 @@ class NotificationPrefs {
   final bool whatsappEnabled;
   final bool parcelUpdatesEnabled;
   final bool promotionsEnabled;
+  final bool androidVibrationEnabled;
 
   const NotificationPrefs({
     this.pushEnabled = true,
@@ -380,6 +381,7 @@ class NotificationPrefs {
     this.whatsappEnabled = true,
     this.parcelUpdatesEnabled = true,
     this.promotionsEnabled = true,
+    this.androidVibrationEnabled = true,
   });
 
   factory NotificationPrefs.fromJson(Map<String, dynamic> json) =>
@@ -389,6 +391,7 @@ class NotificationPrefs {
         whatsappEnabled: json['whatsapp'] as bool? ?? true,
         parcelUpdatesEnabled: json['parcel_updates'] as bool? ?? true,
         promotionsEnabled: json['promotions'] as bool? ?? true,
+        androidVibrationEnabled: json['android_vibration'] as bool? ?? true,
       );
 
   Map<String, dynamic> toJson() => {
@@ -397,5 +400,6 @@ class NotificationPrefs {
         'whatsapp': whatsappEnabled,
         'parcel_updates': parcelUpdatesEnabled,
         'promotions': promotionsEnabled,
+        'android_vibration': androidVibrationEnabled,
       };
 }

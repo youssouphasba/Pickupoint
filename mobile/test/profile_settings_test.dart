@@ -429,7 +429,7 @@ void main() {
     await tester.pumpAndSettle();
     final push =
         find.widgetWithText(SwitchListTile, 'Alertes sur mon téléphone');
-    await tester.ensureVisible(push);
+    await tester.scrollUntilVisible(push, 250);
     await tester.tap(push);
     await tester.pump();
     expect(api.saved!['notification_prefs']['push'], false);
@@ -449,6 +449,45 @@ void main() {
             .pushEnabled,
         false);
   });
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('interrupteur vibration réservé à Android: $platform',
+        (tester) async {
+      final user = account('driver');
+      final api = ProfileApi(user);
+      final container = ProviderContainer(overrides: [
+        authProvider.overrideWith(() => ProfileAuth(user)),
+        apiClientProvider.overrideWithValue(api),
+        supportWhatsAppProvider.overrideWith((ref) async => {'url': ''}),
+        notificationSettingsProvider.overrideWith(
+            (ref) => throw Exception('Non disponible dans le test')),
+      ]);
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+      await tester.pumpWidget(UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: NotificationSettingsScreen())));
+      await tester.pumpAndSettle();
+      final vibration =
+          find.widgetWithText(SwitchListTile, 'Vibrations des notifications');
+      if (platform == TargetPlatform.iOS) {
+        expect(vibration, findsNothing);
+        return;
+      }
+      await tester.scrollUntilVisible(vibration, 250);
+      await tester.tap(vibration);
+      await tester.pumpAndSettle();
+      expect(api.saved!['notification_prefs']['android_vibration'], false);
+      expect(api.saved!['notification_prefs']['push'], true);
+      expect(api.saved!['notification_prefs']['email'], false);
+      expect(tester.widget<SwitchListTile>(vibration).value, false);
+      api.fail = true;
+      await tester.tap(vibration);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(vibration).value, false);
+      expect(tester.widget<SwitchListTile>(vibration).onChanged, isNotNull);
+    }, variant: TargetPlatformVariant.only(platform));
+  }
 
   testWidgets('modification du PIN actualise la connexion biométrique',
       (tester) async {
@@ -581,7 +620,7 @@ void main() {
     await show(tester, const NotificationSettingsScreen(), api: api);
     final push =
         find.widgetWithText(SwitchListTile, 'Alertes sur mon téléphone');
-    await tester.ensureVisible(push);
+    await tester.scrollUntilVisible(push, 250);
     await tester.pumpAndSettle();
     await tester.tap(push);
     await tester.pumpAndSettle();

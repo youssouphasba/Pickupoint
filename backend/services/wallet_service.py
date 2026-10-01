@@ -8,6 +8,7 @@ from typing import Optional
 
 from pymongo.errors import OperationFailure
 
+from core.exceptions import DeliveryCommissionDataError
 from database import db, get_client
 from models.wallet import TransactionType
 
@@ -92,10 +93,27 @@ def normalize_commission_rules(raw: dict | None) -> dict:
     return normalized
 
 
+def resolve_delivery_commission_mode(parcel: dict | None, mission: dict | None = None) -> str:
+    for source in (mission, parcel):
+        if not isinstance(source, dict):
+            continue
+        for key in ("delivery_mode", "mode"):
+            raw = source.get(key)
+            mode = str(getattr(raw, "value", raw) or "").strip()
+            if not mode:
+                continue
+            if mode not in COMMISSION_MODES:
+                raise DeliveryCommissionDataError()
+            return mode
+    raise DeliveryCommissionDataError()
+
+
 def commission_rules_for(source: dict, mode: str) -> dict:
+    if mode not in COMMISSION_MODES:
+        raise DeliveryCommissionDataError()
     rules = source.get("commission_rules_snapshot") or source.get("commission_rules")
     if isinstance(rules, dict):
-        return normalize_commission_rules(rules).get(mode, default_commission_rules()[mode])
+        return normalize_commission_rules(rules)[mode]
     from config import settings
     legacy = {
         "platform_rate": float(settings.PLATFORM_RATE or 0),
@@ -121,6 +139,12 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         source.update(parcel)
     if isinstance(mission, dict):
         source.update(mission)
+    if isinstance(parcel, dict) and isinstance(mission, dict):
+        for key in ("commission_rules_snapshot", "commission_rules"):
+            if not mission.get(key) and parcel.get(key):
+                source[key] = parcel[key]
+        if mission.get("delivery_commissions_enabled") is None:
+            source["delivery_commissions_enabled"] = parcel.get("delivery_commissions_enabled")
     price = (
         source.get("paid_price")
         or source.get("quoted_price")
@@ -128,9 +152,9 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         or 0
     )
     safe_price = max(float(price or 0), 0.0)
-    mode = str(source.get("delivery_mode") or source.get("mode") or "").strip()
+    mode = resolve_delivery_commission_mode(parcel, mission)
 
-    commissions_are_enabled = delivery_commissions_enabled(parcel, mission)
+    commissions_are_enabled = delivery_commissions_enabled(source)
     rules = commission_rules_for(source, mode)
     if not commissions_are_enabled:
         rules = {"platform_rate": 0.0, "origin_relay_rate": 0.0, "destination_relay_rate": 0.0, "driver_rate": 1.0}

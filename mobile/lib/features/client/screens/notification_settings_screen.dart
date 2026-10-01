@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -8,6 +9,7 @@ import '../../../core/notifications/notification_service.dart';
 import '../../../shared/profile/profile_widgets.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
+import '../../../shared/widgets/notification_alert_settings_card.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -152,6 +154,18 @@ class _NotificationSettingsScreenState
                             ]);
                       },
                     )),
+                const NotificationAlertSettingsCard(
+                    openSettings: Geolocator.openAppSettings),
+                if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+                  ProfileSection(
+                    title: 'Vibrations sur Android',
+                    child: _toggle(
+                      'Vibrations des notifications',
+                      'Vibrer pour les missions, messages et suivis. Si vous désactivez cette option, les sons et les notifications restent actifs selon les réglages du téléphone. Ce choix s’applique à votre compte sur Android, sans modifier iOS.',
+                      'android_vibration',
+                      user.notificationPrefs.androidVibrationEnabled,
+                    ),
+                  ),
                 ProfileSection(
                     title: 'Comment recevoir les alertes',
                     child: Column(children: [

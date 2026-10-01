@@ -106,6 +106,7 @@ async def create_indexes():
         "delivery_missions": [
             IndexModel([("mission_id", 1)], unique=True),
             IndexModel([("driver_id", 1)]),
+            IndexModel([("driver_id", 1), ("status", 1)]),
             IndexModel([("parcel_id", 1)]),
             IndexModel([("status", 1)]),
             IndexModel([("created_at", 1)]),

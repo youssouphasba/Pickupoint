@@ -22,7 +22,12 @@ class Collection:
 
     async def update_one(self, query, update):
         self.writes.append(deepcopy(update))
-        self.document.update(deepcopy(update["$set"]))
+        for key, value in deepcopy(update["$set"]).items():
+            if "." in key:
+                parent, child = key.split(".", 1)
+                self.document.setdefault(parent, {})[child] = value
+            else:
+                self.document[key] = value
 
 
 class ProfileSettingsTests(unittest.IsolatedAsyncioTestCase):
@@ -64,6 +69,24 @@ class ProfileSettingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["email"], "old@example.com")
         self.assertEqual(result["bio"], "Old bio")
         self.assertFalse(result["notification_prefs"]["email"])
+
+    async def test_android_vibration_can_be_disabled_without_disabling_alerts(self):
+        self.accounts.document["notification_prefs"] = {"push": True, "email": False, "promotions": False}
+        result = await users.update_my_profile(
+            ProfileUpdate(notification_prefs={"android_vibration": False}), self.account,
+        )
+        self.assertFalse(result["notification_prefs"]["android_vibration"])
+        self.assertTrue(result["notification_prefs"]["push"])
+        self.assertFalse(result["notification_prefs"]["email"])
+        self.assertFalse(result["notification_prefs"]["promotions"])
+
+    async def test_old_client_preferences_do_not_reset_android_vibration(self):
+        self.accounts.document["notification_prefs"] = {"android_vibration": False}
+        result = await users.update_my_profile(
+            ProfileUpdate(notification_prefs={"push": True, "promotions": False}), self.account,
+        )
+        self.assertFalse(result["notification_prefs"]["android_vibration"])
+        self.assertTrue(result["notification_prefs"]["push"])
 
     async def test_relay_can_clear_public_instructions_without_losing_address(self):
         result = await relay_points.update_relay_point("relay", RelayPointUpdate(description="  "), self.account)

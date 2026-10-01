@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core.dependencies import require_role
-from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
+from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception
 from core.private_documents import can_access_kyc_documents, has_kyc_document, require_kyc_access, serialize_private_user
 from core.limiter import limiter
 from core.security import hash_password
@@ -6127,6 +6127,9 @@ async def get_finance_overview(
             "quoted_price": 1,
             "paid_price": 1,
             "delivery_mode": 1,
+            "delivery_commissions_enabled": 1,
+            "commission_rules_snapshot": 1,
+            "commission_rules": 1,
             "origin_relay_id": 1,
             "destination_relay_id": 1,
             "redirect_relay_id": 1,
@@ -6145,6 +6148,9 @@ async def get_finance_overview(
             "status": 1,
             "driver_id": 1,
             "delivery_mode": 1,
+            "delivery_commissions_enabled": 1,
+            "commission_rules_snapshot": 1,
+            "commission_rules": 1,
             "quoted_price": 1,
             "commission_charge_mode": 1,
             "commission_debt_xof": 1,
@@ -6241,6 +6247,22 @@ async def get_finance_overview(
     user_by_id = {str(user.get("user_id") or ""): user for user in user_docs}
 
     parcel_by_id = {parcel["parcel_id"]: parcel for parcel in parcel_docs}
+    missing_parcel_ids = list({
+        mission["parcel_id"] for mission in mission_docs
+        if mission.get("parcel_id") and mission["parcel_id"] not in parcel_by_id
+    })
+    if missing_parcel_ids:
+        related_parcels = await db.parcels.find(
+            {"parcel_id": {"$in": missing_parcel_ids}},
+            {
+                "_id": 0, "parcel_id": 1, "tracking_code": 1, "status": 1,
+                "paid_price": 1, "quoted_price": 1, "delivery_mode": 1,
+                "delivery_commissions_enabled": 1, "commission_rules_snapshot": 1,
+                "commission_rules": 1, "sender_name": 1, "recipient_name": 1,
+            },
+        ).to_list(length=len(missing_parcel_ids))
+        parcel_by_id.update({row["parcel_id"]: row for row in related_parcels})
+    commission_data_issues: dict[str, dict] = {}
     relay_credit_refs = {
         str(tx.get("reference") or ""): float(tx.get("amount", 0.0) or 0.0)
         for tx in relay_credit_docs
@@ -6379,7 +6401,16 @@ async def get_finance_overview(
             delivered_waiting_payment_amount_xof += quoted_price
 
         if parcel_status == ParcelStatus.DELIVERED.value:
-            breakdown = compute_delivery_commission_breakdown(parcel)
+            try:
+                breakdown = compute_delivery_commission_breakdown(parcel)
+            except DeliveryCommissionDataError:
+                item = _parcel_detail(
+                    parcel,
+                    meta="Vérifiez le mode de livraison du colis. Ses commissions sont exclues des totaux jusqu'à correction.",
+                )
+                item.pop("amount_xof", None)
+                commission_data_issues[parcel_id] = item
+                continue
             origin_due = 0.0 if parcel.get("delivery_mode") == "relay_to_relay" else float(breakdown["origin_relay_commission_xof"] or 0.0)
             destination_due = float(breakdown["destination_relay_commission_xof"] or 0.0)
             relay_due_origin_xof += origin_due
@@ -6457,7 +6488,17 @@ async def get_finance_overview(
         if parcel_status in cancelled_statuses:
             continue
 
-        breakdown = compute_delivery_commission_breakdown(parcel, mission)
+        try:
+            breakdown = compute_delivery_commission_breakdown(parcel, mission)
+        except DeliveryCommissionDataError:
+            item = _mission_detail(
+                mission, parcel,
+                meta="Vérifiez le colis associé et son mode de livraison. Ses commissions sont exclues des totaux jusqu'à correction.",
+            )
+            item.pop("amount_xof", None)
+            item["title"] = str((parcel or {}).get("tracking_code") or mission.get("parcel_id") or mission.get("mission_id"))
+            commission_data_issues[str(mission.get("parcel_id") or mission.get("mission_id"))] = item
+            continue
         mission_total_commission = float(breakdown["total_commission_xof"] or 0.0)
         mission_platform_commission = float(breakdown["platform_commission_xof"] or 0.0)
         total_commission_xof += mission_total_commission
@@ -6629,6 +6670,13 @@ async def get_finance_overview(
         total_waiting_amount_xof += pending_amount
 
     alerts = []
+    if commission_data_issues:
+        alerts.append({
+            "label": "Commissions non calculables — totaux partiels",
+            "value": len(commission_data_issues),
+            "tone": "warning",
+            "items": _limited(list(commission_data_issues.values())),
+        })
     if delivered_waiting_payment_parcels > 0:
         alerts.append(
             {
@@ -6727,6 +6775,8 @@ async def get_finance_overview(
         },
         "commissions": {
             "charged_to_balance_count": charged_to_balance_count,
+            "unavailable_count": len(commission_data_issues),
+            "totals_incomplete": bool(commission_data_issues),
             "charged_as_debt_count": charged_as_debt_count,
             "offered_by_denkma_count": offered_by_denkma_count,
             "waiting_driver_confirmation_count": waiting_driver_confirmation_count,

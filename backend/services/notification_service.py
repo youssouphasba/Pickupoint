@@ -13,6 +13,7 @@ from core.utils import normalize_phone
 from database import db
 from models.notification import NotificationChannel, NotificationStatus
 from models.common import ParcelStatus
+from models.delivery import ACTIVE_MISSION_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -120,12 +121,22 @@ _PUSH_ALERT_PROFILES = {
         "ios_sound": "denkma_mission.wav",
     },
     "message": {
-        "android_channel_id": "denkma_messages_v3",
+        "android_channel_id": "denkma_messages_v4",
         "android_sound": "denkma_message",
         "ios_sound": "denkma_message.wav",
     },
     "status": {
         "android_channel_id": "denkma_updates_v3",
+        "android_sound": "denkma_status",
+        "ios_sound": "denkma_status.wav",
+    },
+    "mission_update": {
+        "android_channel_id": "denkma_mission_updates_v1",
+        "android_sound": "denkma_mission",
+        "ios_sound": "denkma_mission.wav",
+    },
+    "other": {
+        "android_channel_id": "denkma_other_alerts_v1",
         "android_sound": "denkma_status",
         "ios_sound": "denkma_status.wav",
     },
@@ -136,19 +147,37 @@ def _push_alert_profile(
     event_type: Optional[str],
     ref_type: Optional[str],
     category: Optional[str],
+    *,
+    target_view: Optional[str] = None,
+    parcel_status: Optional[str] = None,
+    alert_kind: Optional[str] = None,
 ) -> dict[str, str]:
     normalized_event = (event_type or "").strip().lower()
     normalized_ref = (ref_type or "").strip().lower()
     normalized_category = (category or "").strip().lower()
+    normalized_view = (target_view or "").strip().lower()
     if normalized_category == "messages" or normalized_event == "parcel_message":
         return _PUSH_ALERT_PROFILES["message"]
+    if normalized_event == "mission_available" and normalized_view in {"", "driver"}:
+        return _PUSH_ALERT_PROFILES["mission"]
     if normalized_ref == "mission" or normalized_event in {
-        "mission_available",
         "mission_detail",
         "mission_unavailable",
     }:
-        return _PUSH_ALERT_PROFILES["mission"]
-    return _PUSH_ALERT_PROFILES["status"]
+        return _PUSH_ALERT_PROFILES["mission_update"]
+    if normalized_view == "client" and (
+        (normalized_event == "parcel_detail" and parcel_status)
+        or alert_kind == "delivery_step"
+    ):
+        return _PUSH_ALERT_PROFILES["status"]
+    return _PUSH_ALERT_PROFILES["other"]
+
+
+def _android_alert_channel_id(profile: dict[str, str], user: dict) -> str:
+    channel_id = profile["android_channel_id"]
+    if (user.get("notification_prefs") or {}).get("android_vibration") is False:
+        return f"{channel_id}_no_vibration"
+    return channel_id
 
 
 STATUS_MESSAGES = {
@@ -798,6 +827,7 @@ async def notify_sender_driver_assigned(parcel: dict, driver: dict):
     await _store_and_send(
         user_id=sender_id,
         title="Un livreur a accepté votre colis",
+        metadata={"alert_kind": "delivery_step"},
         body=body,
         ref_type="parcel",
         ref_id=parcel.get("parcel_id"),
@@ -839,6 +869,9 @@ async def _store_and_send(
             "push_status": "skipped",
             "push_reason": "category_disabled",
         }
+
+    if event_type == "mission_available" and await _driver_has_active_mission(user_id):
+        return {"stored": False, "push_status": "skipped", "push_reason": "active_mission"}
 
     if not event_type:
         if ref_type == "parcel":
@@ -980,6 +1013,13 @@ async def _store_notification(
     return (stored or {}).get("notif_id") or notif_id, result.upserted_id is not None
 
 
+async def _driver_has_active_mission(user_id: str) -> bool:
+    return await db.delivery_missions.find_one(
+        {"driver_id": user_id, "status": {"$in": ACTIVE_MISSION_STATUSES}},
+        {"_id": 0, "mission_id": 1},
+    ) is not None
+
+
 async def _send_push(
     user_id: str,
     title: str,
@@ -1009,6 +1049,8 @@ async def _send_push(
         return {"push_status": "skipped", "push_reason": "push_disabled"}
     if not _notification_category_enabled(user, category):
         return {"push_status": "skipped", "push_reason": "category_disabled"}
+    if event_type == "mission_available" and await _driver_has_active_mission(user_id):
+        return {"push_status": "skipped", "push_reason": "active_mission"}
 
     _ensure_firebase()
     if not _firebase_initialized:
@@ -1033,6 +1075,7 @@ async def _send_push(
             "message_id",
             "parcel_id",
             "parcel_status",
+            "alert_kind",
             "store_url",
             "platform",
             "version",
@@ -1041,7 +1084,11 @@ async def _send_push(
             if value is not None:
                 data[key] = str(value)
         collapse_id = (dedupe_key or event_type or ref_id or "").strip()[:64]
-        alert_profile = _push_alert_profile(event_type, ref_type, category)
+        alert_profile = _push_alert_profile(
+            event_type, ref_type, category, target_view=target_view,
+            parcel_status=(metadata or {}).get("parcel_status"),
+            alert_kind=(metadata or {}).get("alert_kind"),
+        )
         for token in fcm_tokens:
             message = _messaging.Message(
                 notification=_messaging.Notification(title=title, body=body),
@@ -1050,7 +1097,7 @@ async def _send_push(
                     collapse_key=collapse_id or None,
                     priority="high",
                     notification=_messaging.AndroidNotification(
-                        channel_id=alert_profile["android_channel_id"],
+                        channel_id=_android_alert_channel_id(alert_profile, user),
                         sound=alert_profile["android_sound"],
                         tag=collapse_id or None,
                     ),
@@ -1094,6 +1141,14 @@ async def _send_push(
             logger.warning("Echec envoi Push FCM a %s: %s", user_id, reason)
             return {"push_status": "failed", "push_reason": reason[:240]}
         logger.info("Push FCM envoyé à %s", user_id)
+        if event_type == "mission_available":
+            try:
+                await db.users.update_one(
+                    {"user_id": user_id},
+                    {"$max": {"last_mission_alert_at": datetime.now(timezone.utc)}},
+                )
+            except Exception:
+                logger.warning("Impossible d'enregistrer le délai de rappel du livreur %s", user_id)
         return {"push_status": "sent", "push_reason": None}
     except Exception as e:
         logger.warning("Échec envoi Push FCM à %s: %s", user_id, e)
@@ -1538,6 +1593,7 @@ async def notify_approaching_driver(parcel: dict):
             await _store_and_send(
                 user_id=user["user_id"],
                 title="Livreur à proximité",
+                metadata={"alert_kind": "delivery_step"},
                 body=f"Votre colis {tracking_code} arrive. Préparez votre code de réception.",
                 ref_type="parcel",
                 ref_id=parcel_id,
@@ -1554,6 +1610,7 @@ async def notify_sender_parcel_collected(parcel: dict):
     await _store_and_send(
         user_id=sender_id,
         title="Colis collecté",
+        metadata={"alert_kind": "delivery_step"},
         body=f"Le livreur a récupéré votre colis {tracking_code}. Il est maintenant en route.",
         ref_type="parcel",
         ref_id=parcel.get("parcel_id"),
@@ -1699,9 +1756,30 @@ async def notify_pending_mission_dispatch_reminder(
 ) -> dict:
     radius_label = f"{radius_km:.0f}" if float(radius_km).is_integer() else f"{radius_km:.1f}"
     results = []
-    for user_id in user_ids:
-        results.append(
-            await _store_and_send(
+    for user_id in dict.fromkeys(user_ids):
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=settings.DRIVER_MISSION_REMINDER_INTERVAL_SECONDS)
+        previous = await db.users.find_one_and_update(
+            {
+                "user_id": user_id,
+                "is_active": True,
+                "is_available": True,
+                "is_banned": {"$ne": True},
+                "$or": [
+                    {"last_mission_alert_at": {"$exists": False}},
+                    {"last_mission_alert_at": None},
+                    {"last_mission_alert_at": {"$lte": cutoff}},
+                ],
+            },
+            {"$set": {"last_mission_alert_at": now}},
+            projection={"last_mission_alert_at": 1},
+        )
+        if previous is None:
+            results.append({"push_status": "skipped", "push_reason": "reminder_cooldown_or_unavailable"})
+            continue
+        result = None
+        try:
+            result = await _store_and_send(
                 user_id=user_id,
                 title="Courses toujours disponibles",
                 body=(
@@ -1718,7 +1796,18 @@ async def notify_pending_mission_dispatch_reminder(
                 target_view="driver",
                 dedupe_key=f"mission_reminder:{user_id}",
             )
-        )
+            results.append(result)
+        finally:
+            if result is None or result.get("push_status") != "sent":
+                previous_at = previous.get("last_mission_alert_at")
+                restore = (
+                    {"$set": {"last_mission_alert_at": previous_at}}
+                    if previous_at is not None
+                    else {"$unset": {"last_mission_alert_at": ""}}
+                )
+                await db.users.update_one(
+                    {"user_id": user_id, "last_mission_alert_at": now}, restore,
+                )
     return {
         "requested": len(user_ids),
         "push_sent": sum(result.get("push_status") == "sent" for result in results),

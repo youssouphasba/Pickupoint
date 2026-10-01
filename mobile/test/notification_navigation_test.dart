@@ -27,7 +27,7 @@ void main() {
       );
     });
 
-    test('opens an available mission preview in the driver view', () {
+    test('requests a fresh availability check in the driver view', () {
       expect(
         notificationRouteFor(
           refType: 'mission',
@@ -37,6 +37,30 @@ void main() {
           targetView: 'driver',
         ),
         '/driver?preview=msn_123',
+      );
+    });
+
+    test('availability reminders without a reference still trigger the check',
+        () {
+      expect(
+        notificationRouteFor(
+          refType: 'mission',
+          refId: null,
+          role: 'driver',
+          eventType: 'mission_available',
+        ),
+        '/driver?available=true',
+      );
+    });
+
+    test('legacy mission notifications also request a fresh check', () {
+      expect(
+        notificationRouteFor(
+          refType: 'mission',
+          refId: 'old mission',
+          role: 'driver',
+        ),
+        '/driver?preview=old%20mission',
       );
     });
 
@@ -113,6 +137,22 @@ void main() {
         '/relay/wallet',
       );
     });
+  });
+
+  test('each tap on the same availability route is a separate request', () {
+    final first = driverMissionNotificationRequestFor('/driver?preview=old');
+    final second = driverMissionNotificationRequestFor('/driver?preview=old');
+    expect(first, isA<DriverMissionNotificationRequest>());
+    expect(identical(first, second), isFalse);
+    expect(driverMissionNotificationRequestFor('/driver?available=true'),
+        isA<DriverMissionNotificationRequest>());
+    expect(driverMissionNotificationRequestFor('/driver?unavailable=old'),
+        isA<DriverMissionNotificationRequest>());
+    expect(driverMissionNotificationRequestFor('/driver'), isNull);
+    expect(
+        driverMissionNotificationRequestFor('/driver/mission/current'), isNull);
+    expect(
+        driverMissionNotificationRequestFor('/client/parcel/parcel'), isNull);
   });
 
   test('notificationPlatformId is stable for the same mission', () {

@@ -1,6 +1,17 @@
 from fastapi import HTTPException, status
 
 
+class DeliveryCommissionDataError(HTTPException):
+    def __init__(self):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Le mode de livraison de cette course est manquant ou invalide. "
+                "Contactez le support avant de l'accepter."
+            ),
+        )
+
+
 def credentials_exception() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -146,9 +146,11 @@ class NotificationService {
         ),
       );
       for (final profile in notificationAlertProfiles) {
-        await androidPlugin?.createNotificationChannel(
-          profile.toAndroidChannel(),
-        );
+        for (final vibrationEnabled in [true, false]) {
+          await androidPlugin?.createNotificationChannel(
+            profile.toAndroidChannel(vibrationEnabled: vibrationEnabled),
+          );
+        }
       }
     }
     _localNotificationsInitialized = true;
@@ -188,6 +190,9 @@ class NotificationService {
       eventType: message.data['event_type']?.toString(),
       refType: message.data['ref_type']?.toString(),
       category: message.data['category']?.toString(),
+      targetView: message.data['target_view']?.toString(),
+      parcelStatus: message.data['parcel_status']?.toString(),
+      alertKind: message.data['alert_kind']?.toString(),
     );
 
     if (notification != null && android != null) {
@@ -196,7 +201,15 @@ class NotificationService {
         notification.title,
         notification.body,
         NotificationDetails(
-          android: profile.toAndroidDetails(),
+          android: profile.toAndroidDetails(
+            vibrationEnabled: _ref
+                    .read(authProvider)
+                    .valueOrNull
+                    ?.user
+                    ?.notificationPrefs
+                    .androidVibrationEnabled ??
+                true,
+          ),
           iOS: profile.toDarwinDetails(),
         ),
         payload: jsonEncode(message.data),
@@ -344,6 +357,12 @@ class NotificationService {
           _ref.read(foregroundMissionNotificationProvider.notifier);
       notifier.state = notifier.state + 1;
     }
+    if (eventType == 'mission_available' &&
+        hasActiveDriverMission(
+          _ref.read(myMissionsProvider).valueOrNull ?? const [],
+        )) {
+      return;
+    }
     if (eventType == 'tracking_progress') {
       await showClientTrackingNotification(message.data);
       return;
@@ -478,7 +497,7 @@ class NotificationService {
       } catch (_) {}
     }
     final router = _ref.read(appRouterProvider);
-    router.go(route);
+    router.go(route, extra: driverMissionNotificationRequestFor(route));
   }
 
   Future<void> requestPermission() async {

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
+import '../notifications/notification_navigation.dart';
 import 'wallet_return_navigation.dart';
 import '../../features/auth/screens/phone_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
@@ -723,6 +724,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (_, state) => DriverHome(
               initialPreviewMissionId: state.uri.queryParameters['preview'],
               unavailableMissionId: state.uri.queryParameters['unavailable'],
+              openAvailableMissions:
+                  state.uri.queryParameters['available'] == 'true',
+              notificationRequest:
+                  state.extra is DriverMissionNotificationRequest
+                      ? state.extra as DriverMissionNotificationRequest
+                      : null,
             ),
           ),
           GoRoute(

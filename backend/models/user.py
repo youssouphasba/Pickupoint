@@ -34,6 +34,7 @@ class NotificationPrefs(BaseModel):
     whatsapp: bool = True
     parcel_updates: bool = True
     promotions: bool = True
+    android_vibration: bool = True
 
 
 class User(BaseModel):

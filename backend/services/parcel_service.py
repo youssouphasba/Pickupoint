@@ -14,6 +14,7 @@ from core.exceptions import bad_request_exception
 from core.utils import normalize_phone
 from core.security import generate_tracking_code
 from models.common import ParcelStatus, DeliveryMode
+from models.delivery import ACTIVE_MISSION_STATUSES
 from models.parcel import ParcelCreate, ParcelEvent, ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
 from services.wallet_service import (
@@ -458,9 +459,20 @@ async def _find_nearest_candidate_drivers(lat: float, lng: float, limit: int = 5
         "last_driver_location_at": {"$gte": cutoff}
     })
     drivers = await cursor.to_list(length=None)
+    busy_driver_ids = set()
+    if drivers:
+        busy_driver_ids = set(await db.delivery_missions.distinct(
+            "driver_id",
+            {
+                "driver_id": {"$in": [d["user_id"] for d in drivers]},
+                "status": {"$in": ACTIVE_MISSION_STATUSES},
+            },
+        ))
 
     candidates = []
     for d in drivers:
+        if d["user_id"] in busy_driver_ids:
+            continue
         loc = d.get("last_driver_location")
         if loc and loc.get("lat") is not None and loc.get("lng") is not None and (loc.get("accuracy") is None or loc["accuracy"] <= settings.DRIVER_GPS_MAX_ACCURACY_METERS):
             dist = _haversine_km(lat, lng, loc["lat"], loc["lng"])
@@ -490,9 +502,20 @@ async def _find_candidate_drivers_within_radius(
         {"_id": 0, "user_id": 1, "last_driver_location": 1},
     )
     drivers = await cursor.to_list(length=None)
+    busy_driver_ids = set()
+    if drivers:
+        busy_driver_ids = set(await db.delivery_missions.distinct(
+            "driver_id",
+            {
+                "driver_id": {"$in": [driver["user_id"] for driver in drivers]},
+                "status": {"$in": ACTIVE_MISSION_STATUSES},
+            },
+        ))
 
     candidates = []
     for driver in drivers:
+        if driver["user_id"] in busy_driver_ids:
+            continue
         location = driver.get("last_driver_location")
         if location and location.get("lat") is not None and location.get("lng") is not None and (location.get("accuracy") is None or location["accuracy"] <= settings.DRIVER_GPS_MAX_ACCURACY_METERS):
             dist = _haversine_km(
@@ -1617,6 +1640,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "mission_id":       f"msn_{uuid.uuid4().hex[:12]}",
         "parcel_id":        parcel["parcel_id"],
         "tracking_code":    parcel.get("tracking_code"),
+        "delivery_mode":    mode,
         "driver_id":        None,          # rempli quand un livreur accepte
         "status":           MissionStatus.PENDING.value,
         "sender_user_id":   parcel.get("sender_user_id"),

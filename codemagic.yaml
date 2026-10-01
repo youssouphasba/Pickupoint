@@ -231,8 +231,6 @@ workflows:
         XCODE_SCHEME: Runner
         BUNDLE_ID: com.denkma.app
         LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
-        IOS_BUILD_NAME: "1.0.27"
-        IOS_BUILD_NUMBER: "47"
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -261,25 +259,6 @@ workflows:
           #!/usr/bin/env bash
           set -euo pipefail
           cd "$CM_BUILD_DIR/$PROJECT_PATH"
-          python3 - <<'PY'
-          import os
-          import pathlib
-          import re
-
-          pubspec = pathlib.Path("pubspec.yaml")
-          text = pubspec.read_text(encoding="utf-8")
-          build_name = os.environ["IOS_BUILD_NAME"]
-          build_number = os.environ["IOS_BUILD_NUMBER"]
-          updated = re.sub(
-              r"^version:\s*.+$",
-              f"version: {build_name}+{build_number}",
-              text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          pubspec.write_text(updated, encoding="utf-8")
-          print(f"Using iOS-only version override: {build_name}+{build_number}")
-          PY
           flutter pub get
       - name: Install Shorebird CLI
         script: |

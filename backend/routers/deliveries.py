@@ -15,11 +15,11 @@ from pymongo import ReturnDocument
 
 from config import settings
 from core.dependencies import get_current_user, require_role
-from core.exceptions import not_found_exception, bad_request_exception, forbidden_exception
+from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception
 from database import db
 from services.mission_trace import archive_position, load_trace, summarize_completion, timestamp
 from models.common import UserRole, ParcelStatus
-from models.delivery import MissionStatus, LocationUpdate, LocationTraceBatch
+from models.delivery import ACTIVE_MISSION_STATUSES, MissionStatus, LocationUpdate, LocationTraceBatch
 from services.location_quality import client_live_tracking_allowed, validate_capture
 from pydantic import BaseModel, Field
 from services.parcel_service import (
@@ -58,6 +58,7 @@ from services.wallet_service import (
     compute_delivery_commission_breakdown,
     credit_wallet,
     debit_wallet,
+    resolve_delivery_commission_mode,
 )
 from services.whatsapp_call_service import (
     connect_driver_whatsapp_call,
@@ -135,6 +136,11 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
                 "parcel_id": 1,
                 "paid_price": 1,
                 "quoted_price": 1,
+                "delivery_mode": 1,
+                "mode": 1,
+                "delivery_commissions_enabled": 1,
+                "commission_rules_snapshot": 1,
+                "commission_rules": 1,
                 "sender_name": 1,
                 "sender_phone": 1,
                 "recipient_name": 1,
@@ -146,10 +152,18 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
 
     for mission in missions:
         parcel = parcel_lookup.get(mission.get("parcel_id")) or {}
-        breakdown = compute_delivery_commission_breakdown(
-            parcel,
-            mission,
-        )
+        try:
+            mode = resolve_delivery_commission_mode(parcel, mission)
+            breakdown = compute_delivery_commission_breakdown(parcel, mission)
+        except DeliveryCommissionDataError:
+            mission["commission_data_unavailable"] = True
+            logger.warning(
+                "Commission non calculable : mission=%s colis=%s mode de livraison manquant ou invalide",
+                mission.get("mission_id"), mission.get("parcel_id"),
+            )
+            continue
+        mission["delivery_mode"] = mode
+        mission.pop("commission_data_unavailable", None)
         mission["sender_name"] = mission.get("sender_name") or parcel.get("sender_name")
         mission["sender_phone"] = mission.get("sender_phone") or parcel.get("sender_phone")
         mission["recipient_name"] = mission.get("recipient_name") or parcel.get("recipient_name")
@@ -472,6 +486,12 @@ async def _eligible_driver_ids_for_dispatch_stage(
 ) -> list[str]:
     requested_driver_id = mission.get("admin_requested_driver_id")
     if requested_driver_id:
+        active = await db.delivery_missions.find_one(
+            {"driver_id": requested_driver_id, "status": {"$in": ACTIVE_MISSION_STATUSES}},
+            {"_id": 0, "mission_id": 1},
+        )
+        if active is not None:
+            return []
         return [requested_driver_id]
     if not pickup_geopin:
         return []
@@ -491,6 +511,12 @@ async def _notify_driver_when_entering_dispatch_radius(
     lng: float,
     now: datetime,
 ) -> int:
+    active = await db.delivery_missions.find_one(
+        {"driver_id": driver_user_id, "status": {"$in": ACTIVE_MISSION_STATUSES}},
+        {"_id": 0, "mission_id": 1},
+    )
+    if active is not None:
+        return 0
     cursor = db.delivery_missions.find(
         {"status": MissionStatus.PENDING.value},
         {"_id": 0},
@@ -582,7 +608,7 @@ async def advance_pending_delivery_dispatch() -> int:
         cleanup_stale=True,
     )
     updated_count = 0
-    reminder_interval = timedelta(minutes=5)
+    reminder_interval = timedelta(seconds=settings.DRIVER_MISSION_REMINDER_INTERVAL_SECONDS)
 
     for mission in raw_missions:
         pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
@@ -804,6 +830,7 @@ async def available_missions(
         # Trier : missions avec distance connue en premier (croissant), puis sans coordonnées
         result.sort(key=lambda m: m.get("distance_km") if m.get("distance_km") is not None else 9999)
         await _attach_commission_requirements(result)
+        result = [mission for mission in result if not mission.get("commission_data_unavailable")]
         _mask_recipient_phone_for_driver(result, current_user)
         return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
 
@@ -819,6 +846,7 @@ async def available_missions(
     _mask_recipient_phone_for_driver(missions, current_user)
     missions.sort(key=lambda m: m["created_at"])
     await _attach_commission_requirements(missions)
+    missions = [mission for mission in missions if not mission.get("commission_data_unavailable")]
     return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
@@ -891,6 +919,8 @@ async def mission_preview(
             raise forbidden_exception("Cette course n'est plus disponible pour vous.")
 
     await _attach_commission_requirements([mission])
+    if mission.get("commission_data_unavailable"):
+        raise DeliveryCommissionDataError()
     await _hydrate_mission_area_labels(mission)
     _mask_recipient_phone_for_driver([mission], current_user)
 

@@ -120,7 +120,7 @@ class _NotificationsInboxScreenState
     _activateTargetView(notif);
     final href = _hrefFor(notif);
     if (href != null) {
-      context.go(href);
+      context.go(href, extra: driverMissionNotificationRequestFor(href));
     }
     await _refresh();
   }

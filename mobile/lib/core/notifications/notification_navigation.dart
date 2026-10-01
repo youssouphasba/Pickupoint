@@ -1,3 +1,19 @@
+class DriverMissionNotificationRequest {}
+
+DriverMissionNotificationRequest? driverMissionNotificationRequestFor(
+  String location,
+) {
+  final uri = Uri.parse(location);
+  if (uri.path != '/driver') return null;
+  final query = uri.queryParameters;
+  if (query['available'] == 'true' ||
+      query.containsKey('preview') ||
+      query.containsKey('unavailable')) {
+    return DriverMissionNotificationRequest();
+  }
+  return null;
+}
+
 String? notificationRouteFor({
   required String? refType,
   required String? refId,
@@ -17,7 +33,9 @@ String? notificationRouteFor({
     case 'tracking_progress':
       return id.isEmpty ? null : '/client/parcel/$encodedId';
     case 'mission_available':
-      return id.isEmpty ? '/driver' : '/driver?preview=$encodedId';
+      return id.isEmpty
+          ? '/driver?available=true'
+          : '/driver?preview=$encodedId';
     case 'mission_detail':
       return id.isEmpty ? '/driver' : '/driver/mission/$encodedId';
     case 'mission_unavailable':

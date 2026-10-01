@@ -1,0 +1,17 @@
+# Vibrations des notifications Android
+
+Dans Profil → Paramètres → Préférences de notification, l'interrupteur « Vibrations des notifications » enregistre `notification_prefs.android_vibration` sur le compte. Il est visible uniquement sur Android et s'applique aux appareils Android de ce compte, y compris après un changement de mode client, livreur ou relais. Il n'affecte pas iOS. Les anciens comptes gardent la vibration activée par défaut.
+
+La vibration longue est réservée aux nouvelles courses proposées au livreur (`mission_available`) et aux étapes de livraison du client (statut de colis ou événement explicitement identifié comme `delivery_step`). Les messages, rappels et mises à jour des missions, informations de compte et alertes relais utilisent une vibration courte. Les messages gardent la priorité de classification, même s'ils se rapportent à un colis ou une mission.
+
+Les cinq catégories disposent chacune d'une variante de canal suffixée `_no_vibration`. Les deux variantes sont créées à l'initialisation Android. Les variantes sans vibration conservent le son, l'importance, les badges et les actions de la catégorie d'origine. Aucun canal existant n'est supprimé ou réinitialisé : Android ne permet pas de changer son comportement après création et les réglages système de l'utilisateur restent prioritaires. Le canal Messages passe en v4 pour ne pas conserver l'ancien motif long du canal v3.
+
+Au premier plan, l'application choisit le canal depuis la préférence du compte chargé. En arrière-plan ou application fermée, le backend choisit le canal Android dans le message FCM. Les notifications de progression et de compte à rebours restent sans son ni vibration comme auparavant. Les vibrations de retour tactile sur les actions ne sont pas concernées.
+
+La sauvegarde met à jour uniquement les champs de préférences explicitement transmis. Un ancien client qui ne connaît pas le champ Android ne le réinitialise pas. En cas d'échec de sauvegarde, l'interrupteur garde la dernière valeur confirmée et affiche l'erreur.
+
+Les rappels « Courses toujours disponibles » sont limités par livreur, et non seulement par course. Une réservation atomique en base empêche plusieurs courses ou workers d'envoyer ce rappel simultanément. Le délai vient de `DRIVER_MISSION_REMINDER_INTERVAL_SECONDS` (300 secondes par défaut, minimum 60). Une nouvelle proposition effectivement envoyée repousse aussi le prochain rappel, mais une nouvelle course distincte reste notifiée. Si le rappel échoue ou est ignoré, la réservation est restaurée sans écraser une alerte plus récente. Les livreurs indisponibles, inactifs ou bannis ne reçoivent pas ces rappels.
+
+Déployer le backend et distribuer la modification Dart ; aucune dépendance, ressource native ou permission supplémentaire n'est ajoutée. Ouvrir l'application mise à jour au moins une fois pour créer les canaux. Les notifications déjà envoyées avant la sauvegarde ne sont pas modifiées rétroactivement. Les applications anciennes qui n'ont pas créé les canaux sans vibration ne garantissent pas ce comportement.
+
+Vérification sur un appareil Android : désactiver, recevoir une nouvelle mission et un message au premier plan puis en arrière-plan ; vérifier le maintien du son et l'absence de vibration. Réactiver, répéter, puis vérifier la persistance après redémarrage. Tester également avec les notifications ou le son coupés dans les réglages système pour confirmer que Denkma ne les réactive pas.

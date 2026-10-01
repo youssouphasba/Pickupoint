@@ -23,6 +23,7 @@ import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/fresh_position_helper.dart';
 import '../../../core/notifications/notification_service.dart';
+import '../../../core/notifications/notification_navigation.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../widgets/completed_mission_card.dart';
 
@@ -66,10 +67,14 @@ class DriverHome extends ConsumerStatefulWidget {
     super.key,
     this.initialPreviewMissionId,
     this.unavailableMissionId,
+    this.openAvailableMissions = false,
+    this.notificationRequest,
   });
 
   final String? initialPreviewMissionId;
   final String? unavailableMissionId;
+  final bool openAvailableMissions;
+  final DriverMissionNotificationRequest? notificationRequest;
 
   @override
   ConsumerState<DriverHome> createState() => _DriverHomeState();
@@ -90,6 +95,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   Timer? _gpsRetryTimer;
   bool _toggling = false;
   bool _notificationActionHandled = false;
+  bool _notificationActionLoading = false;
+  int _notificationActionGeneration = 0;
+  ModalRoute<dynamic>? _notificationPreviewRoute;
   Timer? _refreshTimer;
 
   @override
@@ -121,6 +129,26 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prepareLocationAccess();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant DriverHome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPreviewMissionId != widget.initialPreviewMissionId ||
+        oldWidget.unavailableMissionId != widget.unavailableMissionId ||
+        oldWidget.openAvailableMissions != widget.openAvailableMissions ||
+        oldWidget.notificationRequest != widget.notificationRequest) {
+      _notificationActionGeneration++;
+      _notificationActionHandled = false;
+      _notificationActionLoading = false;
+      final previewRoute = _notificationPreviewRoute;
+      _notificationPreviewRoute = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (previewRoute?.isActive == true) {
+          previewRoute!.navigator?.removeRoute(previewRoute);
+        }
+      });
+    }
   }
 
   @override
@@ -317,63 +345,118 @@ class _DriverHomeState extends ConsumerState<DriverHome>
 
   DriverLocation get _driverLoc => (lat: _driverLat, lng: _driverLng);
 
-  void _handleNotificationAction(
-    AsyncValue<List<DeliveryMission>> availableAsync,
-  ) {
-    if (_notificationActionHandled) return;
+  void _handleNotificationAction() {
+    if (_notificationActionHandled || _notificationActionLoading) return;
+    final unavailable = (widget.unavailableMissionId ?? '').isNotEmpty;
+    final requested = unavailable ||
+        widget.openAvailableMissions ||
+        (widget.initialPreviewMissionId ?? '').isNotEmpty;
+    if (!requested) return;
+    if (!unavailable &&
+        (_gpsLoading ||
+            _locationAccessLoading ||
+            _driverLat == null ||
+            _driverLng == null)) {
+      return;
+    }
+    _notificationActionHandled = true;
+    final generation = _notificationActionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isCurrentNotificationAction(generation)) return;
+      unawaited(_openNotificationAction(generation, unavailable: unavailable));
+    });
+  }
 
-    if ((widget.unavailableMissionId ?? '').isNotEmpty) {
-      _notificationActionHandled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+  bool _isCurrentNotificationAction(int generation) {
+    return mounted &&
+        generation == _notificationActionGeneration &&
+        ModalRoute.of(context)?.isCurrent == true;
+  }
+
+  Future<void> _openNotificationAction(
+    int generation, {
+    required bool unavailable,
+  }) async {
+    setState(() => _notificationActionLoading = true);
+    try {
+      final myMissions = await ref.refresh(myMissionsProvider.future);
+      if (!mounted || !_isCurrentNotificationAction(generation)) return;
+      if (hasActiveDriverMission(myMissions)) {
+        _tabController.animateTo(1);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Terminez votre mission en cours avant d’accepter une autre course.',
+            ),
+          ),
+        );
+        return;
+      }
+      _tabController.animateTo(0);
+      if (unavailable) {
+        ref.invalidate(availableMissionsProvider);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content:
                 Text('Cette course a déjà été acceptée par un autre livreur.'),
           ),
         );
-      });
-      return;
-    }
-
-    final missionId = widget.initialPreviewMissionId;
-    final missions = availableAsync.valueOrNull;
-    if (missionId == null ||
-        missionId.isEmpty ||
-        missions == null ||
-        _gpsLoading ||
-        _driverLat == null ||
-        _driverLng == null) {
-      return;
-    }
-
-    _notificationActionHandled = true;
-    DeliveryMission? mission;
-    for (final item in missions) {
-      if (item.id == missionId) {
-        mission = item;
-        break;
+        return;
       }
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      if (mission == null) {
+      final location = _driverLoc;
+      if (location.lat == null || location.lng == null) {
+        _notificationActionHandled = false;
+        return;
+      }
+      final missions =
+          await ref.refresh(availableMissionsProvider(location).future);
+      if (!mounted || !_isCurrentNotificationAction(generation)) return;
+      if (missions.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-                'Cette course a déjà été acceptée ou n’est plus disponible.'),
+            content:
+                Text('Il n’y a plus de course disponible dans votre rayon.'),
           ),
         );
         return;
       }
+      if (missions.length != 1) return;
       final card = _MissionCard(
-        mission: mission,
+        mission: missions.single,
         isAvailable: true,
-        driverLoc: _driverLoc,
+        driverLoc: location,
         ensureGpsReady: _ensureGpsReady,
       );
-      await card._showPreviewSheet(context, ref);
-    });
+      setState(() => _notificationActionLoading = false);
+      await card._showPreviewSheet(
+        context,
+        ref,
+        onOpened: (route) => _notificationPreviewRoute = route,
+      );
+      if (mounted && generation == _notificationActionGeneration) {
+        _notificationPreviewRoute = null;
+      }
+    } catch (error) {
+      if (!mounted || !_isCurrentNotificationAction(generation)) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(friendlyError(error)),
+          action: SnackBarAction(
+            label: 'Réessayer',
+            onPressed: () {
+              if (!mounted || generation != _notificationActionGeneration) {
+                return;
+              }
+              setState(() => _notificationActionHandled = false);
+            },
+          ),
+        ),
+      );
+    } finally {
+      if (mounted && generation == _notificationActionGeneration) {
+        setState(() => _notificationActionLoading = false);
+      }
+    }
   }
 
   @override
@@ -418,7 +501,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                 ));
       });
     }
-    _handleNotificationAction(availableAsync);
+    _handleNotificationAction();
 
     final locationMessage = !_backgroundLocationAllowed &&
             !_locationAccessLoading &&
@@ -625,7 +708,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                     ),
                   ],
                 ),
-                if (_gpsLoading)
+                if (_gpsLoading || _notificationActionLoading)
                   const Align(
                     alignment: Alignment.topCenter,
                     child: LinearProgressIndicator(minHeight: 2),
@@ -1063,13 +1146,19 @@ class _MissionCard extends ConsumerWidget {
     return _MissionPreview.fromJson(previewJson);
   }
 
-  Future<void> _showPreviewSheet(BuildContext context, WidgetRef ref) async {
+  Future<void> _showPreviewSheet(
+    BuildContext context,
+    WidgetRef ref, {
+    void Function(ModalRoute<dynamic> route)? onOpened,
+  }) async {
     final parentContext = context;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
+        final route = ModalRoute.of(sheetContext);
+        if (route != null) onOpened?.call(route);
         return FractionallySizedBox(
           heightFactor: 0.94,
           child: Container(

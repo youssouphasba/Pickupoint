@@ -6,6 +6,7 @@ enum NotificationAlertKind {
   mission,
   message,
   status,
+  other,
 }
 
 class NotificationAlertProfile {
@@ -35,32 +36,38 @@ class NotificationAlertProfile {
 
   Int64List get androidVibrationPattern => Int64List.fromList(vibrationPattern);
 
-  AndroidNotificationChannel toAndroidChannel() {
+  String androidChannelId({bool vibrationEnabled = true}) =>
+      vibrationEnabled ? channelId : '${channelId}_no_vibration';
+
+  String _androidChannelName(bool vibrationEnabled) =>
+      vibrationEnabled ? channelName : '$channelName · sans vibration';
+
+  AndroidNotificationChannel toAndroidChannel({bool vibrationEnabled = true}) {
     return AndroidNotificationChannel(
-      channelId,
-      channelName,
+      androidChannelId(vibrationEnabled: vibrationEnabled),
+      _androidChannelName(vibrationEnabled),
       description: channelDescription,
       importance: importance,
       playSound: true,
       sound: RawResourceAndroidNotificationSound(soundResource),
-      enableVibration: true,
-      vibrationPattern: androidVibrationPattern,
+      enableVibration: vibrationEnabled,
+      vibrationPattern: vibrationEnabled ? androidVibrationPattern : null,
       showBadge: true,
     );
   }
 
-  AndroidNotificationDetails toAndroidDetails() {
+  AndroidNotificationDetails toAndroidDetails({bool vibrationEnabled = true}) {
     return AndroidNotificationDetails(
-      channelId,
-      channelName,
+      androidChannelId(vibrationEnabled: vibrationEnabled),
+      _androidChannelName(vibrationEnabled),
       channelDescription: channelDescription,
       importance: importance,
       priority: priority,
       icon: 'ic_notification_logo',
       playSound: true,
       sound: RawResourceAndroidNotificationSound(soundResource),
-      enableVibration: true,
-      vibrationPattern: androidVibrationPattern,
+      enableVibration: vibrationEnabled,
+      vibrationPattern: vibrationEnabled ? androidVibrationPattern : null,
       category: kind == NotificationAlertKind.mission
           ? AndroidNotificationCategory.event
           : AndroidNotificationCategory.message,
@@ -81,8 +88,8 @@ class NotificationAlertProfile {
 const missionAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.mission,
   channelId: 'denkma_missions_v3',
-  channelName: 'Courses et missions',
-  channelDescription: 'Nouvelles courses et actions urgentes sur une mission',
+  channelName: 'Courses disponibles',
+  channelDescription: 'Nouvelles courses proposées au livreur',
   soundResource: 'denkma_mission',
   iosSound: 'denkma_mission.wav',
   importance: Importance.max,
@@ -93,14 +100,14 @@ const missionAlertProfile = NotificationAlertProfile(
 
 const messageAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.message,
-  channelId: 'denkma_messages_v3',
+  channelId: 'denkma_messages_v4',
   channelName: 'Messages',
   channelDescription: 'Nouveaux messages reçus dans Denkma',
   soundResource: 'denkma_message',
   iosSound: 'denkma_message.wav',
   importance: Importance.high,
   priority: Priority.high,
-  vibrationPattern: [0, 500, 160, 700],
+  vibrationPattern: [0, 150],
   interruptionLevel: InterruptionLevel.active,
 );
 
@@ -108,7 +115,8 @@ const statusAlertProfile = NotificationAlertProfile(
   kind: NotificationAlertKind.status,
   channelId: 'denkma_updates_v3',
   channelName: 'Suivi des colis',
-  channelDescription: 'Étapes de livraison et informations de compte',
+  channelDescription:
+      'Étapes de livraison pour les expéditeurs et destinataires',
   soundResource: 'denkma_status',
   iosSound: 'denkma_status.wav',
   importance: Importance.high,
@@ -117,29 +125,72 @@ const statusAlertProfile = NotificationAlertProfile(
   interruptionLevel: InterruptionLevel.active,
 );
 
+const missionUpdateAlertProfile = NotificationAlertProfile(
+  kind: NotificationAlertKind.mission,
+  channelId: 'denkma_mission_updates_v1',
+  channelName: 'Mission en cours',
+  channelDescription: 'Informations et rappels sur les missions du livreur',
+  soundResource: 'denkma_mission',
+  iosSound: 'denkma_mission.wav',
+  importance: Importance.max,
+  priority: Priority.max,
+  vibrationPattern: [0, 150],
+  interruptionLevel: InterruptionLevel.timeSensitive,
+);
+
+const otherAlertProfile = NotificationAlertProfile(
+  kind: NotificationAlertKind.other,
+  channelId: 'denkma_other_alerts_v1',
+  channelName: 'Autres notifications',
+  channelDescription: 'Informations de compte, offres et alertes du relais',
+  soundResource: 'denkma_status',
+  iosSound: 'denkma_status.wav',
+  importance: Importance.high,
+  priority: Priority.high,
+  vibrationPattern: [0, 150],
+  interruptionLevel: InterruptionLevel.active,
+);
+
 const notificationAlertProfiles = [
   missionAlertProfile,
   messageAlertProfile,
   statusAlertProfile,
+  missionUpdateAlertProfile,
+  otherAlertProfile,
 ];
 
 NotificationAlertProfile notificationAlertProfileFor({
   String? eventType,
   String? refType,
   String? category,
+  String? targetView,
+  String? parcelStatus,
+  String? alertKind,
 }) {
   final normalizedEvent = eventType?.trim().toLowerCase();
   final normalizedRef = refType?.trim().toLowerCase();
   final normalizedCategory = category?.trim().toLowerCase();
+  final normalizedView = targetView?.trim().toLowerCase();
 
   if (normalizedCategory == 'messages' || normalizedEvent == 'parcel_message') {
     return messageAlertProfile;
   }
-  if (normalizedRef == 'mission' ||
-      normalizedEvent == 'mission_available' ||
-      normalizedEvent == 'mission_detail' ||
-      normalizedEvent == 'mission_unavailable') {
+  if (normalizedEvent == 'mission_available' &&
+      (normalizedView == null ||
+          normalizedView.isEmpty ||
+          normalizedView == 'driver')) {
     return missionAlertProfile;
   }
-  return statusAlertProfile;
+  if (normalizedRef == 'mission' ||
+      normalizedEvent == 'mission_detail' ||
+      normalizedEvent == 'mission_unavailable') {
+    return missionUpdateAlertProfile;
+  }
+  if (normalizedView == 'client' &&
+      ((normalizedEvent == 'parcel_detail' &&
+              (parcelStatus?.trim().isNotEmpty ?? false)) ||
+          alertKind == 'delivery_step')) {
+    return statusAlertProfile;
+  }
+  return otherAlertProfile;
 }
