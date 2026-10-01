@@ -174,35 +174,11 @@
         </a>
       </div>
     </div>
-    <p class="small">
+    <p class="small" id="fallback">
       Si l'application ne s'ouvre pas, installez Denkma puis reconnectez-vous avec le numéro destinataire.
     </p>
   </main>
 
-  <script>
-    const params = new URLSearchParams(window.location.search);
-    const phone = params.get('phone') || '';
-    const tracking = params.get('tracking') || params.get('tracking_code') || '';
-    const referral = (params.get('ref') || params.get('code') || '').trim().toUpperCase();
-    const deeplink = new URL(referral ? `denkma://app/referral/${encodeURIComponent(referral)}` : 'denkma://app/parcel');
-
-    if (phone) deeplink.searchParams.set('phone', phone);
-    if (tracking) deeplink.searchParams.set('tracking', tracking);
-
-    document.getElementById('openApp').href = deeplink.toString();
-    if (referral) {
-      document.getElementById('title').textContent = 'Utilisez votre code de parrainage';
-      document.getElementById('intro').textContent = 'Ouvrez Denkma pour créer votre compte avec le code reçu. Si l’application n’est pas encore installée, téléchargez-la puis revenez sur ce lien.';
-      document.getElementById('context').textContent = `Code parrainage ${referral} détecté.`;
-    } else {
-      document.getElementById('context').textContent = tracking
-        ? `Suivi ${tracking} détecté.`
-        : 'Votre numéro permettra de retrouver vos colis reçus.';
-    }
-
-    window.setTimeout(() => {
-      window.location.href = deeplink.toString();
-    }, 900);
-  </script>
+  <script src="/assets/open-app.js"></script>
 </body>
 </html>

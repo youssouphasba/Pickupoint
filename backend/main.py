@@ -667,6 +667,8 @@ async def add_security_headers(request: Request, call_next):
         return JSONResponse(status_code=404, content={"detail": "Not found"})
 
     response = await call_next(request)
+    if request.url.path.startswith("/api/wallets/me"):
+        response.headers["Cache-Control"] = "no-store"
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     if not settings.DEBUG:

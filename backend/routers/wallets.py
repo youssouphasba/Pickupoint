@@ -18,7 +18,10 @@ from database import db
 from models.wallet import PayoutRequest, TransactionType
 from services.wallet_service import get_or_create_wallet, record_wallet_transaction
 from services.admin_events_service import AdminEventType, record_admin_event
-from services.stripe_service import create_wallet_topup_checkout
+from services.stripe_service import (
+    create_wallet_topup_checkout, get_wallet_topup, get_wallet_topups,
+    reconcile_wallet_topups, wallet_topup_options,
+)
 
 router = APIRouter()
 
@@ -30,7 +33,7 @@ def _payout_id() -> str:
 
 
 class StripeTopupRequest(BaseModel):
-    amount: float = Field(..., ge=500, le=5_000_000)
+    amount: float = Field(..., gt=0, allow_inf_nan=False)
 
 
 async def _has_active_driver_mission(user_id: str) -> bool:
@@ -92,8 +95,13 @@ def _transaction_period_filter(period: Optional[str]) -> dict:
 @router.get("/me", summary="Mon wallet")
 async def get_my_wallet(current_user: dict = Depends(get_current_user)):
     owner_type = current_user.get("role", "client")
-    wallet = await get_or_create_wallet(current_user["user_id"], owner_type)
     if owner_type == "driver":
+        await reconcile_wallet_topups(current_user["user_id"])
+    wallet = await get_or_create_wallet(current_user["user_id"], owner_type)
+    wallet.pop("stripe_credited_topups", None)
+    if owner_type == "driver":
+        wallet["topup_options"] = wallet_topup_options()
+        wallet["topups"] = await get_wallet_topups(current_user["user_id"])
         failed_mission = await _recent_failed_driver_mission(current_user["user_id"])
         has_active_mission = await _has_active_driver_mission(current_user["user_id"])
         blocked_reason = _payout_block_message(wallet, failed_mission)
@@ -227,6 +235,16 @@ async def create_stripe_wallet_topup(
     if current_user.get("role") != "driver":
         raise bad_request_exception("La recharge Stripe est réservée aux livreurs")
     return await create_wallet_topup_checkout(user=current_user, amount=body.amount)
+
+
+@router.get("/me/topups/stripe/{topup_id}", summary="Vérifier ma recharge Stripe")
+async def verify_my_stripe_wallet_topup(
+    topup_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "driver":
+        raise bad_request_exception("La recharge Stripe est réservée aux livreurs")
+    return await get_wallet_topup(current_user["user_id"], topup_id)
 
 
 @router.get("/me/payouts", summary="Historique des retraits")

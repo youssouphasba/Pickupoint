@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/auth_provider.dart';
+import 'wallet_return_navigation.dart';
 import '../../features/auth/screens/phone_screen.dart';
 import '../../features/auth/screens/otp_screen.dart';
 import '../../features/auth/screens/pin_login_screen.dart';
@@ -303,6 +304,7 @@ String _homeForRole(String role) {
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final notifier = _GoRouterNotifier(ref);
+  Map<String, String>? pendingWalletReturn;
 
   return GoRouter(
     initialLocation: '/auth/phone',
@@ -329,6 +331,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLocationConfirmationRoute =
           state.fullPath?.startsWith('/confirm/') ?? false;
       final isUnknown = auth?.status == AuthStatus.unknown;
+      final walletReturn = walletReturnParameters(state.uri);
+      if (walletReturn != null) {
+        pendingWalletReturn = walletReturn;
+      }
       final referralCode = _extractReferralCode(state.uri);
       final isParcelAppLink = _isParcelAppLink(state.uri);
       final parcelLinkQuery = _parcelLinkQuery(state.uri);
@@ -345,6 +351,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (isUnknown) return null; // attendre la résolution
+      final savedWalletReturn = pendingWalletReturn;
+      if (savedWalletReturn != null && (walletReturn != null || isAuthRoute)) {
+        if (!isLoggedIn) return isAuthRoute ? null : '/auth/phone';
+        pendingWalletReturn = null;
+        if (auth?.user?.role == 'driver') {
+          return Uri(path: '/driver/wallet', queryParameters: savedWalletReturn)
+              .toString();
+        }
+        return _homeForRole(auth!.effectiveRole);
+      }
       final currentLocation = Uri(
         path: state.uri.path.isEmpty ? '/' : state.uri.path,
         queryParameters: state.uri.queryParameters.isEmpty
@@ -730,7 +746,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const CompletedMissionsScreen()),
           GoRoute(
               path: '/driver/wallet',
-              builder: (_, __) => const DriverWalletScreen()),
+              builder: (_, state) => DriverWalletScreen(
+                    initialTopupId: state.uri.queryParameters['topup_id'],
+                    returnResult: state.uri.queryParameters['wallet_return'],
+                  )),
           GoRoute(
               path: '/driver/profile',
               builder: (_, state) => DriverProfileScreen(

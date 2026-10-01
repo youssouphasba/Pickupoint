@@ -81,8 +81,13 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
     STRIPE_WALLET_SUCCESS_URL: Optional[str] = None
     STRIPE_WALLET_CANCEL_URL: Optional[str] = None
-    WALLET_TOPUP_MIN_XOF: float = 500.0
-    WALLET_TOPUP_MAX_XOF: float = 500000.0
+    WALLET_TOPUP_MIN_XOF: float = Field(500.0, gt=0, allow_inf_nan=False)
+    WALLET_TOPUP_MAX_XOF: float = Field(500000.0, gt=0, allow_inf_nan=False)
+    STRIPE_HTTP_TIMEOUT_SECONDS: float = Field(6.0, ge=1, le=10)
+    STRIPE_RECONCILE_INTERVAL_SECONDS: int = Field(10, ge=1)
+    STRIPE_RECONCILE_LIMIT: int = Field(5, ge=1, le=20)
+    STRIPE_RETURN_RETRY_ATTEMPTS: int = Field(3, ge=0, le=10)
+    WALLET_TOPUP_HISTORY_LIMIT: int = Field(10, ge=1, le=100)
 
     # Pricing base (XOF) — validé le 2026-03-01
     BASE_RELAY_TO_RELAY: float = 700.0
@@ -145,6 +150,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_security(self):
+        if (self.WALLET_TOPUP_MAX_XOF < self.WALLET_TOPUP_MIN_XOF
+                or not self.WALLET_TOPUP_MIN_XOF.is_integer()
+                or not self.WALLET_TOPUP_MAX_XOF.is_integer()):
+            raise ValueError("Wallet top-up limits must be whole FCFA amounts with maximum >= minimum")
         is_prod = self.APP_ENV.lower() in {"production", "prod"}
         if is_prod and self.DEBUG:
             pass # raise ValueError("DEBUG must be disabled in production")

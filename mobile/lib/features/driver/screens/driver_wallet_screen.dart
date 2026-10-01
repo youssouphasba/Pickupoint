@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +9,7 @@ import '../../../shared/utils/date_format.dart';
 import '../../../core/models/wallet.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/utils/error_utils.dart';
+import '../widgets/wallet_topup_dialog.dart';
 
 final driverTransactionsProvider =
     FutureProvider.family<List<WalletTransaction>, String?>(
@@ -30,14 +32,157 @@ final driverPayoutsProvider = FutureProvider<List<PayoutRequest>>((ref) async {
 });
 
 class DriverWalletScreen extends ConsumerStatefulWidget {
-  const DriverWalletScreen({super.key});
+  const DriverWalletScreen({super.key, this.initialTopupId, this.returnResult});
+
+  final String? initialTopupId;
+  final String? returnResult;
 
   @override
   ConsumerState<DriverWalletScreen> createState() => _DriverWalletScreenState();
 }
 
-class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
+class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
+    with WidgetsBindingObserver {
   String? _period = _monthValue(DateTime.now());
+  String? _pendingTopupId;
+  Future<void>? _refreshInFlight;
+  String? _paymentMessage;
+  bool _paymentConfirmed = false;
+  bool _refreshing = false;
+  Timer? _paymentRetry;
+  int? _remainingPaymentChecks;
+  bool _followPendingPayment = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pendingTopupId = widget.initialTopupId;
+    _followPendingPayment = widget.returnResult == 'success';
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final auth = ref.read(authProvider).valueOrNull;
+      if (auth?.user?.role == 'driver' && auth?.effectiveRole != 'driver') {
+        ref.read(authProvider.notifier).switchView('driver');
+      }
+      _refreshWallet(showFeedback: widget.returnResult != null);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant DriverWalletScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTopupId != widget.initialTopupId ||
+        oldWidget.returnResult != widget.returnResult) {
+      _pendingTopupId = widget.initialTopupId;
+      _followPendingPayment = widget.returnResult == 'success';
+      _remainingPaymentChecks = null;
+      _paymentRetry?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshWallet(showFeedback: true);
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _paymentRetry?.cancel();
+    if (state == AppLifecycleState.resumed && mounted) {
+      _refreshWallet(showFeedback: _pendingTopupId != null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _paymentRetry?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> _refreshWallet({bool showFeedback = false}) async {
+    if (_refreshInFlight != null) return _refreshInFlight;
+    final refresh = _performRefresh(showFeedback: showFeedback);
+    _refreshInFlight = refresh;
+    try {
+      await refresh;
+    } finally {
+      _refreshInFlight = null;
+    }
+  }
+
+  Future<void> _performRefresh({required bool showFeedback}) async {
+    if (!mounted) return;
+    _paymentRetry?.cancel();
+    setState(() => _refreshing = true);
+    try {
+      WalletTopup? topup;
+      Object? verificationError;
+      final pendingId = _pendingTopupId;
+      if (pendingId != null) {
+        try {
+          final response =
+              await ref.read(apiClientProvider).getStripeWalletTopup(pendingId);
+          topup = WalletTopup.fromJson(response.data as Map<String, dynamic>);
+        } catch (error) {
+          verificationError = error;
+        }
+      }
+      if (!mounted) return;
+      final wallet = await ref.refresh(driverWalletProvider.future);
+      if (!mounted) return;
+      for (final latest in wallet.topups) {
+        if (latest.id == pendingId) topup = latest;
+      }
+      await Future.wait([
+        ref.refresh(driverTransactionsProvider(_period).future),
+        ref.refresh(driverPayoutsProvider.future),
+      ].map((request) async {
+        try {
+          await request;
+        } catch (_) {}
+      }));
+      if (!mounted) return;
+      final retryOptions = wallet.topupOptions;
+      _remainingPaymentChecks ??= retryOptions?.verificationRetryAttempts ?? 0;
+      if (_followPendingPayment &&
+          retryOptions?.enabled == true &&
+          topup?.isPending == true &&
+          _remainingPaymentChecks! > 0 &&
+          (retryOptions?.verificationRetrySeconds ?? 0) > 0 &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        _paymentRetry = Timer(
+            Duration(seconds: retryOptions!.verificationRetrySeconds), () {
+          _remainingPaymentChecks = _remainingPaymentChecks! - 1;
+          if (mounted) _refreshWallet(showFeedback: true);
+        });
+      }
+      if (!showFeedback) return;
+      setState(() {
+        _paymentConfirmed = topup?.isPaid == true;
+        _paymentMessage = topup?.isPaid == true
+            ? 'Recharge de ${formatXof(topup!.amount)} créditée sur votre solde.'
+            : topup?.isPending == true
+                ? topup!.verificationMessage ??
+                    'Paiement non confirmé. Vérifiez avant de payer une deuxième fois.'
+                : topup != null
+                    ? 'Cette recharge n’a pas été créditée. Consultez son état ci-dessous.'
+                    : verificationError != null
+                        ? 'Solde actualisé. ${friendlyError(verificationError)}'
+                        : widget.returnResult != null
+                            ? 'Solde actualisé. Consultez l’état de votre recharge ci-dessous.'
+                            : 'Solde actualisé : ${formatXof(wallet.balance)}.';
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _paymentConfirmed = false;
+          _paymentMessage = friendlyError(error);
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,19 +191,48 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
     final payoutsAsync = ref.watch(driverPayoutsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Solde et revenus')),
+      appBar: AppBar(
+        title: const Text('Solde et revenus'),
+        actions: [
+          IconButton(
+            tooltip: 'Actualiser le solde et vérifier les recharges',
+            onPressed:
+                _refreshing ? null : () => _refreshWallet(showFeedback: true),
+            icon: _refreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
-        onRefresh: () => Future.wait([
-          ref.refresh(driverWalletProvider.future),
-          ref.refresh(driverTransactionsProvider(_period).future),
-          ref.refresh(driverPayoutsProvider.future),
-        ]),
+        onRefresh: () => _refreshWallet(showFeedback: true),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
               _buildBalanceCard(context, walletAsync),
+              if (_paymentMessage != null) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: (_paymentConfirmed ? Colors.green : Colors.blue)
+                        .withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(_paymentMessage!),
+                ),
+              ],
+              walletAsync.when(
+                data: _buildTopupsSection,
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
               const SizedBox(height: 24),
               _buildPayoutsSection(payoutsAsync),
               const SizedBox(height: 32),
@@ -168,7 +342,9 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
             ],
             const SizedBox(height: 12),
             OutlinedButton.icon(
-              onPressed: () => _showTopupDialog(context),
+              onPressed: wallet.topupOptions?.enabled == true
+                  ? () => _showTopupDialog(context, wallet.topupOptions!)
+                  : null,
               icon: const Icon(Icons.add_card),
               label: const Text('Recharger mon solde'),
               style: OutlinedButton.styleFrom(
@@ -176,6 +352,13 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
                 side: const BorderSide(color: Colors.white70),
               ),
             ),
+            if (wallet.topupOptions?.enabled != true) ...[
+              const SizedBox(height: 8),
+              const Text(
+                  'La recharge par carte est momentanément indisponible.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70)),
+            ],
           ],
         ),
       ),
@@ -184,69 +367,106 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen> {
     );
   }
 
-  void _showTopupDialog(BuildContext context) {
-    final amountCtrl = TextEditingController();
+  void _showTopupDialog(BuildContext context, WalletTopupOptions options) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Recharger le solde'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: amountCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Montant (XOF)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Vous serez redirigé vers Stripe. Le solde sera crédité après confirmation du paiement.',
-              style: TextStyle(fontSize: 13),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuler'),
-          ),
-          Consumer(
-            builder: (context, ref, _) => ElevatedButton(
-              onPressed: () async {
-                final amount = double.tryParse(amountCtrl.text.trim());
-                if (amount == null || amount <= 0) return;
-                try {
-                  final res = await ref
-                      .read(apiClientProvider)
-                      .createStripeWalletTopup({'amount': amount});
-                  final data = res.data as Map<String, dynamic>;
-                  final checkoutUrl = data['checkout_url']?.toString();
-                  if (checkoutUrl == null || checkoutUrl.isEmpty) {
-                    throw Exception('Lien Stripe indisponible');
-                  }
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  await launchUrl(
-                    Uri.parse(checkoutUrl),
-                    mode: LaunchMode.externalApplication,
-                  );
-                } catch (e) {
-                  if (ctx.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(friendlyError(e))),
-                    );
-                  }
-                }
-              },
-              child: const Text('Continuer'),
-            ),
-          ),
+      barrierDismissible: false,
+      builder: (_) => WalletTopupDialog(
+          options: options,
+          onSubmit: (amount) async {
+            final response = await ref
+                .read(apiClientProvider)
+                .createStripeWalletTopup({'amount': amount});
+            final data = response.data as Map<String, dynamic>;
+            final checkout =
+                Uri.tryParse(data['checkout_url']?.toString() ?? '');
+            if (checkout == null ||
+                checkout.scheme != 'https' ||
+                checkout.host != 'checkout.stripe.com') {
+              throw Exception(
+                  'Lien de paiement Stripe indisponible. Contactez le support.');
+            }
+            if (!mounted) return;
+            _pendingTopupId = data['topup_id'] as String;
+            _remainingPaymentChecks = null;
+            _followPendingPayment = true;
+            setState(() {
+              _paymentMessage = null;
+              _paymentConfirmed = false;
+            });
+            if (!await launchUrl(checkout,
+                mode: LaunchMode.externalApplication)) {
+              throw Exception(
+                  'Impossible d’ouvrir le paiement. Vérifiez votre navigateur.');
+            }
+          }),
+    );
+  }
+
+  Widget _buildTopupsSection(Wallet wallet) {
+    if (wallet.topups.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Recharges récentes',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          ...wallet.topups.map((topup) => Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Expanded(
+                            child: Text(formatXof(topup.amount),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600))),
+                        _StatusPill(
+                          label: topup.isPaid
+                              ? 'Créditée'
+                              : topup.isPending
+                                  ? 'Non confirmée'
+                                  : topup.status == 'expired'
+                                      ? 'Expirée'
+                                      : 'Échec',
+                          color: topup.isPaid
+                              ? Colors.green
+                              : topup.isPending
+                                  ? Colors.orange
+                                  : Colors.grey,
+                        ),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text('Carte · ${formatDate(topup.createdAt)}'),
+                      if (topup.isPending) ...[
+                        const SizedBox(height: 8),
+                        Text(topup.verificationMessage ??
+                            'Vérifiez le paiement avant de payer une deuxième fois.'),
+                        TextButton.icon(
+                          onPressed: _refreshing ||
+                                  wallet.topupOptions?.enabled != true
+                              ? null
+                              : () {
+                                  _pendingTopupId = topup.id;
+                                  _remainingPaymentChecks = null;
+                                  _followPendingPayment = true;
+                                  _refreshWallet(showFeedback: true);
+                                },
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Vérifier le paiement'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              )),
         ],
       ),
-    ).whenComplete(amountCtrl.dispose);
+    );
   }
 
   void _showPayoutDialog(BuildContext context) {

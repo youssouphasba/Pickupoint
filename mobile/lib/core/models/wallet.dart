@@ -7,6 +7,8 @@ class Wallet {
     this.pendingBalance = 0,
     this.payoutAvailable = true,
     this.payoutBlockReason,
+    this.topupOptions,
+    this.topups = const [],
   });
 
   final String id;
@@ -16,6 +18,8 @@ class Wallet {
   final double pendingBalance;
   final bool payoutAvailable;
   final String? payoutBlockReason;
+  final WalletTopupOptions? topupOptions;
+  final List<WalletTopup> topups;
 
   factory Wallet.fromJson(Map<String, dynamic> json) => Wallet(
         id: json['wallet_id'] as String? ?? json['id'] as String? ?? '',
@@ -27,7 +31,67 @@ class Wallet {
             0,
         payoutAvailable: json['payout_available'] as bool? ?? true,
         payoutBlockReason: json['payout_block_reason'] as String?,
+        topupOptions: json['topup_options'] is Map<String, dynamic>
+            ? WalletTopupOptions.fromJson(
+                json['topup_options'] as Map<String, dynamic>)
+            : null,
+        topups: (json['topups'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(WalletTopup.fromJson)
+            .toList(),
       );
+}
+
+class WalletTopupOptions {
+  const WalletTopupOptions(
+      {required this.enabled,
+      required this.minimumAmount,
+      required this.maximumAmount,
+      this.verificationRetrySeconds = 0,
+      this.verificationRetryAttempts = 0});
+
+  final bool enabled;
+  final double minimumAmount;
+  final double maximumAmount;
+  final int verificationRetrySeconds;
+  final int verificationRetryAttempts;
+
+  factory WalletTopupOptions.fromJson(Map<String, dynamic> json) =>
+      WalletTopupOptions(
+        enabled: json['enabled'] == true,
+        minimumAmount: (json['minimum_amount'] as num).toDouble(),
+        maximumAmount: (json['maximum_amount'] as num).toDouble(),
+        verificationRetrySeconds:
+            (json['verification_retry_seconds'] as num?)?.toInt() ?? 0,
+        verificationRetryAttempts:
+            (json['verification_retry_attempts'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class WalletTopup {
+  const WalletTopup(
+      {required this.id,
+      required this.amount,
+      required this.status,
+      required this.createdAt,
+      this.verificationMessage});
+
+  final String id;
+  final double amount;
+  final String status;
+  final DateTime createdAt;
+  final String? verificationMessage;
+
+  factory WalletTopup.fromJson(Map<String, dynamic> json) => WalletTopup(
+        id: json['topup_id'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        status: json['status'] as String,
+        createdAt: DateTime.parse(json['created_at'] as String),
+        verificationMessage: json['verification_message'] as String?,
+      );
+
+  bool get isPaid => status == 'paid';
+  bool get isPending => status == 'pending';
 }
 
 class WalletTransaction {

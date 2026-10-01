@@ -482,6 +482,9 @@ class ApiClient {
   Future<Response> createStripeWalletTopup(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.stripeWalletTopup, data: body);
 
+  Future<Response> getStripeWalletTopup(String id) =>
+      _dio.get(ApiEndpoints.stripeWalletTopupStatus(id));
+
   // ─── Admin ────────────────────────────────────────────────────────────────
   Future<Response> getDashboard() => _dio.get(ApiEndpoints.dashboard);
 

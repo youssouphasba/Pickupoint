@@ -6,9 +6,12 @@ String friendlyError(Object e) {
     final data = e.response?.data;
     if (data is Map) {
       final detail = data['detail'];
-      if (detail != null) return detail.toString();
+      if (detail is String && detail.trim().isNotEmpty) return detail;
+      if (detail is List) {
+        return 'Vérifiez les informations saisies puis réessayez.';
+      }
       final message = data['message'];
-      if (message != null) return message.toString();
+      if (message is String && message.trim().isNotEmpty) return message;
     }
 
     switch (e.type) {
