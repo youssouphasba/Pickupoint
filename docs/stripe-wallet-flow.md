@@ -27,7 +27,7 @@ Le `pubspec.yaml` prépare `1.0.28+48`. Cette version contient des changements n
 
 Les workflows de patch Android et iOS utilisent désormais `latest`. Tant que la release 48 n'est pas enregistrée chez Shorebird pour la plateforme concernée, cette cible peut encore désigner la release 47. Ne pas lancer un patch de ces sources avant la nouvelle release. Vérifier la version cible affichée par Shorebird avant publication.
 
-`SHOREBIRD_PATCH_BASE_REF` est optionnel et vide par défaut. Pour renforcer les contrôles, le renseigner avec le commit exact de la release ciblée : le workflow vérifie les sources, puis les versions et empreintes des plugins résolus. Ne pas réutiliser une référence de la release 47 pour la 48. Shorebird conserve dans tous les cas sa vérification des artefacts : aucun contournement `--allow-native-diffs` ou `--allow-asset-diffs` n'est utilisé.
+`SHOREBIRD_PATCH_BASE_REF` est optionnel et non déclaré par défaut : Codemagic refuse une variable déclarée avec une chaîne vide. Les scripts acceptent son absence. Pour renforcer les contrôles, le renseigner avec le commit exact de la release ciblée : le workflow vérifie les sources, puis les versions et empreintes des plugins résolus. Ne pas réutiliser une référence de la release 47 pour la 48. Shorebird conserve dans tous les cas sa vérification des artefacts : aucun contournement `--allow-native-diffs` ou `--allow-asset-diffs` n'est utilisé.
 
 Les nouvelles releases et les patches des deux plateformes utilisent `--no-tree-shake-icons` pour conserver la police complète des icônes Material. Ce réglage ne remplace pas la police déjà embarquée dans une ancienne release 47 et ne rend pas les nouveaux assets patchables.
 

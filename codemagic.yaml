@@ -139,7 +139,6 @@ workflows:
         ANDROID_COMPILE_SDK: "36"
         ANDROID_TARGET_SDK: "36"
         SHOREBIRD_ANDROID_RELEASE_VERSION: "latest"
-        SHOREBIRD_PATCH_BASE_REF: ""
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -363,7 +362,6 @@ workflows:
         BUNDLE_ID: com.denkma.app
         LIVE_ACTIVITY_BUNDLE_ID: com.denkma.app.DenkmaLiveActivity
         SHOREBIRD_IOS_RELEASE_VERSION: "latest"
-        SHOREBIRD_PATCH_BASE_REF: ""
     cache:
       cache_paths:
         - $HOME/.pub-cache
