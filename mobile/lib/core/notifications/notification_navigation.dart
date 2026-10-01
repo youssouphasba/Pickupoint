@@ -33,9 +33,7 @@ String? notificationRouteFor({
     case 'tracking_progress':
       return id.isEmpty ? null : '/client/parcel/$encodedId';
     case 'mission_available':
-      return id.isEmpty
-          ? '/driver?available=true'
-          : '/driver?preview=$encodedId';
+      return '/driver?available=true';
     case 'mission_detail':
       return id.isEmpty ? '/driver' : '/driver/mission/$encodedId';
     case 'mission_unavailable':
@@ -83,7 +81,7 @@ String? notificationRouteFor({
   if (id.isEmpty) return null;
 
   if (type == 'mission' && effectiveRole == 'driver') {
-    return '/driver?preview=$encodedId';
+    return '/driver?available=true';
   }
   if (type == 'parcel') {
     if (effectiveRole == 'admin' || effectiveRole == 'superadmin') {
@@ -114,6 +112,25 @@ int trackingProgressNotificationId(String parcelId) {
 
 int get driverActiveMissionNotificationId =>
     trackingProgressNotificationId('driver_active_mission');
+
+Future<String?> resolveLegacyDriverMissionRoute(
+  String? route,
+  Future<Map<String, dynamic>> Function(String id) loadMission,
+) async {
+  if (route == null) return null;
+  final uri = Uri.parse(route);
+  final parts = uri.pathSegments;
+  if (parts.length != 3 || parts[0] != 'driver' || parts[1] != 'mission') {
+    return route;
+  }
+  try {
+    final mission = await loadMission(parts[2]);
+    if (mission['status'] == 'pending') return '/driver?available=true';
+    return route;
+  } catch (_) {
+    return '/driver?available=true';
+  }
+}
 
 String? notificationExternalUrl({
   required String? eventType,

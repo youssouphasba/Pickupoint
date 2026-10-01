@@ -2,6 +2,7 @@
 Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import asyncio
+import math
 import uuid
 from calendar import monthrange
 from collections import defaultdict
@@ -24,7 +25,7 @@ from core.utils import normalize_phone
 from database import db
 from services.sending_guide import SendingGuideSettings, sending_guide_payload
 from services.loyalty_rules import compute_tier
-from services.mission_trace import load_trace, summarize_trace, timestamp
+from services.mission_trace import load_trace, summarize_trace, summarize_completion, timestamp
 from services.location_quality import location_is_live
 from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
@@ -90,8 +91,14 @@ from services.wallet_service import (
     normalize_commission_rules,
     debit_wallet_allow_negative,
     record_wallet_transaction,
+    _run_in_transaction,
+    refund_mission_commission,
+    mission_charge_reference,
+    commission_refund_reference,
+    mission_commission_refunded,
 )
 from services.admin_analytics_service import build_admin_analytics
+from services.payout_service import settle_payout
 
 router = APIRouter()
 
@@ -222,11 +229,12 @@ async def update_relay_settlement(
     return {"ok": True, "parcel_id": parcel_id, "relay_settlement": updated["relay_settlement"], "relay_financial": build_relay_financial_summary(updated, relay_id) if relay_id else None}
 
 
-async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
+async def _refresh_pending_delivery_commissions(enabled: bool, *, prepare_only=False, session=None):
     pending_missions = await db.delivery_missions.find(
         {"status": MissionStatus.PENDING.value},
-        {"_id": 0, "mission_id": 1, "parcel_id": 1},
-    ).to_list(length=2000)
+        {"_id": 0},
+        **({"session": session} if session is not None else {}),
+    ).to_list(length=None)
     if not pending_missions:
         return
 
@@ -234,9 +242,11 @@ async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
     parcels = await db.parcels.find(
         {"parcel_id": {"$in": parcel_ids}},
         {"_id": 0},
+        **({"session": session} if session is not None else {}),
     ).to_list(length=len(parcel_ids))
     parcel_lookup = {parcel["parcel_id"]: parcel for parcel in parcels if parcel.get("parcel_id")}
     now = datetime.now(timezone.utc)
+    planned = []
 
     for mission in pending_missions:
         parcel = parcel_lookup.get(mission.get("parcel_id"))
@@ -246,8 +256,7 @@ async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
         mission_for_calc = {**mission, "delivery_commissions_enabled": enabled}
         breakdown = compute_delivery_commission_breakdown(parcel_for_calc, mission_for_calc)
         earn_amount = round(breakdown["driver_revenue_xof"]) + round(parcel.get("driver_bonus_xof", 0.0))
-        await db.delivery_missions.update_one(
-            {"mission_id": mission["mission_id"]},
+        planned.append((mission["mission_id"],
             {
                 "$set": {
                     "delivery_commissions_enabled": enabled,
@@ -260,8 +269,15 @@ async def _refresh_pending_delivery_commissions(enabled: bool) -> None:
                     "earn_amount": earn_amount,
                     "updated_at": now,
                 }
-            },
+            }))
+    if prepare_only:
+        return planned
+    for mission_id, update in planned:
+        await db.delivery_missions.update_one(
+            {"mission_id": mission_id, "status": MissionStatus.PENDING.value}, update,
+            **({"session": session} if session is not None else {}),
         )
+    return planned
 
 
 def _as_aware_utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -1709,21 +1725,13 @@ async def admin_list_parcels(
                 if tx.get("tx_type") == TransactionType.DEBIT.value
                 and str(tx.get("reference") or "").startswith(reference_prefix)
             }
-            reversed_or_refunded_mission_ids = {
-                ref.split(":")[1]
-                for ref in (
-                    str(tx.get("reference") or "")
-                    for tx in tx_docs
-                    if tx.get("reference")
-                )
-                if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
-            }
+            refund_refs = {str(tx.get("reference") or "") for tx in tx_docs if tx.get("tx_type") == "credit"}
             mission_docs = [
                 mission
                 for mission in mission_docs
                 if (
-                    f"{reference_prefix}{mission.get('mission_id')}" in matched_refs
-                    and str(mission.get("mission_id") or "") not in reversed_or_refunded_mission_ids
+                    mission_charge_reference(mission) in matched_refs
+                    and not mission_commission_refunded(mission, refund_refs)
                     and str(mission.get("status") or "") != MissionStatus.PENDING.value
                 )
             ]
@@ -1764,6 +1772,7 @@ async def admin_list_parcels(
                 "mission_id": 1,
                 "created_at": 1,
                 "commission_charge_mode": 1,
+                "platform_commission_wallet_reference": 1,
                 "admin_assignment_status": 1,
                 "status": 1,
             },
@@ -1775,14 +1784,14 @@ async def admin_list_parcels(
             if mission.get("mission_id")
         ]
         tx_refs = set()
-        reversed_or_refunded_mission_ids: set[str] = set()
+        refund_refs: set[str] = set()
+        charge_refs = [mission_charge_reference(mission) for mission in mission_docs]
         if related_mission_ids:
             tx_docs = await db.wallet_transactions.find(
                 {
                     "$or": [
-                        {"reference": {"$in": [f"commission:{mission_id}" for mission_id in related_mission_ids]}},
-                        {"reference": {"$in": [f"commission_debt:{mission_id}" for mission_id in related_mission_ids]}},
-                        {"reference": {"$in": [f"commission_refund:{mission_id}" for mission_id in related_mission_ids]}},
+                        {"reference": {"$in": charge_refs}},
+                        {"reference": {"$in": [commission_refund_reference(ref) for ref in charge_refs]}},
                         {"reference": {"$regex": r"^commission_reversal:"}},
                     ],
                 },
@@ -1798,15 +1807,7 @@ async def admin_list_parcels(
                 if tx.get("tx_type") == TransactionType.DEBIT.value
                 and tx.get("reference")
             }
-            reversed_or_refunded_mission_ids = {
-                ref.split(":")[1]
-                for ref in (
-                    str(tx.get("reference") or "")
-                    for tx in tx_docs
-                    if tx.get("reference")
-                )
-                if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
-            }
+            refund_refs = {str(tx.get("reference") or "") for tx in tx_docs if tx.get("tx_type") == "credit"}
 
         seen_parcels: set[str] = set()
         for mission in mission_docs:
@@ -1823,14 +1824,14 @@ async def admin_list_parcels(
             )
             platform_commission_received_by_parcel[parcel_id] = (
                 charge_mode == "wallet_hold"
-                and f"commission:{mission_id}" in tx_refs
-                and mission_id not in reversed_or_refunded_mission_ids
+                and mission_charge_reference(mission) in tx_refs
+                and not mission_commission_refunded(mission, refund_refs)
                 and mission_status != MissionStatus.PENDING.value
             )
             platform_commission_debt_by_parcel[parcel_id] = (
                 charge_mode == "driver_debt"
-                and f"commission_debt:{mission_id}" in tx_refs
-                and mission_id not in reversed_or_refunded_mission_ids
+                and mission_charge_reference(mission) in tx_refs
+                and not mission_commission_refunded(mission, refund_refs)
                 and mission_status != MissionStatus.PENDING.value
             )
             platform_commission_offered_by_parcel[parcel_id] = (
@@ -2332,9 +2333,7 @@ async def approve_payout(
             raise bad_request_exception("Décaissement bloqué pendant 48h après une mission échouée")
 
     now = datetime.now(timezone.utc)
-    payout_result = await db.payout_requests.update_one(
-        {"payout_id": payout_id, "status": "pending"},
-        {"$set": {
+    wallet_after = await settle_payout(payout_id, "approved", {
             "status": "approved",
             "approved_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
             "approved_at": now,
@@ -2343,31 +2342,7 @@ async def approve_payout(
             "transfer_reference": body.reference.strip(),
             "transfer_note": body.note.strip() if body.note else None,
             "updated_at": now,
-        }},
-    )
-    if payout_result.matched_count == 0:
-        raise bad_request_exception("Ce retrait n'est plus en attente")
-
-    wallet_result = await db.wallets.update_one(
-        {"wallet_id": payout["wallet_id"], "pending": {"$gte": payout["amount"]}},
-        {"$inc": {"pending": -payout["amount"]}, "$set": {"updated_at": now}},
-    )
-    if wallet_result.modified_count == 0:
-        await db.payout_requests.update_one(
-            {"payout_id": payout_id, "status": "approved"},
-            {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
-        )
-        raise bad_request_exception("Solde bloqué incohérent pour cette demande")
-
-    wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
-    await record_wallet_transaction(
-        wallet_id=payout["wallet_id"],
-        amount=payout["amount"],
-        tx_type=TransactionType.DEBIT.value,
-        description="Retrait approuvé et versé",
-        reference=payout_id,
-        ensure_unique=True,
-    )
+    })
 
     await _record_event(
         event_type="PAYOUT_APPROVED",
@@ -4105,6 +4080,7 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
         mission["delivery"] = _resolve_mission_delivery(parcel, mission, relay_lookup)
         mission["gps_trail"] = await load_trace(mission)
         mission["trace_summary"] = summarize_trace(mission["gps_trail"])
+        mission["completion_summary"] = summarize_completion(mission, mission["gps_trail"])
         mission["duration_summary"] = _mission_duration_summary(mission, now=now)
         mission["route_summary"] = _mission_route_summary(
             mission,
@@ -4760,7 +4736,7 @@ async def admin_reassign_mission(
         {
             "mission_id": {"$ne": mission_id},
             "driver_id": body.new_driver_id,
-            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value]},
+            "status": {"$in": [MissionStatus.ASSIGNED.value, MissionStatus.IN_PROGRESS.value, MissionStatus.INCIDENT_REPORTED.value]},
         },
         {"_id": 0, "mission_id": 1},
     )
@@ -4777,19 +4753,6 @@ async def admin_reassign_mission(
     assignment_mode = body.assignment_mode
     previous_driver_id = mission.get("driver_id")
     previous_charge_mode = mission.get("commission_charge_mode") or "wallet_hold"
-
-    if previous_driver_id and previous_driver_id != body.new_driver_id and commission_xof > 0:
-        if previous_charge_mode in {"wallet_hold", "driver_debt"}:
-            await credit_wallet(
-                owner_id=previous_driver_id,
-                owner_type="driver",
-                amount=commission_xof,
-                description=f"Annulation commission mission {mission_id}",
-                parcel_id=mission["parcel_id"],
-                reference=f"commission_reversal:{mission_id}:{previous_driver_id}",
-                count_as_earned=False,
-                ensure_unique=True,
-            )
 
     current_candidates = list(mission.get("candidate_drivers") or [])
     candidate_drivers = [body.new_driver_id] + [
@@ -4817,6 +4780,9 @@ async def admin_reassign_mission(
         "driver_location": "",
         "location_updated_at": "",
         "gps_trail": "",
+        "gps_archive_initialized": "",
+        "started_at": "",
+        "completed_at": "",
         "commission_debt_xof": "",
         "sponsored_commission_xof": "",
         "platform_commission_wallet_reference": "",
@@ -4830,14 +4796,6 @@ async def admin_reassign_mission(
             "admin_assignment_status": "awaiting_driver_response",
             "commission_charge_mode": "wallet_hold",
         })
-        await db.delivery_missions.update_one(
-            {"mission_id": mission_id},
-            {"$set": mission_set, "$unset": mission_unset},
-        )
-        await db.parcels.update_one(
-            {"parcel_id": mission["parcel_id"]},
-            {"$set": {"assigned_driver_id": None, "updated_at": now}},
-        )
     else:
         mission_set.update({
             "driver_id": body.new_driver_id,
@@ -4849,30 +4807,46 @@ async def admin_reassign_mission(
         })
         if assignment_mode == "driver_debt":
             mission_set["commission_debt_xof"] = commission_xof
-            await debit_wallet_allow_negative(
-                owner_id=body.new_driver_id,
-                owner_type="driver",
-                amount=commission_xof,
-                description=f"Commission de la mission imposée {mission_id}",
-                parcel_id=mission["parcel_id"],
-                reference=f"commission_debt:{mission_id}",
-                ensure_unique=True,
-            )
+            mission_set["platform_commission_wallet_reference"] = f"commission_debt:{mission_id}:{uuid.uuid4().hex}"
+            mission_unset.pop("platform_commission_wallet_reference", None)
+            mission_unset.pop("commission_debt_xof", None)
         elif assignment_mode == "platform_sponsored":
             mission_set["sponsored_commission_xof"] = commission_xof
             mission_unset.pop("sponsored_commission_xof", None)
 
-        await db.delivery_missions.update_one(
-            {"mission_id": mission_id},
-            {"$set": mission_set, "$unset": mission_unset},
+    async def reassign(session):
+        reservation = await db.users.update_one(
+            {"user_id": body.new_driver_id, "is_active": True, "is_available": {"$ne": False}},
+            {"$inc": {"mission_assignment_revision": 1}}, session=session,
         )
+        if reservation.matched_count != 1:
+            raise bad_request_exception("Le livreur cible n'est plus disponible")
+        busy = await db.delivery_missions.find_one(
+            {"mission_id": {"$ne": mission_id}, "driver_id": body.new_driver_id,
+             "status": {"$in": ["assigned", "in_progress", "incident_reported"]}}, session=session,
+        )
+        if busy:
+            raise bad_request_exception("Le livreur sélectionné a déjà une mission en cours")
+        result = await db.delivery_missions.update_one(
+            {"mission_id": mission_id, "status": mission["status"], "driver_id": previous_driver_id,
+             "updated_at": mission.get("updated_at")},
+            {"$set": mission_set, "$unset": mission_unset}, session=session,
+        )
+        if result.matched_count != 1:
+            raise bad_request_exception("La mission a changé. Actualisez avant de la réaffecter.")
+        if previous_driver_id and previous_charge_mode in {"wallet_hold", "driver_debt"}:
+            await refund_mission_commission(mission, session=session)
+        if assignment_mode == "driver_debt" and commission_xof > 0:
+            await debit_wallet_allow_negative(
+                body.new_driver_id, "driver", commission_xof, f"Commission de la mission imposée {mission_id}",
+                parcel_id=mission["parcel_id"], reference=mission_set["platform_commission_wallet_reference"], ensure_unique=True,
+            )
         await db.parcels.update_one(
             {"parcel_id": mission["parcel_id"]},
-            {"$set": {
-                "assigned_driver_id": body.new_driver_id,
-                "updated_at": now,
-            }},
+            {"$set": {"assigned_driver_id": None if assignment_mode == "normal" else body.new_driver_id, "updated_at": now}},
+            session=session,
         )
+    await _run_in_transaction(reassign)
 
     updated_mission = await db.delivery_missions.find_one(
         {"mission_id": mission_id},
@@ -5343,42 +5317,13 @@ async def reject_payout(
     wallet_before = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
 
     now = datetime.now(timezone.utc)
-    payout_result = await db.payout_requests.update_one(
-        {"payout_id": payout_id, "status": "pending"},
-        {"$set": {
+    wallet_after = await settle_payout(payout_id, "rejected", {
             "status": "rejected",
             "rejected_by": _admin.get("user_id") if isinstance(_admin, dict) else "admin",
             "rejected_at": now,
             "rejection_reason": reason,
             "updated_at": now,
-        }},
-    )
-    if payout_result.matched_count == 0:
-        raise bad_request_exception("Ce retrait n'est plus en attente")
-
-    wallet_result = await db.wallets.update_one(
-        {"wallet_id": payout["wallet_id"], "pending": {"$gte": payout["amount"]}},
-        {
-            "$inc": {"pending": -payout["amount"], "balance": payout["amount"]},
-            "$set": {"updated_at": now},
-        },
-    )
-    if wallet_result.modified_count == 0:
-        await db.payout_requests.update_one(
-            {"payout_id": payout_id, "status": "rejected"},
-            {"$set": {"status": "pending", "updated_at": datetime.now(timezone.utc)}},
-        )
-        raise bad_request_exception("Solde bloqué incohérent pour cette demande")
-
-    wallet_after = await db.wallets.find_one({"wallet_id": payout["wallet_id"]}, {"_id": 0})
-    await record_wallet_transaction(
-        wallet_id=payout["wallet_id"],
-        amount=payout["amount"],
-        tx_type=TransactionType.CREDIT.value,
-        description="Retrait rejeté et montant restitué",
-        reference=payout_id,
-        ensure_unique=True,
-    )
+    })
 
     await _record_event(
         event_type="PAYOUT_REJECTED",
@@ -5822,7 +5767,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
             value = float(raw)
         except (TypeError, ValueError):
             raise bad_request_exception(f"Valeur invalide pour {key}")
-        if value < 0:
+        if not math.isfinite(value) or value < 0:
             raise bad_request_exception(f"{key} ne peut pas être négatif")
         updates[key] = value
 
@@ -5861,7 +5806,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
             if not isinstance(rule, dict) or set(rule) != expected_keys:
                 raise ValueError(f"Répartition incomplète pour {mode}")
             numeric_values = [float(rule[key]) for key in expected_keys]
-            if any(value < 0 or value > 1 for value in numeric_values) or abs(sum(numeric_values) - 1) > 0.0001:
+            if any(not math.isfinite(value) or value < 0 or value > 1 for value in numeric_values) or abs(sum(numeric_values) - 1) > 0.0001:
                 raise ValueError(f"La répartition de {mode} doit totaliser 100 %")
         commission_rules = normalize_commission_rules(raw_rules)
         for mode, rule in commission_rules.items():
@@ -5874,13 +5819,14 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
     updates["commission_rules"] = commission_rules
     updates["updated_at"] = datetime.now(timezone.utc)
 
-    await db.app_settings.update_one(
-        {"key": "global"},
-        {"$set": updates},
-        upsert=True,
-    )
-    await db.parcels.update_many(
+    async def save_configuration(session):
+        await _refresh_pending_delivery_commissions(updates["delivery_commissions_enabled"], prepare_only=True, session=session)
+        await db.app_settings.update_one(
+            {"key": "global"}, {"$set": updates}, upsert=True, session=session,
+        )
+        await db.parcels.update_many(
         {
+            "assigned_driver_id": None,
             "status": {
                 "$in": [
                     ParcelStatus.CREATED.value,
@@ -5895,9 +5841,10 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
                 "delivery_commissions_enabled": updates["delivery_commissions_enabled"],
                 "updated_at": updates["updated_at"],
             }
-        },
-    )
-    await _refresh_pending_delivery_commissions(updates["delivery_commissions_enabled"])
+        }, session=session,
+        )
+        await _refresh_pending_delivery_commissions(updates["delivery_commissions_enabled"], session=session)
+    await _run_in_transaction(save_configuration)
     after = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
     return {
         "express_enabled": after.get("express_enabled", False),
@@ -6154,6 +6101,7 @@ async def get_finance_overview(
             "quoted_price": 1,
             "commission_charge_mode": 1,
             "commission_debt_xof": 1,
+            "platform_commission_wallet_reference": 1,
             "sponsored_commission_xof": 1,
             "admin_assignment_status": 1,
             "created_at": 1,
@@ -6472,15 +6420,7 @@ async def get_finance_overview(
         if tx.get("tx_type") == TransactionType.DEBIT.value
         and str(tx.get("reference") or "").startswith("commission_debt:")
     }
-    reversed_or_refunded_mission_ids = {
-        ref.split(":")[1]
-        for ref in (
-            str(tx.get("reference") or "")
-            for tx in commission_tx_docs
-            if tx.get("reference")
-        )
-        if ref.startswith("commission_refund:") or ref.startswith("commission_reversal:")
-    }
+    refund_refs = {str(tx.get("reference") or "") for tx in commission_tx_docs if tx.get("tx_type") == "credit"}
 
     for mission in mission_docs:
         parcel = parcel_by_id.get(mission.get("parcel_id"))
@@ -6509,9 +6449,9 @@ async def get_finance_overview(
         charge_mode = str(mission.get("commission_charge_mode") or "").strip()
         admin_assignment_status = str(mission.get("admin_assignment_status") or "").strip()
         mission_id = str(mission.get("mission_id") or "")
-        is_reversed = mission_id in reversed_or_refunded_mission_ids
-        received_ref = f"commission:{mission_id}" in wallet_hold_received_refs
-        debt_ref = f"commission_debt:{mission_id}" in driver_debt_refs
+        is_reversed = mission_commission_refunded(mission, refund_refs)
+        received_ref = mission_charge_reference(mission) in wallet_hold_received_refs
+        debt_ref = mission_charge_reference(mission) in driver_debt_refs
 
         if admin_assignment_status == "awaiting_driver_response":
             waiting_driver_confirmation_count += 1

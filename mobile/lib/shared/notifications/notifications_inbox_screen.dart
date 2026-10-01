@@ -118,7 +118,12 @@ class _NotificationsInboxScreenState
       return;
     }
     _activateTargetView(notif);
-    final href = _hrefFor(notif);
+    final href =
+        await resolveLegacyDriverMissionRoute(_hrefFor(notif), (id) async {
+      final response = await api.getMission(id);
+      return Map<String, dynamic>.from(response.data as Map);
+    });
+    if (!mounted) return;
     if (href != null) {
       context.go(href, extra: driverMissionNotificationRequestFor(href));
     }

@@ -43,9 +43,17 @@ class WalletTransaction(BaseModel):
 
 
 class PayoutRequest(BaseModel):
-    amount: float = Field(..., gt=0, le=100_000_000)
+    amount: float = Field(..., gt=0, le=100_000_000, allow_inf_nan=False)
     method: str = Field(..., min_length=2, max_length=40)
     phone: str = Field(..., min_length=8, max_length=32)
+    request_key: Optional[str] = Field(default=None, min_length=16, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @field_validator("amount")
+    @classmethod
+    def whole_fcfa(cls, value: float) -> float:
+        if not value.is_integer():
+            raise ValueError("Le montant doit être un nombre entier de FCFA")
+        return value
 
     @field_validator("method", "phone")
     @classmethod

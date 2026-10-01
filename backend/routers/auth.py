@@ -252,7 +252,7 @@ async def login_pin(body: PINLoginRequest, request: Request):
         raise bad_request_exception("Aucun code PIN configuré pour ce compte. Veuillez utiliser la réinitialisation.")
 
     now = datetime.now(timezone.utc)
-    locked_until = user_doc.get("pin_locked_until")
+    locked_until = as_aware_utc(user_doc.get("pin_locked_until"))
     if locked_until and locked_until > now:
         raise bad_request_exception(
             "Trop de tentatives incorrectes. Réessayez plus tard ou réinitialisez votre PIN."
@@ -260,7 +260,7 @@ async def login_pin(body: PINLoginRequest, request: Request):
 
     from core.security import verify_password
     if not verify_password(body.pin, pin_hash):
-        failed_attempts = int(user_doc.get("pin_failed_attempts") or 0) + 1
+        failed_attempts = (0 if locked_until and locked_until <= now else int(user_doc.get("pin_failed_attempts") or 0)) + 1
         update = {
             "pin_failed_attempts": failed_attempts,
             "updated_at": now,
@@ -544,7 +544,7 @@ async def update_profile(
     body: ProfileUpdate,
     current_user: dict = Depends(get_current_user),
 ):
-    updates = body.model_dump(exclude_none=True)
+    updates = body.database_updates()
     if not updates:
         return User(**current_user)
     updates["updated_at"] = datetime.now(timezone.utc)

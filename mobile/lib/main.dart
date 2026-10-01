@@ -23,8 +23,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         'returned',
         'suspended',
         'disputed',
-      }
-          .contains(message.data['parcel_status']);
+      }.contains(message.data['parcel_status']);
   if (eventType == 'mission_unavailable' ||
       eventType == 'tracking_progress' ||
       eventType == 'tracking_ended' ||
@@ -62,7 +61,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         await notifications.cancel(trackingProgressNotificationId(parcelId));
       }
     } else {
-      await notifications.cancel(driverActiveMissionNotificationId);
       await notifications.cancel(notificationPlatformId(message.data));
     }
   }

@@ -359,10 +359,16 @@ class _DriverHomeState extends ConsumerState<DriverHome>
             _driverLng == null)) {
       return;
     }
-    _notificationActionHandled = true;
+    _notificationActionLoading = true;
     final generation = _notificationActionGeneration;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_isCurrentNotificationAction(generation)) return;
+      if (!_isCurrentNotificationAction(generation)) {
+        if (mounted && generation == _notificationActionGeneration) {
+          _notificationActionLoading = false;
+        }
+        return;
+      }
+      _notificationActionHandled = true;
       unawaited(_openNotificationAction(generation, unavailable: unavailable));
     });
   }

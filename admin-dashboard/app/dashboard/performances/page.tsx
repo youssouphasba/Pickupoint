@@ -135,9 +135,9 @@ export default function PerformancesPage() {
     enabled: scope === "relays" && Boolean(period),
   });
 
-  const driverStats: DriverPerformance[] = driversQuery.data?.stats ?? [];
-  const clientStats: ClientPerformance[] = clientsQuery.data?.stats ?? [];
-  const relayStats: RelayPerformance[] = relaysQuery.data?.stats ?? [];
+  const driverStats = React.useMemo<DriverPerformance[]>(() => driversQuery.data?.stats ?? [], [driversQuery.data?.stats]);
+  const clientStats = React.useMemo<ClientPerformance[]>(() => clientsQuery.data?.stats ?? [], [clientsQuery.data?.stats]);
+  const relayStats = React.useMemo<RelayPerformance[]>(() => relaysQuery.data?.stats ?? [], [relaysQuery.data?.stats]);
 
   const filteredDrivers = React.useMemo(() => {
     return driverStats.filter((driver) => {

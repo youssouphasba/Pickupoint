@@ -40,6 +40,7 @@ async def _auto_release_stuck_missions() -> None:
         notify_driver_pickup_confirmation_reminder,
     )
     from services.parcel_service import get_assigned_mission_auto_release_minutes
+    from services.wallet_service import _run_in_transaction, refund_mission_commission
 
     while True:
         await asyncio.sleep(120)  # vérification toutes les 2 minutes
@@ -54,7 +55,8 @@ async def _auto_release_stuck_missions() -> None:
             })
             released = 0
             async for mission in cursor:
-                update_result = await _db.delivery_missions.update_one(
+                async def release_expired(session):
+                    update_result = await _db.delivery_missions.update_one(
                     {
                         "mission_id": mission["mission_id"],
                         "status": "assigned",
@@ -72,18 +74,26 @@ async def _auto_release_stuck_missions() -> None:
                         "$unset": {
                             "pickup_reminder_10_sent_at": "",
                             "pickup_reminder_5_sent_at": "",
+                            "driver_location": "",
+                            "location_updated_at": "",
+                            "gps_trail": "",
+                            "gps_archive_initialized": "",
                         },
-                    },
-                )
-                if update_result.modified_count == 0:
-                    continue
-                await _db.parcels.update_one(
+                    }, session=session,
+                    )
+                    if update_result.modified_count == 0:
+                        return False
+                    await refund_mission_commission(mission, session=session)
+                    await _db.parcels.update_one(
                     {
                         "parcel_id": mission["parcel_id"],
                         "assigned_driver_id": mission.get("driver_id"),
                     },
-                    {"$set": {"assigned_driver_id": None, "updated_at": now}},
-                )
+                    {"$set": {"assigned_driver_id": None, "updated_at": now}}, session=session,
+                    )
+                    return True
+                if not await _run_in_transaction(release_expired):
+                    continue
                 if mission.get("driver_id"):
                     await notify_driver_mission_auto_released(
                         user_id=mission["driver_id"],
@@ -612,6 +622,8 @@ async def _admin_anomaly_notifier_loop() -> None:
 scheduler = AsyncIOScheduler()
 
 scheduler.add_job(hydrate_pending_support_media, "interval", minutes=1, max_instances=1, coalesce=True)
+from services.delivery_completion_service import retry_delivery_completions
+scheduler.add_job(retry_delivery_completions, "interval", minutes=1, max_instances=1, coalesce=True)
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
 scheduler.add_job(_send_operational_reminders, "interval", hours=1)

@@ -171,7 +171,7 @@ export default function AuditLogPage() {
       )}
       {isError && (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Erreur de chargement de l'audit log.
+          Erreur de chargement du journal d’audit.
         </div>
       )}
       {data && (

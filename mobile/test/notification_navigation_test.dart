@@ -36,7 +36,7 @@ void main() {
           eventType: 'mission_available',
           targetView: 'driver',
         ),
-        '/driver?preview=msn_123',
+        '/driver?available=true',
       );
     });
 
@@ -60,7 +60,7 @@ void main() {
           refId: 'old mission',
           role: 'driver',
         ),
-        '/driver?preview=old%20mission',
+        '/driver?available=true',
       );
     });
 
@@ -153,6 +153,38 @@ void main() {
         driverMissionNotificationRequestFor('/driver/mission/current'), isNull);
     expect(
         driverMissionNotificationRequestFor('/client/parcel/parcel'), isNull);
+  });
+
+  group('legacy notifications', () {
+    test('old pending mission details go through the fresh available list',
+        () async {
+      expect(
+          await resolveLegacyDriverMissionRoute(
+              '/driver/mission/old', (_) async => {'status': 'pending'}),
+          '/driver?available=true');
+    });
+    test('expired or inaccessible references go through the fresh list',
+        () async {
+      expect(
+          await resolveLegacyDriverMissionRoute('/driver/mission/old',
+              (_) async => throw Exception('Unavailable')),
+          '/driver?available=true');
+    });
+    test('assigned and finished mission notifications retain their detail',
+        () async {
+      for (final status in [
+        'assigned',
+        'in_progress',
+        'completed',
+        'incident_reported'
+      ]) {
+        expect(
+            await resolveLegacyDriverMissionRoute(
+                '/driver/mission/current?message=message',
+                (_) async => {'status': status}),
+            '/driver/mission/current?message=message');
+      }
+    });
   });
 
   test('notificationPlatformId is stable for the same mission', () {

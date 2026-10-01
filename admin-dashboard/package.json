@@ -7,7 +7,8 @@
     "build": "next build",
     "pages:build": "next-on-pages",
     "start": "next start -p 3100",
-    "lint": "next lint",
+    "lint": "eslint app components lib --ext .ts,.tsx --max-warnings 0",
+    "test": "node --test tests/*.test.cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,15 +21,23 @@
     "@tanstack/react-query": "^5.59.0",
     "@tanstack/react-table": "^8.20.5",
     "@vis.gl/react-google-maps": "^1.8.3",
-    "axios": "^1.7.7",
+    "axios": "^1.15.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.454.0",
-    "next": "14.2.15",
+    "next": "15.5.24",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "sharp": "^0.35.5",
+    "postcss-selector-parser@6": "^6.1.4",
+    "tsx": {
+      "esbuild": "^0.28.2"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
@@ -39,8 +48,8 @@
     "wrangler": "4.100.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
-    "eslint-config-next": "14.2.15",
-    "postcss": "^8.4.47",
+    "eslint-config-next": "15.5.24",
+    "postcss": "^8.5.28",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3"
   }

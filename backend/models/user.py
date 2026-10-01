@@ -88,7 +88,7 @@ class User(BaseModel):
     cod_balance: float = 0.0
     accepted_legal: bool = False
     accepted_legal_at: Optional[datetime] = None
-    pin_hash: Optional[str] = None
+    pin_hash: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime
     updated_at: datetime
 
@@ -148,3 +148,12 @@ class ProfileUpdate(BaseModel):
     @classmethod
     def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
         return clean_optional_text(value)
+
+    def database_updates(self) -> dict:
+        values = self.model_dump(exclude_unset=True)
+        preferences = values.pop("notification_prefs", None)
+        if preferences is not None:
+            values.update({f"notification_prefs.{key}": value for key, value in preferences.items()})
+        if values.get("language") is None:
+            values.pop("language", None)
+        return values

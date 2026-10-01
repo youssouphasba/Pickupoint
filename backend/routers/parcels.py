@@ -46,6 +46,7 @@ from models.parcel import (
     AddressChangeApplyRequest,
 )
 from models.delivery import ProofOfDelivery, CodeDelivery
+from core.parcel_privacy import serialize_parcel, redact_codes
 from services.location_quality import client_live_tracking_allowed, location_captured_after_collection, location_is_live, validate_capture
 from services.mission_trace import summarize_trace, timestamp
 from services.parcel_service import (
@@ -573,7 +574,7 @@ async def check_promo(
         original_price=price,
         user_id=current_user["user_id"],
         user_tier=sender_tier,
-        is_first_delivery=False, # Simplification pour le check
+        is_first_delivery=await db.parcels.count_documents({"sender_user_id": current_user["user_id"], "status": "delivered"}) == 0,
         promo_code=code,
     )
     if not result:
@@ -629,7 +630,7 @@ async def create_parcel_endpoint(
         sender_user_id=current_user["user_id"],
         sender_phone=current_user.get("phone", "")
     )
-    return parcel
+    return serialize_parcel(parcel, current_user)
 
 
 @router.get("", summary="Mes colis")
@@ -691,6 +692,9 @@ async def list_parcels(
             )
 
     for p in parcels:
+        safe = serialize_parcel(p, current_user)
+        p.clear()
+        p.update(safe)
         if p.get("sender_user_id") != current_user.get("user_id") and not _is_admin(current_user):
             p.pop("loyalty_award", None)
         if _parcel_photo_allowed(p, current_user):
@@ -1019,7 +1023,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
 
     _mask_payment_fields(parcel, current_user)
 
-    return {"parcel": parcel, "timeline": timeline}
+    return {"parcel": serialize_parcel(parcel, current_user), "timeline": redact_codes(timeline, set())}
 
 
 @router.post("/{parcel_id}/photo", summary="Ajouter la photo de sécurité du colis")
@@ -1486,7 +1490,7 @@ async def cancel_parcel(parcel_id: str, current_user: dict = Depends(get_current
         parcel_id, ParcelStatus.CANCELLED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
     )
-    return updated
+    return serialize_parcel(updated, current_user)
 
 
 # ── Actions agents relais ─────────────────────────────────────────────────────
@@ -1583,7 +1587,7 @@ async def drop_at_relay(
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes="Scan relais entrée",
     )
-    return updated
+    return serialize_parcel(updated, current_user)
 
 
 @router.post("/{parcel_id}/arrive-relay", summary="Réceptionner un colis au relais (normal ou redirigé)")
@@ -1675,7 +1679,7 @@ async def handout_parcel(
             raise bad_request_exception("PIN obligatoire pour remise au relais")
         await check_code_lockout(db, parcel_id, "relay_pin")
         stored_pin = parcel.get("relay_pin") or parcel.get("delivery_code", "")
-        if stored_pin and proof.pin_code.strip() != stored_pin.strip():
+        if not stored_pin or proof.pin_code.strip() != stored_pin.strip():
             await record_failed_attempt(db, parcel_id, "relay_pin")
             raise bad_request_exception("PIN incorrect")
         await clear_code_attempts(db, parcel_id, "relay_pin")
@@ -1683,13 +1687,9 @@ async def handout_parcel(
         parcel_id, ParcelStatus.DELIVERED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes=f"Remise relais — {proof.proof_type}",
-        metadata={"pin_code": proof.pin_code},
+        metadata={"proof_type": "pin", "code_verified": True},
     )
-    # Décrémenter le stock du relais
-    relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
-    if relay_id:
-        await db.relay_points.update_one({"relay_id": relay_id}, {"$inc": {"current_load": -1}})
-    return updated
+    return serialize_parcel(updated, current_user)
 
 
 # ── Actions livreurs ──────────────────────────────────────────────────────────
@@ -1722,10 +1722,11 @@ async def pickup_parcel(
         if mode == "home_to_relay"
         else ParcelStatus.OUT_FOR_DELIVERY
     )
-    return await transition_status(
+    updated = await transition_status(
         parcel_id, target_status,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
     )
+    return serialize_parcel(updated, current_user)
 
 
 class ArriveAtDestinationRequest(BaseModel):
@@ -1765,11 +1766,12 @@ async def arrive_at_destination(
                 f"Vous êtes à {int(dist_m)}m de la destination. Rapprochez-vous à moins de 500m."
             )
 
-    return await transition_status(
+    updated = await transition_status(
         parcel_id, ParcelStatus.OUT_FOR_DELIVERY,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes="Arrivée au domicile du destinataire (GPS vérifié)",
     )
+    return serialize_parcel(updated, current_user)
 
 
 @router.post("/{parcel_id}/deliver", summary="Marquer livré — code 6 chiffres obligatoire")
@@ -1911,7 +1913,7 @@ async def deliver_parcel(
             "proof_data": body.proof_data,
         },
     )
-    return updated
+    return serialize_parcel(updated, current_user)
 
 
 @router.post("/{parcel_id}/fail-delivery", summary="Échec livraison + raison")
@@ -2030,48 +2032,28 @@ async def rate_parcel(
     if parcel["status"] != ParcelStatus.DELIVERED.value:
         raise bad_request_exception("Seul un colis livré peut être noté")
 
-    # Mise à jour des infos de notation
-    await db.parcels.update_one(
-        {"parcel_id": parcel_id},
-        {"$set": {
-            "rating": body.rating,
-            "rating_comment": body.comment,
-            "driver_tip": body.tip,
-            "updated_at": datetime.now(timezone.utc)
-        }}
-    )
+    _, is_sender, is_recipient, _ = _can_access_parcel(parcel, current_user)
+    if not (is_sender or is_recipient):
+        raise forbidden_exception("Seul l'expéditeur ou le destinataire peut donner un avis")
+    if body.tip > 0:
+        raise bad_request_exception("Les pourboires dans l'application ne sont pas disponibles")
+    from services.wallet_service import _run_in_transaction
+    from services.gamification_service import update_driver_gamification
 
-    # Gestion du pourboire (si > 0)
-    if body.tip > 0 and parcel.get("assigned_driver_id"):
-        try:
-            from services.wallet_service import debit_wallet, credit_wallet
-            # On débite le donateur (celui qui note)
-            await debit_wallet(
-                owner_id=current_user["user_id"],
-                amount=body.tip,
-                description=f"Pourboire versé pour le colis {parcel_id}",
-                parcel_id=parcel_id
-            )
-            # On crédite le livreur
-            await credit_wallet(
-                owner_id=parcel["assigned_driver_id"],
-                owner_type="driver",
-                amount=body.tip,
-                description=f"Pourboire reçu pour le colis {parcel_id}",
-                parcel_id=parcel_id
-            )
-        except ValueError as e:
-            # Si solde insuffisant, on n'arrête pas la notation mais on prévient
-            return {"message": "Notation enregistrée, mais solde insuffisant pour le pourboire", "rating": body.rating}
-
-    # ── Gamification (Phase 8) ──
-    if parcel.get("assigned_driver_id"):
-        from services.gamification_service import update_driver_gamification
-        await update_driver_gamification(
-            parcel["assigned_driver_id"],
-            "rating_received",
-            rating=body.rating
+    async def save_rating(session):
+        result = await db.parcels.update_one(
+            {"parcel_id": parcel_id, "status": ParcelStatus.DELIVERED.value, "rating": None},
+            {"$set": {"rating": body.rating, "rating_comment": body.comment,
+                      "rating_user_id": current_user["user_id"], "updated_at": datetime.now(timezone.utc)}}, session=session,
         )
+        if result.modified_count != 1:
+            raise bad_request_exception("Un avis a déjà été enregistré pour ce colis")
+        if parcel.get("assigned_driver_id"):
+            await update_driver_gamification(
+                parcel["assigned_driver_id"], "rating_received", rating=body.rating,
+                event_id=f"rating:{parcel_id}",
+            )
+    await _run_in_transaction(save_rating)
 
     return {"message": "Merci pour votre avis !", "rating": body.rating}
 

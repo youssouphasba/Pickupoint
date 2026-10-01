@@ -15,12 +15,23 @@ XP_DELIVERY_COMPLETE = 10
 XP_RATING_MULTIPLIER = 2  # rating * 2 (ex: 5 stars = 10 XP)
 
 async def update_driver_gamification(driver_id: str, action: str, **kwargs):
+    from services.wallet_service import _run_in_transaction
+
+    async def update(session):
+        return await _update_driver_gamification(driver_id, action, session=session, **kwargs)
+    return await _run_in_transaction(update)
+
+
+async def _update_driver_gamification(driver_id: str, action: str, *, session=None, **kwargs):
     """
     Met à jour la progression d'un livreur.
     Actions : 'delivery_completed', 'rating_received'.
     """
-    user = await db.users.find_one({"user_id": driver_id})
+    user = await db.users.find_one({"user_id": driver_id}, session=session)
     if not user:
+        return
+    event_id = kwargs.get("event_id")
+    if event_id and event_id in (user.get("gamification_events") or []):
         return
 
     xp_to_add = 0
@@ -61,7 +72,12 @@ async def update_driver_gamification(driver_id: str, action: str, **kwargs):
 
     if update_fields:
         update_fields["updated_at"] = datetime.now(timezone.utc)
-        await db.users.update_one({"user_id": driver_id}, {"$set": update_fields})
+        query = {"user_id": driver_id}
+        update = {"$set": update_fields}
+        if event_id:
+            query["gamification_events"] = {"$ne": event_id}
+            update["$addToSet"] = {"gamification_events": event_id}
+        await db.users.update_one(query, update, session=session)
         logger.info(f"Gamification updated for {driver_id}: {action} (+{xp_to_add} XP)")
 
 async def _evaluate_badges(user: dict, current_updates: dict) -> list[str]:

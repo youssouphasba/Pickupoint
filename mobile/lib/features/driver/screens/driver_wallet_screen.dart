@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:go_router/go_router.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
@@ -31,6 +34,16 @@ final driverPayoutsProvider = FutureProvider<List<PayoutRequest>>((ref) async {
       .toList();
 });
 
+typedef WalletActivityQuery = ({String? period, String category, int skip});
+
+final driverWalletActivityProvider = FutureProvider.autoDispose
+    .family<WalletActivity, WalletActivityQuery>((ref, query) async {
+  final response = await ref.watch(apiClientProvider).getWalletActivity(
+      period: query.period, category: query.category, skip: query.skip);
+  return WalletActivity.fromJson(
+      Map<String, dynamic>.from(response.data as Map));
+});
+
 class DriverWalletScreen extends ConsumerStatefulWidget {
   const DriverWalletScreen({super.key, this.initialTopupId, this.returnResult});
 
@@ -52,6 +65,11 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
   Timer? _paymentRetry;
   int? _remainingPaymentChecks;
   bool _followPendingPayment = false;
+  String _historyCategory = 'balance';
+  final List<int> _historyOffsets = [0];
+
+  WalletActivityQuery _activityQuery(int skip) =>
+      (period: _period, category: _historyCategory, skip: skip);
 
   @override
   void initState() {
@@ -133,14 +151,15 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
       for (final latest in wallet.topups) {
         if (latest.id == pendingId) topup = latest;
       }
-      await Future.wait([
-        ref.refresh(driverTransactionsProvider(_period).future),
-        ref.refresh(driverPayoutsProvider.future),
-      ].map((request) async {
-        try {
-          await request;
-        } catch (_) {}
-      }));
+      ref.invalidate(driverWalletActivityProvider);
+      setState(() {
+        _historyOffsets
+          ..clear()
+          ..add(0);
+      });
+      try {
+        await ref.read(driverWalletActivityProvider(_activityQuery(0)).future);
+      } catch (_) {}
       if (!mounted) return;
       final retryOptions = wallet.topupOptions;
       _remainingPaymentChecks ??= retryOptions?.verificationRetryAttempts ?? 0;
@@ -187,8 +206,11 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
   @override
   Widget build(BuildContext context) {
     final walletAsync = ref.watch(driverWalletProvider);
-    final transactionsAsync = ref.watch(driverTransactionsProvider(_period));
-    final payoutsAsync = ref.watch(driverPayoutsProvider);
+    final activityPages = _historyOffsets
+        .map((offset) =>
+            ref.watch(driverWalletActivityProvider(_activityQuery(offset))))
+        .toList();
+    final activityAsync = activityPages.first;
 
     return Scaffold(
       appBar: AppBar(
@@ -228,44 +250,15 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   child: Text(_paymentMessage!),
                 ),
               ],
-              walletAsync.when(
-                data: _buildTopupsSection,
-                loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
-              ),
               const SizedBox(height: 24),
-              _buildPayoutsSection(payoutsAsync),
-              const SizedBox(height: 32),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final compact = constraints.maxWidth < 380;
-                  const title = Text(
-                    'Mouvements',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  );
-                  final filter = SizedBox(
-                    width: compact ? constraints.maxWidth : 180,
-                    child: _buildPeriodFilter(),
-                  );
-                  return compact
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            title,
-                            const SizedBox(height: 10),
-                            filter,
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            const Expanded(child: title),
-                            filter,
-                          ],
-                        );
-                },
-              ),
+              _buildPeriodFilter(),
               const SizedBox(height: 16),
-              _buildTransactionsList(transactionsAsync),
+              activityAsync.when(
+                data: (activity) => _buildActivity(
+                    activity, activityPages, walletAsync.valueOrNull),
+                loading: () => const CircularProgressIndicator(),
+                error: (error, _) => _activityError(error, 0),
+              ),
             ],
           ),
         ),
@@ -292,7 +285,12 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
             ),
           )
           .toList(),
-      onChanged: (value) => setState(() => _period = value),
+      onChanged: (value) => setState(() {
+        _period = value;
+        _historyOffsets
+          ..clear()
+          ..add(0);
+      }),
     );
   }
 
@@ -308,7 +306,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
         ),
         child: Column(
           children: [
-            const Text('Solde Denkma',
+            const Text('Solde Denkma disponible',
                 style: TextStyle(color: Colors.white70, fontSize: 16)),
             const SizedBox(height: 8),
             Text(
@@ -320,9 +318,14 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
             ),
             if (wallet.pendingBalance > 0) ...[
               const SizedBox(height: 4),
-              Text('En attente : ${formatXof(wallet.pendingBalance)}',
+              Text('Réservé pour retrait : ${formatXof(wallet.pendingBalance)}',
                   style: const TextStyle(color: Colors.white60, fontSize: 13)),
             ],
+            const SizedBox(height: 12),
+            const Text(
+                'Ce solde couvre vos commissions. Les revenus encaissés hors plateforme sont présentés séparément.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 24),
             LoadingButton(
               label: 'Décaisser mon solde',
@@ -404,16 +407,17 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
   }
 
   Widget _buildTopupsSection(Wallet wallet) {
-    if (wallet.topups.isEmpty) return const SizedBox.shrink();
+    final pending = wallet.topups.where((topup) => topup.isPending).toList();
+    if (pending.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Recharges récentes',
+          const Text('Recharges à vérifier',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          ...wallet.topups.map((topup) => Card(
+          ...pending.map((topup) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -469,130 +473,197 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
     );
   }
 
-  void _showPayoutDialog(BuildContext context) {
-    final amountCtrl = TextEditingController();
-    String method = 'wave';
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Demande de décaissement'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                    labelText: 'Montant (XOF)', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: method,
-                decoration: const InputDecoration(
-                    labelText: 'Méthode', border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 'wave', child: Text('Wave')),
-                  DropdownMenuItem(
-                      value: 'orange_money', child: Text('Orange Money')),
-                  DropdownMenuItem(
-                      value: 'free_money', child: Text('Free Money')),
-                ],
-                onChanged: (v) => setState(() => method = v!),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Annuler')),
-            Consumer(
-              builder: (context, ref, _) => ElevatedButton(
-                onPressed: () async {
-                  final amount = double.tryParse(amountCtrl.text);
-                  if (amount == null || amount <= 0) return;
-                  try {
-                    final user = ref.read(authProvider).valueOrNull?.user;
-                    await ref.read(apiClientProvider).requestPayout({
-                      'amount': amount,
-                      'method': method,
-                      'phone': user?.phone ?? '',
-                    });
-                    if (ctx.mounted) {
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text(
-                              'Demande envoyée, en attente de validation.')));
-                      ref.invalidate(driverWalletProvider);
-                      ref.invalidate(driverTransactionsProvider(_period));
-                      ref.invalidate(driverPayoutsProvider);
-                    }
-                  } catch (e) {
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(friendlyError(e))));
-                    }
-                  }
-                },
-                child: const Text('Envoyer'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _activityError(Object error, int skip) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(children: [
+          Text(friendlyError(error)),
+          TextButton.icon(
+              onPressed: () => ref.invalidate(
+                  driverWalletActivityProvider(_activityQuery(skip))),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Réessayer')),
+        ]),
+      );
+
+  Widget _buildActivity(WalletActivity activity,
+      List<AsyncValue<WalletActivity>> pages, Wallet? wallet) {
+    final rows = pages
+        .expand((page) => page.valueOrNull?.items ?? <WalletActivityItem>[])
+        .toList();
+    final pendingTopups = {
+      for (final topup in activity.pendingTopups) topup.id: topup
+    };
+    for (final topup in wallet?.topups ?? <WalletTopup>[]) {
+      if (topup.isPending) pendingTopups[topup.id] = topup;
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Card(
+          child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Revenus des courses',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18)),
+                    const SizedBox(height: 8),
+                    Text(formatXof(activity.earnings),
+                        style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.bold)),
+                    Text(
+                        '${activity.coursesCount} course${activity.coursesCount == 1 ? '' : 's'} · ${_period == null ? 'Toutes les périodes' : _monthLabel(_period!)}'),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'Gains enregistrés, encaissés hors plateforme. Ils ne sont pas ajoutés au solde Denkma.'),
+                    TextButton(
+                        onPressed: () => setState(() {
+                              _historyCategory = 'revenues';
+                              _historyOffsets
+                                ..clear()
+                                ..add(0);
+                            }),
+                        child: const Text(
+                            'Voir les courses et leurs récapitulatifs')),
+                  ]))),
+      if (pendingTopups.isNotEmpty || activity.pendingPayouts.isNotEmpty) ...[
+        const SizedBox(height: 24),
+        const Text('À suivre',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        const Text(
+            'Opérations en attente, indépendantes du filtre de période.'),
+        if (wallet != null)
+          _buildTopupsSection(Wallet(
+              id: wallet.id,
+              userId: wallet.userId,
+              balance: wallet.balance,
+              currency: wallet.currency,
+              topupOptions: wallet.topupOptions,
+              topups: pendingTopups.values.toList())),
+        _buildPayoutsSection(AsyncData(activity.pendingPayouts)),
+      ],
+      const SizedBox(height: 24),
+      const Text('Historique',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+      const SizedBox(height: 8),
+      Wrap(spacing: 8, children: [
+        for (final entry in {
+          'balance': 'Opérations du solde',
+          'revenues': 'Revenus des courses'
+        }.entries)
+          ChoiceChip(
+              label: Text(entry.value),
+              selected: _historyCategory == entry.key,
+              onSelected: (_) => setState(() {
+                    _historyCategory = entry.key;
+                    _historyOffsets
+                      ..clear()
+                      ..add(0);
+                  })),
+      ]),
+      const SizedBox(height: 12),
+      if (rows.isEmpty && pages.every((page) => page.hasValue))
+        const Text('Aucune opération pour cette période.'),
+      for (final row in rows) _buildActivityRow(row),
+      for (var index = 1; index < pages.length; index++)
+        pages[index].when(
+            data: (_) => const SizedBox.shrink(),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => _activityError(error, _historyOffsets[index])),
+      if (pages.every((page) => page.hasValue) && rows.length < activity.total)
+        TextButton.icon(
+            onPressed: () => setState(() => _historyOffsets.add(rows.length)),
+            icon: const Icon(Icons.expand_more),
+            label: Text('Voir plus (${rows.length} sur ${activity.total})')),
+    ]);
   }
 
-  Widget _buildTransactionsList(
-      AsyncValue<List<WalletTransaction>> transactionsAsync) {
-    return transactionsAsync.when(
-      data: (txs) {
-        if (txs.isEmpty) return const Text('Aucun mouvement.');
-        return ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: txs.length,
-          separatorBuilder: (_, __) => const Divider(),
-          itemBuilder: (context, index) {
-            final tx = txs[index];
-            final color = tx.isRevenue
-                ? Colors.blue
-                : tx.type == 'debit'
-                    ? Colors.red
-                    : Colors.green;
-            return ListTile(
-              leading: Icon(
-                tx.isRevenue
-                    ? Icons.payments_outlined
-                    : tx.type == 'debit'
-                        ? Icons.remove_circle
-                        : Icons.add_circle,
-                color: color,
-              ),
-              title: Text(tx.isRevenue
-                  ? 'Revenu hors solde'
-                  : tx.description ?? tx.type),
-              subtitle: Text(formatDate(tx.createdAt)),
-              trailing: Text(
-                '${tx.isCredit ? '+' : '-'} ${formatXof(tx.amount)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
-              ),
-            );
-          },
-        );
-      },
-      loading: () => const CircularProgressIndicator(),
-      error: (e, __) => Text(friendlyError(e)),
+  Widget _buildActivityRow(WalletActivityItem item) {
+    final revenue = item.kind == 'revenue';
+    final color = revenue
+        ? Colors.blue
+        : item.effect < 0
+            ? Colors.red
+            : item.effect > 0
+                ? Colors.green
+                : Colors.grey;
+    final status = item.kind == 'payout'
+        ? _payoutStatusLabel(item.status)
+        : item.status == 'expired'
+            ? 'Expirée'
+            : item.status == 'failed'
+                ? 'Échec'
+                : null;
+    final effectLabel = revenue
+        ? 'Hors solde'
+        : item.kind == 'payout' && item.status == 'rejected'
+            ? 'Montant restitué · solde inchangé'
+            : item.effect == 0
+                ? 'Solde inchangé'
+                : 'Effet sur le solde';
+    return Card(
+        child: InkWell(
+      onTap: item.missionId == null
+          ? null
+          : () => context
+              .push('/driver/mission/${Uri.encodeComponent(item.missionId!)}'),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+          padding: const EdgeInsets.all(12),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(
+                  revenue
+                      ? Icons.payments_outlined
+                      : item.effect < 0
+                          ? Icons.remove_circle
+                          : Icons.add_circle,
+                  color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(item.description,
+                      style: const TextStyle(fontWeight: FontWeight.w600))),
+              if (item.missionId != null) const Icon(Icons.chevron_right),
+            ]),
+            const SizedBox(height: 8),
+            Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                      '${!revenue && item.effect != 0 ? item.effect > 0 ? '+ ' : '− ' : ''}${formatXof(item.amount)}',
+                      style:
+                          TextStyle(color: color, fontWeight: FontWeight.bold)),
+                  if (status != null) _StatusPill(label: status, color: color),
+                ]),
+            Text(effectLabel, style: Theme.of(context).textTheme.bodySmall),
+            Text(formatDate(item.createdAt),
+                style: Theme.of(context).textTheme.bodySmall),
+            if (item.rejectionReason != null) Text(item.rejectionReason!),
+          ])),
+    ));
+  }
+
+  void _showPayoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _PayoutDialog(onSubmitted: () {
+        if (!mounted) return;
+        _refreshWallet();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Demande envoyée, montant réservé en attente de validation.')));
+      }),
     );
   }
 
   Widget _buildPayoutsSection(AsyncValue<List<PayoutRequest>> payoutsAsync) {
     return payoutsAsync.when(
       data: (payouts) {
-        final recent = payouts.take(3).toList();
+        final recent =
+            payouts.where((payout) => payout.status == 'pending').toList();
         if (recent.isEmpty) {
           return const SizedBox.shrink();
         }
@@ -600,7 +671,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Retraits',
+              'Retraits en attente',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -628,9 +699,126 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (error, _) => Text(friendlyError(error)),
     );
   }
+}
+
+class _PayoutDialog extends ConsumerStatefulWidget {
+  const _PayoutDialog({required this.onSubmitted});
+  final VoidCallback onSubmitted;
+  @override
+  ConsumerState<_PayoutDialog> createState() => _PayoutDialogState();
+}
+
+class _PayoutDialogState extends ConsumerState<_PayoutDialog> {
+  final _amountController = TextEditingController();
+  final _random = Random.secure();
+  late final _requestKey = base64Url
+      .encode(List.generate(24, (_) => _random.nextInt(256)))
+      .replaceAll('=', '');
+  String _method = 'wave';
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final amount = double.tryParse(_amountController.text.trim());
+    final wallet = ref.read(driverWalletProvider).valueOrNull;
+    if (amount == null ||
+        !amount.isFinite ||
+        amount <= 0 ||
+        amount != amount.roundToDouble()) {
+      setState(() => _error = 'Saisissez un montant entier en FCFA.');
+      return;
+    }
+    if (wallet == null || amount > wallet.balance) {
+      setState(() => _error = 'Le montant dépasse votre solde disponible.');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      final user = ref.read(authProvider).valueOrNull?.user;
+      await ref.read(apiClientProvider).requestPayout({
+        'amount': amount,
+        'method': _method,
+        'phone': user?.phone ?? '',
+        'request_key': _requestKey
+      });
+      if (!mounted) return;
+      Navigator.pop(context);
+      widget.onSubmitted();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = friendlyError(error);
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_submitting,
+        child: AlertDialog(
+          title: const Text('Retirer de mon solde'),
+          content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(
+                'Le montant sera réservé jusqu’à la validation du versement par l’administration.'),
+            const SizedBox(height: 16),
+            TextField(
+                controller: _amountController,
+                enabled: !_submitting,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Montant (FCFA)', border: OutlineInputBorder())),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+                initialValue: _method,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                    labelText: 'Méthode', border: OutlineInputBorder()),
+                items: const [
+                  DropdownMenuItem(value: 'wave', child: Text('Wave')),
+                  DropdownMenuItem(
+                      value: 'orange_money', child: Text('Orange Money')),
+                  DropdownMenuItem(
+                      value: 'free_money', child: Text('Free Money')),
+                ],
+                onChanged: _submitting
+                    ? null
+                    : (value) => setState(() => _method = value!)),
+            if (_error != null)
+              Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(_error!,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error))),
+          ])),
+          actions: [
+            TextButton(
+                onPressed: _submitting ? null : () => Navigator.pop(context),
+                child: const Text('Annuler')),
+            SizedBox(
+                width: 180,
+                child: LoadingButton(
+                    label: 'Envoyer',
+                    isLoading: _submitting,
+                    onPressed: _submit)),
+          ],
+        ),
+      );
 }
 
 class _StatusPill extends StatelessWidget {

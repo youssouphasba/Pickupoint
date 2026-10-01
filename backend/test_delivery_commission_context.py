@@ -36,6 +36,7 @@ RULES = {
 DRIVER = {
     "user_id": "driver-1",
     "role": "driver",
+    "is_available": True,
     "profile_picture_url": "https://example.test/photo",
     "profile_picture_status": "approved",
 }

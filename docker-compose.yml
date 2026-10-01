@@ -1,21 +1,28 @@
-version: '3.9'
-
 services:
   api:
     build: ./backend
     ports:
       - "8001:8001"
     env_file: .env
+    environment:
+      MONGO_URL: mongodb://mongo:27017/?replicaSet=denkma
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     volumes:
       - ./backend:/app
     restart: unless-stopped
 
   mongo:
     image: mongo:7
+    command: ["mongod", "--replSet", "denkma", "--bind_ip_all"]
     ports:
-      - "27018:27017"
+      - "127.0.0.1:27018:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { if (rs.status().myState !== 1) quit(1); } catch (error) { if (error.codeName !== 'NotYetInitialized') throw error; rs.initiate({_id:'denkma',members:[{_id:0,host:'mongo:27017'}]}); quit(1); }"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped

@@ -174,3 +174,53 @@ class PayoutRequest {
         rejectionReason: json['rejection_reason'] as String?,
       );
 }
+
+class WalletActivity {
+  WalletActivity.fromJson(Map<String, dynamic> json)
+      : items = (json['items'] as List? ?? [])
+            .map((row) => WalletActivityItem.fromJson(
+                Map<String, dynamic>.from(row as Map)))
+            .toList(),
+        total = (json['total'] as num).toInt(),
+        earnings = ((json['earnings'] as Map)['amount'] as num).toDouble(),
+        coursesCount =
+            ((json['earnings'] as Map)['courses_count'] as num).toInt(),
+        pendingPayouts = (json['pending_payouts'] as List? ?? [])
+            .map((row) =>
+                PayoutRequest.fromJson(Map<String, dynamic>.from(row as Map)))
+            .toList(),
+        pendingTopups = (json['pending_topups'] as List? ?? [])
+            .map((row) =>
+                WalletTopup.fromJson(Map<String, dynamic>.from(row as Map)))
+            .toList();
+
+  final List<WalletActivityItem> items;
+  final int total;
+  final double earnings;
+  final int coursesCount;
+  final List<PayoutRequest> pendingPayouts;
+  final List<WalletTopup> pendingTopups;
+}
+
+class WalletActivityItem {
+  WalletActivityItem.fromJson(Map<String, dynamic> json)
+      : id = json['tx_id'] as String,
+        kind = json['kind'] as String,
+        amount = (json['amount'] as num).toDouble(),
+        effect = (json['effect'] as num).toDouble(),
+        status = json['status'] as String,
+        description = json['description'] as String? ?? 'Opération du solde',
+        createdAt = DateTime.parse(json['created_at'] as String),
+        missionId = json['mission_id'] as String?,
+        rejectionReason = json['rejection_reason'] as String?;
+
+  final String id;
+  final String kind;
+  final double amount;
+  final double effect;
+  final String status;
+  final String description;
+  final DateTime createdAt;
+  final String? missionId;
+  final String? rejectionReason;
+}

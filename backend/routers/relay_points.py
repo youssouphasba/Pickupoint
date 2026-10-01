@@ -18,6 +18,7 @@ from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.relay_hours import has_enabled_opening_day, normalize_opening_hours, relay_open_status
 from services.wallet_service import build_relay_financial_summary
+from core.parcel_privacy import serialize_parcel
 
 router = APIRouter()
 
@@ -175,7 +176,7 @@ async def relay_stock(relay_id: str, current_user: dict = Depends(get_current_us
             p.pop("pickup_code", None)
             p.pop("relay_pin", None)
             p.pop("delivery_code", None)
-    return {"parcels": parcels}
+    return {"parcels": [serialize_parcel(p, {**current_user, "relay_point_id": relay_id}) for p in parcels]}
 
 
 @router.post("/{relay_id}/parcels/{parcel_id}/financial-action", summary="Déclarer une action financière relais")
@@ -200,14 +201,23 @@ async def relay_financial_action(
         raise forbidden_exception("Cette action ne concerne pas ce relais")
     now = datetime.now(timezone.utc)
     field = "driver_payment_status" if action == "driver_payment" else "denkma_payment_status"
+    current_status = (parcel.get("relay_settlement") or {}).get(field, "pending")
+    if current_status in {"validated", "declared"}:
+        return {"ok": True, "relay_financial": summary}
+    if current_status not in {"pending", "rejected"}:
+        raise forbidden_exception("Ce règlement ne peut pas être déclaré dans son état actuel")
     update = {
         f"relay_settlement.{field}": "declared",
         f"relay_settlement.{field}_declared_at": now,
         f"relay_settlement.{field}_declared_by": current_user.get("user_id"),
         "updated_at": now,
     }
-    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": update})
-    return {"ok": True, "relay_financial": build_relay_financial_summary({**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: "declared"}}, relay_id)}
+    await db.parcels.update_one(
+        {"parcel_id": parcel_id, f"relay_settlement.{field}": {"$in": [None, "pending", "rejected"]}},
+        {"$set": update},
+    )
+    updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    return {"ok": True, "relay_financial": build_relay_financial_summary(updated, relay_id)}
 
 
 @router.get("/{relay_id}/history", summary="Historique des colis remis par ce relais")
@@ -227,7 +237,7 @@ async def relay_history(relay_id: str, current_user: dict = Depends(get_current_
         {"_id": 0},
     ).sort("updated_at", -1).limit(50)
     parcels = await cursor.to_list(length=50)
-    return {"parcels": parcels, "total": len(parcels)}
+    return {"parcels": [serialize_parcel(p, current_user) for p in parcels], "total": len(parcels)}
 
 
 @router.get("/{relay_id}/performance", summary="Performance mensuelle du relais")

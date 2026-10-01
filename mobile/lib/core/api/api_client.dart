@@ -479,6 +479,14 @@ class ApiClient {
 
   Future<Response> getMyPayouts() => _dio.get(ApiEndpoints.payouts);
 
+  Future<Response> getWalletActivity(
+          {String? period, String category = 'balance', int skip = 0}) =>
+      _dio.get('${ApiEndpoints.myWallet}/activity', queryParameters: {
+        if (period != null) 'period': period,
+        'category': category,
+        'skip': skip,
+      });
+
   Future<Response> createStripeWalletTopup(Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.stripeWalletTopup, data: body);
 

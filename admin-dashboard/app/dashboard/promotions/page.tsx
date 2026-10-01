@@ -469,7 +469,7 @@ function CampaignsSection() {
             onChange={(e) => setForm({ ...form, action_type: e.target.value as "internal_route" | "external_url", action_value: e.target.value === "external_url" ? "https://" : "/client/create" })}
             className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
-            <option value="internal_route">Page de l'app</option>
+            <option value="internal_route">Page de l’application</option>
             <option value="external_url">Lien externe</option>
           </select>
           {form.action_type === "internal_route" ? (
@@ -483,7 +483,7 @@ function CampaignsSection() {
           <Input type="datetime-local" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Priorité d'affichage
+              Priorité d’affichage
             </label>
             <Input
               type="number"

@@ -2,6 +2,8 @@
 Router wallets : wallet personnel, transactions, demandes de retrait.
 """
 import uuid
+import hashlib
+import logging
 from calendar import monthrange
 from datetime import datetime, timedelta, timezone
 import re
@@ -17,6 +19,8 @@ from core.utils import normalize_phone
 from database import db
 from models.wallet import PayoutRequest, TransactionType
 from services.wallet_service import get_or_create_wallet, record_wallet_transaction
+from services.wallet_service import _run_in_transaction
+from services.wallet_activity_service import wallet_activity
 from services.admin_events_service import AdminEventType, record_admin_event
 from services.stripe_service import (
     create_wallet_topup_checkout, get_wallet_topup, get_wallet_topups,
@@ -24,6 +28,7 @@ from services.stripe_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ALLOWED_PAYOUT_METHODS = {"wave", "orange_money", "free_money"}
 
@@ -83,7 +88,7 @@ def _transaction_period_filter(period: Optional[str]) -> dict:
 
     if re.fullmatch(r"\d{4}-\d{2}", period):
         year, month = map(int, period.split("-"))
-        if not 1 <= month <= 12:
+        if not 1 <= month <= 12 or not 1 <= year <= 9999:
             raise bad_request_exception("Période invalide")
         start = datetime(year, month, 1, tzinfo=timezone.utc)
         end = datetime(year, month, monthrange(year, month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc)
@@ -114,8 +119,8 @@ async def get_my_wallet(current_user: dict = Depends(get_current_user)):
 
 @router.get("/me/transactions", summary="Historique des transactions")
 async def get_my_transactions(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     period: Optional[str] = Query(None, description="Filtre: 'week', 'month' ou 'YYYY-MM'"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -136,6 +141,15 @@ async def get_my_transactions(
     txs = await cursor.to_list(length=limit)
     total = await db.wallet_transactions.count_documents(query)
     return {"transactions": txs, "total": total}
+
+
+@router.get("/me/activity", summary="Solde et revenus : historique regroupé et résumé de période")
+async def get_my_activity(
+    skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+    period: Optional[str] = Query(None), category: str = Query("balance", pattern="^(balance|revenues)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    return await wallet_activity(db, current_user, _transaction_period_filter(period), category=category, skip=skip, limit=limit)
 
 
 @router.post("/me/payout", summary="Demander un retrait")
@@ -167,18 +181,34 @@ async def request_payout(
             raise bad_request_exception(blocked_reason)
 
     now = datetime.now(timezone.utc)
-    wallet_update = await db.wallets.update_one(
-        {"owner_id": current_user["user_id"], "balance": {"$gte": body.amount}},
+    payout_id = ("pay_" + hashlib.sha256(f"{current_user['user_id']}:{body.request_key}".encode()).hexdigest()
+                 if body.request_key else _payout_id())
+    async def reserve(session):
+        existing = await db.payout_requests.find_one({"payout_id": payout_id}, {"_id": 0}, session=session)
+        if existing:
+            if existing["amount"] != body.amount or existing["method"] != method or existing["phone"] != payout_phone:
+                raise bad_request_exception("Cette demande de retrait a déjà été utilisée avec d'autres informations")
+            return existing
+        if current_user.get("role") == "driver":
+            await db.users.update_one({"user_id": current_user["user_id"]}, {"$inc": {"mission_assignment_revision": 1}}, session=session)
+            if await db.delivery_missions.find_one(
+                {"driver_id": current_user["user_id"], "status": {"$in": ["assigned", "in_progress", "incident_reported"]}}, session=session,
+            ):
+                raise bad_request_exception("Décaissement indisponible tant qu'une course est active")
+        wallet_update = await db.wallets.update_one(
+        {"owner_id": current_user["user_id"], "balance": {"$gte": body.amount},
+         "payout_blocked": {"$ne": True}, "is_active": {"$ne": False}},
         {
             "$inc": {"balance": -body.amount, "pending": body.amount},
             "$set": {"updated_at": now},
         },
-    )
-    if wallet_update.modified_count == 0:
-        raise bad_request_exception("Solde insuffisant")
-
-    payout = {
-        "payout_id": _payout_id(),
+        session=session,
+        )
+        if wallet_update.modified_count == 0:
+            raise bad_request_exception("Solde insuffisant")
+        payout = {
+        "_id": payout_id,
+        "payout_id": payout_id,
         "wallet_id": wallet["wallet_id"],
         "owner_id": current_user["user_id"],
         "user_id": current_user["user_id"],
@@ -189,9 +219,8 @@ async def request_payout(
         "status": "pending",
         "created_at": now,
         "updated_at": now,
-    }
-    try:
-        await db.payout_requests.insert_one(payout)
+        }
+        await db.payout_requests.insert_one(payout, session=session)
         await record_wallet_transaction(
             wallet_id=wallet["wallet_id"],
             amount=body.amount,
@@ -199,19 +228,12 @@ async def request_payout(
             description="Demande de décaissement du solde en attente",
             reference=payout["payout_id"],
             ensure_unique=True,
+            session=session,
         )
-    except Exception:
-        await db.wallets.update_one(
-            {"wallet_id": wallet["wallet_id"]},
-            {
-                "$inc": {"balance": body.amount, "pending": -body.amount},
-                "$set": {"updated_at": datetime.now(timezone.utc)},
-            },
-        )
-        await db.payout_requests.delete_one({"payout_id": payout["payout_id"]})
-        raise
-
-    await record_admin_event(
+        return payout
+    payout = await _run_in_transaction(reserve)
+    try:
+        await record_admin_event(
         AdminEventType.PAYOUT_REQUESTED,
         title=f"Demande de décaissement : {body.amount:,} XOF".replace(",", " "),
         message=f"{current_user.get('name') or current_user['phone']} · {method}",
@@ -222,7 +244,9 @@ async def request_payout(
             "amount": body.amount,
             "method": method,
         },
-    )
+        )
+    except Exception:
+        logger.exception("Notification admin du retrait %s à reprendre", payout_id)
 
     return {k: v for k, v in payout.items() if k != "_id"}
 

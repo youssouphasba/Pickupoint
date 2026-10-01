@@ -288,7 +288,7 @@ export default function AdminAlertsPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Types d'événements
+          Types d’événements
         </h2>
         <Card>
           <CardContent className="divide-y p-0">
@@ -333,7 +333,7 @@ export default function AdminAlertsPage() {
         <div>
           <div className="font-medium">Tester une notification</div>
           <div className="text-xs text-muted-foreground">
-            Déclenche une notification locale pour vérifier l'autorisation.
+            Déclenche une notification locale pour vérifier l’autorisation.
           </div>
         </div>
         <Button

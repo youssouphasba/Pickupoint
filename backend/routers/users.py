@@ -767,14 +767,7 @@ async def update_my_profile(
     body: ProfileUpdate,
     current_user: dict = Depends(get_current_user),
 ):
-    updates = body.model_dump(exclude_none=True)
-    if body.notification_prefs is not None:
-        updates.pop("notification_prefs", None)
-        for key, value in body.notification_prefs.model_dump(exclude_unset=True).items():
-            updates[f"notification_prefs.{key}"] = value
-    for field in ("email", "bio"):
-        if field in body.model_fields_set:
-            updates[field] = getattr(body, field)
+    updates = body.database_updates()
     if not updates:
         return serialize_private_user(current_user, current_user)
 

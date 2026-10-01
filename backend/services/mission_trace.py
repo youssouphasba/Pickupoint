@@ -25,7 +25,7 @@ async def archive_position(mission_id, point, driver_id):
 
 
 async def load_trace(mission):
-    start = timestamp(mission.get("started_at"))
+    start = timestamp(mission.get("assigned_at")) or timestamp(mission.get("started_at"))
     end = timestamp(mission.get("completed_at"))
     if start is None:
         return []
@@ -36,7 +36,10 @@ async def load_trace(mission):
     for point in [*(mission.get("gps_trail") or []), *points]:
         ts = timestamp(point.get("ts"))
         if ts is not None and ts >= start and (end is None or ts <= end):
-            unique[(ts, point.get("lat"), point.get("lng"))] = {"driver_id": mission.get("driver_id"), **point, "ts": ts}
+            unique[(ts, point.get("lat"), point.get("lng"))] = {
+                "driver_id": mission.get("driver_id"), **point, "ts": ts,
+                "phase": "delivery" if timestamp(mission.get("started_at")) and ts >= timestamp(mission["started_at"]) else "approach",
+            }
     return sorted(unique.values(), key=lambda point: point["ts"])
 
 
@@ -87,6 +90,17 @@ def summarize_completion(mission, points=None):
         return max(int((end - start).total_seconds()), 0)
 
     trace_summary = summarize_trace(points) if points is not None else None
+    approach_distance = 0.0
+    if trace_summary is not None:
+        for segment in trace_summary["segments"]:
+            for previous, point in zip(segment, segment[1:]):
+                first, last = timestamp(previous["ts"]), timestamp(point["ts"])
+                pair_distance = summarize_trace([previous, point])["recorded_distance_meters"]
+                if started_at is None or last <= started_at:
+                    approach_distance += pair_distance
+                elif first < started_at and last > first:
+                    approach_distance += pair_distance * (started_at - first).total_seconds() / (last - first).total_seconds()
+    approach_distance = min(round(approach_distance), (trace_summary or {}).get("recorded_distance_meters", 0))
     return {
         "assigned_to_pickup_seconds": elapsed_seconds(assigned_at, started_at),
         "pickup_to_delivery_seconds": elapsed_seconds(started_at, completed_at),
@@ -95,5 +109,7 @@ def summarize_completion(mission, points=None):
             trace_summary["recorded_distance_meters"] if trace_summary is not None else None
         ),
         "gps_points_count": len(points) if points is not None else None,
+        "approach_distance_meters": approach_distance if points is not None else None,
+        "delivery_distance_meters": trace_summary["recorded_distance_meters"] - approach_distance if trace_summary is not None else None,
         "completed_at": completed_at,
     }

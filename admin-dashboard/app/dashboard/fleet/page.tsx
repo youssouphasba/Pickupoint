@@ -166,8 +166,8 @@ export default function FleetPage() {
     refetchInterval: 15_000,
   });
 
-  const missions: FleetMission[] = data?.fleet ?? [];
-  const idleDrivers: IdleDriver[] = data?.idle_drivers ?? [];
+  const missions = useMemo<FleetMission[]>(() => data?.fleet ?? [], [data?.fleet]);
+  const idleDrivers = useMemo<IdleDriver[]>(() => data?.idle_drivers ?? [], [data?.idle_drivers]);
   const summary = data?.summary ?? {};
   const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? "";
 

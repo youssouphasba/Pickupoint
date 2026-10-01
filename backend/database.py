@@ -47,6 +47,11 @@ async def connect_db():
         connectTimeoutMS=10000,
     )
     _db_instance = client[settings.DB_NAME]
+    topology = await client.admin.command("hello")
+    if not topology.get("setName") and topology.get("msg") != "isdbgrid":
+        client.close()
+        _db_instance = None
+        raise RuntimeError("MongoDB doit être configuré en replica set ou cluster pour garantir les transactions financières")
     logger.info(f"Connected to MongoDB: {settings.DB_NAME}")
     try:
         await create_indexes()
@@ -136,6 +141,9 @@ async def create_indexes():
             IndexModel([("provider_session_id", 1)]),
             IndexModel([("created_at", 1)]),
             IndexModel([("paid_at", 1)]),
+        ],
+        "delivery_completion_jobs": [
+            IndexModel([("completed_at", 1), ("lease_until", 1)]),
         ],
         "payout_requests": [
             IndexModel([("payout_id", 1)], unique=True),

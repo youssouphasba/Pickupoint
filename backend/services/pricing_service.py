@@ -200,6 +200,7 @@ async def calculate_price(
     is_frequent: bool = False,
     user_id: Optional[str] = None,
     is_first_delivery: bool = False,
+    reserved_promo: Optional[dict] = None,
 ) -> QuoteResponse:
     requirements = _quote_requirements_status(quote)
     if not requirements["ready"]:
@@ -258,6 +259,7 @@ async def calculate_price(
 
     # Express — uniquement si activé globalement par l'admin
     express_cost = 0.0
+    standard_price = _round_to_50(max(price_with_coeff, pricing_settings["min_price"]))
     if quote.is_express:
         if pricing_settings["express_enabled"]:
             express_multiplier = pricing_settings["express_multiplier"]
@@ -273,14 +275,14 @@ async def calculate_price(
     loyalty_discount_xof = max(price_before_loyalty - final, 0)
 
     # ── Promotions (Bloc E) ──
-    from services.promotion_service import find_best_promo
+    from services.promotion_service import find_best_promo, apply_promotion
     
     # On vérifie si c'est la 1ère livraison (pour promo_target="first_delivery")
     # Note: On a déjà current_user_id si on utilise Depends(get_current_user_optional) dans le router
     # Pour l'instant, on suppose que get_quote dans le router a déjà les infos de l'user.
     # On ajoute current_user_id en paramètre de calculate_price.
     
-    promo_result = await find_best_promo(
+    promo_result = apply_promotion(reserved_promo, final, max(final - standard_price, 0)) if reserved_promo else await find_best_promo(
         db,
         delivery_mode=quote.delivery_mode.value,
         original_price=final,
@@ -288,6 +290,8 @@ async def calculate_price(
         user_tier=sender_tier,
         is_first_delivery=is_first_delivery,
         promo_code=quote.promo_code,
+        express_surcharge=max(final - standard_price, 0),
+        express_enabled=pricing_settings["express_enabled"],
     )
 
     promo_applied_data = None
@@ -301,12 +305,18 @@ async def calculate_price(
             "promo_id":     promo_result["promo"]["promo_id"],
             "title":        promo_result["promo"]["title"],
             "promo_type":   promo_result["promo"]["promo_type"],
+            "value":        promo_result["promo"].get("value", 0),
             "express_free": promo_result.get("express_free", False),
         }
+        if promo_result.get("express_free"):
+            express_cost = 0.0
+    effective_express = pricing_settings["express_enabled"] and (
+        quote.is_express or bool((promo_applied_data or {}).get("express_free"))
+    )
 
     # Estimation du temps de livraison affiché
     estimated_hours = _estimate_delivery_hours(
-        distance, quote.delivery_mode, quote.is_express
+        distance, quote.delivery_mode, effective_express
     )
 
     breakdown = {
@@ -321,7 +331,7 @@ async def calculate_price(
         "inter_city_cost": round(inter_city_cost),
         "coefficient":    coeff,
         "coeff_factors":  coeff_factors,
-        "is_express":     quote.is_express,
+        "is_express":     effective_express,
         "express_cost":   round(express_cost),
         "loyalty_tier":   sender_tier,
         "is_frequent":    is_frequent,

@@ -390,7 +390,6 @@ class NotificationService {
       }
     }
     if (eventType == 'mission_unavailable') {
-      await _localNotifs.cancel(driverActiveMissionNotificationId);
       await _localNotifs.cancel(notificationPlatformId(message.data));
       return;
     }
@@ -478,7 +477,7 @@ class NotificationService {
     }
 
     final currentAuth = _ref.read(authProvider).valueOrNull ?? authState;
-    final route = notificationRouteFor(
+    var route = notificationRouteFor(
       refType: data['ref_type']?.toString(),
       refId: data['ref_id']?.toString(),
       role: currentAuth.effectiveRole,
@@ -486,6 +485,10 @@ class NotificationService {
       targetView: targetView,
       messageId: data['message_id']?.toString(),
     );
+    route = await resolveLegacyDriverMissionRoute(route, (id) async {
+      final response = await _ref.read(apiClientProvider).getMission(id);
+      return Map<String, dynamic>.from(response.data as Map);
+    });
     if (route == null || route.isEmpty) {
       return;
     }

@@ -2,35 +2,41 @@
 Service wallet : crédit/débit, distribution des revenus à chaque livraison réussie.
 """
 import logging
+import hashlib
+import math
+from contextvars import ContextVar
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from pymongo.errors import OperationFailure
+from pymongo.errors import DuplicateKeyError, OperationFailure
 
 from core.exceptions import DeliveryCommissionDataError
 from database import db, get_client
 from models.wallet import TransactionType
 
 logger = logging.getLogger(__name__)
-
+_transaction_session = ContextVar("wallet_transaction_session", default=None)
 
 async def _run_in_transaction(op):
-    """Execute op(session) dans une transaction Mongo si disponible (replica set),
-    sinon execute sans session (meilleur effort). op est une coroutine acceptant
-    une session (ou None) et retournant le resultat final."""
+    active_session = _transaction_session.get()
+    if active_session is not None:
+        return await op(active_session)
     client = get_client()
     if client is None:
         return await op(None)
     try:
         async with await client.start_session() as session:
-            async with session.start_transaction():
-                return await op(session)
+            async def execute(transaction_session):
+                token = _transaction_session.set(transaction_session)
+                try:
+                    return await op(transaction_session)
+                finally:
+                    _transaction_session.reset(token)
+            return await session.with_transaction(execute)
     except OperationFailure as exc:
-        # MongoDB standalone (pas de replica set) — fallback non atomique.
         if "Transaction numbers are only allowed" in str(exc) or "replica set" in str(exc).lower():
-            logger.warning("MongoDB non replica-set, wallet en mode non atomique")
-            return await op(None)
+            raise RuntimeError("Les opérations financières nécessitent un replica set MongoDB") from exc
         raise
 
 
@@ -79,10 +85,12 @@ def normalize_commission_rules(raw: dict | None) -> dict:
     normalized = {}
     for mode in COMMISSION_MODES:
         source = raw.get(mode) if isinstance(raw.get(mode), dict) else {}
-        values = {
-            key: max(float(source.get(key, fallback)), 0.0)
-            for key, fallback in defaults[mode].items()
-        }
+        try:
+            values = {key: float(source.get(key, fallback)) for key, fallback in defaults[mode].items()}
+        except (TypeError, ValueError) as exc:
+            raise DeliveryCommissionDataError() from exc
+        if any(not math.isfinite(value) or value < 0 for value in values.values()):
+            raise DeliveryCommissionDataError()
         total = sum(values.values())
         if total <= 0:
             values = defaults[mode].copy()
@@ -151,7 +159,12 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         or (mission or {}).get("quoted_price")
         or 0
     )
-    safe_price = max(float(price or 0), 0.0)
+    try:
+        safe_price = float(price or 0)
+    except (TypeError, ValueError) as exc:
+        raise DeliveryCommissionDataError() from exc
+    if not math.isfinite(safe_price) or safe_price < 0:
+        raise DeliveryCommissionDataError()
     mode = resolve_delivery_commission_mode(parcel, mission)
 
     commissions_are_enabled = delivery_commissions_enabled(source)
@@ -254,7 +267,10 @@ async def record_wallet_transaction(
             return existing
 
     tx = {
-        "tx_id": _tx_id(),
+        "tx_id": (
+            "wtx_" + hashlib.sha256(f"{wallet_id}:{tx_type}:{reference}".encode()).hexdigest()
+            if ensure_unique and reference else _tx_id()
+        ),
         "wallet_id": wallet_id,
         "parcel_id": parcel_id,
         "amount": amount,
@@ -263,13 +279,15 @@ async def record_wallet_transaction(
         "reference": reference,
         "created_at": datetime.now(timezone.utc),
     }
+    tx["_id"] = tx["tx_id"]
     await db.wallet_transactions.insert_one(tx, session=session)
     return {k: v for k, v in tx.items() if k != "_id"}
 
 
 async def get_or_create_wallet(owner_id: str, owner_type: str) -> dict:
     """Retourne le wallet existant ou en crée un nouveau."""
-    wallet = await db.wallets.find_one({"owner_id": owner_id}, {"_id": 0})
+    kwargs = {"session": _transaction_session.get()} if _transaction_session.get() is not None else {}
+    wallet = await db.wallets.find_one({"owner_id": owner_id}, {"_id": 0}, **kwargs)
     if wallet:
         return wallet
 
@@ -285,7 +303,12 @@ async def get_or_create_wallet(owner_id: str, owner_type: str) -> dict:
         "created_at": now,
         "updated_at": now,
     }
-    await db.wallets.insert_one(wallet)
+    try:
+        await db.wallets.insert_one(wallet, **kwargs)
+    except DuplicateKeyError:
+        if _transaction_session.get() is not None:
+            raise
+        return await db.wallets.find_one({"owner_id": owner_id}, {"_id": 0}, **kwargs)
     return {k: v for k, v in wallet.items() if k != "_id"}
 
 
@@ -302,6 +325,13 @@ async def credit_wallet(
     wallet = await get_or_create_wallet(owner_id, owner_type)
 
     async def _op(session):
+        existing = await _existing_operation(wallet["wallet_id"], TransactionType.CREDIT.value, reference, ensure_unique, amount, session)
+        if existing:
+            return existing
+        tx = await record_wallet_transaction(
+            wallet["wallet_id"], amount, TransactionType.CREDIT.value, description,
+            parcel_id=parcel_id, reference=reference, ensure_unique=ensure_unique, session=session,
+        )
         now = datetime.now(timezone.utc)
         await db.wallets.update_one(
             {"owner_id": owner_id},
@@ -314,20 +344,34 @@ async def credit_wallet(
                 {"$inc": {"total_earned": amount}},
                 session=session,
             )
-        return await record_wallet_transaction(
-            wallet_id=wallet["wallet_id"],
-            amount=amount,
-            tx_type=TransactionType.CREDIT.value,
-            description=description,
-            parcel_id=parcel_id,
-            reference=reference,
-            ensure_unique=ensure_unique,
-            session=session,
-        )
+        return tx
 
-    tx = await _run_in_transaction(_op)
+    tx = await _run_wallet_operation(_op)
     logger.info(f"Wallet crédité : owner={owner_id} montant={amount} XOF")
     return tx
+
+
+async def _existing_operation(wallet_id, tx_type, reference, ensure_unique, amount, session):
+    if not math.isfinite(amount) or amount < 0:
+        raise ValueError("Montant invalide")
+    if not ensure_unique or not reference:
+        return None
+    existing = await db.wallet_transactions.find_one(
+        {"wallet_id": wallet_id, "reference": reference, "tx_type": tx_type},
+        {"_id": 0}, session=session,
+    )
+    if existing and float(existing["amount"]) != float(amount):
+        raise ValueError("Cette opération a déjà été enregistrée avec un autre montant")
+    return existing
+
+
+async def _run_wallet_operation(op):
+    if _transaction_session.get() is not None:
+        return await op(_transaction_session.get())
+    try:
+        return await _run_in_transaction(op)
+    except DuplicateKeyError:
+        return await _run_in_transaction(op)
 
 
 async def record_driver_revenue(
@@ -341,23 +385,21 @@ async def record_driver_revenue(
     wallet = await get_or_create_wallet(driver_id, "driver")
 
     async def _op(session):
+        existing = await _existing_operation(wallet["wallet_id"], TransactionType.REVENUE.value, reference, ensure_unique, amount, session)
+        if existing:
+            return existing
+        tx = await record_wallet_transaction(
+            wallet["wallet_id"], amount, TransactionType.REVENUE.value, description,
+            parcel_id=parcel_id, reference=reference, ensure_unique=ensure_unique, session=session,
+        )
         await db.users.update_one(
             {"user_id": driver_id},
             {"$inc": {"total_earned": amount}, "$set": {"updated_at": datetime.now(timezone.utc)}},
             session=session,
         )
-        return await record_wallet_transaction(
-            wallet_id=wallet["wallet_id"],
-            amount=amount,
-            tx_type=TransactionType.REVENUE.value,
-            description=description,
-            parcel_id=parcel_id,
-            reference=reference,
-            ensure_unique=ensure_unique,
-            session=session,
-        )
+        return tx
 
-    tx = await _run_in_transaction(_op)
+    tx = await _run_wallet_operation(_op)
     logger.info(
         "Revenu livreur enregistré hors solde : owner=%s montant=%s XOF",
         driver_id,
@@ -378,21 +420,17 @@ async def debit_wallet(
         wallet = await db.wallets.find_one(
             {"owner_id": owner_id}, {"_id": 0}, session=session
         )
-        if not wallet or wallet["balance"] < amount:
+        if not wallet:
             raise ValueError("Solde insuffisant")
-
-        if ensure_unique and reference:
-            existing = await db.wallet_transactions.find_one(
-                {
-                    "wallet_id": wallet["wallet_id"],
-                    "reference": reference,
-                    "tx_type": TransactionType.DEBIT.value,
-                },
-                {"_id": 0},
-                session=session,
-            )
-            if existing:
-                return existing
+        existing = await _existing_operation(wallet["wallet_id"], TransactionType.DEBIT.value, reference, ensure_unique, amount, session)
+        if existing:
+            return existing
+        if wallet["balance"] < amount:
+            raise ValueError("Solde insuffisant")
+        tx = await record_wallet_transaction(
+            wallet["wallet_id"], amount, TransactionType.DEBIT.value, description,
+            parcel_id=parcel_id, reference=reference, ensure_unique=ensure_unique, session=session,
+        )
 
         now = datetime.now(timezone.utc)
         # Filtre sur balance >= amount pour éviter un débit si concurrent a vidé entretemps
@@ -404,18 +442,9 @@ async def debit_wallet(
         if result.modified_count == 0:
             raise ValueError("Solde insuffisant")
 
-        return await record_wallet_transaction(
-            wallet_id=wallet["wallet_id"],
-            amount=amount,
-            tx_type=TransactionType.DEBIT.value,
-            description=description,
-            parcel_id=parcel_id,
-            reference=reference,
-            ensure_unique=ensure_unique,
-            session=session,
-        )
+        return tx
 
-    return await _run_in_transaction(_op)
+    return await _run_wallet_operation(_op)
 
 
 async def debit_wallet_allow_negative(
@@ -430,18 +459,13 @@ async def debit_wallet_allow_negative(
     wallet = await get_or_create_wallet(owner_id, owner_type)
 
     async def _op(session):
-        if ensure_unique and reference:
-            existing = await db.wallet_transactions.find_one(
-                {
-                    "wallet_id": wallet["wallet_id"],
-                    "reference": reference,
-                    "tx_type": TransactionType.DEBIT.value,
-                },
-                {"_id": 0},
-                session=session,
-            )
-            if existing:
-                return existing
+        existing = await _existing_operation(wallet["wallet_id"], TransactionType.DEBIT.value, reference, ensure_unique, amount, session)
+        if existing:
+            return existing
+        tx = await record_wallet_transaction(
+            wallet["wallet_id"], amount, TransactionType.DEBIT.value, description,
+            parcel_id=parcel_id, reference=reference, ensure_unique=ensure_unique, session=session,
+        )
 
         now = datetime.now(timezone.utc)
         await db.wallets.update_one(
@@ -449,18 +473,9 @@ async def debit_wallet_allow_negative(
             {"$inc": {"balance": -amount}, "$set": {"updated_at": now}},
             session=session,
         )
-        return await record_wallet_transaction(
-            wallet_id=wallet["wallet_id"],
-            amount=amount,
-            tx_type=TransactionType.DEBIT.value,
-            description=description,
-            parcel_id=parcel_id,
-            reference=reference,
-            ensure_unique=ensure_unique,
-            session=session,
-        )
+        return tx
 
-    tx = await _run_in_transaction(_op)
+    tx = await _run_wallet_operation(_op)
     logger.info(f"Wallet débité avec découvert : owner={owner_id} montant={amount} XOF")
     return tx
 
@@ -540,4 +555,45 @@ async def distribute_delivery_revenue(parcel: dict):
         mode,
         price,
         breakdown["total_commission_xof"],
+    )
+
+
+async def refund_mission_commission(mission: dict, *, session=None) -> dict | None:
+    driver_id = mission.get("driver_id")
+    reference = mission_charge_reference(mission)
+    wallet = await db.wallets.find_one({"owner_id": driver_id}, {"_id": 0}, session=session)
+    if not wallet:
+        return None
+    charge = await db.wallet_transactions.find_one(
+        {"wallet_id": wallet["wallet_id"], "reference": reference, "tx_type": "debit"},
+        {"_id": 0}, session=session,
+    )
+    if not charge:
+        return None
+    refund_reference = commission_refund_reference(reference)
+    return await credit_wallet(
+        driver_id, "driver", float(charge["amount"]),
+        f"Remboursement commission mission {mission['mission_id']}",
+        parcel_id=mission.get("parcel_id"), reference=refund_reference,
+        count_as_earned=False, ensure_unique=True,
+    )
+
+
+def commission_refund_reference(reference: str) -> str:
+    prefix, _, suffix = reference.partition(":")
+    if prefix in {"commission", "commission_debt"}:
+        return f"commission_refund:{suffix}"
+    return f"commission_refund:{reference}"
+
+
+def mission_charge_reference(mission: dict) -> str:
+    prefix = "commission_debt" if mission.get("commission_charge_mode") == "driver_debt" else "commission"
+    return mission.get("platform_commission_wallet_reference") or f"{prefix}:{mission['mission_id']}"
+
+
+def mission_commission_refunded(mission: dict, references: set[str]) -> bool:
+    if commission_refund_reference(mission_charge_reference(mission)) in references:
+        return True
+    return not mission.get("platform_commission_wallet_reference") and any(
+        ref.startswith(f"commission_reversal:{mission['mission_id']}:") for ref in references
     )

@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -45,7 +45,7 @@ class DeliveryMission(BaseModel):
 
 
 class ProofOfDelivery(BaseModel):
-    proof_type: str
+    proof_type: Literal["pin"]
     proof_data: Optional[str] = None
     pin_code: Optional[str] = None
     location: Optional[GeoPin] = None

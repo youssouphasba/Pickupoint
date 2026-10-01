@@ -576,7 +576,7 @@ export default function FinancePage() {
           <section className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">À surveiller</h2>
-              {data.alerts.length === 0 ? <Badge tone="success">Rien d'urgent</Badge> : null}
+              {data.alerts.length === 0 ? <Badge tone="success">Rien d’urgent</Badge> : null}
             </div>
             {data.alerts.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

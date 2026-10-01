@@ -282,7 +282,8 @@ class DriverPresenceService {
     if (!_positionController.isClosed) _positionController.add(position);
     final policy = LocationPolicy.current;
     final mission = _mission;
-    final startedAt = mission?.startedAt ??
+    final startedAt = mission?.assignedAt ??
+        mission?.startedAt ??
         (mission?.id == _confirmedCollectionMission
             ? _confirmedCollectionAt
             : null);

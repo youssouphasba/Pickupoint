@@ -93,7 +93,7 @@ export default function TargetedNotificationsPage() {
     queryFn: () => fetchNotificationBroadcasts(50),
   });
 
-  const users = data?.users ?? [];
+  const users = React.useMemo(() => data?.users ?? [], [data?.users]);
   const selectedUsers = React.useMemo(
     () => users.filter((user) => selectedIds.has(user.user_id)),
     [selectedIds, users],

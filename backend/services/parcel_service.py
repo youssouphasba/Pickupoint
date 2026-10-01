@@ -686,9 +686,9 @@ async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         delivery_address=parcel.get("delivery_address"),
         weight_kg=float(parcel.get("weight_kg") or 0.5),
         declared_value=parcel.get("declared_value"),
-        is_express=bool(parcel.get("is_express")),
+        is_express=bool(parcel.get("requested_express", parcel.get("is_express"))),
         who_pays=parcel.get("who_pays") or "sender",
-        promo_code=None,
+        promo_code=parcel.get("promo_code") or (parcel.get("quote_breakdown") or {}).get("promo_code"),
     )
 
     quote = await calculate_price(
@@ -697,6 +697,7 @@ async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         is_frequent=delivered_count >= 10,
         user_id=sender_user_id,
         is_first_delivery=(total_delivered == 0),
+        reserved_promo=parcel.get("promo_snapshot"),
     )
 
     previous_price = parcel.get("quoted_price")
@@ -712,28 +713,31 @@ async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
         return refreshed, False
 
-    if previous_price is not None:
-        await db.parcels.update_one(
-            {"parcel_id": parcel["parcel_id"]},
+    now = datetime.now(timezone.utc)
+    from services.promotion_service import record_promo_use
+    from services.wallet_service import _run_in_transaction
+
+    async def save_quote(session):
+        result = await db.parcels.update_one(
+            {"parcel_id": parcel["parcel_id"], "quoted_price": previous_price,
+             "updated_at": parcel.get("updated_at")},
             {"$set": {
                 "quoted_price": quote.price,
+                "is_express": bool(quote.breakdown.get("is_express", quote_req.is_express)),
+                "promo_id": quote.promo_applied.get("promo_id") if quote.promo_applied else None,
+                "promo_snapshot": quote.promo_applied,
                 "quote_breakdown": quote.breakdown,
-                "updated_at": datetime.now(timezone.utc),
-            }},
+                "updated_at": now,
+            }}, session=session,
         )
-        refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
-        return refreshed, False
+        if result.matched_count != 1:
+            return False
+        if quote.promo_applied:
+            await record_promo_use(db, quote.promo_applied["promo_id"], sender_user_id, parcel["parcel_id"])
+        return True
 
-    now = datetime.now(timezone.utc)
-    lock_result = await db.parcels.update_one(
-        {"parcel_id": parcel["parcel_id"], "quoted_price": None},
-        {"$set": {
-            "quoted_price": quote.price,
-            "quote_breakdown": quote.breakdown,
-            "updated_at": now,
-        }},
-    )
-    if lock_result.modified_count == 0:
+    saved = await _run_in_transaction(save_quote)
+    if not saved or previous_price is not None:
         refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0}) or parcel
         return refreshed, False
 
@@ -949,7 +953,10 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "declared_value":        data.declared_value,
         "description":           data.description,
         "external_ref":          data.external_ref,
-        "is_express":            data.is_express,
+        "is_express":            bool(quote.breakdown.get("is_express", data.is_express)),
+        "requested_express":     data.is_express,
+        "promo_code":            data.promo_id,
+        "promo_snapshot":        quote.promo_applied,
         "who_pays":              data.who_pays,
         "quote_breakdown":       quote.breakdown,
         "quoted_price":          quote.price,
@@ -999,16 +1006,6 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "expires_at":            expires_at,
     }
 
-    # ── Enregistrer l'usage de la promotion ──
-    if quote.promo_applied:
-        from services.promotion_service import record_promo_use
-        await record_promo_use(
-            db, 
-            promo_id=quote.promo_applied["promo_id"], 
-            user_id=sender_user_id, 
-            parcel_id=parcel_id
-        )
-
     # ── Gestion des confirmations GPS expéditeur / destinataire ──
     recipient_token = None
     sender_token = None
@@ -1030,7 +1027,14 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     if recipient_user:
         parcel_doc["recipient_user_id"] = recipient_user["user_id"]
 
-    await db.parcels.insert_one(parcel_doc)
+    from services.wallet_service import _run_in_transaction
+    from services.promotion_service import record_promo_use
+
+    async def save_parcel(session):
+        if quote.promo_applied:
+            await record_promo_use(db, quote.promo_applied["promo_id"], sender_user_id, parcel_id)
+        await db.parcels.insert_one(parcel_doc, **({"session": session} if session is not None else {}))
+    await _run_in_transaction(save_parcel)
     try:
         from services.loyalty_service import _check_referral_bonus
         await _check_referral_bonus(sender_user_id)
@@ -1196,6 +1200,10 @@ async def transition_status(
         raise bad_request_exception("Colis introuvable")
 
     current_status = ParcelStatus(parcel["status"])
+    if new_status == ParcelStatus.DELIVERED and current_status == ParcelStatus.DELIVERED:
+        from services.delivery_completion_service import process_delivery_completion
+        await process_delivery_completion(parcel_id)
+        return parcel
     if not force:
         allowed = ALLOWED_TRANSITIONS.get(current_status, [])
         if new_status not in allowed:
@@ -1208,10 +1216,49 @@ async def transition_status(
     # Renouveler le délai de retrait quand le colis arrive au relais (7 jours)
     if new_status in (ParcelStatus.AVAILABLE_AT_RELAY, ParcelStatus.REDIRECTED_TO_RELAY):
         update_fields["expires_at"] = now + timedelta(days=7)
-    await db.parcels.update_one(
-        {"parcel_id": parcel_id},
-        {"$set": update_fields},
+    if new_status == ParcelStatus.DELIVERED:
+        from services.wallet_service import _run_in_transaction
+        from services.delivery_completion_service import process_delivery_completion
+
+        async def complete(session):
+            result = await db.parcels.update_one(
+                {"parcel_id": parcel_id, "status": current_status.value},
+                {"$set": update_fields}, session=session,
+            )
+            if result.modified_count != 1:
+                raise bad_request_exception("L'état du colis a changé. Actualisez avant de réessayer.")
+            await distribute_delivery_revenue(parcel)
+            if current_status in {ParcelStatus.AVAILABLE_AT_RELAY, ParcelStatus.AT_DESTINATION_RELAY}:
+                relay_id = parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")
+                if relay_id:
+                    await db.relay_points.update_one(
+                        {"relay_id": relay_id, "current_load": {"$gt": 0}},
+                        {"$inc": {"current_load": -1}}, session=session,
+                    )
+            missions = await db.delivery_missions.find(
+                {"parcel_id": parcel_id, "status": {"$in": ACTIVE_MISSION_STATUSES}},
+                {"_id": 0}, session=session,
+            ).to_list(length=None)
+            await db.delivery_missions.update_many(
+                {"parcel_id": parcel_id, "status": {"$in": ACTIVE_MISSION_STATUSES}},
+                {"$set": {"status": "completed", "completed_at": now, "updated_at": now}}, session=session,
+            )
+            await _record_event(
+                parcel_id=parcel_id, event_type="STATUS_CHANGED", from_status=current_status, to_status=new_status,
+                actor_id=actor_id, actor_role=actor_role, notes=notes, metadata=metadata or {}, session=session,
+            )
+            await db.delivery_completion_jobs.update_one(
+                {"_id": parcel_id}, {"$setOnInsert": {"created_at": now, "missions": missions, "steps": {}}},
+                upsert=True, session=session,
+            )
+        await _run_in_transaction(complete)
+        await process_delivery_completion(parcel_id)
+        return await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
+    result = await db.parcels.update_one(
+        {"parcel_id": parcel_id, "status": current_status.value}, {"$set": update_fields},
     )
+    if result.modified_count != 1:
+        raise bad_request_exception("L'état du colis a changé. Actualisez avant de réessayer.")
 
     await _record_event(
         parcel_id=parcel_id,
@@ -1223,21 +1270,6 @@ async def transition_status(
         notes=notes,
         metadata=metadata or {},
     )
-
-    # Créditer wallets si livraison réussie
-    if new_status == ParcelStatus.DELIVERED:
-        await distribute_delivery_revenue(parcel)
-        # ── Gamification (Phase 8) ──
-        driver_id = parcel.get("assigned_driver_id")
-        if driver_id:
-            from services.gamification_service import update_driver_gamification
-            await update_driver_gamification(driver_id, "delivery_completed")
-            
-        # ── Fidélité (Phase 8) ──
-        sender_user_id = parcel.get("sender_user_id")
-        if sender_user_id:
-            from services.loyalty_service import credit_loyalty_points
-            await credit_loyalty_points(sender_user_id, parcel_id)
 
     # Générer la mission du livreur quand le colis est déposé au relais d'origine
     if new_status == ParcelStatus.DROPPED_AT_ORIGIN_RELAY:
@@ -1768,6 +1800,7 @@ async def _record_event(
     actor_role: Optional[str] = None,
     notes: Optional[str] = None,
     metadata: Optional[dict] = None,
+    session=None,
 ):
     """Insère un ParcelEvent dans la collection parcel_events."""
     event = {
@@ -1782,7 +1815,7 @@ async def _record_event(
         "metadata":    metadata or {},
         "created_at":  datetime.now(timezone.utc),
     }
-    await db.parcel_events.insert_one(event)
+    await db.parcel_events.insert_one(event, **({"session": session} if session is not None else {}))
 
 
 async def get_parcel_timeline(parcel_id: str) -> list:

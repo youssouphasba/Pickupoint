@@ -514,7 +514,7 @@ export default function ConfigurationPage() {
                 <div>
                   <div className="font-medium">Mode Express</div>
                   <div className="text-sm text-muted-foreground">
-                    Active ou désactive la facturation Express dans l'application.
+                    Active ou désactive la facturation Express dans l’application.
                   </div>
                 </div>
                 <Badge tone={form.express_enabled ? "success" : "default"}>
@@ -552,7 +552,7 @@ export default function ConfigurationPage() {
                 <div>
                   <div className="font-medium">Commissions Denkma</div>
                   <div className="text-sm text-muted-foreground">
-                    Quand c'est désactivé, aucune commission n'est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
+                    Quand ce réglage est désactivé, aucune commission n’est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
                   </div>
                 </div>
                 <Badge tone={form.delivery_commissions_enabled ? "success" : "default"}>
@@ -889,7 +889,7 @@ export default function ConfigurationPage() {
               <div>
                 <div className="font-medium">Contrôle de version</div>
                 <div className="text-sm text-muted-foreground">
-                  Force ou recommande une mise à jour sans republier l'application.
+                  Force ou recommande une mise à jour sans republier l’application.
                 </div>
               </div>
               <button
@@ -1053,9 +1053,9 @@ export default function ConfigurationPage() {
 
       <Card>
         <CardContent className="p-5 text-sm text-muted-foreground">
-          Règle clé : un relais de repli n'est choisi que s'il est actif, ouvert,
+          Règle clé : un relais de repli n’est choisi que s’il est actif, ouvert,
           disponible et dans le rayon configuré autour du destinataire. Sinon,
-          Denkma déclenche le retour à l'expéditeur.
+          Denkma déclenche le retour à l’expéditeur.
         </CardContent>
       </Card>
     </div>

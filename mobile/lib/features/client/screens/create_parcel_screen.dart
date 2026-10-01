@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/contacts/phone_contact_picker.dart';
 import '../../../core/models/relay_point.dart';
 import '../../../core/models/user.dart';
 import '../models/create_parcel_prefill.dart';
@@ -174,6 +175,17 @@ class _CreateParcelScreenState extends ConsumerState<CreateParcelScreen> {
     setState(() => _contactsLoading = true);
 
     try {
+      if (Platform.isAndroid) {
+        final selection = await PhoneContactPicker.pick();
+        if (selection == null || !mounted) return;
+        setState(() {
+          if (selection.name.isNotEmpty) {
+            _recipientNameController.text = selection.name;
+          }
+          _recipientPhoneController.text = _cleanContactPhone(selection.phone);
+        });
+        return;
+      }
       final permission = await FlutterContacts.permissions.request(
         PermissionType.read,
       );

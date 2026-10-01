@@ -114,6 +114,27 @@ class WalletApi extends ApiClient {
   Future<Response> getMyPayouts() async => response({'payouts': []});
 
   @override
+  Future<Response> getWalletActivity(
+      {String? period, String category = 'balance', int skip = 0}) async {
+    final transactions = ((await getTransactions(period: period)).data
+        as Map)['transactions'] as List;
+    return response({
+      'items': transactions
+          .map((row) => {
+                ...row as Map,
+                'kind': 'transaction',
+                'effect': row['amount'],
+                'status': 'recorded'
+              })
+          .toList(),
+      'total': transactions.length,
+      'earnings': {'amount': 0, 'courses_count': 0},
+      'pending_payouts': [],
+      'pending_topups': status == 'pending' ? [topup()] : [],
+    });
+  }
+
+  @override
   Future<Response> createStripeWalletTopup(Map<String, dynamic> body) async {
     creations++;
     throw Exception('No real checkout allowed in tests');
@@ -265,7 +286,7 @@ void main() {
     await showWallet(tester, api,
         topupId: 'top_synthetic', returnResult: 'success');
     expect(api.checks, 1);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     expect(find.text('Recharge du solde par carte'), findsOneWidget);
     expect(api.creations, 0);
     expect(tester.takeException(), isNull);
@@ -287,7 +308,7 @@ void main() {
         topupId: 'top_unknown', returnResult: 'success');
     expect(api.refreshes, greaterThan(1));
     expect(find.text(formatXof(6806)), findsOneWidget);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.text('Recharge du solde par carte'), findsOneWidget);
     expect(find.textContaining('Solde actualisé. Recharge introuvable'),
         findsOneWidget);
     expect(api.creations, 0);
@@ -298,7 +319,6 @@ void main() {
     final api = WalletApi()..failTransactions = true;
     await showWallet(tester, api,
         topupId: 'top_synthetic', returnResult: 'success');
-    expect(find.text('Créditée'), findsOneWidget);
     expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     expect(find.text('Historique indisponible'), findsOneWidget);
     expect(api.creations, 0);
@@ -321,7 +341,7 @@ void main() {
     await tester.tap(find.text('Vérifier le paiement'));
     await tester.pumpAndSettle();
     expect(api.checks, 1);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     expect(api.creations, 0);
   });
 
@@ -363,7 +383,7 @@ void main() {
       await tester.pumpAndSettle();
     }
     expect(api.checks, 3);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     expect(api.creations, 0);
   });
 
@@ -409,7 +429,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(DriverWalletScreen), findsOneWidget);
     expect(api.checks, 1);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     router
         .go('denkma://app/parcel?wallet_return=success&topup_id=top_synthetic');
     await tester.pumpAndSettle();
@@ -438,7 +458,7 @@ void main() {
     (container.read(authProvider.notifier) as LoadingWalletAuth).authenticate();
     await tester.pumpAndSettle();
     expect(find.byType(DriverWalletScreen), findsOneWidget);
-    expect(find.text('Créditée'), findsOneWidget);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     router.dispose();

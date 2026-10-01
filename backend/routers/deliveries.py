@@ -1376,6 +1376,8 @@ async def accept_mission(
     if current_user["role"] != UserRole.DRIVER.value:
         raise forbidden_exception("Seuls les livreurs peuvent accepter une mission")
     measured_at = validate_capture(body.accuracy, body.captured_at) if body is not None else None
+    if not current_user.get("is_available"):
+        raise forbidden_exception("Mettez-vous disponible avant d'accepter une course")
     if not _driver_has_profile_photo(current_user):
         raise bad_request_exception("Votre photo de profil doit être ajoutée puis approuvée avant d'accepter une mission.")
 
@@ -1387,6 +1389,8 @@ async def accept_mission(
     requested_driver_id = mission.get("admin_requested_driver_id")
     if requested_driver_id and requested_driver_id != current_user["user_id"]:
         raise forbidden_exception("Cette mission est réservée à un autre livreur")
+    if not _can_driver_preview_pending_mission(mission, current_user["user_id"], body.lat if body else None, body.lng if body else None):
+        raise forbidden_exception("Cette course n'est plus disponible pour vous. Actualisez les courses disponibles.")
 
     parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"_id": 0})
     if not parcel:
@@ -1398,10 +1402,7 @@ async def accept_mission(
     # Un livreur ne peut pas accepter une mission s'il en a déjà une en cours (ASSIGNED, PICKED_UP, IN_PROGRESS)
     active_mission = await db.delivery_missions.find_one({
         "driver_id": current_user["user_id"],
-        "status": {"$in": [
-            MissionStatus.ASSIGNED.value,
-            MissionStatus.IN_PROGRESS.value
-        ]}
+        "status": {"$in": ACTIVE_MISSION_STATUSES}
     })
     if active_mission:
         raise forbidden_exception("Vous avez déjà une mission en cours. Terminez-la avant d'en accepter une autre.")
@@ -1434,7 +1435,7 @@ async def accept_mission(
         "total_commission_xof": breakdown["total_commission_xof"],
         "wallet_balance_required_xof": breakdown["wallet_balance_required_xof"],
         "commission_charge_mode": "wallet_hold",
-        "platform_commission_wallet_reference": f"commission:{mission_id}",
+        "platform_commission_wallet_reference": f"commission:{mission_id}:{uuid.uuid4().hex}",
     }
     mission_push = None
     if body is not None:
@@ -1448,76 +1449,57 @@ async def accept_mission(
     if mission_push:
         mission_update["$push"] = mission_push
 
-    updated_mission = await db.delivery_missions.find_one_and_update(
-        {
-            "mission_id": mission_id,
-            "status": MissionStatus.PENDING.value,
-            "$or": [{"driver_id": None}, {"driver_id": {"$exists": False}}],
-        },
-        mission_update,
-        return_document=ReturnDocument.AFTER,
-        projection={"_id": 0},
-    )
-    if not updated_mission:
-        raise bad_request_exception("Mission déjà prise en charge")
+    from services.wallet_service import _run_in_transaction
 
-    # Mettre à jour le colis avec le livreur assigné
-    if commission_xof > 0:
-        try:
-            await debit_wallet(
-                current_user["user_id"],
-                commission_xof,
-                f"Commission requise mission {mission_id}",
-                parcel_id=mission["parcel_id"],
-                reference=f"commission:{mission_id}",
-                ensure_unique=True,
-            )
-        except ValueError:
-            await db.delivery_missions.update_one(
-                {"mission_id": mission_id},
-                {
-                    "$set": {
-                        "driver_id": None,
-                        "status": MissionStatus.PENDING.value,
-                        "assigned_at": None,
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                    "$unset": {
-                        "driver_location": "",
-                        "location_updated_at": "",
-                        "gps_trail": "",
-                        "platform_commission_xof": "",
-                        "relay_commission_xof": "",
-                        "origin_relay_commission_xof": "",
-                        "destination_relay_commission_xof": "",
-                        "total_commission_xof": "",
-                        "wallet_balance_required_xof": "",
-                        "platform_commission_wallet_reference": "",
-                    },
-                },
-            )
-            raise bad_request_exception(
-                "Solde insuffisant. Rechargez votre wallet avant d'accepter cette mission."
-            )
-        wallet_after = await db.wallets.find_one(
-            {"owner_id": current_user["user_id"]},
-            {"_id": 0, "balance": 1},
+    async def assign(session):
+        reservation = await db.users.update_one(
+            {"user_id": current_user["user_id"], "is_available": True},
+            {"$inc": {"mission_assignment_revision": 1}}, session=session,
         )
-        remaining_balance = float((wallet_after or {}).get("balance") or 0)
-        if remaining_balance < commission_xof:
-            await notify_driver_low_balance(
-                current_user["user_id"],
-                balance_xof=remaining_balance,
-                required_xof=commission_xof,
+        if reservation.matched_count != 1:
+            raise forbidden_exception("Vous n'êtes plus disponible pour accepter cette course")
+        busy = await db.delivery_missions.find_one(
+            {"driver_id": current_user["user_id"], "status": {"$in": ACTIVE_MISSION_STATUSES}},
+            session=session,
+        )
+        if busy:
+            raise forbidden_exception("Vous avez déjà une mission en cours. Terminez-la avant d'en accepter une autre.")
+        latest = await db.delivery_missions.find_one({"mission_id": mission_id}, session=session)
+        if not latest or not _can_driver_preview_pending_mission(latest, current_user["user_id"], body.lat if body else None, body.lng if body else None):
+            raise forbidden_exception("Cette course n'est plus disponible pour vous")
+        result = await db.delivery_missions.find_one_and_update(
+            {"mission_id": mission_id, "status": MissionStatus.PENDING.value, "driver_id": None,
+             "updated_at": mission.get("updated_at")},
+            mission_update, return_document=ReturnDocument.AFTER, projection={"_id": 0}, session=session,
+        )
+        if not result:
+            raise bad_request_exception("Mission déjà prise en charge")
+        if commission_xof > 0:
+            await debit_wallet(
+                current_user["user_id"], commission_xof, f"Commission requise mission {mission_id}",
+                parcel_id=mission["parcel_id"], reference=mission_set["platform_commission_wallet_reference"], ensure_unique=True,
             )
+        assigned = await db.parcels.update_one(
+            {"parcel_id": mission["parcel_id"], "status": {"$nin": list(_DISPATCH_HIDDEN_PARCEL_STATUSES)}, "assigned_driver_id": None,
+             "updated_at": parcel.get("updated_at")},
+            {"$set": {"assigned_driver_id": current_user["user_id"], "updated_at": now}}, session=session,
+        )
+        if assigned.matched_count != 1:
+            raise bad_request_exception("Le colis n'est plus disponible pour cette affectation")
+        await _record_event(
+            parcel_id=mission["parcel_id"], event_type="MISSION_ACCEPTED",
+            actor_id=current_user["user_id"], actor_role=current_user["role"],
+            notes=f"Livreur assigné : {current_user.get('name') or 'Livreur'}.",
+            metadata={"mission_id": mission_id, "driver_id": current_user["user_id"],
+                      "driver_name": current_user.get("name"), "assigned_at": now.isoformat()},
+            session=session,
+        )
+        return result
 
-    await db.parcels.update_one(
-        {"parcel_id": mission["parcel_id"]},
-        {"$set": {
-            "assigned_driver_id": current_user["user_id"],
-            "updated_at": now,
-        }},
-    )
+    try:
+        updated_mission = await _run_in_transaction(assign)
+    except ValueError as exc:
+        raise bad_request_exception("Solde insuffisant. Rechargez votre wallet avant d'accepter cette mission.") from exc
     try:
         await expire_mission_availability_notifications(
             mission,
@@ -1530,83 +1512,42 @@ async def accept_mission(
             exc,
         )
     if body is not None:
-        await db.users.update_one(
-            {
-                "user_id": current_user["user_id"],
-                "$or": [
-                    {"last_driver_location_at": {"$lte": measured_at}},
-                    {"last_driver_location_at": None},
-                ],
-            },
-            {"$set": {
-                "last_driver_location": {
-                    "lat": body.lat,
-                    "lng": body.lng,
-                    "accuracy": body.accuracy,
-                },
-                "last_driver_location_at": measured_at,
-                "updated_at": now,
-            }},
-        )
-    if parcel:
-        await notify_sender_driver_assigned(parcel, current_user)
-        pickup_relay_id = updated_mission.get("pickup_relay_id")
-        if pickup_relay_id:
-            await notify_relay_driver_approaching(
-                pickup_relay_id,
-                parcel,
-                accepted=True,
+        try:
+            await db.users.update_one(
+                {"user_id": current_user["user_id"], "$or": [
+                    {"last_driver_location_at": {"$lte": measured_at}}, {"last_driver_location_at": None}]},
+                {"$set": {"last_driver_location": {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy},
+                          "last_driver_location_at": measured_at, "updated_at": now}},
             )
-            financial_summary = build_relay_financial_summary(
-                parcel,
-                pickup_relay_id,
-            )
-            for action in financial_summary.get("actions") or []:
-                if action.get("key") == "driver_payment" and action.get("status") == "pending":
-                    await notify_relay_financial_action(
-                        pickup_relay_id,
-                        parcel,
-                        action="driver_payment",
-                        amount_xof=float(action.get("amount_xof") or 0),
-                    )
-        for relay_id in {
-            updated_mission.get("pickup_relay_id"),
-            updated_mission.get("delivery_relay_id"),
-        }:
-            if not relay_id:
-                continue
-            relay = await db.relay_points.find_one(
-                {"relay_id": relay_id},
-                {"_id": 0},
-            )
-            if relay and relay_needs_closing_warning(
-                relay,
-                within_minutes=settings.RELAY_CLOSING_SOON_MINUTES,
-            ):
-                await notify_driver_relay_closing(
-                    current_user["user_id"],
-                    updated_mission,
-                    relay,
-                    status_label=relay_open_status(relay)["label"],
-                )
-        await _record_event(
-            parcel_id=mission["parcel_id"],
-            event_type="MISSION_ACCEPTED",
-            actor_id=current_user["user_id"],
-            actor_role=current_user["role"],
-            notes=(
-                f"Livreur assigné : {current_user.get('name') or 'Livreur'}. "
-                "L'expéditeur a été notifié pour préparer la remise du colis."
-            ),
-            metadata={
-                "mission_id": mission_id,
-                "driver_id": current_user["user_id"],
-                "driver_name": current_user.get("name"),
-                "assigned_at": now.isoformat(),
-                "notified_sender": True,
-            },
-        )
+        except Exception:
+            logger.exception("Position de présence à renouveler après affectation : %s", mission_id)
+    try:
+        await _notify_mission_accepted(parcel, updated_mission, current_user)
+    except Exception:
+        logger.exception("Notifications d'affectation non transmises : %s", mission_id)
     return {"message": "Mission acceptée", "mission_id": mission_id}
+
+
+async def _notify_mission_accepted(parcel: dict, mission: dict, driver: dict):
+    await notify_sender_driver_assigned(parcel, driver)
+    pickup_relay_id = mission.get("pickup_relay_id")
+    if pickup_relay_id:
+        await notify_relay_driver_approaching(pickup_relay_id, parcel, accepted=True)
+        financial_summary = build_relay_financial_summary(parcel, pickup_relay_id)
+        for action in financial_summary.get("actions") or []:
+            if action.get("key") == "driver_payment" and action.get("status") == "pending":
+                await notify_relay_financial_action(
+                    pickup_relay_id, parcel, action="driver_payment",
+                    amount_xof=float(action.get("amount_xof") or 0),
+                )
+    for relay_id in {mission.get("pickup_relay_id"), mission.get("delivery_relay_id")}:
+        if not relay_id:
+            continue
+        relay = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
+        if relay and relay_needs_closing_warning(relay, within_minutes=settings.RELAY_CLOSING_SOON_MINUTES):
+            await notify_driver_relay_closing(
+                driver["user_id"], mission, relay, status_label=relay_open_status(relay)["label"],
+            )
 
 
 @router.post("/{mission_id}/decline", summary="Refuser une mission proposée")
@@ -1869,13 +1810,14 @@ async def update_location(
         return {"message": "La mission ou la position a été actualisée entre-temps", "trace_recorded": False}
     for notify, args in approaching_notifications:
         await notify(*args)
-    trace_recorded = bool(mission.get("started_at") and not mission.get("completed_at")
-                          and mission.get("status") in {"in_progress", "incident_reported"})
+    trace_start = timestamp(mission.get("assigned_at")) or timestamp(mission.get("started_at"))
+    trace_recorded = bool(trace_start and not mission.get("completed_at")
+                          and mission.get("status") in ACTIVE_MISSION_STATUSES)
     if trace_recorded:
         if not mission.get("gps_archive_initialized"):
             for old_point in mission.get("gps_trail") or []:
                 if (timestamp(old_point.get("ts")) is not None
-                        and timestamp(old_point["ts"]) >= timestamp(mission["started_at"])):
+                        and timestamp(old_point["ts"]) >= trace_start):
                     await archive_position(mission_id, old_point, mission.get("driver_id"))
             await db.delivery_missions.update_one({"mission_id": mission_id}, {"$set": {"gps_archive_initialized": True}})
         await archive_position(mission_id, driver_loc, mission.get("driver_id"))
@@ -1971,11 +1913,11 @@ async def upload_location_trace(
         raise forbidden_exception("Seul le livreur assigné peut transmettre ce parcours")
     if mission.get("gps_trace_purged_at"):
         raise bad_request_exception("La durée de conservation de ce parcours est dépassée.")
-    start = timestamp(mission.get("started_at"))
+    start = timestamp(mission.get("assigned_at")) or timestamp(mission.get("started_at"))
     end = timestamp(mission.get("completed_at"))
     if start is None:
         return {"recorded": 0}
-    if mission.get("status") not in {"in_progress", "incident_reported", "completed", "failed", "cancelled"}:
+    if mission.get("status") not in {*ACTIVE_MISSION_STATUSES, "completed", "failed", "cancelled"}:
         raise bad_request_exception("Cette mission ne peut pas recevoir de trace GPS.")
     points = []
     for point in body.points:
@@ -2303,45 +2245,24 @@ async def release_mission(
         raise forbidden_exception()
 
     now = datetime.now(timezone.utc)
-    await db.delivery_missions.update_one(
-        {"mission_id": mission_id},
-        {
-            "$set": {
-                "status": MissionStatus.PENDING.value,
-                "driver_id": None,
-                "assigned_at": None,
-                "updated_at": now,
-            },
-            "$unset": {
-                "pickup_reminder_10_sent_at": "",
-                "pickup_reminder_5_sent_at": "",
-            },
-        },
-    )
-    await db.parcels.update_one(
-        {"parcel_id": mission["parcel_id"]},
-        {"$set": {"assigned_driver_id": None, "updated_at": now}},
-    )
-    commission_xof = float(
-        mission.get("total_commission_xof")
-        or mission.get("wallet_balance_required_xof")
-        or mission.get("relay_commission_xof")
-        or mission.get("platform_commission_xof")
-        or _mission_commission_xof(None, mission)
-        or 0
-    )
-    charge_mode = mission.get("commission_charge_mode") or "wallet_hold"
-    if commission_xof > 0 and charge_mode in {"wallet_hold", "driver_debt"}:
-        await credit_wallet(
-            owner_id=current_user["user_id"],
-            owner_type="driver",
-            amount=commission_xof,
-            description=f"Remboursement commission requise mission {mission_id}",
-            parcel_id=mission["parcel_id"],
-            reference=f"commission_refund:{mission_id}",
-            count_as_earned=False,
-            ensure_unique=True,
+    from services.wallet_service import _run_in_transaction, refund_mission_commission
+
+    async def release(session):
+        released = await db.delivery_missions.update_one(
+            {"mission_id": mission_id, "status": MissionStatus.ASSIGNED.value, "driver_id": current_user["user_id"],
+             "assigned_at": mission.get("assigned_at")},
+            {"$set": {"status": MissionStatus.PENDING.value, "driver_id": None, "assigned_at": None, "updated_at": now},
+             "$unset": {"pickup_reminder_10_sent_at": "", "pickup_reminder_5_sent_at": "", "driver_location": "", "location_updated_at": "", "gps_trail": "", "gps_archive_initialized": ""}},
+            session=session,
         )
+        if released.modified_count != 1:
+            raise bad_request_exception("Cette affectation a déjà changé. Actualisez vos missions.")
+        await refund_mission_commission(mission, session=session)
+        await db.parcels.update_one(
+            {"parcel_id": mission["parcel_id"], "assigned_driver_id": current_user["user_id"]},
+            {"$set": {"assigned_driver_id": None, "updated_at": now}}, session=session,
+        )
+    await _run_in_transaction(release)
 
     parcel = await db.parcels.find_one(
         {"parcel_id": mission["parcel_id"]},

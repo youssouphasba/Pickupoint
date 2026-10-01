@@ -173,7 +173,7 @@ export default function DriversPage() {
     enabled: rewardsOpen,
   });
 
-  const drivers: Driver[] = data?.drivers ?? [];
+  const drivers = React.useMemo<Driver[]>(() => data?.drivers ?? [], [data?.drivers]);
   const filteredDrivers = React.useMemo(() => {
     return drivers.filter((driver) => {
       if (driverFilter === "available" && !driver.is_available) return false;
