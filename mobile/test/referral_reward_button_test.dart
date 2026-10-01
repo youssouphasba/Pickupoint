@@ -36,7 +36,40 @@ void main() {
         driver);
   });
 
-  for (final width in [320.0, 390.0, 600.0]) {
+  for (final width in [320.0, 390.0, 412.0, 600.0]) {
+    testWidgets('parrainage inactif : icônes réparties sur $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+        return Scaffold(
+            appBar: AppBar(
+          automaticallyImplyLeading: false,
+          toolbarHeight: ClientReferralToolbar.height(context),
+          title: ClientReferralToolbar(
+            offer: null,
+            actions: List.generate(
+                5,
+                (_) => IconButton(
+                    onPressed: () {}, icon: const Icon(Icons.person))),
+            onPressed: () {},
+          ),
+        ));
+      })));
+      expect(find.byType(ReferralRewardButton), findsNothing);
+      final icons = find.byType(IconButton);
+      final centers = List.generate(5, (i) => tester.getCenter(icons.at(i)));
+      for (var i = 1; i < centers.length; i++) {
+        expect(centers[i].dy, closeTo(centers.first.dy, .1));
+        expect(centers[i].dx - centers[i - 1].dx,
+            closeTo(centers[1].dx - centers[0].dx, .1));
+      }
+      expect(tester.getTopLeft(icons.first).dx, closeTo(16, .1));
+      expect(tester.getBottomRight(icons.last).dx, closeTo(width - 16, .1));
+      expect(tester.takeException(), isNull);
+    });
     for (final scale in [1.0, 1.6, 2.0]) {
       testWidgets(
           'bouton accessible et en-tête sans débordement $width / $scale',
@@ -55,19 +88,30 @@ void main() {
             automaticallyImplyLeading: false,
             toolbarHeight: ClientReferralToolbar.height(context),
             title: ClientReferralToolbar(
-              offer: client,
+              offer: {...client, 'sponsor_bonus_xof': 100000},
               actions: List.generate(
-                  4,
+                  5,
                   (_) => IconButton(
                       onPressed: () {}, icon: const Icon(Icons.person))),
               onPressed: () => opened = true,
             ),
           )),
         )));
-        expect(find.text('Gagnez ${formatXof(1250)}'), findsOneWidget);
-        expect(find.text('Denkma'), findsOneWidget);
-        expect(find.byType(IconButton), findsNWidgets(4));
-        await tester.tap(find.text('Gagnez ${formatXof(1250)}'));
+        final reward = find.text('Gagnez ${formatXof(100000)}');
+        expect(reward, findsOneWidget);
+        expect(find.text('Denkma'), findsNothing);
+        expect(find.byType(ClientHeaderLogo), findsOneWidget);
+        expect(find.byType(Image), findsOneWidget);
+        expect(find.byType(IconButton), findsNWidgets(5));
+        final buttonCenter = tester
+            .getCenter(
+                find.byWidgetPredicate((widget) => widget is FilledButton))
+            .dy;
+        for (final icon in find.byType(IconButton).evaluate()) {
+          expect(tester.getCenter(find.byWidget(icon.widget)).dy,
+              closeTo(buttonCenter, 0.1));
+        }
+        await tester.tap(reward);
         expect(opened, isTrue);
         expect(tester.takeException(), isNull);
       });

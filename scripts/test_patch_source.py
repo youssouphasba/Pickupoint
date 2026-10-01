@@ -14,8 +14,12 @@ class PatchSourceTests(unittest.TestCase):
         self.assertEqual(self.check(), [])
         self.assertEqual(self.check(current=self.pubspec.replace("\n", "\r\n")), [])
 
-    def test_latest_and_wrong_release_are_rejected(self):
-        self.assertTrue(self.check(target="latest"))
+    def test_latest_checks_current_pubspec_against_baseline(self):
+        self.assertEqual(self.check(target="latest"), [])
+        self.assertTrue(self.check(target="latest",
+            current=self.pubspec.replace("1.0.27+47", "1.0.28+48")))
+
+    def test_wrong_release_is_rejected(self):
         self.assertTrue(self.check(target="1.0.28+48"))
 
     def test_native_code_is_rejected(self):

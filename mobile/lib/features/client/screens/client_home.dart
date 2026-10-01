@@ -74,6 +74,11 @@ class _ClientHomeState extends ConsumerState<ClientHome>
       const AccountSwitcherButton(),
       const NotificationsBellButton(route: '/client/notifications'),
       IconButton(
+        tooltip: 'Votre fidélité',
+        icon: const Icon(Icons.workspace_premium_outlined),
+        onPressed: () => showClientLoyaltyDialog(context),
+      ),
+      IconButton(
         tooltip: 'Devenir partenaire',
         icon: const Icon(Icons.handshake_outlined),
         onPressed: () => context.push('/client/partnership'),
@@ -86,17 +91,12 @@ class _ClientHomeState extends ConsumerState<ClientHome>
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
-          toolbarHeight: referralOffer == null
-              ? kToolbarHeight
-              : ClientReferralToolbar.height(context),
-          title: referralOffer == null
-              ? const Text('Denkma')
-              : ClientReferralToolbar(
-                  offer: referralOffer,
-                  actions: headerActions,
-                  onPressed: () => context.push('/client/referral'),
-                ),
-          actions: referralOffer == null ? headerActions : null,
+          toolbarHeight: ClientReferralToolbar.height(context),
+          title: ClientReferralToolbar(
+            offer: referralOffer,
+            actions: headerActions,
+            onPressed: () => context.push('/client/referral'),
+          ),
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(48),
             child: parcelsAsync.maybeWhen(
@@ -524,7 +524,6 @@ class _ClientHomeHeader extends StatelessWidget {
           onRelay: onRelay,
         ),
         const SendingGuideEntry(),
-        const ClientLoyaltyCard(home: true),
         const CampaignBanner(role: 'client'),
         const _DeliveryModesGuide(),
       ],

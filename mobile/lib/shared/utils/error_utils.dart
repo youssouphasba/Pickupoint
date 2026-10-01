@@ -1,7 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:flutter/services.dart';
 
 String friendlyError(Object e) {
+  if (e is PlatformException) {
+    return 'Cette fonctionnalité est momentanément indisponible sur cet appareil. Réessayez.';
+  }
   if (e is DioException) {
     final data = e.response?.data;
     if (data is Map) {

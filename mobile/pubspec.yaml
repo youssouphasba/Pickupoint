@@ -1,7 +1,7 @@
 name: pickupoint
 description: Plateforme livraison & points relais — Sénégal
 publish_to: none
-version: 1.0.27+47
+version: 1.0.28+48
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -90,6 +90,7 @@ flutter:
     - assets/logo_transparent.png
     - assets/logo_base.png
     - assets/logo_moto.png
+    - assets/logo_header.png
     - assets/sounds/
     - assets/kyc_guides/
   uses-material-design: true

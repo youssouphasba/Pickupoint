@@ -21,11 +21,15 @@ Un marqueur écrit atomiquement avec le crédit dans le document du solde empêc
 5. Publier les changements Dart sur une release Shorebird compatible. Ce correctif ne change aucun fichier natif, dépendance ou numéro de version. Cela ne remplace pas la vérification de compatibilité avec la release ciblée.
 6. Vérifier sur Android et iPhone l'ouverture depuis le navigateur, le retour à froid et à chaud et le bouton de secours. Les liens universels iOS nécessitent une association de domaine valide ; le lien de secours utilise le schéma déjà enregistré.
 
-## Patch de la release 47
+## Release 48 et prochains patches
 
-Le `pubspec.yaml` et les workflows de patch Android et iOS ciblent explicitement `1.0.27+47`, sans `latest`. Utiliser les workflows **Android Shorebird Patch** et **iOS Shorebird Patch**, pas les workflows de release ou de publication Google Play. Ne pas remplacer les variables de version par `latest` dans Codemagic.
+Le `pubspec.yaml` prépare `1.0.28+48`. Cette version contient des changements natifs Android et un nouvel asset de logo : publier d'abord une nouvelle release Android et iOS. Elle ne peut pas être distribuée comme patch de la version 47.
 
-Avant toute préparation native, le workflow compare les sources à l'état Git `d4f0b04419db8df9d9889019619a6e3516e451ee`, préparé pour la release 47. Il refuse les différences dans les dossiers natifs, le verrou des dépendances, les assets et la configuration de l'application. Après installation, les versions et empreintes des plugins Android et iOS résolus sont contrôlées à nouveau ; une différence dans un outil de test Dart n'est pas assimilée à un changement natif. Shorebird sélectionne ensuite le SDK de la release ciblée et conserve sa propre vérification des artefacts : aucun contournement `--allow-native-diffs` ou `--allow-asset-diffs` n'est utilisé.
+Les workflows de patch Android et iOS utilisent désormais `latest`. Tant que la release 48 n'est pas enregistrée chez Shorebird pour la plateforme concernée, cette cible peut encore désigner la release 47. Ne pas lancer un patch de ces sources avant la nouvelle release. Vérifier la version cible affichée par Shorebird avant publication.
+
+`SHOREBIRD_PATCH_BASE_REF` est optionnel et vide par défaut. Pour renforcer les contrôles, le renseigner avec le commit exact de la release ciblée : le workflow vérifie les sources, puis les versions et empreintes des plugins résolus. Ne pas réutiliser une référence de la release 47 pour la 48. Shorebird conserve dans tous les cas sa vérification des artefacts : aucun contournement `--allow-native-diffs` ou `--allow-asset-diffs` n'est utilisé.
+
+Les nouvelles releases et les patches des deux plateformes utilisent `--no-tree-shake-icons` pour conserver la police complète des icônes Material. Ce réglage ne remplace pas la police déjà embarquée dans une ancienne release 47 et ne rend pas les nouveaux assets patchables.
 
 La comparaison Git et les tests locaux ne remplacent pas la comparaison avec les artefacts réels enregistrés chez Shorebird. Aucun build Codemagic ni patch Shorebird n'a été lancé pour cette préparation.
 

@@ -37,8 +37,12 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
 
   Future<void> _loadBiometricState() async {
     final available = await _biometricAuth.isSupported();
-    final enabled =
-        available && await _biometricAuth.canUseForPhone(widget.phone);
+    var enabled = false;
+    try {
+      enabled = available && await _biometricAuth.canUseForPhone(widget.phone);
+    } catch (error) {
+      if (mounted) _showError(friendlyError(error));
+    }
     if (!mounted) return;
     setState(() {
       _biometricAvailable = available;
@@ -58,7 +62,11 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
     try {
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
       if (_enableBiometricOnLogin && _biometricAvailable) {
-        await _biometricAuth.saveCredentials(phone: widget.phone, pin: pin);
+        try {
+          await _biometricAuth.saveCredentials(phone: widget.phone, pin: pin);
+        } catch (error) {
+          if (mounted) _showError(friendlyError(error));
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -81,12 +89,15 @@ class _PinLoginScreenState extends ConsumerState<PinLoginScreen> {
       }
       await ref.read(authProvider.notifier).loginPin(widget.phone, pin);
     } catch (e) {
-      await _biometricAuth.disable();
+      if (e is BiometricStorageException) {
+        if (mounted) {
+          setState(() => _biometricEnabled = false);
+          _showError(friendlyError(e));
+        }
+        return;
+      }
       if (mounted) {
-        await _loadBiometricState();
-        _showError(
-          '${friendlyError(e)} Connexion biométrique désactivée sur cet appareil.',
-        );
+        _showError(friendlyError(e));
       }
     } finally {
       if (mounted) {

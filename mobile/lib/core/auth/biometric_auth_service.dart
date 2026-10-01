@@ -7,6 +7,14 @@ import 'token_storage.dart';
 final biometricAuthServiceProvider = Provider<BiometricAuthService>(
     (ref) => BiometricAuthService(TokenStorage()));
 
+class BiometricStorageException implements Exception {
+  const BiometricStorageException();
+
+  @override
+  String toString() =>
+      'La connexion biométrique doit être réactivée sur cet appareil. Connectez-vous avec votre PIN.';
+}
+
 class BiometricAuthService {
   BiometricAuthService(this._storage);
 
@@ -22,12 +30,35 @@ class BiometricAuthService {
   }
 
   Future<bool> canUseForPhone(String phone) async {
+    if (phone.trim().isEmpty) return false;
     final supported = await isSupported();
     if (!supported) return false;
 
-    final savedPhone = await _storage.getBiometricPhone();
-    final savedPin = await _storage.getBiometricPin();
-    return savedPhone == phone && savedPin != null && savedPin.isNotEmpty;
+    return _readCredentials(() async {
+      final savedPhone = await _storage.getBiometricPhone();
+      final savedPin = await _storage.getBiometricPin();
+      return savedPhone == phone && savedPin != null && savedPin.isNotEmpty;
+    });
+  }
+
+  bool _isDecryptionFailure(PlatformException error) {
+    final message = '${error.message} ${error.details}'.toLowerCase();
+    return message.contains('badpaddingexception') ||
+        message.contains('bad_decrypt') ||
+        message.contains('failed to unwrap key') ||
+        message.contains('keypermanentlyinvalidatedexception');
+  }
+
+  Future<T> _readCredentials<T>(Future<T> Function() read) async {
+    try {
+      return await read();
+    } on PlatformException catch (error) {
+      if (!_isDecryptionFailure(error)) rethrow;
+      try {
+        await _storage.clearBiometricCredentials();
+      } catch (_) {}
+      throw const BiometricStorageException();
+    }
   }
 
   Future<String?> getPinAfterAuthentication() async {
@@ -37,21 +68,27 @@ class BiometricAuthService {
       persistAcrossBackgrounding: true,
     );
     if (!authenticated) return null;
-    return _storage.getBiometricPin();
+    return _readCredentials(_storage.getBiometricPin);
   }
 
   Future<void> saveCredentials({
     required String phone,
     required String pin,
-  }) {
-    return _storage.saveBiometricCredentials(phone: phone, pin: pin);
+  }) async {
+    try {
+      await _storage.saveBiometricCredentials(phone: phone, pin: pin);
+    } on PlatformException catch (error) {
+      if (_isDecryptionFailure(error)) {
+        throw const BiometricStorageException();
+      }
+      rethrow;
+    }
   }
 
   Future<void> disable() => _storage.clearBiometricCredentials();
 
   Future<void> updatePinIfEnabled(String phone, String pin) async {
-    if (await _storage.getBiometricPhone() == phone &&
-        (await _storage.getBiometricPin())?.isNotEmpty == true) {
+    if (await canUseForPhone(phone)) {
       await saveCredentials(phone: phone, pin: pin);
     }
   }

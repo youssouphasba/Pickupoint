@@ -55,10 +55,32 @@ class ReferralRewardButton extends StatelessWidget {
         ),
         onPressed: onPressed,
         icon: const Icon(Icons.card_giftcard_outlined, size: 20),
-        label: Text(label, maxLines: 2, textAlign: TextAlign.center),
+        label: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(label, maxLines: 1, softWrap: false),
+        ),
       ),
     );
   }
+}
+
+class ClientHeaderLogo extends StatelessWidget {
+  const ClientHeaderLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: 'Denkma',
+        image: true,
+        child: ExcludeSemantics(
+          child: SizedBox.square(
+            dimension: 40,
+            child: Image.asset(
+              'assets/logo_header.png',
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      );
 }
 
 class ClientReferralToolbar extends StatelessWidget {
@@ -68,7 +90,7 @@ class ClientReferralToolbar extends StatelessWidget {
       required this.actions,
       required this.onPressed});
 
-  final Map<String, dynamic> offer;
+  final Map<String, dynamic>? offer;
   final List<Widget> actions;
   final VoidCallback onPressed;
 
@@ -79,20 +101,38 @@ class ClientReferralToolbar extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(children: [
-            Flexible(
-                flex: 2,
-                child:
-                    ReferralRewardButton(offer: offer, onPressed: onPressed)),
-            const SizedBox(width: 12),
-            const Expanded(
-                child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text('Denkma'),
-            )),
-          ]),
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: actions),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: ClientHeaderLogo(),
+          ),
+          LayoutBuilder(builder: (context, constraints) {
+            if (offer == null) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: actions,
+              );
+            }
+            final minimumWidth = 128.0 + 8 + actions.length * 48;
+            final width = constraints.maxWidth < minimumWidth
+                ? minimumWidth
+                : constraints.maxWidth;
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: width,
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                          child: ReferralRewardButton(
+                              offer: offer!, onPressed: onPressed)),
+                      const SizedBox(width: 8),
+                      ...actions,
+                    ]),
+              ),
+            );
+          }),
         ],
       );
 }

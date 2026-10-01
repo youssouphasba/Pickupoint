@@ -23,8 +23,10 @@ def configuration_without_version(text):
 
 def compatibility_errors(current, baseline, target, changed_paths):
     errors = []
+    if target == "latest":
+        target = version_of(current) or ""
     if not re.fullmatch(r"\d+\.\d+\.\d+\+\d+", target):
-        errors.append("Use an explicit Shorebird release version, never latest.")
+        errors.append("Use latest or an explicit Shorebird release version.")
     if version_of(current) != target or version_of(baseline) != target:
         errors.append("The pubspec and baseline versions must match the targeted release.")
     if configuration_without_version(current) != configuration_without_version(baseline):
