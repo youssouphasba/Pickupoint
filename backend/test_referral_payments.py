@@ -302,6 +302,126 @@ class ReferralTests(unittest.IsolatedAsyncioTestCase):
                 await admin.update_referral_settings(body, _admin=self.admin)
         self.assertEqual(self.raw_db.app_settings.find_one()["referral_roles"]["driver"]["reward_metric"], "completed_driver_deliveries")
 
+    async def test_sponsor_target_matrix_is_enforced_inside_assignment(self):
+        for sponsor_role in ("client", "driver", "relay"):
+            sponsor_id = "sponsor_" + sponsor_role
+            code = "CODE_" + sponsor_role.upper()
+            self.raw_db.users.insert_one({"user_id": sponsor_id, "role": sponsor_role,
+                                          "referral_code": code, "referral_enabled_override": True})
+            for referred_role in ("client", "driver", "relay"):
+                user_id = sponsor_role + "_to_" + referred_role
+                user = {"user_id": user_id, "role": referred_role, "referral_enabled_override": True}
+                allowed = (sponsor_role, referred_role) in {
+                    ("client", "client"), ("driver", "client"), ("driver", "driver"),
+                }
+                with self.subTest(sponsor=sponsor_role, referred=referred_role):
+                    if allowed:
+                        await referrals.assign_referral(user_id, sponsor_id, code, self.settings, "signup", new_user_doc=user)
+                        record = self.raw_db.referrals.find_one({"referred_user_id": user_id})
+                        self.assertEqual(record["referred_role"], referred_role)
+                        self.assertEqual(record["sponsor_bonus_xof"], self.settings["referral_roles"][referred_role]["sponsor_bonus_xof"])
+                    else:
+                        with self.assertRaises(HTTPException):
+                            await referrals.assign_referral(user_id, sponsor_id, code, self.settings, "signup", new_user_doc=user)
+                        self.assertIsNone(self.raw_db.users.find_one({"user_id": user_id}))
+                        self.assertIsNone(self.raw_db.referrals.find_one({"referred_user_id": user_id}))
+
+    async def test_client_cannot_apply_to_driver_even_with_individual_overrides(self):
+        from routers import users
+        self.raw_db.users.insert_many([
+            {"user_id": "client_sponsor", "role": "client", "referral_code": "CLIENTCODE", "referral_enabled_override": True},
+            {"user_id": "driver_referred", "role": "driver", "referral_enabled_override": True},
+        ])
+        with patch.object(users, "db", self.db), patch.object(users, "_record_event", AsyncMock()):
+            with self.assertRaises(HTTPException) as raised:
+                await users.apply_referral_code(users.ApplyReferralRequest(referral_code="CLIENTCODE"),
+                                                current_user=self.raw_db.users.find_one({"user_id": "driver_referred"}))
+        self.assertIn("uniquement un client", raised.exception.detail)
+        self.assertNotIn("referred_by", self.raw_db.users.find_one({"user_id": "driver_referred"}))
+
+    async def test_invitation_offers_follow_sponsor_role_and_account_status(self):
+        from routers import users
+        for role, expected in (("client", ["client"]), ("driver", ["client", "driver"]), ("relay", [])):
+            user = {"user_id": "s1", "role": role, "referral_code": "PARRAIN"}
+            with self.subTest(role=role), patch.object(users, "db", self.db):
+                payload = await users._build_referral_payload(user)
+                self.assertEqual([offer["referred_role"] for offer in payload["invitation_offers"]], expected)
+        for state in ({"is_active": False}, {"is_banned": True}, {"referral_enabled_override": False}):
+            with self.subTest(state=state), patch.object(users, "db", self.db):
+                payload = await users._build_referral_payload({"user_id": "s1", "role": "driver", "referral_code": "PARRAIN", **state})
+                self.assertFalse(payload["can_sponsor"])
+                self.assertEqual(payload["invitation_offers"], [])
+
+    async def test_driver_can_invite_clients_when_driver_offer_is_disabled(self):
+        from routers import users
+        self.settings["referral_roles"]["driver"]["enabled"] = False
+        self.raw_db.app_settings.replace_one({"key": "global"}, deepcopy(self.settings))
+        sponsor = self.raw_db.users.find_one({"user_id": "s1"})
+        with patch.object(users, "db", self.db):
+            payload = await users._build_referral_payload(sponsor)
+        self.assertTrue(payload["can_sponsor"])
+        self.assertFalse(payload["can_be_referred"])
+        self.assertEqual([offer["referred_role"] for offer in payload["invitation_offers"]], ["client"])
+        await referrals.assign_referral("new_client", "s1", "PARRAIN", self.settings, "signup",
+                                       new_user_doc={"user_id": "new_client", "role": "client"})
+        with self.assertRaises(HTTPException):
+            await referrals.assign_referral("new_driver", "s1", "PARRAIN", self.settings, "signup",
+                                           new_user_doc={"user_id": "new_driver", "role": "driver"})
+
+    async def test_driver_offer_only_is_not_advertised_to_clients(self):
+        self.settings["referral_roles"]["client"]["enabled"] = False
+        self.assertFalse(user_service.is_referral_sponsor_enabled_for_user({"role": "client"}, self.settings))
+        self.assertTrue(user_service.is_referral_sponsor_enabled_for_user({"role": "driver"}, self.settings))
+        self.assertEqual(user_service.get_referral_invitation_roles({"role": "client"}, self.settings), [])
+        self.assertEqual(user_service.get_referral_invitation_roles({"role": "driver"}, self.settings), ["driver"])
+
+    async def test_legacy_conditions_are_role_specific_and_round_trip_without_resetting_amounts(self):
+        from routers import admin
+        for source in ("legacy", "per_role"):
+            with self.subTest(source=source):
+                doc = {"referral_enabled": True, "referral_bonus_xof": 650,
+                       "referral_apply_metric": "sent_parcels", "referral_apply_max_count": 2,
+                       "referral_reward_metric": "delivered_sender_parcels", "referral_reward_count": 7}
+                if source == "per_role":
+                    doc = deepcopy(self.settings)
+                    doc["referral_roles"]["driver"].update(apply_metric="sent_parcels", reward_metric="delivered_sender_parcels")
+                before = deepcopy(doc)
+                roles = {role: user_service.get_referral_role_settings(doc, role) for role in ("client", "driver")}
+                driver = roles["driver"]
+                self.assertEqual(driver["apply_metric"], "completed_driver_deliveries")
+                self.assertEqual(driver["reward_metric"], "completed_driver_deliveries")
+                self.assertEqual(driver["sponsor_bonus_xof"], 650 if source == "legacy" else 1200)
+                self.assertEqual(driver["reward_count"], 7 if source == "legacy" else 3)
+                self.assertEqual(len(driver["configuration_warnings"]), 2)
+                self.assertEqual(doc, before)
+                with patch.object(admin, "db", self.db), patch.object(admin, "_record_event", AsyncMock()):
+                    saved = await admin.update_referral_settings(admin.ReferralSettingsRequest(**roles), _admin=self.admin)
+                self.assertEqual(saved["referral_roles"]["driver"]["configuration_warnings"], [])
+                self.assertEqual(self.raw_db.referrals.find_one({"referral_id": "ref_r1"})["reward_count"], 2)
+
+    async def test_admin_options_match_metrics_and_sponsor_matrix(self):
+        for role, expected_sponsors in (("client", ["client", "driver"]), ("driver", ["driver"])):
+            config = user_service.get_referral_role_settings(self.settings, role)
+            self.assertEqual([item["value"] for item in config["sponsor_roles"]], expected_sponsors)
+            self.assertEqual([item["value"] for item in config["metric_options"]], user_service.REFERRAL_ROLE_METRICS[role])
+            self.assertEqual(config["configuration_warnings"], [])
+
+    async def test_existing_driver_referral_keeps_frozen_conditions_after_role_restrictions(self):
+        self.raw_db.users.insert_one({"user_id": "old_driver", "role": "driver", "referred_by": "s1"})
+        await self.create("old_driver", "driver")
+        self.raw_db.referrals.update_one({"referred_user_id": "old_driver"}, {"$set": {
+            "apply_metric": "sent_parcels", "reward_metric": "delivered_sender_parcels", "reward_count": 2,
+        }})
+        self.raw_db.users.update_one({"user_id": "s1"}, {"$set": {"role": "client"}})
+        self.settings["referral_roles"]["driver"].update(enabled=False, sponsor_bonus_xof=9999, reward_count=99)
+        self.raw_db.app_settings.replace_one({"key": "global"}, deepcopy(self.settings))
+        self.deliveries("old_driver")
+        record = await referrals.refresh_referral_progress("old_driver", self.settings)
+        self.assertEqual(record["status"], "qualified")
+        self.assertEqual(record["reward_metric"], "delivered_sender_parcels")
+        self.assertEqual(record["reward_count"], 2)
+        self.assertEqual(record["sponsor_bonus_xof"], 1200)
+
     async def test_note_only_cannot_confirm_both_beneficiaries(self):
         from pydantic import ValidationError
         from routers.admin import ReferralPaymentConfirmRequest

@@ -974,6 +974,9 @@ export type ReferralRoleConfig = {
   reward_metric: string;
   reward_count: number;
   max_referrals_per_sponsor: number;
+  metric_options?: { value: string; label: string }[];
+  sponsor_roles?: { value: string; label: string }[];
+  configuration_warnings?: string[];
 };
 
 // ───────────────────────── Parcel actions ─────────────────────────

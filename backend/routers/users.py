@@ -43,6 +43,7 @@ from services.user_service import (
     describe_referral_reward_rule,
     get_effective_referral_share_base_url,
     get_global_app_settings,
+    get_referral_invitation_roles,
     get_referral_metric_count,
     get_referral_metric_label,
     get_referral_metric_options,
@@ -156,10 +157,8 @@ async def _build_referral_payload(user_doc: dict) -> dict:
         and apply_current_count <= apply_max_count
     )
     invitation_offers = []
-    for role in ("client", "driver"):
+    for role in get_referral_invitation_roles(user_doc, settings_doc):
         offer = get_referral_role_config(settings_doc, role)
-        if not offer["enabled"]:
-            continue
         assigned = await db.referrals.count_documents({"sponsor_user_id": user_doc["user_id"], "referred_role": role})
         maximum = offer["max_referrals_per_sponsor"]
         if maximum and assigned >= maximum:

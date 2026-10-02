@@ -60,6 +60,7 @@ from services.whatsapp_support_service import (
 )
 from services.user_service import (
     REFERRAL_ELIGIBLE_ROLES,
+    REFERRAL_ROLE_LABELS,
     build_referral_url,
     build_referral_share_message,
     describe_referral_apply_rule,
@@ -68,6 +69,7 @@ from services.user_service import (
     get_referral_metric_label,
     get_referral_metric_options,
     get_referral_role_config,
+    get_referral_role_settings,
     get_referral_share_base_url,
     generate_unique_referral_code,
     is_referral_enabled_for_user,
@@ -5425,7 +5427,7 @@ async def get_app_settings(_admin=Depends(require_admin_dep)):
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": get_effective_referral_share_base_url(settings_doc),
         "referral_roles": {
-            role: get_referral_role_config(settings_doc, role)
+            role: get_referral_role_settings(settings_doc, role)
             for role in REFERRAL_ELIGIBLE_ROLES
         },
         "referral_metric_options": get_referral_metric_options(),
@@ -5627,8 +5629,8 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
             "role": role, "is_active": {"$ne": False}, "is_banned": {"$ne": True},
             "referral_code": {"$type": "string", "$ne": ""},
         }
-        config = get_referral_role_config(settings_doc, role)
-        eligible["referral_enabled_override"] = {"$ne": False} if config["enabled"] else True
+        sponsor_enabled = is_referral_sponsor_enabled_for_user({"role": role}, settings_doc)
+        eligible["referral_enabled_override"] = {"$ne": False} if sponsor_enabled else True
         totals = await referral_totals({"referred_role": role})
         stats_by_role[role] = {
             "total_users": await db.users.count_documents({"role": role}),
@@ -5659,7 +5661,7 @@ async def get_referral_settings_stats(_admin=Depends(require_admin_dep)):
         "referral_share_base_url": get_referral_share_base_url(settings_doc),
         "effective_referral_share_base_url": base,
         "referral_roles": {role: {
-            **get_referral_role_config(settings_doc, role),
+            **get_referral_role_settings(settings_doc, role),
             "apply_rule": describe_referral_apply_rule(settings_doc, role),
             "reward_rule": describe_referral_reward_rule(settings_doc, role),
             "metric_options": get_referral_metric_options(role),
@@ -5878,8 +5880,11 @@ async def update_referral_settings(
     for role in REFERRAL_ELIGIBLE_ROLES:
         role_config = getattr(body, role)
         allowed = {item["value"] for item in get_referral_metric_options(role)}
-        if role_config.apply_metric not in allowed or role_config.reward_metric not in allowed:
-            raise bad_request_exception(f"Condition de parrainage invalide pour {role}")
+        for field, label in (("apply_metric", "ajouter le code"), ("reward_metric", "débloquer les primes")):
+            if getattr(role_config, field) not in allowed:
+                raise bad_request_exception(
+                    f"Filleul {REFERRAL_ROLE_LABELS[role].lower()} : l’activité choisie pour {label} n’est pas autorisée."
+                )
 
     referral_roles = {
         "client": body.client.model_dump(),
@@ -5911,7 +5916,7 @@ async def update_referral_settings(
         "referral_enabled": is_referral_globally_enabled(after),
         "referral_roles": {
             r: {
-                **get_referral_role_config(after, r),
+                **get_referral_role_settings(after, r),
                 "apply_rule": describe_referral_apply_rule(after, r),
                 "reward_rule": describe_referral_reward_rule(after, r),
             }

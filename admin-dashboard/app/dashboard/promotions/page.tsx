@@ -3,6 +3,7 @@ import { ReferralLedger } from "@/components/referral-ledger";
 import { PageSectionNav } from "@/components/page-section-nav";
 import { audiencesForRecipients, resetRecipientAudience } from "@/lib/campaign-audience";
 import { referralConditions, referralMetricCount } from "@/lib/referral-wording";
+import { referralConfigErrors } from "@/lib/referral-settings";
 
 import * as React from "react";
 import { isAxiosError } from "axios";
@@ -676,9 +677,12 @@ function RoleConfigCard({
 }) {
   const label = role === "client" ? "Client" : role === "driver" ? "Livreur" : role;
   const conditions = referralConditions(config);
+  const options = metricOptions ?? [];
+  const errors = editing ? referralConfigErrors(config, options) : [];
+  const sponsorLabels = config.sponsor_roles?.map((item) => item.label.toLowerCase()).join(" ou ");
 
   return (
-    <Card>
+    <Card id={`referral-role-${role}`}>
       <CardContent className="p-5 space-y-3">
         <div className="flex items-center justify-between">
           <span className="font-semibold">Parrainage d’un filleul {label.toLowerCase()}</span>
@@ -690,16 +694,18 @@ function RoleConfigCard({
                 onChange={(e) => onChange({ ...config, enabled: e.target.checked })}
                 className="h-4 w-4 rounded border-gray-300"
               />
-              Activé
+              Offre active
             </label>
           ) : (
             <Badge tone={config.enabled ? "success" : "default"}>
-              {config.enabled ? "Activé" : "Désactivé"}
+              {config.enabled ? "Offre active" : "Offre désactivée"}
             </Badge>
           )}
         </div>
         <p className="text-xs text-muted-foreground">Le filleul est la personne invitée ; le parrain est la personne qui l’invite. Les conditions ci-dessous portent sur l’activité du filleul. Modifier ces paramètres ne change pas les conditions des parrainages déjà acceptés.</p>
-        <p className="text-xs text-muted-foreground">L’activation permet aux comptes de ce rôle de parrainer ou d’être parrainés. Les montants ci-dessous dépendent du type de filleul, pas du rôle du parrain.</p>
+        <p className="text-xs text-muted-foreground">{sponsorLabels ? `Ce filleul peut être parrainé par un ${sponsorLabels}. ` : ""}L’activation ouvre cette offre aux filleuls de ce type. Les primes et les objectifs dépendent du filleul, pas du rôle du parrain.</p>
+        {config.configuration_warnings?.map((warning) => <p key={warning} role="status" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{warning}</p>)}
+        {errors.map((error) => <p key={error} role="alert" className="text-sm text-red-700">{error}</p>)}
 
         <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
           <div>
@@ -709,7 +715,7 @@ function RoleConfigCard({
                 type="number"
                 value={config.sponsor_bonus_xof}
                 min={0}
-                onChange={(e) => onChange({ ...config, sponsor_bonus_xof: parseInt(e.target.value) || 0 })}
+                onChange={(e) => onChange({ ...config, sponsor_bonus_xof: Number(e.target.value) })}
               />
             ) : (
               <div className="font-medium">{xof.format(config.sponsor_bonus_xof)} XOF</div>
@@ -723,7 +729,7 @@ function RoleConfigCard({
                 type="number"
                 value={config.referred_bonus_xof}
                 min={0}
-                onChange={(e) => onChange({ ...config, referred_bonus_xof: parseInt(e.target.value) || 0 })}
+                onChange={(e) => onChange({ ...config, referred_bonus_xof: Number(e.target.value) })}
               />
             ) : (
               <div className="font-medium">{xof.format(config.referred_bonus_xof)} XOF</div>
@@ -736,13 +742,16 @@ function RoleConfigCard({
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Activité du filleul à vérifier</label>
-            {editing ? (
+            {editing && (options.length !== 1 || options[0].value !== config.apply_metric) ? (
               <select
                 value={config.apply_metric}
+                aria-label={`Activité avant ajout du code — filleul ${label.toLowerCase()}`}
+                disabled={options.length === 0}
                 onChange={(e) => onChange({ ...config, apply_metric: e.target.value })}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {(metricOptions ?? Object.entries(METRIC_LABELS).map(([v, l]) => ({ value: v, label: l }))).map((o) => (
+                {!options.some((option) => option.value === config.apply_metric) && <option value={config.apply_metric}>Choisir une activité autorisée</option>}
+                {options.map((o) => (
                   <option key={o.value} value={o.value}>{METRIC_LABELS[o.value] ?? o.label}</option>
                 ))}
               </select>
@@ -757,7 +766,7 @@ function RoleConfigCard({
                 type="number"
                 value={config.apply_max_count}
                 min={0}
-                onChange={(e) => onChange({ ...config, apply_max_count: parseInt(e.target.value) || 0 })}
+                onChange={(e) => onChange({ ...config, apply_max_count: Number(e.target.value) })}
               />
             ) : (
               <div className="font-medium">{referralMetricCount(config.apply_metric, config.apply_max_count)}</div>
@@ -770,13 +779,16 @@ function RoleConfigCard({
           </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1">Activité du filleul qui valide le parrainage</label>
-            {editing ? (
+            {editing && (options.length !== 1 || options[0].value !== config.reward_metric) ? (
               <select
                 value={config.reward_metric}
+                aria-label={`Activité pour débloquer les primes — filleul ${label.toLowerCase()}`}
+                disabled={options.length === 0}
                 onChange={(e) => onChange({ ...config, reward_metric: e.target.value })}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {(metricOptions ?? Object.entries(METRIC_LABELS).map(([v, l]) => ({ value: v, label: l }))).map((o) => (
+                {!options.some((option) => option.value === config.reward_metric) && <option value={config.reward_metric}>Choisir une activité autorisée</option>}
+                {options.map((o) => (
                   <option key={o.value} value={o.value}>{METRIC_LABELS[o.value] ?? o.label}</option>
                 ))}
               </select>
@@ -790,7 +802,7 @@ function RoleConfigCard({
               <Input
                 type="number"
                 value={config.reward_count}
-                onChange={(e) => onChange({ ...config, reward_count: parseInt(e.target.value) || 1 })}
+                onChange={(e) => onChange({ ...config, reward_count: Number(e.target.value) })}
                 min={1}
               />
             ) : (
@@ -804,7 +816,7 @@ function RoleConfigCard({
                 type="number"
                 value={config.max_referrals_per_sponsor}
                 min={0}
-                onChange={(e) => onChange({ ...config, max_referrals_per_sponsor: parseInt(e.target.value) || 0 })}
+                onChange={(e) => onChange({ ...config, max_referrals_per_sponsor: Number(e.target.value) })}
               />
             ) : (
               <div className="font-medium">{config.max_referrals_per_sponsor === 0 ? "Illimité" : config.max_referrals_per_sponsor}</div>
@@ -839,11 +851,11 @@ export default function PromotionsPage() {
   const s = settings.data;
 
   React.useEffect(() => {
-    if (s?.referral_roles) {
+    if (!editing && s?.referral_roles) {
       setClientConfig(s.referral_roles.client);
       setDriverConfig(s.referral_roles.driver);
     }
-  }, [s]);
+  }, [s, editing]);
 
   const referralMut = useMutation({
     mutationFn: () =>
@@ -852,7 +864,8 @@ export default function PromotionsPage() {
         driver: driverConfig!,
         share_base_url: s?.referral_share_base_url ?? null,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      qc.setQueryData(["settings"], (previous: Record<string, unknown> | undefined) => ({ ...previous, ...data }));
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["referral-stats"] });
       setEditing(false);
@@ -862,8 +875,11 @@ export default function PromotionsPage() {
 
   const loading = settings.isLoading;
 
-  const clientMetrics = referralStats.data?.referral_roles?.client?.metric_options;
-  const driverMetrics = referralStats.data?.referral_roles?.driver?.metric_options;
+  const clientMetrics = s?.referral_roles?.client?.metric_options ?? referralStats.data?.referral_roles?.client?.metric_options;
+  const driverMetrics = s?.referral_roles?.driver?.metric_options ?? referralStats.data?.referral_roles?.driver?.metric_options;
+  const referralInvalid = !clientConfig || !driverConfig ||
+    referralConfigErrors(clientConfig, clientMetrics).length > 0 ||
+    referralConfigErrors(driverConfig, driverMetrics).length > 0;
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -908,6 +924,7 @@ export default function PromotionsPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  disabled={referralMut.isPending}
                   onClick={() => {
                     setEditing(false);
                     if (s?.referral_roles) {
@@ -922,7 +939,7 @@ export default function PromotionsPage() {
                 <Button
                   size="sm"
                   onClick={() => referralMut.mutate()}
-                  disabled={referralMut.isPending}
+                  disabled={referralMut.isPending || referralInvalid}
                 >
                   {referralMut.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -936,10 +953,12 @@ export default function PromotionsPage() {
           </div>
           {referralMut.isError && (
             <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {(referralMut.error as any)?.response?.data?.detail ?? "Erreur de sauvegarde."}
+              {isAxiosError(referralMut.error) && typeof referralMut.error.response?.data?.detail === "string"
+                ? referralMut.error.response.data.detail
+                : "Impossible de sauvegarder. Vérifiez les conditions et les montants de chaque offre."}
             </div>
           )}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <fieldset disabled={referralMut.isPending} className="grid gap-4 sm:grid-cols-2">
             <RoleConfigCard
               role="client"
               config={clientConfig}
@@ -954,7 +973,7 @@ export default function PromotionsPage() {
               editing={editing}
               onChange={setDriverConfig}
             />
-          </div>
+          </fieldset>
         </section>
       )}
 

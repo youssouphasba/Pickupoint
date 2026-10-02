@@ -9,7 +9,7 @@ from core.exceptions import bad_request_exception, not_found_exception
 from database import db, get_client
 from services.user_service import (
     get_global_app_settings, get_referral_metric_count, get_referral_role_config, get_referral_metric_label,
-    is_referral_referred_enabled_for_user, is_referral_sponsor_enabled_for_user,
+    is_referral_referred_enabled_for_user, is_referral_sponsor_enabled_for_user, is_referral_pair_allowed,
 )
 
 BENEFICIARIES = ("sponsor", "referred")
@@ -305,6 +305,8 @@ async def assign_referral(user_id, sponsor_id, code, settings_doc, source, new_u
             raise bad_request_exception("Un parrainage existe déjà pour ce compte. Contactez le support.")
         if sponsor_id == user_id or not is_referral_referred_enabled_for_user(user, settings_doc):
             raise bad_request_exception("Ce parrainage n’est pas disponible pour ce compte")
+        if not is_referral_pair_allowed(sponsor, user):
+            raise bad_request_exception("Un client peut parrainer uniquement un client. Pour un filleul livreur, utilisez le code d’un livreur.")
         ancestor = sponsor
         seen = {user_id}
         while ancestor:

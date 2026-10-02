@@ -110,7 +110,8 @@ class _DashboardBody extends StatelessWidget {
             Card(
               color: Colors.red.shade50,
               child: ListTile(
-                leading: const Icon(Icons.gpp_maybe_outlined, color: Colors.red),
+                leading:
+                    const Icon(Icons.gpp_maybe_outlined, color: Colors.red),
                 title: const Text('Alertes sécurité livreurs'),
                 subtitle: Text('$securityCount événement(s) non lu(s)'),
                 trailing: const Icon(Icons.chevron_right),
@@ -351,20 +352,20 @@ class _DashboardBody extends StatelessWidget {
         color: Colors.green,
         icon: Icons.storefront_outlined,
       ),
-            _MetricCardData(
-              label: 'Livraisons réussies',
+      _MetricCardData(
+        label: 'Livraisons réussies',
         value: _intValue(stats['delivered']).toString(),
         helper: '${_intValue(stats['failed'])} échecs enregistrés',
         color: Colors.blueGrey,
-              icon: Icons.check_circle_outline,
-            ),
-            _MetricCardData(
-              label: 'Alertes sécurité',
-              value: securityCount.toString(),
-              helper: 'GPS ou géofence bloqué',
-              color: securityCount > 0 ? Colors.red : Colors.green,
-              icon: Icons.gpp_maybe_outlined,
-            ),
+        icon: Icons.check_circle_outline,
+      ),
+      _MetricCardData(
+        label: 'Alertes sécurité',
+        value: securityCount.toString(),
+        helper: 'GPS ou géofence bloqué',
+        color: securityCount > 0 ? Colors.red : Colors.green,
+        icon: Icons.gpp_maybe_outlined,
+      ),
     ];
   }
 
@@ -1140,16 +1141,20 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
       Map<String, dynamic> data, String roleKey) async {
     final config = _roleConfig(data, roleKey);
     final metricOptions = List<Map<String, dynamic>>.from(
-      config['metric_options'] as List? ??
-          const [
-            {'value': 'sent_parcels', 'label': '0 colis envoyes'},
-            {'value': 'delivered_sender_parcels', 'label': '0 colis livrés'},
-            {
-              'value': 'completed_driver_deliveries',
-              'label': '0 livraisons effectuees'
-            },
-          ],
+      config['metric_options'] as List? ?? const [],
     );
+    if (metricOptions.isEmpty ||
+        !metricOptions
+            .any((option) => option['value'] == config['apply_metric']) ||
+        !metricOptions
+            .any((option) => option['value'] == config['reward_metric'])) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'Actualisez les conditions pour charger les activités autorisées.'),
+      ));
+      ref.invalidate(_referralSettingsProvider);
+      return;
+    }
 
     final sponsorCtrl = TextEditingController(
         text: _intValue(config['sponsor_bonus_xof']).toString());
@@ -1162,12 +1167,9 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     final maxRefCtrl = TextEditingController(
         text: _intValue(config['max_referrals_per_sponsor']).toString());
 
-    String applyMetric = config['apply_metric']?.toString() ??
-        (roleKey == 'driver' ? 'completed_driver_deliveries' : 'sent_parcels');
-    String rewardMetric = config['reward_metric']?.toString() ??
-        (roleKey == 'driver'
-            ? 'completed_driver_deliveries'
-            : 'delivered_sender_parcels');
+    String applyMetric = config['apply_metric'].toString();
+    String rewardMetric = config['reward_metric'].toString();
+    String? validationError;
 
     final roleLabel = roleKey == 'driver' ? 'Livreurs' : 'Clients';
 
@@ -1175,12 +1177,15 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDS) => AlertDialog(
-          title: Text('Parrainage $roleLabel'),
+          title: Text('Parrainage des filleuls $roleLabel'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (validationError != null)
+                  Text(validationError!,
+                      style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
                 TextField(
                   controller: sponsorCtrl,
                   keyboardType: TextInputType.number,
@@ -1198,45 +1203,50 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
                 DropdownButtonFormField<String>(
                   initialValue: applyMetric,
                   decoration: const InputDecoration(
-                      labelText: 'Métrique pour appliquer le code'),
+                      labelText: 'Activité du filleul avant ajout du code'),
                   items: metricOptions
                       .map((o) => DropdownMenuItem<String>(
                             value: o['value']!.toString(),
                             child: Text(o['label']!.toString()),
                           ))
                       .toList(),
-                  onChanged: (v) {
-                    if (v != null) setDS(() => applyMetric = v);
-                  },
+                  onChanged: metricOptions.length == 1
+                      ? null
+                      : (v) {
+                          if (v != null) setDS(() => applyMetric = v);
+                        },
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: applyMaxCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                      labelText: 'Max avant blocage du code'),
+                      labelText: 'Maximum autorisé avant ajout du code'),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: rewardMetric,
                   decoration: const InputDecoration(
-                      labelText: 'Métrique pour débloquer la prime'),
+                      labelText:
+                          'Activité du filleul pour débloquer les primes'),
                   items: metricOptions
                       .map((o) => DropdownMenuItem<String>(
                             value: o['value']!.toString(),
                             child: Text(o['label']!.toString()),
                           ))
                       .toList(),
-                  onChanged: (v) {
-                    if (v != null) setDS(() => rewardMetric = v);
-                  },
+                  onChanged: metricOptions.length == 1
+                      ? null
+                      : (v) {
+                          if (v != null) setDS(() => rewardMetric = v);
+                        },
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: rewardCountCtrl,
                   keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'Seuil de la prime'),
+                  decoration: const InputDecoration(
+                      labelText: 'Objectif minimum à atteindre'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -1256,19 +1266,30 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
               child: const Text('Annuler'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(ctx).pop({
-                'enabled': config['enabled'] ?? true,
-                'sponsor_bonus_xof':
-                    int.tryParse(sponsorCtrl.text.trim()) ?? 500,
-                'referred_bonus_xof':
-                    int.tryParse(referredCtrl.text.trim()) ?? 500,
-                'apply_metric': applyMetric,
-                'apply_max_count': int.tryParse(applyMaxCtrl.text.trim()) ?? 0,
-                'reward_metric': rewardMetric,
-                'reward_count': int.tryParse(rewardCountCtrl.text.trim()) ?? 1,
-                'max_referrals_per_sponsor':
-                    int.tryParse(maxRefCtrl.text.trim()) ?? 0,
-              }),
+              onPressed: () {
+                final sponsor = int.tryParse(sponsorCtrl.text.trim());
+                final referred = int.tryParse(referredCtrl.text.trim());
+                final applyMax = int.tryParse(applyMaxCtrl.text.trim());
+                final rewardCount = int.tryParse(rewardCountCtrl.text.trim());
+                final maxReferrals = int.tryParse(maxRefCtrl.text.trim());
+                if ([sponsor, referred, applyMax, rewardCount, maxReferrals]
+                        .any((value) => value == null || value < 0) ||
+                    rewardCount == 0) {
+                  setDS(() => validationError =
+                      'Saisissez des nombres entiers positifs ou nuls ; l’objectif doit être au moins 1.');
+                  return;
+                }
+                Navigator.of(ctx).pop({
+                  'enabled': config['enabled'] ?? true,
+                  'sponsor_bonus_xof': sponsor,
+                  'referred_bonus_xof': referred,
+                  'apply_metric': applyMetric,
+                  'apply_max_count': applyMax,
+                  'reward_metric': rewardMetric,
+                  'reward_count': rewardCount,
+                  'max_referrals_per_sponsor': maxReferrals,
+                });
+              },
               child: const Text('Enregistrer'),
             ),
           ],
@@ -1394,6 +1415,13 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
     final sponsorBonus = _intValue(config['sponsor_bonus_xof']);
     final referredBonus = _intValue(config['referred_bonus_xof']);
     final rewardRule = config['reward_rule']?.toString() ?? '';
+    final sponsorLabels = (config['sponsor_roles'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => item['label']?.toString().toLowerCase() ?? '')
+        .where((label) => label.isNotEmpty)
+        .join(' ou ');
+    final warnings = (config['configuration_warnings'] as List? ?? const [])
+        .whereType<String>();
     final maxRef = _intValue(config['max_referrals_per_sponsor']);
     final roleStats = Map<String, dynamic>.from(
       statsByRole[roleKey] as Map? ?? const {},
@@ -1419,7 +1447,7 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
               Icon(icon, size: 18, color: enabled ? Colors.blue : Colors.grey),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(label,
+                child: Text('Filleuls ${label.toLowerCase()}',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
               Switch.adaptive(
@@ -1437,6 +1465,14 @@ class _ReferralSettingsTileState extends ConsumerState<_ReferralSettingsTile> {
               ),
             ],
           ),
+          if (sponsorLabels.isNotEmpty)
+            Text(
+                'Parrains autorisés : $sponsorLabels. L’activation concerne cette offre pour les filleuls.'),
+          for (final warning in warnings)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(warning),
+            ),
           if (enabled) ...[
             const SizedBox(height: 6),
             Text(

@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 # ── Referral per-role defaults ───────────────────────────────────────────────
 
 REFERRAL_ELIGIBLE_ROLES = ["client", "driver"]
+REFERRAL_SPONSOR_TARGET_ROLES = {
+    "client": ("client",),
+    "driver": ("client", "driver"),
+}
+REFERRAL_ROLE_LABELS = {"client": "Client", "driver": "Livreur"}
 
 REFERRAL_ROLE_DEFAULTS: dict[str, dict] = {
     "client": {
@@ -116,15 +121,15 @@ def get_referral_role_config(settings_doc: dict | None, role: str) -> dict:
     defaults = REFERRAL_ROLE_DEFAULTS[role]
 
     # New per-role structure
-    role_config = doc.get("referral_roles", {}).get(role)
+    role_config = (doc.get("referral_roles") or {}).get(role)
     if isinstance(role_config, dict):
         return {
             "enabled": bool(role_config.get("enabled", defaults["enabled"])),
             "sponsor_bonus_xof": _safe_int(role_config.get("sponsor_bonus_xof"), defaults["sponsor_bonus_xof"]),
             "referred_bonus_xof": _safe_int(role_config.get("referred_bonus_xof"), defaults["referred_bonus_xof"]),
-            "apply_metric": _safe_metric(role_config.get("apply_metric"), defaults["apply_metric"]),
+            "apply_metric": _safe_metric(role_config.get("apply_metric"), defaults["apply_metric"], role),
             "apply_max_count": _safe_int(role_config.get("apply_max_count"), defaults["apply_max_count"]),
-            "reward_metric": _safe_metric(role_config.get("reward_metric"), defaults["reward_metric"]),
+            "reward_metric": _safe_metric(role_config.get("reward_metric"), defaults["reward_metric"], role),
             "reward_count": max(_safe_int(role_config.get("reward_count"), defaults["reward_count"]), 1),
             "max_referrals_per_sponsor": _safe_int(role_config.get("max_referrals_per_sponsor"), defaults["max_referrals_per_sponsor"]),
         }
@@ -139,9 +144,9 @@ def get_referral_role_config(settings_doc: dict | None, role: str) -> dict:
             "enabled": role_enabled,
             "sponsor_bonus_xof": _safe_int(doc.get("referral_sponsor_bonus_xof", doc.get("referral_bonus_xof")), defaults["sponsor_bonus_xof"]),
             "referred_bonus_xof": _safe_int(doc.get("referral_referred_bonus_xof", doc.get("referral_bonus_xof")), defaults["referred_bonus_xof"]),
-            "apply_metric": _safe_metric(doc.get("referral_apply_metric"), defaults["apply_metric"]),
+            "apply_metric": _safe_metric(doc.get("referral_apply_metric"), defaults["apply_metric"], role),
             "apply_max_count": _safe_int(doc.get("referral_apply_max_count"), defaults["apply_max_count"]),
-            "reward_metric": _safe_metric(doc.get("referral_reward_metric"), defaults["reward_metric"]),
+            "reward_metric": _safe_metric(doc.get("referral_reward_metric"), defaults["reward_metric"], role),
             "reward_count": max(_safe_int(doc.get("referral_reward_count"), defaults["reward_count"]), 1),
             "max_referrals_per_sponsor": 0,
         }
@@ -157,9 +162,37 @@ def _safe_int(val, default: int) -> int:
         return default
 
 
-def _safe_metric(val, default: str) -> str:
+def _safe_metric(val, default: str, role: str | None = None) -> str:
     s = str(val or "").strip()
-    return s if s in REFERRAL_METRIC_LABELS else default
+    allowed = REFERRAL_ROLE_METRICS.get(role, REFERRAL_METRIC_LABELS)
+    return s if s in allowed else default
+
+
+def get_referral_role_settings(settings_doc: dict | None, role: str) -> dict:
+    config = get_referral_role_config(settings_doc, role)
+    doc = settings_doc or {}
+    stored = (doc.get("referral_roles") or {}).get(role)
+    stored = stored if isinstance(stored, dict) else {
+        field: doc.get("referral_" + field) for field in ("apply_metric", "reward_metric")
+    }
+    warnings = []
+    for field, label in (("apply_metric", "ajouter le code"), ("reward_metric", "débloquer les primes")):
+        raw = str(stored.get(field) or "").strip()
+        if raw and raw != config[field]:
+            warnings.append(
+                f"L’ancienne activité pour {label} est incompatible avec un filleul "
+                f"{REFERRAL_ROLE_LABELS[role].lower()}. L’activité adaptée sera enregistrée à la sauvegarde ; "
+                "les montants et les seuils sont conservés."
+            )
+    return {
+        **config,
+        "metric_options": get_referral_metric_options(role),
+        "sponsor_roles": [
+            {"value": sponsor_role, "label": REFERRAL_ROLE_LABELS[sponsor_role]}
+            for sponsor_role, targets in REFERRAL_SPONSOR_TARGET_ROLES.items() if role in targets
+        ],
+        "configuration_warnings": warnings,
+    }
 
 
 # ── Convenience getters (role-aware) ─────────────────────────────────────────
@@ -317,13 +350,31 @@ def is_referral_sponsor_enabled_for_user(user_doc: dict | None, settings_doc: di
         return False
     if user_doc.get("is_banned") or user_doc.get("is_active") is False:
         return False
+    role = str(user_doc.get("role") or "client")
+    targets = REFERRAL_SPONSOR_TARGET_ROLES.get(role, ())
+    if not targets:
+        return False
     override = user_doc.get("referral_enabled_override")
     if override is True:
         return True
     if override is False:
         return False
-    role = str(user_doc.get("role") or "client")
-    return get_referral_role_config(settings_doc, role).get("enabled", False)
+    return any(get_referral_role_config(settings_doc, target)["enabled"] for target in targets)
+
+
+def get_referral_invitation_roles(user_doc: dict | None, settings_doc: dict | None) -> list[str]:
+    if not is_referral_sponsor_enabled_for_user(user_doc, settings_doc):
+        return []
+    return [
+        role for role in REFERRAL_SPONSOR_TARGET_ROLES.get(str(user_doc.get("role") or "client"), ())
+        if get_referral_role_config(settings_doc, role)["enabled"]
+    ]
+
+
+def is_referral_pair_allowed(sponsor_doc: dict, referred_doc: dict) -> bool:
+    sponsor_role = str(sponsor_doc.get("role") or "client")
+    referred_role = str(referred_doc.get("role") or "client")
+    return referred_role in REFERRAL_SPONSOR_TARGET_ROLES.get(sponsor_role, ())
 
 
 def is_referral_referred_enabled_for_user(user_doc: dict | None, settings_doc: dict | None) -> bool:
@@ -331,12 +382,14 @@ def is_referral_referred_enabled_for_user(user_doc: dict | None, settings_doc: d
         return False
     if user_doc.get("is_banned") or user_doc.get("is_active") is False:
         return False
+    role = str(user_doc.get("role") or "client")
+    if role not in REFERRAL_ELIGIBLE_ROLES:
+        return False
     override = user_doc.get("referral_enabled_override")
     if override is True:
         return True
     if override is False:
         return False
-    role = str(user_doc.get("role") or "client")
     return get_referral_role_config(settings_doc, role).get("enabled", False)
 
 
@@ -362,7 +415,8 @@ def get_referral_allowed_roles(settings_doc: dict | None) -> list[str]:
 
 
 def get_referral_sponsor_allowed_roles(settings_doc: dict | None) -> list[str]:
-    return get_referral_allowed_roles(settings_doc)
+    return [role for role in REFERRAL_SPONSOR_TARGET_ROLES
+            if is_referral_sponsor_enabled_for_user({"role": role}, settings_doc)]
 
 
 def get_referral_referred_allowed_roles(settings_doc: dict | None) -> list[str]:
@@ -375,7 +429,7 @@ def is_referral_role_allowed(role: str | None, settings_doc: dict | None) -> boo
 
 
 def is_referral_sponsor_role_allowed(role: str | None, settings_doc: dict | None) -> bool:
-    return is_referral_role_allowed(role, settings_doc)
+    return is_referral_sponsor_enabled_for_user({"role": role or "client"}, settings_doc)
 
 
 def is_referral_referred_role_allowed(role: str | None, settings_doc: dict | None) -> bool:
