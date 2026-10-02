@@ -2,6 +2,7 @@
 Service notification : envoi de notifications push, SMS, WhatsApp aux utilisateurs.
 """
 import logging
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -14,6 +15,8 @@ from database import db
 from models.notification import NotificationChannel, NotificationStatus
 from models.common import ParcelStatus
 from models.delivery import ACTIVE_MISSION_STATUSES
+from services.mission_trace import timestamp
+from services.location_quality import location_is_live
 
 logger = logging.getLogger(__name__)
 
@@ -861,7 +864,9 @@ async def _store_and_send(
     """
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"notification_prefs": 1, "phone": 1, "fcm_token": 1, "fcm_tokens": 1, "role": 1},
+        {"notification_prefs": 1, "phone": 1, "fcm_token": 1, "fcm_tokens": 1, "role": 1,
+         "is_active": 1, "is_available": 1, "is_banned": 1,
+         "last_driver_location": 1, "last_driver_location_at": 1},
     )
     if not _notification_category_enabled(user, category):
         return {
@@ -870,8 +875,10 @@ async def _store_and_send(
             "push_reason": "category_disabled",
         }
 
-    if event_type == "mission_available" and await _driver_has_active_mission(user_id):
-        return {"stored": False, "push_status": "skipped", "push_reason": "active_mission"}
+    if event_type == "mission_available":
+        reason = await _mission_availability_skip_reason(user_id, ref_id, user, metadata)
+        if reason:
+            return {"stored": False, "push_status": "skipped", "push_reason": reason}
 
     if not event_type:
         if ref_type == "parcel":
@@ -1020,6 +1027,60 @@ async def _driver_has_active_mission(user_id: str) -> bool:
     ) is not None
 
 
+async def _mission_availability_skip_reason(
+    user_id: str, mission_id: Optional[str], user: Optional[dict], metadata: Optional[dict],
+) -> Optional[str]:
+    if await _driver_has_active_mission(user_id):
+        return "active_mission"
+    if not mission_id:
+        return None
+    if not user or user.get("is_active") is not True or user.get("is_available") is not True or user.get("is_banned") is True:
+        return "driver_unavailable"
+    mission = await db.delivery_missions.find_one({"mission_id": mission_id}, {"_id": 0})
+    if not mission or mission.get("status") != "pending" or user_id in (mission.get("declined_driver_ids") or []):
+        return "mission_unavailable"
+    if mission.get("parcel_id"):
+        parcel = await db.parcels.find_one({"parcel_id": mission["parcel_id"]}, {"status": 1})
+        if not parcel or parcel.get("status") in {
+            ParcelStatus.CANCELLED.value, ParcelStatus.RETURNED.value, ParcelStatus.DELIVERED.value,
+            ParcelStatus.EXPIRED.value, ParcelStatus.DISPUTED.value, ParcelStatus.SUSPENDED.value,
+        }:
+            return "mission_unavailable"
+    requested = mission.get("admin_requested_driver_id")
+    if requested:
+        return None if requested == user_id else "mission_unavailable"
+    now = datetime.now(timezone.utc)
+    max_age = min(settings.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES * 60, settings.GPS_CAPTURE_MAX_AGE_SECONDS)
+    location = user.get("last_driver_location")
+    if not location_is_live(location, user.get("last_driver_location_at"), now=now, max_age_seconds=max_age):
+        return "driver_location_stale"
+    from services.parcel_service import (
+        _haversine_km, _normalize_geopin, get_delivery_dispatch_settings, resolve_delivery_dispatch_state,
+    )
+    try:
+        pickup = _normalize_geopin(mission.get("pickup_geopin"))
+        if not pickup:
+            return "driver_location_unavailable"
+        if not all(math.isfinite(pickup[key]) and abs(pickup[key]) <= bound
+                   for key, bound in (("lat", 90), ("lng", 180))):
+            return "driver_location_unavailable"
+        radius = mission.get("dispatch_radius_km")
+        if radius is None:
+            radius = (metadata or {}).get("dispatch_radius_km")
+        if radius is None:
+            dispatch = mission.get("delivery_dispatch") or await get_delivery_dispatch_settings()
+            started_at = timestamp(mission.get("dispatch_started_at")) or timestamp(mission.get("created_at")) or now
+            radius = resolve_delivery_dispatch_state(dispatch, started_at, now=now)["radius_km"]
+        radius = float(radius)
+        if not math.isfinite(radius) or radius <= 0:
+            return "mission_unavailable"
+        if _haversine_km(location["lat"], location["lng"], pickup["lat"], pickup["lng"]) > radius:
+            return "driver_outside_dispatch_radius"
+    except (TypeError, ValueError, AttributeError):
+        return "driver_location_unavailable"
+    return None
+
+
 async def _send_push(
     user_id: str,
     title: str,
@@ -1036,7 +1097,9 @@ async def _send_push(
 ):
     user = await db.users.find_one(
         {"user_id": user_id},
-        {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1},
+        {"fcm_token": 1, "fcm_tokens": 1, "notification_prefs": 1,
+         "is_active": 1, "is_available": 1, "is_banned": 1,
+         "last_driver_location": 1, "last_driver_location_at": 1},
     )
     fcm_tokens = _push_tokens_from_user(user, push_platform)
     push_enabled = ((user or {}).get("notification_prefs") or {}).get("push", True)
@@ -1049,8 +1112,10 @@ async def _send_push(
         return {"push_status": "skipped", "push_reason": "push_disabled"}
     if not _notification_category_enabled(user, category):
         return {"push_status": "skipped", "push_reason": "category_disabled"}
-    if event_type == "mission_available" and await _driver_has_active_mission(user_id):
-        return {"push_status": "skipped", "push_reason": "active_mission"}
+    if event_type == "mission_available":
+        reason = await _mission_availability_skip_reason(user_id, ref_id, user, metadata)
+        if reason:
+            return {"push_status": "skipped", "push_reason": reason}
 
     _ensure_firebase()
     if not _firebase_initialized:
@@ -1089,6 +1154,14 @@ async def _send_push(
             parcel_status=(metadata or {}).get("parcel_status"),
             alert_kind=(metadata or {}).get("alert_kind"),
         )
+        apns_headers = {"apns-collapse-id": collapse_id} if collapse_id else {}
+        offer_ttl = None
+        if event_type == "mission_available":
+            offer_ttl = timedelta(seconds=min(
+                settings.GPS_CAPTURE_MAX_AGE_SECONDS,
+                settings.DRIVER_DISPATCH_LOCATION_MAX_AGE_MINUTES * 60,
+            ))
+            apns_headers["apns-expiration"] = str(int((datetime.now(timezone.utc) + offer_ttl).timestamp()))
         for token in fcm_tokens:
             message = _messaging.Message(
                 notification=_messaging.Notification(title=title, body=body),
@@ -1096,6 +1169,7 @@ async def _send_push(
                 android=_messaging.AndroidConfig(
                     collapse_key=collapse_id or None,
                     priority="high",
+                    ttl=offer_ttl,
                     notification=_messaging.AndroidNotification(
                         channel_id=_android_alert_channel_id(alert_profile, user),
                         sound=alert_profile["android_sound"],
@@ -1103,7 +1177,7 @@ async def _send_push(
                     ),
                 ),
                 apns=_messaging.APNSConfig(
-                    headers={"apns-collapse-id": collapse_id} if collapse_id else {},
+                    headers=apns_headers or None,
                     payload=_messaging.APNSPayload(
                         aps=_messaging.Aps(sound=alert_profile["ios_sound"]),
                     ),

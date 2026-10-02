@@ -67,6 +67,13 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
   bool _followPendingPayment = false;
   String _historyCategory = 'balance';
   final List<int> _historyOffsets = [0];
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _historyKey = GlobalKey();
+  static const _contentPadding = EdgeInsets.all(24);
+  double _minimumContentHeight = 0;
+  WalletActivity? _lastActivity;
+  String? _lastActivityPeriod;
+  List<AsyncValue<WalletActivity>> _lastActivityPages = [];
 
   WalletActivityQuery _activityQuery(int skip) =>
       (period: _period, category: _historyCategory, skip: skip);
@@ -113,6 +120,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
   @override
   void dispose() {
     _paymentRetry?.cancel();
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -211,6 +219,16 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
             ref.watch(driverWalletActivityProvider(_activityQuery(offset))))
         .toList();
     final activityAsync = activityPages.first;
+    if (activityAsync.hasValue &&
+        !activityAsync.isLoading &&
+        !activityAsync.hasError) {
+      _lastActivity = activityAsync.valueOrNull;
+      _lastActivityPeriod = _period;
+      _lastActivityPages = activityPages;
+    }
+    final activity = activityAsync.valueOrNull ?? _lastActivity;
+    final displayedPages =
+        activityAsync.hasValue ? activityPages : _lastActivityPages;
 
     return Scaffold(
       appBar: AppBar(
@@ -232,56 +250,66 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
       body: RefreshIndicator(
         onRefresh: () => _refreshWallet(showFeedback: true),
         child: SingleChildScrollView(
+          key: const PageStorageKey('driver-wallet-scroll'),
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              _buildBalanceCard(context, walletAsync),
-              if (_paymentMessage != null) ...[
-                const SizedBox(height: 16),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: (_paymentConfirmed ? Colors.green : Colors.blue)
-                        .withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
+          padding: _contentPadding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: _minimumContentHeight),
+            child: Column(
+              children: [
+                _buildBalanceCard(context, walletAsync),
+                if (_paymentMessage != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: (_paymentConfirmed ? Colors.green : Colors.blue)
+                          .withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(_paymentMessage!),
                   ),
-                  child: Text(_paymentMessage!),
+                ],
+                _buildPendingOperations(activity, walletAsync.valueOrNull),
+                const SizedBox(height: 24),
+                if (activity != null)
+                  _buildActivity(activity, displayedPages,
+                      loading: activityAsync.isLoading,
+                      summaryCurrent: _lastActivityPeriod == _period,
+                      error: activityAsync.hasError ? activityAsync.error : null)
+                else
+                  activityAsync.when(
+                    data: (activity) => _buildActivity(activity, activityPages),
+                    loading: () => Column(children: [
+                      _buildPeriodFilter(),
+                      const SizedBox(height: 16),
+                      const CircularProgressIndicator(),
+                    ]),
+                    error: (error, _) => Column(children: [
+                      _buildPeriodFilter(),
+                      _activityError(error, 0),
+                    ]),
+                  ),
+                const SizedBox(height: 16),
+                const ExpansionTile(
+                  title: Text('Comprendre les montants'),
+                  childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        'Le solde Denkma sert à régler vos commissions. Vous pouvez le recharger ou demander un retrait du montant disponible.'),
+                    SizedBox(height: 8),
+                    Text(
+                        'Les revenus des courses sont encaissés hors de l’application. Ils ne s’ajoutent pas au solde Denkma.'),
+                    SizedBox(height: 8),
+                    Text(
+                        'Les opérations en attente restent visibles, quelle que soit la période choisie.'),
+                  ],
                 ),
               ],
-              _buildPendingOperations(
-                  activityAsync.valueOrNull, walletAsync.valueOrNull),
-              const SizedBox(height: 24),
-              activityAsync.when(
-                data: (activity) => _buildActivity(activity, activityPages),
-                loading: () => Column(children: [
-                  _buildPeriodFilter(),
-                  const SizedBox(height: 16),
-                  const CircularProgressIndicator(),
-                ]),
-                error: (error, _) => Column(children: [
-                  _buildPeriodFilter(),
-                  _activityError(error, 0),
-                ]),
-              ),
-              const SizedBox(height: 16),
-              const ExpansionTile(
-                title: Text('Comprendre les montants'),
-                childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                      'Le solde Denkma sert à régler vos commissions. Vous pouvez le recharger ou demander un retrait du montant disponible.'),
-                  SizedBox(height: 8),
-                  Text(
-                      'Les revenus des courses sont encaissés hors de l’application. Ils ne s’ajoutent pas au solde Denkma.'),
-                  SizedBox(height: 8),
-                  Text(
-                      'Les opérations en attente restent visibles, quelle que soit la période choisie.'),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -308,6 +336,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
           )
           .toList(),
       onChanged: (value) => setState(() {
+        _preserveScrollPosition();
         _period = value;
         _historyOffsets
           ..clear()
@@ -522,62 +551,117 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
       );
 
   Widget _buildActivity(
-      WalletActivity activity, List<AsyncValue<WalletActivity>> pages) {
+      WalletActivity activity, List<AsyncValue<WalletActivity>> pages,
+      {bool loading = false, bool summaryCurrent = true, Object? error}) {
     final rows = pages
         .expand((page) => page.valueOrNull?.items ?? <WalletActivityItem>[])
         .toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Card(
-          child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Revenus des courses',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 18)),
-                    const SizedBox(height: 16),
-                    _buildPeriodFilter(),
-                    const SizedBox(height: 16),
-                    Text(formatXof(activity.earnings),
-                        style: const TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.bold)),
-                    Text(
-                        '${activity.coursesCount} course${activity.coursesCount == 1 ? '' : 's'}'),
-                    const SizedBox(height: 8),
-                    const Text('Encaissés hors application'),
-                  ]))),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Revenus des courses',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 16),
+              _buildPeriodFilter(),
+              const SizedBox(height: 16),
+              Text(summaryCurrent ? formatXof(activity.earnings) : '—',
+                  style: const TextStyle(
+                      fontSize: 26, fontWeight: FontWeight.bold)),
+              Text(summaryCurrent
+                  ? '${activity.coursesCount} course${activity.coursesCount == 1 ? '' : 's'}'
+                  : loading
+                      ? 'Chargement…'
+                      : 'Revenus indisponibles'),
+              const SizedBox(height: 8),
+              const Text('Encaissés hors application'),
+              TextButton.icon(
+                onPressed: _showRevenueHistory,
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('Voir les courses concernées'),
+              ),
+            ],
+          ),
+        ),
+      ),
       const SizedBox(height: 24),
-      const Text('Historique',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+      Text('Historique',
+          key: _historyKey,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
       const SizedBox(height: 8),
       Wrap(spacing: 8, children: [
         for (final entry in {'balance': 'Solde', 'revenues': 'Courses'}.entries)
           ChoiceChip(
               label: Text(entry.value),
               selected: _historyCategory == entry.key,
-              onSelected: (_) => setState(() {
-                    _historyCategory = entry.key;
-                    _historyOffsets
-                      ..clear()
-                      ..add(0);
-                  })),
+              onSelected: (_) => _selectHistoryCategory(entry.key)),
       ]),
       const SizedBox(height: 12),
-      if (rows.isEmpty && pages.every((page) => page.hasValue))
+      SizedBox(
+          height: 4,
+          child: loading ? const LinearProgressIndicator() : null),
+      if (error != null) _activityError(error, 0),
+      if (!loading &&
+          error == null &&
+          rows.isEmpty &&
+          pages.every((page) => page.hasValue))
         const Text('Aucune opération pour cette période.'),
-      for (final row in rows) _buildActivityRow(row),
-      for (var index = 1; index < pages.length; index++)
-        pages[index].when(
-            data: (_) => const SizedBox.shrink(),
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => _activityError(error, _historyOffsets[index])),
-      if (pages.every((page) => page.hasValue) && rows.length < activity.total)
+      IgnorePointer(
+        ignoring: loading || error != null,
+        child: Opacity(
+          opacity: loading || error != null ? 0.45 : 1,
+          child: Column(
+              children: [for (final row in rows) _buildActivityRow(row)]),
+        ),
+      ),
+      if (!loading && error == null)
+        for (var index = 1; index < pages.length; index++)
+          pages[index].when(
+              data: (_) => const SizedBox.shrink(),
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => _activityError(error, _historyOffsets[index])),
+      if (!loading &&
+          error == null &&
+          pages.every((page) => page.hasValue) &&
+          rows.length < activity.total)
         TextButton.icon(
             onPressed: () => setState(() => _historyOffsets.add(rows.length)),
             icon: const Icon(Icons.expand_more),
             label: Text('Voir plus (${rows.length} sur ${activity.total})')),
     ]);
+  }
+
+  void _showRevenueHistory() {
+    _selectHistoryCategory('revenues');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final historyContext = _historyKey.currentContext;
+      if (!mounted || historyContext == null) return;
+      Scrollable.ensureVisible(historyContext,
+          alignment: 0.1, duration: const Duration(milliseconds: 300));
+    });
+  }
+
+  void _preserveScrollPosition() {
+    if (!_scrollController.hasClients) return;
+    _minimumContentHeight = max(
+        0.0,
+        _scrollController.offset +
+            _scrollController.position.viewportDimension -
+            _contentPadding.vertical);
+  }
+
+  void _selectHistoryCategory(String category) {
+    if (_historyCategory == category) return;
+    setState(() {
+      _preserveScrollPosition();
+      _historyCategory = category;
+      _historyOffsets
+        ..clear()
+        ..add(0);
+    });
   }
 
   Widget _buildActivityRow(WalletActivityItem item) {

@@ -22,7 +22,6 @@ import {
   resolveIncident,
   suspendParcel,
   unsuspendParcel,
-  updateRelaySettlement,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +34,9 @@ import {
   resolveLocationSignal,
 } from "@/lib/location-signal";
 import { formatDate } from "@/lib/utils";
-import { paymentStatusLabel, payerLabel, RELAY_SETTLEMENT_LABELS, settlementStatusLabel } from "@/lib/admin-display";
+import { paymentStatusLabel, payerLabel } from "@/lib/admin-display";
+import { RelaySettlementActionCard } from "@/components/relay-settlement-action";
+import type { RelaySettlementAction } from "@/lib/relay-settlements";
 import {
   ArrowLeft,
   Ban,
@@ -466,15 +467,6 @@ export default function ParcelDetailPage() {
       setReassignOpen(false);
       setReassignDriverId("");
       setReassignMode("normal");
-    },
-  });
-
-  const relaySettlementMut = useMutation({
-    mutationFn: (body: { action: string; status: "validated" | "rejected"; relay_id?: string }) =>
-      updateRelaySettlement(id, body),
-    onSuccess: () => {
-      invalidate();
-      toast("Règlement relais mis à jour.");
     },
   });
 
@@ -910,18 +902,10 @@ export default function ParcelDetailPage() {
             <Row label="Commission relais" value={`${xof.format(Number(financial.relay_commission_xof ?? 0))} XOF`} />
             <Row label="Qui collecte" value={financial.settlement_model === "origin_relay_collects" ? "Relais de départ" : "Livreur"} />
             <Row label="Solde minimum livreur" value={`${xof.format(Number(financial.wallet_balance_required_xof ?? 0))} XOF`} />
-            {Object.entries(financial.relay_settlement ?? {}).filter(([key]) => key.endsWith("_status")).map(([key, value]) => (
-              <div key={key} className="rounded-md border p-3">
-                <div className="text-muted-foreground">{RELAY_SETTLEMENT_LABELS[key] ?? "Règlement à vérifier"}</div>
-                <div className="mt-1 font-medium">{settlementStatusLabel(value)}</div>
-                {value === "declared" && (
-                  <div className="mt-2 flex gap-2">
-                    <Button size="sm" onClick={() => relaySettlementMut.mutate({ action: key.replace("_status", ""), status: "validated" })}>Valider</Button>
-                    <Button size="sm" variant="outline" onClick={() => relaySettlementMut.mutate({ action: key.replace("_status", ""), status: "rejected" })}>Rejeter</Button>
-                  </div>
-                )}
-              </div>
-            ))}
+          </CardContent>
+          <CardContent className="grid items-start gap-3 md:grid-cols-2">
+            {(financial.relay_actions ?? []).map((item: RelaySettlementAction) => <RelaySettlementActionCard key={`${item.action}:${item.relay_id}`} item={item} />)}
+            {financial.relay_actions_error ? <p role="alert" className="text-sm text-amber-800">Règlements non calculables : {financial.relay_actions_error}</p> : !(financial.relay_actions ?? []).length && <p className="text-sm text-muted-foreground">Aucun règlement relais applicable à ce colis.</p>}
           </CardContent>
         </Card>
       )}

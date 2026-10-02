@@ -1,5 +1,6 @@
 
 import axios from "axios";
+import type { RelaySettlementActions, RelaySettlementOverview, SettlementDirection, SettlementFilter } from "@/lib/relay-settlements";
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL || "https://api.denkma.com";
 
@@ -1042,9 +1043,19 @@ export async function updateSendingGuide(body: SendingGuideSettings) {
 
 export async function updateRelaySettlement(
   parcelId: string,
-  body: { action: string; status: "validated" | "rejected"; relay_id?: string; note?: string },
+  body: { action: string; status: "validated" | "rejected"; relay_id?: string; note?: string; expected_status?: string; expected_amount_xof?: number; expected_updated_at?: string | null },
 ) {
-  const { data } = await api.post(`/api/admin/parcels/${parcelId}/relay-settlement`, body);
+  const { data } = await api.post(`/api/admin/parcels/${encodeURIComponent(parcelId)}/relay-settlement`, body);
+  return data;
+}
+
+export async function fetchRelaySettlementOverview(params: { search?: string; skip?: number; limit?: number } = {}): Promise<RelaySettlementOverview> {
+  const { data } = await api.get("/api/admin/finance/relay-settlements", { params });
+  return data;
+}
+
+export async function fetchRelaySettlementActions(params: { relay_id?: string; status?: SettlementFilter; direction?: SettlementDirection; skip?: number; limit?: number } = {}): Promise<RelaySettlementActions> {
+  const { data } = await api.get("/api/admin/finance/relay-settlements/actions", { params });
   return data;
 }
 

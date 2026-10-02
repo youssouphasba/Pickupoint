@@ -371,6 +371,14 @@ export default function RelayDetailPage() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle className="text-base">Règlements et actions de paiement</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-muted-foreground">Consultez ce que Denkma doit à ce relais, ce qu’il doit à Denkma et les paiements restant à effectuer ou à valider, colis par colis.</p>
+          <Link className="inline-flex items-center rounded-md border px-3 py-2 font-medium text-primary hover:bg-muted" href={`/dashboard/finance?relay_id=${encodeURIComponent(relay.relay_id)}#relais`}>Voir les règlements de ce relais</Link>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">Horaires</CardTitle></CardHeader>
         <CardContent className="text-sm">
           <div>{relay.opening_status?.label ?? "Horaires non renseignés"}</div>

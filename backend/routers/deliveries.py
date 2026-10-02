@@ -23,6 +23,7 @@ from models.delivery import ACTIVE_MISSION_STATUSES, MissionStatus, LocationUpda
 from services.location_quality import client_live_tracking_allowed, validate_capture
 from pydantic import BaseModel, Field
 from services.parcel_service import (
+    DEFAULT_DELIVERY_DISPATCH_STAGES,
     _current_delivery_location,
     _enrich_location_from_geopin,
     _record_event,
@@ -373,9 +374,6 @@ def _can_driver_preview_pending_mission(
     if requested_driver_id:
         return requested_driver_id == driver_user_id
 
-    if mission.get("is_broadcast"):
-        return True
-
     candidates = mission.get("candidate_drivers") or []
     notified_driver_ids = mission.get("dispatch_notified_driver_ids") or []
     already_targeted = (
@@ -387,7 +385,11 @@ def _can_driver_preview_pending_mission(
 
     dispatch_radius_km = mission.get("dispatch_radius_km")
     if dispatch_radius_km is None:
-        dispatch_radius_km = 5.0
+        if mission.get("is_broadcast"):
+            stages = (mission.get("delivery_dispatch") or {}).get("stages") or DEFAULT_DELIVERY_DISPATCH_STAGES
+            dispatch_radius_km = stages[-1]["radius_km"]
+        else:
+            dispatch_radius_km = 5.0
 
     distance_km = _haversine_km(
         lat,
@@ -792,7 +794,8 @@ async def available_missions(
             pickup_geopin = _normalize_geopin(mission.get("pickup_geopin"))
             dispatch_radius_km = mission.get("dispatch_radius_km")
             if dispatch_radius_km is None:
-                dispatch_radius_km = 10.0 if mission.get("is_broadcast") else radius_km
+                stages = (mission.get("delivery_dispatch") or {}).get("stages") or DEFAULT_DELIVERY_DISPATCH_STAGES
+                dispatch_radius_km = stages[-1]["radius_km"] if mission.get("is_broadcast") else radius_km
 
             if pickup_geopin:
                 distance_km = _haversine_km(
@@ -1261,9 +1264,15 @@ async def get_mission(
             "origin_location": 1,
             "delivery_location": 1,
             "delivery_address": 1,
+            "delivery_mode": 1,
+            "mode": 1,
+            "delivery_commissions_enabled": 1,
+            "commission_rules_snapshot": 1,
+            "commission_rules": 1,
         },
     )
     if parcel:
+        mission["delivery_mode"] = resolve_delivery_commission_mode(parcel, mission)
         breakdown = compute_delivery_commission_breakdown(parcel, mission)
         mission["platform_commission_xof"] = mission.get(
             "platform_commission_xof",

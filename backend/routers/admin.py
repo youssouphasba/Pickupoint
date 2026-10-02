@@ -3,6 +3,7 @@ Router admin : tableau de bord, gestion globale colis/relais/drivers/wallets.
 """
 import asyncio
 import math
+import logging
 import uuid
 from calendar import monthrange
 from collections import defaultdict
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core.dependencies import require_role
-from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception
+from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception, conflict_exception
 from core.private_documents import can_access_kyc_documents, has_kyc_document, require_kyc_access, serialize_private_user
 from core.limiter import limiter
 from core.security import hash_password
@@ -101,6 +102,7 @@ from services.wallet_service import (
 )
 from services.admin_analytics_service import build_admin_analytics
 from services.payout_service import settle_payout
+from services.relay_settlement_service import settlement_actions, settlement_overview, settlement_action_list
 
 router = APIRouter()
 
@@ -194,41 +196,95 @@ async def update_relay_settlement(
     action = str(body.get("action") or "").strip()
     status = str(body.get("status") or "").strip()
     relay_id = str(body.get("relay_id") or "").strip()
-    if action not in {"denkma_payment", "origin_relay_payment", "destination_relay_payment", "driver_payment"}:
-        raise bad_request_exception("Action de règlement invalide")
     if status not in {"validated", "rejected"}:
         raise bad_request_exception("Statut de règlement invalide")
-    if relay_id and relay_id not in {
-        parcel.get("origin_relay_id"), parcel.get("destination_relay_id"), parcel.get("redirect_relay_id")
-    }:
-        raise bad_request_exception("Le relais ne correspond pas au colis")
-    field = {
-        "denkma_payment": "denkma_payment_status",
-        "origin_relay_payment": "origin_relay_payment_status",
-        "destination_relay_payment": "destination_relay_payment_status",
-        "driver_payment": "driver_payment_status",
-    }[action]
+    try:
+        applicable = next((item for item in settlement_actions(parcel) if item["action"] == action and (not relay_id or item["relay_id"] == relay_id)), None)
+    except ValueError as exc:
+        raise conflict_exception(str(exc)) from exc
+    if not applicable:
+        raise bad_request_exception("Cette action ne correspond pas aux règlements de ce colis.")
+    relay_id = applicable["relay_id"]
+    field = f"{action}_status"
+    current_status = applicable["status"]
+    if current_status == status:
+        return {"ok": True, "parcel_id": parcel_id, "relay_settlement": parcel.get("relay_settlement") or {}, "relay_financial": build_relay_financial_summary(parcel, relay_id)}
+    if body.get("expected_status") is not None and body["expected_status"] != current_status:
+        raise conflict_exception("Ce règlement a changé. Actualisez les données avant de le traiter.")
+    if "expected_amount_xof" in body:
+        try:
+            expected_amount = float(body["expected_amount_xof"])
+        except (TypeError, ValueError) as exc:
+            raise bad_request_exception("Montant de règlement invalide.") from exc
+        if not math.isfinite(expected_amount) or expected_amount != applicable["amount_xof"]:
+            raise conflict_exception("Le montant à régler a changé. Actualisez les données.")
+    if "expected_updated_at" in body:
+        expected_time = body["expected_updated_at"]
+        try:
+            expected_time = datetime.fromisoformat(expected_time.replace("Z", "+00:00")) if expected_time is not None else None
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise bad_request_exception("Référence de version du colis invalide.") from exc
+        actual_time = parcel.get("updated_at")
+        if expected_time is not None:
+            expected_time = expected_time.replace(tzinfo=timezone.utc) if expected_time.tzinfo is None else expected_time.astimezone(timezone.utc)
+        if isinstance(actual_time, datetime):
+            actual_time = actual_time.replace(tzinfo=timezone.utc) if actual_time.tzinfo is None else actual_time.astimezone(timezone.utc)
+        if expected_time != actual_time:
+            raise conflict_exception("Le colis a changé depuis son affichage. Actualisez les données.")
+    if not applicable["can_validate" if status == "validated" else "can_reject"]:
+        raise conflict_exception("Ce règlement ne peut pas être traité dans son état actuel.")
+    note = body.get("note")
+    if not isinstance(note, str) or not 3 <= len(note.strip()) <= 1000:
+        raise bad_request_exception("Indiquez une référence de paiement ou un motif de rejet (3 à 1 000 caractères).")
+    note = note.strip()
     now = datetime.now(timezone.utc)
-    await db.parcels.update_one(
-        {"parcel_id": parcel_id},
+    result = await db.parcels.update_one(
+        {"parcel_id": parcel_id, "updated_at": parcel.get("updated_at"), f"relay_settlement.{field}": (parcel.get("relay_settlement") or {}).get(field)},
         {"$set": {
             f"relay_settlement.{field}": status,
             f"relay_settlement.{field}_validated_at": now,
             f"relay_settlement.{field}_validated_by": admin_user.get("user_id"),
-            f"relay_settlement.{field}_note": str(body.get("note") or "").strip() or None,
+            f"relay_settlement.{field}_note": note,
             "updated_at": now,
-        }},
+        }, "$push": {"relay_settlement.history": {
+            "action": action, "relay_id": relay_id, "direction": applicable["direction"],
+            "amount_xof": applicable["amount_xof"], "previous_status": current_status,
+            "status": status, "note": note, "reviewed_at": now, "reviewed_by": admin_user.get("user_id"),
+        }}},
     )
+    if not result.matched_count:
+        raise conflict_exception("Le colis ou son règlement a changé. Actualisez les données.")
     updated = {**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: status}}
-    if relay_id:
+    try:
         await notify_relay_settlement_update(
             relay_id,
             updated,
             action=action,
             status=status,
-            note=str(body.get("note") or "").strip() or None,
+            note=note,
         )
+    except Exception:
+        logging.getLogger(__name__).exception("Notification du règlement relais non envoyée pour %s", parcel_id)
     return {"ok": True, "parcel_id": parcel_id, "relay_settlement": updated["relay_settlement"], "relay_financial": build_relay_financial_summary(updated, relay_id) if relay_id else None}
+
+
+@router.get("/finance/relay-settlements", summary="Règlements actuels par relais, sans filtre de période")
+async def get_relay_settlement_overview(
+    search: str = Query("", max_length=120), skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100), admin_user=Depends(require_admin_dep),
+):
+    return await settlement_overview(db, search=search, skip=skip, limit=limit)
+
+
+@router.get("/finance/relay-settlements/actions", summary="Colis et actions de règlement à effectuer ou à vérifier")
+async def get_relay_settlement_actions(
+    relay_id: Optional[str] = Query(None, max_length=100),
+    status: Literal["all", "outstanding", "pending", "declared", "validated", "rejected", "upcoming", "issues"] = "outstanding",
+    direction: Optional[Literal["to_relay", "to_denkma", "to_driver"]] = None,
+    skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+    admin_user=Depends(require_admin_dep),
+):
+    return await settlement_action_list(db, relay_id=relay_id, status=status, direction=direction, skip=skip, limit=limit)
 
 
 async def _refresh_pending_delivery_commissions(enabled: bool, *, prepare_only=False, session=None):
@@ -4019,6 +4075,11 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
     missions_cursor = db.delivery_missions.find({"parcel_id": parcel_id}, {"_id": 0})
     missions = await missions_cursor.to_list(length=10)
     commission_breakdown = compute_delivery_commission_breakdown(parcel)
+    relay_actions_error = None
+    try:
+        relay_actions = settlement_actions(parcel)
+    except ValueError as exc:
+        relay_actions, relay_actions_error = [], str(exc)
     origin_relay_credit_tx = await db.wallet_transactions.find_one(
         {
             "parcel_id": parcel_id,
@@ -4140,8 +4201,10 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
                 "driver_rate": commission_breakdown["driver_revenue_rate"],
             },
             "relay_settlement": parcel.get("relay_settlement") or {},
-            "origin_relay_financial": build_relay_financial_summary(parcel, parcel.get("origin_relay_id")) if parcel.get("origin_relay_id") else None,
-            "destination_relay_financial": build_relay_financial_summary(parcel, parcel.get("destination_relay_id")) if parcel.get("destination_relay_id") else None,
+            "relay_actions": relay_actions,
+            "relay_actions_error": relay_actions_error,
+            "origin_relay_financial": build_relay_financial_summary(parcel, parcel.get("origin_relay_id")) if parcel.get("origin_relay_id") and not relay_actions_error else None,
+            "destination_relay_financial": build_relay_financial_summary(parcel, parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")) if (parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")) and not relay_actions_error else None,
         },
         "timeline": timeline,
         "missions": missions,
@@ -6079,6 +6142,8 @@ async def get_finance_overview(
             "quoted_price": 1,
             "paid_price": 1,
             "delivery_mode": 1,
+            "mode": 1,
+            "relay_settlement": 1,
             "delivery_commissions_enabled": 1,
             "commission_rules_snapshot": 1,
             "commission_rules": 1,
@@ -6154,18 +6219,6 @@ async def get_finance_overview(
         },
     ).to_list(length=5000)
 
-    relay_credit_docs = await db.wallet_transactions.find(
-        {
-            "created_at": date_query,
-            "reference": {"$regex": r"^relay_(origin|destination)_commission:"},
-        },
-        {
-            "_id": 0,
-            "reference": 1,
-            "amount": 1,
-        },
-    ).to_list(length=10000)
-
     commission_tx_docs = await db.wallet_transactions.find(
         {
             "created_at": date_query,
@@ -6216,12 +6269,6 @@ async def get_finance_overview(
         ).to_list(length=len(missing_parcel_ids))
         parcel_by_id.update({row["parcel_id"]: row for row in related_parcels})
     commission_data_issues: dict[str, dict] = {}
-    relay_credit_refs = {
-        str(tx.get("reference") or ""): float(tx.get("amount", 0.0) or 0.0)
-        for tx in relay_credit_docs
-        if tx.get("reference")
-    }
-
     payment_details = {
         "active": [],
         "delivered": [],
@@ -6371,18 +6418,16 @@ async def get_finance_overview(
             relay_due_xof += origin_due + destination_due
 
             if origin_due > 0:
-                ref = f"relay_origin_commission:{parcel_id}"
-                if ref in relay_credit_refs:
-                    relay_already_sent_xof += relay_credit_refs[ref]
+                if (parcel.get("relay_settlement") or {}).get("origin_relay_payment_status") == "validated":
+                    relay_already_sent_xof += origin_due
                     relay_sent_items.append(_relay_detail(parcel, amount_xof=origin_due, side="départ", paid=True))
                 else:
                     relay_missing_parcel_ids.add(parcel_id)
                     relay_due_items.append(_relay_detail(parcel, amount_xof=origin_due, side="départ", paid=False))
 
             if destination_due > 0:
-                ref = f"relay_destination_commission:{parcel_id}"
-                if ref in relay_credit_refs:
-                    relay_already_sent_xof += relay_credit_refs[ref]
+                if (parcel.get("relay_settlement") or {}).get("destination_relay_payment_status") == "validated":
+                    relay_already_sent_xof += destination_due
                     relay_sent_items.append(_relay_detail(parcel, amount_xof=destination_due, side="arrivée", paid=True))
                 else:
                     relay_missing_parcel_ids.add(parcel_id)

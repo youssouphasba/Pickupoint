@@ -27,6 +27,19 @@ const finance = {
   topups: {}, payouts: {}, relays: { settlements: {} }, payments: { details: {} }, wallets: {},
   alerts: [], daily: [{ date: "2026-09-30", topups_xof: 1000, payouts_xof: 0 }],
 };
+const settlementTotals = {
+  to_relay_xof: 150, to_denkma_xof: 450, to_driver_xof: 1400,
+  to_relay_declared_xof: 0, to_denkma_declared_xof: 450, to_driver_declared_xof: 0,
+  to_relay_validated_xof: 0, to_denkma_validated_xof: 0, to_driver_validated_xof: 0,
+  upcoming_to_relay_xof: 50, pending_count: 2, declared_count: 1, rejected_count: 0,
+  outstanding_count: 3, unavailable_count: 0,
+};
+const settlementAction = {
+  action: "denkma_payment", relay_id: "relay_test", relay_name: "Boutique test",
+  direction: "to_denkma", label: "Relais → Denkma", amount_xof: 450,
+  status: "declared", stage: "due", can_validate: true, can_reject: true,
+  parcel_id: "parcel_test", tracking_code: "PKP-TEST", declared_at: "2026-10-01T08:00:00Z",
+};
 
 function appRenderer(pathname, errorKeys = [], overrides = {}, pending = false) {
   const queries = {
@@ -34,6 +47,8 @@ function appRenderer(pathname, errorKeys = [], overrides = {}, pending = false) 
     settings: {}, "action-center": actions, "admin-events": { events: [], unread_count: 0 },
     dashboard: { total_parcels: 4, parcels_today: 1, delivered: 2, failed: 0, active_parcels: 2, pending_payouts: 0, success_rate: 100, active_relays: 1, active_drivers: 2, live_fleet: 1, signal_lost: 0, critical_delay: 0, stale_parcels: 0, payment_blocked_parcels: 0, revenue_xof: 1000 },
     "finance-overview": finance, "finance-recon": {},
+    "finance-relay-settlements": { totals: settlementTotals, relays: [{ ...settlementTotals, relay_id: "relay_test", name: "Boutique test", is_active: false }], total: 1, has_more: false },
+    "finance-relay-actions": { actions: [settlementAction], total: 1, has_more: false },
     payouts: { payouts: [{ payout_id: "withdrawal_test", user_id: "usr_test", user_name: "Bénéficiaire test", method: "bank", amount: 1000, status: "pending", created_at: "2026-09-30T08:00:00Z" }] },
     "drivers-list": { drivers: [{ user_id: "usr_driver", phone: "+221700000000", name: "Livreur test", is_active: true, is_available: false }] },
     relays: { relay_points: [], total: 0 },
@@ -123,12 +138,51 @@ test("finance : les règlements relais sont distincts des recharges et tous les 
   assert.ok(html.includes("Règlements des relais"));
   assert.ok(html.includes("hors plateforme"));
   assert.ok(html.includes("sans filtre de période"));
-  assert.ok(html.includes("Les soldes des portefeuilles restent actuels"));
+  assert.ok(html.includes("les soldes des portefeuilles restent actuels"));
   assert.ok(!html.includes("Flux wallet brut"));
   assert.ok(html.includes("Voir les dossiers"));
   for (const button of html.matchAll(/<button\b[^>]*>((?:(?!<\/button>)[\s\S])*)<\/button>/g)) {
     assert.ok(!button[1].includes("Solde disponible"), "un indicateur sans action n’est pas un bouton");
   }
+});
+
+test("finance relais : les deux sens, les livreurs et les colis sont accessibles séparément", () => {
+  const html = appRenderer("/dashboard/finance")("components/relay-settlements-section.tsx", "RelaySettlementsSection");
+  for (const text of ["Denkma doit aux relais", "Les relais doivent à Denkma", "Les relais doivent aux livreurs", "Déclarations à valider", "sans compensation", "Boutique test", "PKP-TEST", "Relais inactif"]) assert.ok(html.includes(text), text);
+  assert.ok(html.includes('href="/dashboard/parcels/parcel_test"'));
+  assert.ok(html.includes('href="/dashboard/relays/relay_test"'));
+  assert.ok(html.includes("Valider le paiement"));
+  assert.ok(html.includes("Rejeter la déclaration"));
+});
+
+test("finance relais : une panne ou une répartition invalide ne masque pas l’incomplétude des totaux", () => {
+  const partial = appRenderer("/dashboard/finance", ["finance-overview"])("app/dashboard/finance/page.tsx");
+  assert.ok(partial.includes("Denkma doit aux relais"));
+  const failed = appRenderer("/dashboard/finance", ["finance-relay-settlements", "finance-relay-actions"])("components/relay-settlements-section.tsx", "RelaySettlementsSection");
+  assert.ok(failed.includes("Impossible de charger les montants dus"));
+  assert.ok(failed.includes("Impossible de charger les actions"));
+  assert.ok(!failed.includes("Denkma doit aux relais"));
+  const issues = appRenderer("/dashboard/finance", [], {
+    "finance-relay-settlements": { totals: { ...settlementTotals, unavailable_count: 2 }, relays: [], total: 0 },
+    "finance-relay-actions": { actions: [{ parcel_id: "broken", tracking_code: "PKP-BROKEN", issue: "Relais manquant" }], total: 1 },
+  })("components/relay-settlements-section.tsx", "RelaySettlementsSection");
+  assert.ok(issues.includes("les totaux sont incomplets jusqu’à correction"));
+  assert.ok(issues.includes('href="/dashboard/parcels/broken"'));
+});
+
+test("finance relais : les boutons suivent les droits calculés côté serveur", () => {
+  const render = appRenderer("/dashboard/finance");
+  const pending = render("components/relay-settlement-action.tsx", "RelaySettlementActionCard", { item: { ...settlementAction, status: "pending", can_validate: false, can_reject: false } });
+  assert.ok(pending.includes("Le relais doit effectuer ce paiement"));
+  assert.ok(!pending.includes("Valider le paiement"));
+  const payable = render("components/relay-settlement-action.tsx", "RelaySettlementActionCard", { item: { ...settlementAction, direction: "to_relay", status: "pending", can_reject: false } });
+  assert.ok(payable.includes("Enregistrer le versement"));
+  const upcoming = render("components/relay-settlement-action.tsx", "RelaySettlementActionCard", { item: { ...settlementAction, direction: "to_relay", status: "pending", stage: "upcoming", can_validate: false, can_reject: false } });
+  assert.ok(upcoming.includes("Commission prévue, due après livraison"));
+  assert.ok(!upcoming.includes("Enregistrer le versement"));
+  const paid = render("components/relay-settlement-action.tsx", "RelaySettlementActionCard", { item: { ...settlementAction, status: "validated", can_validate: false, can_reject: false, note: "REF-123" } });
+  assert.ok(paid.includes("REF-123"));
+  assert.ok(!paid.includes("Rejeter la déclaration"));
 });
 
 test("livreurs : un compte actif n’est pas présenté comme connecté", () => {

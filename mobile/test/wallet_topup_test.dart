@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:pickupoint/core/api/api_client.dart';
 import 'package:pickupoint/core/auth/auth_provider.dart';
@@ -56,6 +57,9 @@ class WalletApi extends ApiClient {
   int coursesCount = 0;
   bool stalePendingTopup = false;
   final activityCategories = <String>[];
+  Completer<void>? activityGate;
+  List<Map<String, dynamic>>? activityItems;
+  Map<String, List<Map<String, dynamic>>>? activityItemsByCategory;
   Response response(Object data) =>
       Response(data: data, requestOptions: RequestOptions(path: '/synthetic'));
   Map<String, dynamic> topup() => {
@@ -122,18 +126,21 @@ class WalletApi extends ApiClient {
   Future<Response> getWalletActivity(
       {String? period, String category = 'balance', int skip = 0}) async {
     activityCategories.add(category);
+    await activityGate?.future;
     final transactions = ((await getTransactions(period: period)).data
         as Map)['transactions'] as List;
+    final selectedItems = activityItemsByCategory?[category] ?? activityItems;
     return response({
-      'items': transactions
-          .map((row) => {
-                ...row as Map,
-                'kind': 'transaction',
-                'effect': row['amount'],
-                'status': 'recorded'
-              })
-          .toList(),
-      'total': transactions.length,
+      'items': selectedItems ??
+          transactions
+              .map((row) => {
+                    ...row as Map,
+                    'kind': 'transaction',
+                    'effect': row['amount'],
+                    'status': 'recorded'
+                  })
+              .toList(),
+      'total': selectedItems?.length ?? transactions.length,
       'earnings': {'amount': earnings, 'courses_count': coursesCount},
       'pending_payouts': [],
       'pending_topups': status == 'pending' || stalePendingTopup
@@ -315,6 +322,103 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Ils ne s’ajoutent pas au solde Denkma'),
         findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'le lien des revenus ouvre les courses de la période puis leur détail',
+      (tester) async {
+    final api = WalletApi()
+      ..status = 'paid'
+      ..earnings = 2465
+      ..coursesCount = 2
+      ..activityItems = [
+        {
+          'tx_id': 'revenue-course',
+          'kind': 'revenue',
+          'mission_id': 'finished-course',
+          'description': 'Course terminée PKP-TEST',
+          'amount': 2465,
+          'effect': 0,
+          'created_at': '2026-10-01T07:00:00Z',
+          'status': 'recorded',
+        }
+      ];
+    final router = GoRouter(initialLocation: '/driver/wallet', routes: [
+      GoRoute(
+          path: '/driver/wallet',
+          builder: (_, __) => const DriverWalletScreen()),
+      GoRoute(
+          path: '/driver/mission/:id',
+          builder: (_, state) => Scaffold(
+                appBar: AppBar(title: const Text('Détail de la course')),
+                body: Text(state.pathParameters['id']!),
+              )),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(ProviderScope(overrides: [
+      authProvider.overrideWith(WalletAuth.new),
+      apiClientProvider.overrideWithValue(api),
+    ], child: MaterialApp.router(routerConfig: router)));
+    await tester.pumpAndSettle();
+    final walletLoads = api.refreshes;
+    await tester.ensureVisible(find.text('Voir les courses concernées'));
+    await tester.tap(find.text('Voir les courses concernées'));
+    await tester.pumpAndSettle();
+    expect(api.activityCategories.last, 'revenues');
+    expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Courses'))
+            .selected,
+        isTrue);
+    await tester.ensureVisible(find.text('Course terminée PKP-TEST'));
+    await tester.tap(find.text('Course terminée PKP-TEST'));
+    await tester.pumpAndSettle();
+    expect(find.text('finished-course'), findsOneWidget);
+    expect(api.refreshes, walletLoads);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'changer le filtre conserve la page et sa position pendant le chargement',
+      (tester) async {
+    final api = WalletApi()
+      ..status = 'paid'
+      ..activityItems = List.generate(
+          20,
+          (index) => {
+                'tx_id': 'history-$index',
+                'kind': 'transaction',
+                'description': 'Opération $index',
+                'amount': 500,
+                'effect': 500,
+                'status': 'recorded',
+                'created_at': '2026-10-01T07:00:00Z',
+              });
+    await showWallet(tester, api);
+    await tester.ensureVisible(find.text('Courses'));
+    final scroll = tester.widget<SingleChildScrollView>(
+        find.byKey(const PageStorageKey('driver-wallet-scroll')));
+    final offset = scroll.controller!.offset;
+    final walletLoads = api.refreshes;
+    final gate = Completer<void>();
+    api.activityGate = gate;
+    api.activityItemsByCategory = {'revenues': []};
+    await tester.tap(find.text('Courses'));
+    await tester.pump();
+    expect(scroll.controller!.offset, closeTo(offset, 1));
+    expect(find.text('Revenus des courses'), findsOneWidget);
+    expect(find.text('Historique'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(api.refreshes, walletLoads);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(scroll.controller!.offset, closeTo(offset, 1));
+    expect(find.text('Aucune opération pour cette période.'), findsOneWidget);
+    final loads = api.activityCategories.length;
+    await tester.tap(find.text('Courses'));
+    await tester.pumpAndSettle();
+    expect(api.activityCategories.length, loads);
     expect(tester.takeException(), isNull);
   });
 

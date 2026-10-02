@@ -4,6 +4,23 @@ from routers.deliveries import _can_driver_preview_pending_mission
 
 
 class DeliveryDispatchVisibilityTests(unittest.TestCase):
+    def test_broadcast_still_requires_the_driver_to_be_inside_the_current_radius(self):
+        mission = {
+            "status": "pending", "is_broadcast": True,
+            "candidate_drivers": ["driver-a"], "dispatch_notified_driver_ids": ["driver-a"],
+            "dispatch_radius_km": 2.0, "pickup_geopin": {"lat": 14.7167, "lng": -17.4677},
+        }
+        self.assertFalse(_can_driver_preview_pending_mission(mission, "driver-a", 14.8, -17.4677))
+        self.assertTrue(_can_driver_preview_pending_mission(mission, "driver-a", 14.7167, -17.4677))
+
+    def test_legacy_broadcast_uses_its_configured_final_radius(self):
+        mission = {
+            "status": "pending", "is_broadcast": True,
+            "delivery_dispatch": {"stages": [{"radius_km": 2}]},
+            "pickup_geopin": {"lat": 14.7167, "lng": -17.4677},
+        }
+        self.assertFalse(_can_driver_preview_pending_mission(mission, "driver-a", 14.8, -17.4677))
+
     def test_all_candidates_in_the_current_wave_can_preview_the_mission(self):
         mission = {
             "status": "pending",

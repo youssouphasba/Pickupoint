@@ -88,7 +88,7 @@ export const ADMIN_NAVIGATION: AdminNavigationGroup[] = [
   { id: "finance", label: "Finances", pages: [
     {
       href: "/dashboard/finance", label: "Synthèse financière", Icon: Banknote,
-      description: "Distinguez commissions, recharges, règlements relais et retraits sur la période choisie.", keywords: "finance argent paiement wallet réconciliation solde trésorerie",
+      description: "Comparez les flux sur la période et suivez les sommes actuellement dues par relais dans les deux sens.", keywords: "finance argent paiement wallet réconciliation solde trésorerie relais règlements",
       steps: ["Choisissez la période avant de comparer les montants.", "Contrôlez les éléments à traiter et ouvrez les cartes pour voir les dossiers et les motifs.", "Les paiements clients et les règlements manuels se font hors plateforme ; les chiffres ne remplacent pas une preuve de paiement."],
       related: [{ href: "/dashboard/payouts", label: "Traiter les retraits" }, { href: "/dashboard/configuration#commissions", label: "Régler les commissions" }, { href: "/dashboard/promotions#primes", label: "Règlements du parrainage" }],
       sections: [{ id: "synthese", label: "Synthèse" }, { id: "controles", label: "Contrôles" }, { id: "paiements-colis", label: "Paiements colis" }, { id: "commissions", label: "Commissions" }, { id: "recharges", label: "Recharges" }, { id: "relais", label: "Règlements relais" }, { id: "retraits", label: "Retraits" }, { id: "soldes", label: "Soldes" }, { id: "mouvements", label: "Mouvements" }],

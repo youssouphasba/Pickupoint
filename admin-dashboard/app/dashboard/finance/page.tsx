@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { RelaySettlementsSection } from "@/components/relay-settlements-section";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock3, Loader2 } from "lucide-react";
 
@@ -507,7 +508,7 @@ export default function FinancePage() {
         <div>
           <h1 className="text-2xl font-bold">Synthèse financière</h1>
           <p className="text-sm text-muted-foreground">
-            Commissions, recharges, règlements relais et retraits sur la période choisie. Les soldes des portefeuilles restent actuels.
+            Commissions, recharges et retraits sur la période choisie. Les règlements des relais et les soldes des portefeuilles restent actuels.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -749,41 +750,17 @@ export default function FinancePage() {
                 />
               </div>
             </section>
-            <section id="relais" className="admin-section space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Règlements des relais</h2>
-              <p className="text-sm text-muted-foreground">Les versements se font hors plateforme. Ouvrez le colis concerné pour contrôler sa répartition et valider le règlement déclaré.</p>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Montants dus aux relais</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <DetailRow
-                    label="Montant à verser"
-                    value={formatXof(data.relays.amount_due_xof)}
-                    onClick={() => openDetails("Relais à payer", data.relays.details?.due ?? [])}
-                  />
-                  <DetailRow
-                    label="Déjà versé"
-                    value={formatXof(data.relays.amount_already_sent_xof)}
-                    onClick={() => openDetails("Relais déjà payés", data.relays.details?.sent ?? [])}
-                  />
-                  <DetailRow
-                    label="Reste à verser"
-                    value={formatXof(data.relays.amount_remaining_xof)}
-                    onClick={() => openDetails("Relais restant à payer", data.relays.details?.due ?? [])}
-                  />
-                  <DetailRow
-                    label="Règlements relais à valider"
-                    value={String((data.relays.settlements?.to_denkma_declared ?? 0) + (data.relays.settlements?.to_relay_declared ?? 0))}
-                  />
-                  <DetailRow
-                    label="Règlements relais validés"
-                    value={String((data.relays.settlements?.to_denkma_validated ?? 0) + (data.relays.settlements?.to_relay_validated ?? 0))}
-                  />
-                </CardContent>
-              </Card>
-            </section>
           </div>
+
+        </>
+      ) : null}
+
+      <section id="relais" className="admin-section">
+        <RelaySettlementsSection />
+      </section>
+
+      {data ? (
+        <>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <section id="retraits" className="admin-section space-y-3">

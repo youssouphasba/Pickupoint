@@ -21,6 +21,7 @@ from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.relay_hours import has_enabled_opening_day, normalize_opening_hours, relay_open_status
 from services.wallet_service import build_relay_financial_summary
+from services.relay_settlement_service import RELAY_FINANCIAL_STATUSES
 from core.parcel_privacy import serialize_parcel
 
 router = APIRouter()
@@ -247,10 +248,6 @@ async def relay_financial_action(
     return {"ok": True, "relay_financial": build_relay_financial_summary(updated, relay_id)}
 
 
-RELAY_FINANCIAL_STATUSES = {
-    "in_transit", "at_destination_relay", "available_at_relay", "out_for_delivery",
-    "delivered", "redirected_to_relay", "suspended", "disputed",
-}
 
 
 @router.get("/{relay_id}/financial-actions", summary="Actions de paiement du relais, y compris après remise des colis")

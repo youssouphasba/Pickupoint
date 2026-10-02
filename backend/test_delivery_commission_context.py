@@ -15,6 +15,7 @@ from routers.deliveries import (
     _attach_commission_requirements,
     accept_mission,
     available_missions,
+    get_mission,
     mission_preview,
     router as deliveries_router,
 )
@@ -62,6 +63,10 @@ class ProjectedCollection:
             rows = [{key: value for key, value in row.items() if key in included} for row in rows]
         return SimpleNamespace(to_list=AsyncMock(return_value=rows))
 
+    async def find_one(self, query, projection):
+        rows = await self.find(query, projection).to_list(length=1)
+        return rows[0] if rows else None
+
 
 def parcel(mode="home_to_home", parcel_id="parcel-1"):
     return {
@@ -83,6 +88,7 @@ def mission(parcel_id="parcel-1", mission_id="mission-1"):
         "parcel_id": parcel_id,
         "status": "pending",
         "is_broadcast": True,
+        "candidate_drivers": [DRIVER["user_id"]],
         "pickup_geopin": {"lat": 49.2587, "lng": 2.4297},
         "delivery_geopin": {"lat": 49.2588, "lng": 2.4298},
         "quoted_price": 2000,
@@ -148,6 +154,39 @@ class DeliveryCommissionModeTests(unittest.TestCase):
 
 
 class MissionCommissionContextTests(unittest.IsolatedAsyncioTestCase):
+    async def test_old_completed_course_detail_restores_parcel_mode_and_original_rates(self):
+        for mode in COMMISSION_MODES:
+            with self.subTest(mode=mode):
+                row = {**mission(), "status": "completed", "driver_id": DRIVER["user_id"]}
+                collection = ProjectedCollection([parcel(mode)])
+                fake_db = SimpleNamespace(
+                    parcels=collection,
+                    delivery_missions=SimpleNamespace(find_one=AsyncMock(return_value=row)),
+                    users=SimpleNamespace(find_one=AsyncMock(return_value=None)),
+                )
+                with patch("routers.deliveries.db", fake_db), \
+                     patch("routers.deliveries._hydrate_mission_area_labels", AsyncMock()), \
+                     patch("routers.deliveries.get_assigned_mission_auto_release_minutes", AsyncMock(return_value=30)), \
+                     patch("routers.deliveries.load_trace", AsyncMock(return_value=[])):
+                    result = await get_mission("mission-1", current_user=DRIVER)
+                self.assertEqual(result["delivery_mode"], mode)
+                self.assertAlmostEqual(result["total_commission_xof"], 2000 * (1 - RULES[mode]["driver_rate"]))
+                self.assertEqual(collection.projections[0]["commission_rules_snapshot"], 1)
+                self.assertIn("completion_summary", result)
+
+    async def test_detail_preserves_disabled_commissions_for_an_old_course(self):
+        row = {**mission(), "status": "assigned", "driver_id": DRIVER["user_id"]}
+        fake_db = SimpleNamespace(
+            parcels=ProjectedCollection([{**parcel(), "delivery_commissions_enabled": False}]),
+            delivery_missions=SimpleNamespace(find_one=AsyncMock(return_value=row)),
+            users=SimpleNamespace(find_one=AsyncMock(return_value=None)),
+        )
+        with patch("routers.deliveries.db", fake_db), \
+             patch("routers.deliveries._hydrate_mission_area_labels", AsyncMock()), \
+             patch("routers.deliveries.get_assigned_mission_auto_release_minutes", AsyncMock(return_value=30)):
+            result = await get_mission("mission-1", current_user=DRIVER)
+        self.assertEqual(result["total_commission_xof"], 0)
+
     async def test_http_old_notification_and_second_course_return_200(self):
         app = FastAPI()
         app.include_router(deliveries_router, prefix="/api/deliveries")

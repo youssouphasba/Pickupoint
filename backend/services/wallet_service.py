@@ -210,9 +210,9 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
 def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:
     """Résumé opérationnel lisible par le relais pour un colis donné."""
     breakdown = compute_delivery_commission_breakdown(parcel)
-    mode = str(parcel.get("delivery_mode") or "")
+    mode = resolve_delivery_commission_mode(parcel)
     is_origin = parcel.get("origin_relay_id") == relay_id
-    is_destination = parcel.get("destination_relay_id") == relay_id or parcel.get("redirect_relay_id") == relay_id
+    is_destination = (parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")) == relay_id
     roles = [role for role, enabled in (("origin", is_origin), ("destination", is_destination)) if enabled]
     settlement = parcel.get("relay_settlement") or {}
     actions = []

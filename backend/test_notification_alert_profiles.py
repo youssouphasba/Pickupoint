@@ -97,6 +97,8 @@ class BackgroundPushVibrationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(message.android.notification.channel_id, expected)
                 self.assertEqual(message.android.notification.sound, "denkma_mission")
                 self.assertEqual(message.apns.payload.aps.sound, "denkma_mission.wav")
+                self.assertGreater(message.android.ttl.total_seconds(), 0)
+                self.assertIn("apns-expiration", message.apns.headers)
 
 
 if __name__ == "__main__":
