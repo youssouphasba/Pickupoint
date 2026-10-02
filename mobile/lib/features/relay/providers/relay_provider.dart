@@ -76,3 +76,22 @@ final relayPointProfileProvider = FutureProvider<RelayPoint?>((ref) async {
   final res = await api.getRelayPoint(relayId);
   return RelayPoint.fromJson(res.data as Map<String, dynamic>);
 });
+
+final relayFinancialActionsProvider = FutureProvider.autoDispose
+    .family<Map<String, dynamic>, ({int skip, bool pendingOnly})>(
+        (ref, page) async {
+  final relayId = ref.watch(authProvider).valueOrNull?.user?.relayPointId;
+  if (relayId == null) return {'actions': [], 'pending_count': 0, 'total': 0};
+  final response = await ref.watch(apiClientProvider).getRelayFinancialActions(
+      relayId,
+      skip: page.skip,
+      pendingOnly: page.pendingOnly);
+  return Map<String, dynamic>.from(response.data as Map);
+});
+
+final relayFinancialActionCountProvider =
+    FutureProvider.autoDispose<int>((ref) async {
+  final page = await ref.watch(
+      relayFinancialActionsProvider((skip: 0, pendingOnly: true)).future);
+  return (page['pending_count'] as num?)?.toInt() ?? 0;
+});

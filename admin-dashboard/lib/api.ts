@@ -567,17 +567,29 @@ export type AdminRelay = {
   is_open?: boolean;
   opening_status?: { is_open?: boolean; known?: boolean; label?: string };
   agent_user_id?: string | null;
+  location_change_request?: {
+    request_id: string;
+    status: "pending" | "approved" | "rejected";
+    address: { label?: string; city?: string; district?: string; geopin?: { lat: number; lng: number } };
+    requested_at?: string;
+    reason?: string | null;
+  };
   created_at?: string;
 };
 
 export function getRelayCoordinates(relay: AdminRelay) {
   const geopin = typeof relay.address === "object" ? relay.address?.geopin : undefined;
-  const latitude = relay.latitude ?? geopin?.lat;
-  const longitude = relay.longitude ?? geopin?.lng;
+  const latitude = geopin?.lat ?? relay.latitude;
+  const longitude = geopin?.lng ?? relay.longitude;
   if (typeof latitude !== "number" || typeof longitude !== "number") {
     return null;
   }
   return { latitude, longitude };
+}
+
+export async function reviewRelayLocation(id: string, body: { request_id: string; decision: "approved" | "rejected"; reason?: string }) {
+  const { data } = await api.post(`/api/relay-points/${encodeURIComponent(id)}/location-review`, body);
+  return data;
 }
 
 export type AdminPromotion = {

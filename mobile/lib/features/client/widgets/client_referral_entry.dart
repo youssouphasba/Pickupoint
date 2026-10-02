@@ -33,7 +33,7 @@ Map<String, dynamic>? referralRewardOffer(Map<String, dynamic>? data) {
       offers.firstOrNull;
 }
 
-class ReferralRewardButton extends StatelessWidget {
+class ReferralRewardButton extends StatefulWidget {
   const ReferralRewardButton(
       {super.key, required this.offer, required this.onPressed});
 
@@ -41,23 +41,78 @@ class ReferralRewardButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
+  State<ReferralRewardButton> createState() => _ReferralRewardButtonState();
+}
+
+class _ReferralRewardButtonState extends State<ReferralRewardButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shine = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 4),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context) || !TickerMode.of(context)) {
+      _shine.stop();
+    } else if (!_shine.isAnimating) {
+      _shine.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _shine.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final label =
-        'Gagnez ${formatXof((offer['sponsor_bonus_xof'] as num).toDouble())}';
+        formatXof((widget.offer['sponsor_bonus_xof'] as num).toDouble());
     return Tooltip(
-      message: '$label · Parrainage',
-      child: FilledButton.icon(
-        style: FilledButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: Theme.of(context).primaryColor,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          shape: const StadiumBorder(),
+      message: 'Parrainage · $label selon les conditions du programme',
+      child: AnimatedBuilder(
+        animation: _shine,
+        builder: (context, child) => DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment(-3 + _shine.value * 6, -1),
+              end: Alignment(-1 + _shine.value * 6, 1),
+              colors: const [
+                Color(0xFFFFD66B),
+                Color(0xFFFFF5CB),
+                Color(0xFFFFC94A)
+              ],
+            ),
+          ),
+          child: child,
         ),
-        onPressed: onPressed,
-        icon: const Icon(Icons.card_giftcard_outlined, size: 20),
-        label: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(label, maxLines: 1, softWrap: false),
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            foregroundColor: const Color(0xFF6D3900),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            minimumSize: const Size(48, 48),
+            shape: const StadiumBorder(),
+          ),
+          onPressed: widget.onPressed,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.card_giftcard_outlined,
+                size: 22, color: Color(0xFF863F94)),
+            const SizedBox(width: 6),
+            Flexible(
+                child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(label,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 13)),
+            )),
+          ]),
         ),
       ),
     );
@@ -94,47 +149,52 @@ class ClientReferralToolbar extends StatelessWidget {
   final List<Widget> actions;
   final VoidCallback onPressed;
 
-  static double height(BuildContext context) =>
-      kToolbarHeight * MediaQuery.textScalerOf(context).scale(14) / 14 + 48;
+  static double _minimumRowWidth(bool hasReferral, int actionCount) =>
+      40 + 8 + (hasReferral ? 128 : 0) + actionCount * 48;
+
+  static double height(BuildContext context,
+      {required bool hasReferral, required int actionCount}) {
+    final spacing = Theme.of(context).appBarTheme.titleSpacing ??
+        NavigationToolbar.kMiddleSpacing;
+    final availableWidth = MediaQuery.sizeOf(context).width -
+        MediaQuery.paddingOf(context).horizontal -
+        spacing * 2;
+    return availableWidth >= _minimumRowWidth(hasReferral, actionCount)
+        ? 64
+        : 112;
+  }
 
   @override
-  Widget build(BuildContext context) => Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: ClientHeaderLogo(),
-          ),
-          LayoutBuilder(builder: (context, constraints) {
-            if (offer == null) {
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: actions,
-              );
-            }
-            final minimumWidth = 128.0 + 8 + actions.length * 48;
-            final width = constraints.maxWidth < minimumWidth
-                ? minimumWidth
-                : constraints.maxWidth;
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: width,
-                child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                          child: ReferralRewardButton(
-                              offer: offer!, onPressed: onPressed)),
-                      const SizedBox(width: 8),
-                      ...actions,
-                    ]),
-              ),
-            );
-          }),
-        ],
-      );
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final compactRowWidth = _minimumRowWidth(offer != null, actions.length);
+        final actionRow = Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: actions);
+        if (constraints.maxWidth >= compactRowWidth) {
+          return Row(children: [
+            const ClientHeaderLogo(),
+            const SizedBox(width: 8),
+            if (offer != null)
+              SizedBox(
+                  width: 128,
+                  child: ReferralRewardButton(
+                      offer: offer!, onPressed: onPressed)),
+            Expanded(child: actionRow),
+          ]);
+        }
+        return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const ClientHeaderLogo(),
+            if (offer != null)
+              SizedBox(
+                  width: 156,
+                  child: ReferralRewardButton(
+                      offer: offer!, onPressed: onPressed)),
+          ]),
+          actionRow,
+        ]);
+      });
 }
 
 class ReferralCodeEntry extends ConsumerWidget {

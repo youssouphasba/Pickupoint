@@ -3,7 +3,7 @@ import 'package:pickupoint/core/notifications/notification_navigation.dart';
 
 void main() {
   group('notificationRouteFor', () {
-    test('ouvre le colis relais depuis une alerte opérationnelle', () {
+    test('ouvre les actions de paiement et non un colis depuis une alerte financière', () {
       expect(
         notificationRouteFor(
           refType: 'parcel',
@@ -11,7 +11,7 @@ void main() {
           role: 'relay_agent',
           eventType: 'relay_finance',
         ),
-        '/relay?parcel=prc_123',
+        '/relay/payments',
       );
     });
 

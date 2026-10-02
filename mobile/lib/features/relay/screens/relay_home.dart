@@ -14,6 +14,7 @@ import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
 import '../../../shared/promotions/campaign_banner.dart';
 import '../providers/relay_provider.dart';
+import 'relay_payments_screen.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class RelayHome extends ConsumerStatefulWidget {
@@ -57,6 +58,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
         title: Text(user?.name ?? 'Mon relais'),
         actions: [
           const AccountSwitcherButton(),
+          const RelayPaymentsButton(),
           const NotificationsBellButton(route: '/relay/notifications'),
           IconButton(
             tooltip: 'Mon profil relais',
@@ -72,6 +74,7 @@ class _RelayHomeState extends ConsumerState<RelayHome> {
           ref.invalidate(relayHistoryProvider);
           ref.invalidate(relayPointProfileProvider);
           ref.invalidate(relayPerformanceProvider);
+          ref.invalidate(relayFinancialActionsProvider);
         },
         child: stockAsync.when(
           data: (parcels) {
@@ -793,33 +796,6 @@ class _RelayParcelDetailSheetState
         _ => mode,
       };
 
-  Future<void> _declareFinancialAction(String action) async {
-    final relayId = ref.read(authProvider).valueOrNull?.user?.relayPointId;
-    if (relayId == null) return;
-    try {
-      await ref.read(apiClientProvider).declareRelayFinancialAction(
-            relayId,
-            widget.parcel.id,
-            action,
-          );
-      ref.invalidate(relayStockProvider);
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content:
-                  Text('Action enregistrée. Elle sera validée par Denkma.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(error))),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final parcel = widget.parcel;
@@ -883,37 +859,28 @@ class _RelayParcelDetailSheetState
             ),
           if (parcel.relayFinancial != null) ...[
             const Divider(height: 28),
-            _sectionTitle('Répartition et actions'),
-            _infoRow(Icons.badge_outlined, 'Rôle',
-                ((parcel.relayFinancial!['roles'] as List?) ?? []).join(' / ')),
+            _sectionTitle('Répartition'),
+            _infoRow(
+                Icons.badge_outlined,
+                'Rôle',
+                ((parcel.relayFinancial!['roles'] as List?) ?? [])
+                    .map((role) => role == 'origin'
+                        ? 'Relais de départ'
+                        : 'Relais d’arrivée')
+                    .join(' / ')),
             _infoRow(Icons.payments_outlined, 'Votre commission',
                 '${((parcel.relayFinancial!['own_commission_xof'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} XOF'),
             _infoRow(Icons.delivery_dining, 'Part du livreur',
                 '${((parcel.relayFinancial!['driver_revenue_xof'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)} XOF'),
-            ...((parcel.relayFinancial!['actions'] as List?) ?? []).map((raw) {
-              final action = Map<String, dynamic>.from(raw as Map);
-              final status = action['status']?.toString() ?? 'pending';
-              final amount = (action['amount_xof'] as num?)?.toDouble() ?? 0;
-              return Card(
-                margin: const EdgeInsets.only(top: 8),
-                child: ListTile(
-                  title: Text(action['label']?.toString() ?? ''),
-                  subtitle: Text('${amount.toStringAsFixed(0)} XOF · $status'),
-                  trailing: status == 'pending' &&
-                          (action['key'] == 'driver_payment' ||
-                              action['key'] == 'denkma_payment')
-                      ? TextButton(
-                          onPressed: () =>
-                              _declareFinancialAction(action['key'].toString()),
-                          child: const Text('Déclarer'),
-                        )
-                      : status == 'pending'
-                          ? const Text('À valider',
-                              style: TextStyle(color: Colors.orange))
-                          : const Icon(Icons.check_circle, color: Colors.green),
-                ),
-              );
-            }),
+            TextButton.icon(
+              icon: const Icon(Icons.receipt_long_outlined),
+              label: const Text('Gérer mes actions de paiement'),
+              onPressed: () {
+                final router = GoRouter.of(context);
+                Navigator.pop(context);
+                router.push('/relay/payments');
+              },
+            ),
           ],
           const Divider(height: 28),
           _sectionTitle('Destinataire'),

@@ -26,6 +26,8 @@ class BiometricAuthService {
       return await _auth.isDeviceSupported() && await _auth.canCheckBiometrics;
     } on PlatformException {
       return false;
+    } on LocalAuthException {
+      return false;
     }
   }
 
@@ -70,6 +72,13 @@ class BiometricAuthService {
     if (!authenticated) return null;
     return _readCredentials(_storage.getBiometricPin);
   }
+
+  Future<bool> authenticateForSetup() => _auth.authenticate(
+        localizedReason:
+            'Confirmez votre identité pour activer la connexion biométrique.',
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
+      );
 
   Future<void> saveCredentials({
     required String phone,

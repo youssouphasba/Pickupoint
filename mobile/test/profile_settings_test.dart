@@ -60,6 +60,10 @@ class ProfileApi extends ApiClient {
   Map<String, dynamic>? pinSaved;
   Completer<void>? gate;
   bool fail = false;
+  @override
+  Future<Response> getRelayFinancialActions(String id,
+          {int skip = 0, bool pendingOnly = true}) async =>
+      response({'actions': [], 'pending_count': 0, 'total': 0});
   Response response(Object? data) =>
       Response(data: data, requestOptions: RequestOptions(path: '/test'));
   @override
@@ -580,7 +584,7 @@ void main() {
         {'enabled': true, 'open': '08:00', 'close': '20:00'});
     expect(api.relaySaved!['opening_hours']['sunday']['enabled'], false);
     expect(api.relaySaved!.containsKey('address'), false);
-    expect(find.textContaining('Fiche publique enregistrée.'), findsOneWidget);
+    expect(find.text('Informations et horaires enregistrés.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

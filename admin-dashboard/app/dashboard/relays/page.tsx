@@ -333,12 +333,10 @@ export default function RelaysPage() {
         id: "verified",
         header: "Vérifié",
         accessorKey: "is_verified",
-        cell: ({ getValue }) =>
-          getValue() ? (
-            <Badge tone="success">Vérifié</Badge>
-          ) : (
-            <Badge tone="warning">Non vérifié</Badge>
-          ),
+        cell: ({ getValue, row }) => <div className="flex flex-col gap-1">
+          {getValue() ? <Badge tone="success">Vérifié</Badge> : <Badge tone="warning">Non vérifié</Badge>}
+          {row.original.location_change_request?.status === "pending" && <Link className="text-xs text-amber-700 underline" href={`/dashboard/relays/${row.original.relay_id}`}>Emplacement à valider</Link>}
+        </div>,
       },
       {
         id: "capacity",

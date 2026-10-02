@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
+import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/utils/error_utils.dart';
@@ -71,7 +72,8 @@ class _ClientHomeState extends ConsumerState<ClientHome>
     final referralOffer =
         referralRewardOffer(ref.watch(clientReferralProvider).asData?.value);
     final headerActions = <Widget>[
-      const AccountSwitcherButton(),
+      if (ref.watch(authProvider).valueOrNull?.canSwitchToClient == true)
+        const AccountSwitcherButton(),
       const NotificationsBellButton(route: '/client/notifications'),
       IconButton(
         tooltip: 'Votre fidélité',
@@ -91,7 +93,9 @@ class _ClientHomeState extends ConsumerState<ClientHome>
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
-          toolbarHeight: ClientReferralToolbar.height(context),
+          toolbarHeight: ClientReferralToolbar.height(context,
+              hasReferral: referralOffer != null,
+              actionCount: headerActions.length),
           title: ClientReferralToolbar(
             offer: referralOffer,
             actions: headerActions,

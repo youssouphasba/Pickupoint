@@ -22,6 +22,7 @@ MODULES = (
     "test_private_documents_management",
     "test_stripe_wallet_flow",
     "test_profile_settings",
+    "test_relay_settings_flow",
     "test_finance_reconciliation",
     "test_loyalty_rules",
     "test_referral_payments",

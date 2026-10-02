@@ -82,6 +82,10 @@ class AdminRelayDetailScreen extends ConsumerWidget {
                       : null,
                 ),
                 const SizedBox(height: 16),
+                if (relay.locationChangeRequest?['status'] == 'pending') ...[
+                  _RelayLocationReviewCard(relay: relay),
+                  const SizedBox(height: 16),
+                ],
                 _SectionCard(
                   title: 'Stock et capacité',
                   child: Wrap(
@@ -408,6 +412,126 @@ class AdminRelayDetailScreen extends ConsumerWidget {
         SnackBar(content: Text(friendlyError(error))),
       );
     }
+  }
+}
+
+class _RelayLocationReviewCard extends ConsumerStatefulWidget {
+  const _RelayLocationReviewCard({required this.relay});
+  final RelayPoint relay;
+
+  @override
+  ConsumerState<_RelayLocationReviewCard> createState() =>
+      _RelayLocationReviewCardState();
+}
+
+class _RelayLocationReviewCardState
+    extends ConsumerState<_RelayLocationReviewCard> {
+  final _reason = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  Future<void> _review(String decision) async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text(decision == 'approved'
+                  ? 'Valider cette nouvelle position ?'
+                  : 'Refuser cette nouvelle position ?'),
+              content: const Text(
+                  'La position publique ne change qu’après validation. Le motif sera visible par le relais.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Annuler')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Confirmer'))
+              ],
+            ));
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(apiClientProvider).reviewRelayLocation(widget.relay.id, {
+        'request_id': widget.relay.locationChangeRequest!['request_id'],
+        'decision': decision,
+        'reason': _reason.text.trim(),
+      });
+      ref.invalidate(adminRelayDetailProvider(widget.relay.id));
+      ref.invalidate(adminRelaysProvider);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final address = widget.relay.locationChangeRequest!['address'] as Map;
+    final pin = address['geopin'] as Map?;
+    return _SectionCard(
+        title: 'Nouvel emplacement à valider',
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Adresse actuelle : ${widget.relay.addressLabel}'),
+          const SizedBox(height: 8),
+          Text('Adresse proposée : ${[
+            address['label'],
+            address['district'],
+            address['city']
+          ].whereType<String>().join(', ')}'),
+          const SizedBox(height: 8),
+          const Text(
+              'L’ancienne position reste publique pendant l’examen. Vérifiez les colis en cours avant d’accepter.'),
+          if (pin != null)
+            TextButton.icon(
+                onPressed: () async {
+                  try {
+                    final opened = await launchUrl(
+                        Uri.https('www.google.com', '/maps',
+                            {'q': '${pin['lat']},${pin['lng']}'}),
+                        mode: LaunchMode.externalApplication);
+                    if (!opened && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Impossible d’ouvrir la carte.')));
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text('Impossible d’ouvrir la carte.')));
+                    }
+                  }
+                },
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Voir la position proposée')),
+          TextField(
+              controller: _reason,
+              enabled: !_busy,
+              maxLength: 1000,
+              decoration: const InputDecoration(
+                  labelText: 'Motif (obligatoire pour refuser)'),
+              onChanged: (_) => setState(() {})),
+          const SizedBox(height: 12),
+          FilledButton(
+              onPressed:
+                  _busy || pin == null ? null : () => _review('approved'),
+              child: const Text('Valider le nouvel emplacement')),
+          const SizedBox(height: 8),
+          OutlinedButton(
+              onPressed: _busy || _reason.text.trim().isEmpty
+                  ? null
+                  : () => _review('rejected'),
+              child: const Text('Refuser avec ce motif')),
+        ]));
   }
 }
 

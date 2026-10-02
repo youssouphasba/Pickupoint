@@ -30,6 +30,7 @@ import '../../features/client/screens/favorite_addresses_screen.dart';
 import '../../features/client/screens/notification_settings_screen.dart';
 import '../../shared/notifications/notifications_inbox_screen.dart';
 import '../../features/relay/screens/relay_home.dart';
+import '../../features/relay/screens/relay_payments_screen.dart';
 import '../../features/relay/screens/relay_profile_screen.dart';
 import '../../features/relay/screens/scan_in_screen.dart';
 import '../../features/relay/screens/scan_out_screen.dart';
@@ -708,6 +709,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
               path: '/relay/wallet',
               builder: (_, __) => const RelayWalletScreen()),
+          GoRoute(
+              path: '/relay/payments',
+              builder: (_, __) => const RelayPaymentsScreen()),
           GoRoute(
               path: '/relay/notifications',
               builder: (_, __) => const NotificationsInboxScreen(

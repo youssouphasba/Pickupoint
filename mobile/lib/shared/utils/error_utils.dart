@@ -1,8 +1,27 @@
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/services.dart';
+import 'package:local_auth/local_auth.dart';
 
 String friendlyError(Object e) {
+  if (e is LocalAuthException) {
+    return switch (e.code) {
+      LocalAuthExceptionCode.noBiometricsEnrolled ||
+      LocalAuthExceptionCode.noCredentialsSet =>
+        'Configurez une empreinte ou la reconnaissance faciale dans les réglages du téléphone, puis réessayez.',
+      LocalAuthExceptionCode.userCanceled ||
+      LocalAuthExceptionCode.systemCanceled ||
+      LocalAuthExceptionCode.userRequestedFallback =>
+        'Confirmation biométrique annulée. Vous pouvez utiliser votre PIN.',
+      LocalAuthExceptionCode.temporaryLockout ||
+      LocalAuthExceptionCode.biometricLockout =>
+        'La biométrie est temporairement bloquée. Déverrouillez le téléphone avec son code, puis réessayez.',
+      LocalAuthExceptionCode.authInProgress =>
+        'Une confirmation biométrique est déjà en cours.',
+      _ =>
+        'La biométrie est momentanément indisponible. Réessayez ou utilisez votre PIN.',
+    };
+  }
   if (e is PlatformException) {
     return 'Cette fonctionnalité est momentanément indisponible sur cet appareil. Réessayez.';
   }

@@ -6,6 +6,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../providers/relay_provider.dart';
+import 'relay_payments_screen.dart';
 import '../../../shared/utils/error_utils.dart';
 
 class RelayWalletScreen extends ConsumerStatefulWidget {
@@ -24,7 +25,9 @@ class _RelayWalletScreenState extends ConsumerState<RelayWalletScreen> {
     final transactionsAsync = ref.watch(relayTransactionsProvider(_period));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mes Gains')),
+      appBar: AppBar(
+          title: const Text('Mes gains'),
+          actions: const [RelayPaymentsButton()]),
       body: RefreshIndicator(
         onRefresh: () => Future.wait([
           ref.refresh(relayWalletProvider.future),

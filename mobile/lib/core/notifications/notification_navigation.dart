@@ -55,8 +55,9 @@ String? notificationRouteFor({
     case 'relay_scan_in':
       return id.isEmpty ? '/relay/scan-in' : '/relay/scan-in?parcel=$encodedId';
     case 'relay_parcel':
-    case 'relay_finance':
       return id.isEmpty ? '/relay' : '/relay?parcel=$encodedId';
+    case 'relay_finance':
+      return '/relay/payments';
     case 'relay_stock':
       return '/relay';
     case 'wallet':

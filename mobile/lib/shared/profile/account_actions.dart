@@ -126,13 +126,37 @@ class _AccountManagementSectionState
                 title: const Text('Se déconnecter'),
                 onTap:
                     _busy || !authenticated ? null : () => _run(delete: false)),
-            ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.delete_outline,
-                    color: Theme.of(context).colorScheme.error),
-                title: const Text('Supprimer mon compte'),
-                onTap:
-                    _busy || !authenticated ? null : () => _run(delete: true)),
+            const SizedBox(height: 32),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Suppression définitive',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer)),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'Cette action est irréversible. Elle est distincte de la déconnexion et nécessite une double confirmation.'),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.error),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Supprimer mon compte'),
+                      onPressed: _busy || !authenticated
+                          ? null
+                          : () => _run(delete: true),
+                    ),
+                  ]),
+            ),
             if (_working) const LinearProgressIndicator(),
           ],
         ));

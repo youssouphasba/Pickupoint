@@ -131,22 +131,21 @@ class RelayOpeningHoursEditor extends StatelessWidget {
           final key = day['key']!;
           final entry = Map<String, dynamic>.from(value[key] ?? {});
           final enabled = entry['enabled'] == true;
-          return Row(
-            children: [
-              SizedBox(
-                width: 112,
-                child: CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title:
-                      Text(day['label']!, style: const TextStyle(fontSize: 13)),
-                  value: enabled,
-                  onChanged: (checked) => onChanged({
-                    ...value,
-                    key: {...entry, 'enabled': checked == true}
-                  }),
-                ),
-              ),
+          return LayoutBuilder(builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+            final dayWidth = 128 * textScale;
+            final daySelector = CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(day['label']!,
+                  softWrap: false, style: const TextStyle(fontSize: 13)),
+              value: enabled,
+              onChanged: (checked) => onChanged({
+                ...value,
+                key: {...entry, 'enabled': checked == true}
+              }),
+            );
+            final times = Row(children: [
               Expanded(
                 child: OutlinedButton(
                   onPressed:
@@ -164,8 +163,16 @@ class RelayOpeningHoursEditor extends StatelessWidget {
                   child: Text(entry['close']?.toString() ?? '20:00'),
                 ),
               ),
-            ],
-          );
+            ]);
+            return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: constraints.maxWidth < dayWidth + 200 * textScale
+                    ? Column(children: [daySelector, times])
+                    : Row(children: [
+                        SizedBox(width: dayWidth, child: daySelector),
+                        Expanded(child: times),
+                      ]));
+          });
         }),
       ],
     );

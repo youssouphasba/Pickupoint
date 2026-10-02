@@ -39,8 +39,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-PIN_MAX_FAILED_ATTEMPTS = 5
-PIN_LOCK_MINUTES = 15
+from services.pin_verification import PIN_MAX_FAILED_ATTEMPTS, PIN_LOCK_MINUTES
 
 
 def _refresh_session_lookup_query(refresh_token: str) -> dict:

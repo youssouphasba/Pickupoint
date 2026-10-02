@@ -10,6 +10,7 @@ import {
   getRelayCoordinates,
   updateRelayPoint,
   verifyRelay,
+  reviewRelayLocation,
 } from "@/lib/api";
 import { LocationPreviewMap } from "@/components/location-preview-map";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -95,6 +96,7 @@ export default function RelayDetailPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [editOpen, setEditOpen] = React.useState(false);
+  const [locationReason, setLocationReason] = React.useState("");
   const [editForm, setEditForm] = React.useState({
     name: "",
     phone: "",
@@ -106,6 +108,9 @@ export default function RelayDetailPage() {
     maxCapacity: "",
     openingHours: {} as RelayOpeningHours,
   });
+  const editAddressBaseline = React.useRef(editForm);
+  const hasAddressChanges = (["label", "city", "district", "lat", "lng"] as const)
+    .some((field) => editForm[field].trim() !== editAddressBaseline.current[field].trim());
   const hasEditOpeningDay = React.useMemo(
     () => Object.values(editForm.openingHours).some((entry) => entry.enabled),
     [editForm.openingHours],
@@ -126,20 +131,34 @@ export default function RelayDetailPage() {
       toast("Relais vérifié.");
     },
   });
+  const locationMut = useMutation({
+    mutationFn: (decision: "approved" | "rejected") => reviewRelayLocation(id, {
+      request_id: data!.relay_point.location_change_request!.request_id,
+      decision, reason: locationReason.trim() || undefined,
+    }),
+    onSuccess: () => {
+      setLocationReason("");
+      qc.invalidateQueries({ queryKey: ["relay-detail", id] });
+      qc.invalidateQueries({ queryKey: ["relays"] });
+      qc.invalidateQueries({ queryKey: ["relays-map"] });
+      toast("Demande d’emplacement traitée.");
+    },
+    onError: () => toast("Impossible de traiter cette demande. Actualisez la fiche avant de réessayer."),
+  });
   const updateMut = useMutation({
     mutationFn: () => updateRelayPoint(id, {
       name: editForm.name.trim(),
       phone: editForm.phone.trim(),
       max_capacity: Number(editForm.maxCapacity),
       opening_hours: editForm.openingHours,
-      address: {
+      ...(hasAddressChanges ? {address: {
         label: editForm.label.trim() || undefined,
         city: editForm.city.trim() || undefined,
         district: editForm.district.trim() || undefined,
         ...(editForm.lat.trim() && editForm.lng.trim()
           ? { geopin: { lat: Number(editForm.lat), lng: Number(editForm.lng) } }
           : {}),
-      },
+      }} : {}),
     }),
     onSuccess: () => {
       setEditOpen(false);
@@ -185,17 +204,19 @@ export default function RelayDetailPage() {
   const address = typeof relay.address === "object" ? relay.address : undefined;
 
   function startEditing() {
-    setEditForm({
+    const initialForm = {
       name: relay.name ?? "",
       phone: relay.phone ?? "",
-      label: address?.label ?? "",
+      label: address?.label ?? (typeof relay.address === "string" ? relay.address : ""),
       city: address?.city ?? relay.city ?? "",
       district: address?.district ?? "",
       lat: coordinates?.latitude?.toString() ?? "",
       lng: coordinates?.longitude?.toString() ?? "",
       maxCapacity: String(relay.max_capacity ?? 20),
       openingHours: relay.opening_hours ?? {},
-    });
+    };
+    editAddressBaseline.current = initialForm;
+    setEditForm(initialForm);
     setEditOpen(true);
   }
 
@@ -309,6 +330,27 @@ export default function RelayDetailPage() {
                 Enregistrer
               </Button>
               <Button variant="outline" onClick={() => setEditOpen(false)}>Annuler</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {relay.location_change_request?.status === "pending" && (
+        <Card className="border-amber-300">
+          <CardHeader><CardTitle>Nouvel emplacement à valider</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">L’adresse actuelle reste visible par les clients et les livreurs jusqu’à votre validation. Vérifiez la nouvelle position et les colis en cours avant de l’accepter.</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2"><h3 className="font-semibold">Emplacement actuel</h3><p>{getRelayAddressLabel(relay)}</p><LocationPreviewMap point={coordinates ? {lat: coordinates.latitude, lng: coordinates.longitude} : null} title="Position actuelle" /></div>
+              <div className="space-y-2"><h3 className="font-semibold">Emplacement proposé</h3><p>{[relay.location_change_request.address.label, relay.location_change_request.address.district, relay.location_change_request.address.city].filter(Boolean).join(", ")}</p><LocationPreviewMap point={relay.location_change_request.address.geopin ?? null} title="Position proposée" /></div>
+            </div>
+            <p className="text-sm">Demande du {formatDate(relay.location_change_request.requested_at)}</p>
+            <label className="block space-y-1 text-sm"><span>Motif de la décision (obligatoire en cas de refus)</span><Input maxLength={1000} value={locationReason} onChange={(event) => setLocationReason(event.target.value)} /></label>
+            <div className="flex flex-wrap gap-3">
+              <Button disabled={locationMut.isPending || !relay.location_change_request.address.geopin} onClick={() => {
+                if (window.confirm("Valider cette nouvelle position ? Elle remplacera l’adresse visible dans l’application.")) locationMut.mutate("approved");
+              }}>Valider le nouvel emplacement</Button>
+              <Button variant="outline" disabled={locationMut.isPending || !locationReason.trim()} onClick={() => locationMut.mutate("rejected")}>Refuser avec ce motif</Button>
             </div>
           </CardContent>
         </Card>

@@ -19,6 +19,7 @@ class RelayPoint {
     this.isOpen = true,
     this.openingStatusKnown = false,
     this.openingStatusLabel,
+    this.locationChangeRequest,
   });
 
   final String id;
@@ -40,6 +41,7 @@ class RelayPoint {
   final bool isOpen;
   final bool openingStatusKnown;
   final String? openingStatusLabel;
+  final Map<String, dynamic>? locationChangeRequest;
 
   factory RelayPoint.fromJson(Map<String, dynamic> json) {
     final rawAddress = json['address'];
@@ -78,12 +80,19 @@ class RelayPoint {
               ? {'general': rawOpeningHours.trim()}
               : null,
       addressLabel: addressLabel,
-      city: addr['city'] as String? ?? '',
+      city: addr['city'] as String? ?? json['city'] as String? ?? '',
       district: addr['district'] as String?,
       addressNotes: addr['notes'] as String?,
       agentId: json['owner_user_id'] as String? ?? '',
-      lat: (geopin?['lat'] as num?)?.toDouble(),
-      lng: (geopin?['lng'] as num?)?.toDouble(),
+      lat: _coordinate(
+          geopin?['lat'] ?? addr['latitude'] ?? json['latitude'] ?? json['lat'],
+          90),
+      lng: _coordinate(
+          geopin?['lng'] ??
+              addr['longitude'] ??
+              json['longitude'] ??
+              json['lng'],
+          180),
       capacity: json['max_capacity'] as int? ?? 20,
       currentStock: json['current_load'] as int? ?? 0,
       isVerified: json['is_verified'] as bool? ?? false,
@@ -98,7 +107,17 @@ class RelayPoint {
       openingStatusLabel: json['opening_status'] is Map
           ? json['opening_status']['label']?.toString()
           : null,
+      locationChangeRequest: json['location_change_request'] is Map
+          ? Map<String, dynamic>.from(json['location_change_request'] as Map)
+          : null,
     );
+  }
+
+  static double? _coordinate(dynamic value, double bound) {
+    final number = value is num ? value.toDouble() : double.tryParse('$value');
+    return number != null && number.isFinite && number.abs() <= bound
+        ? number
+        : null;
   }
 
   int get availableSlots => capacity - currentStock;

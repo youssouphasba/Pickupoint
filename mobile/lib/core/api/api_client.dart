@@ -137,6 +137,9 @@ class ApiClient {
   Future<Response> updatePin(Map<String, dynamic> body) =>
       _dio.put(ApiEndpoints.updatePin, data: body);
 
+  Future<Response> verifyPin(String pin) =>
+      _dio.post(ApiEndpoints.verifyPin, data: {'pin': pin});
+
   Future<Response> updateFcmToken(
     String token, {
     String? appVersion,
@@ -308,6 +311,16 @@ class ApiClient {
 
   Future<Response> getRelayStock(String id) =>
       _dio.get(ApiEndpoints.relayStock(id));
+
+  Future<Response> getRelayFinancialActions(String id,
+          {int skip = 0, bool pendingOnly = true}) =>
+      _dio.get(ApiEndpoints.relayFinancialActions(id), queryParameters: {
+        'skip': skip,
+        'pending_only': pendingOnly,
+      });
+
+  Future<Response> reviewRelayLocation(String id, Map<String, dynamic> body) =>
+      _dio.post('${ApiEndpoints.relayPoint(id)}/location-review', data: body);
 
   Future<Response> declareRelayFinancialAction(
     String relayId,

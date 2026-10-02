@@ -4,16 +4,19 @@ Router relay_points : gestion des points relais.
 import uuid
 import re
 import math
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from core.dependencies import get_current_user, require_role
-from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception
+from core.dependencies import get_current_user, get_current_user_optional, require_role
+from core.exceptions import not_found_exception, forbidden_exception, bad_request_exception, conflict_exception, DeliveryCommissionDataError
 from database import db
 from models.common import UserRole
-from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate
+from models.relay_point import RelayPoint, RelayPointCreate, RelayPointUpdate, RelayLocationReview
+from models.common import Address
+from services.admin_events_service import AdminEventType, record_admin_event
 from services.relay_geocoding_service import geocode_relay_address
 from services.performance_rewards_service import get_performance_rewards_settings
 from services.relay_hours import has_enabled_opening_day, normalize_opening_hours, relay_open_status
@@ -21,6 +24,7 @@ from services.wallet_service import build_relay_financial_summary
 from core.parcel_privacy import serialize_parcel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 from core.limiter import limiter
 
@@ -36,8 +40,28 @@ async def _get_relay_or_404(relay_id: str) -> dict:
     return relay
 
 
-def _with_opening_status(relay: dict) -> dict:
+def _relay_address(relay: dict) -> dict:
+    raw = relay.get("address")
+    address = dict(raw) if isinstance(raw, dict) else {"label": raw} if isinstance(raw, str) else {}
+    pin = address.get("geopin") or {}
+    lat = pin.get("lat", address.get("latitude", relay.get("latitude", relay.get("lat"))))
+    lng = pin.get("lng", address.get("longitude", relay.get("longitude", relay.get("lng"))))
+    try:
+        lat, lng = float(lat), float(lng)
+        if math.isfinite(lat) and math.isfinite(lng) and -90 <= lat <= 90 and -180 <= lng <= 180:
+            address["geopin"] = {**pin, "lat": lat, "lng": lng}
+    except (TypeError, ValueError):
+        pass
+    if not address.get("city") and relay.get("city"):
+        address["city"] = relay["city"]
+    return address
+
+
+def _with_opening_status(relay: dict, *, management: bool = False) -> dict:
     result = dict(relay)
+    result["address"] = _relay_address(relay)
+    if not management:
+        result.pop("location_change_request", None)
     result["opening_status"] = relay_open_status(relay)
     result["is_open"] = result["opening_status"]["is_open"]
     return result
@@ -131,8 +155,9 @@ async def nearby_relay_points(
 
 
 @router.get("/{relay_id}", summary="Détail d'un relais")
-async def get_relay_point(relay_id: str):
-    return _with_opening_status(await _get_relay_or_404(relay_id))
+async def get_relay_point(relay_id: str, current_user: Optional[dict] = Depends(get_current_user_optional)):
+    relay = await _get_relay_or_404(relay_id)
+    return _with_opening_status(relay, management=bool(current_user and _can_manage_relay(relay, current_user)))
 
 
 @router.get("/{relay_id}/stock", summary="Colis en stock dans ce relais")
@@ -195,6 +220,8 @@ async def relay_financial_action(
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
+    if parcel.get("status") not in RELAY_FINANCIAL_STATUSES:
+        raise bad_request_exception("Les actions de paiement sont disponibles après la collecte du colis.")
     summary = build_relay_financial_summary(parcel, relay_id)
     allowed = {item["key"] for item in summary["actions"]}
     if action not in allowed:
@@ -218,6 +245,61 @@ async def relay_financial_action(
     )
     updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     return {"ok": True, "relay_financial": build_relay_financial_summary(updated, relay_id)}
+
+
+RELAY_FINANCIAL_STATUSES = {
+    "in_transit", "at_destination_relay", "available_at_relay", "out_for_delivery",
+    "delivered", "redirected_to_relay", "suspended", "disputed",
+}
+
+
+@router.get("/{relay_id}/financial-actions", summary="Actions de paiement du relais, y compris après remise des colis")
+async def relay_financial_actions(
+    relay_id: str, skip: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100),
+    pending_only: bool = True, current_user: dict = Depends(get_current_user),
+):
+    relay = await _get_relay_or_404(relay_id)
+    if not _can_manage_relay(relay, current_user):
+        raise forbidden_exception("Accès refusé aux règlements de ce relais")
+    query = {"status": {"$in": sorted(RELAY_FINANCIAL_STATUSES)}, "$or": [
+        {"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}, {"redirect_relay_id": relay_id},
+    ]}
+    cursor = db.parcels.find(query, {"_id": 0}).sort([("updated_at", -1), ("parcel_id", 1)])
+    items, total, pending_count, unavailable = [], 0, 0, 0
+    async for parcel in cursor:
+        try:
+            summary = build_relay_financial_summary(parcel, relay_id)
+        except DeliveryCommissionDataError:
+            unavailable += 1
+            logger.warning("Invalid financial data for parcel %s", parcel.get("parcel_id"))
+            continue
+        for action in summary["actions"]:
+            if float(action.get("amount_xof") or 0) <= 0:
+                continue
+            actionable = action["key"] in {"driver_payment", "denkma_payment"} and action["status"] in {"pending", "rejected"}
+            pending_count += int(actionable)
+            if pending_only and not actionable:
+                continue
+            if skip <= total < skip + limit:
+                items.append({
+                    **action, "actionable": actionable, "parcel_id": parcel["parcel_id"],
+                    "tracking_code": parcel.get("tracking_code") or parcel["parcel_id"],
+                    "updated_at": parcel.get("updated_at"), "delivery_mode": summary["mode"],
+                    "driver_id": parcel.get("assigned_driver_id") if action["key"] == "driver_payment" else None,
+                })
+            total += 1
+    driver_ids = list({item["driver_id"] for item in items if item.get("driver_id")})
+    drivers = await db.users.find({"user_id": {"$in": driver_ids}}, {"_id": 0, "user_id": 1, "name": 1, "phone": 1}).to_list(length=len(driver_ids)) if driver_ids else []
+    lookup = {driver["user_id"]: driver for driver in drivers}
+    for item in items:
+        driver = lookup.get(item.get("driver_id")) or {}
+        item["beneficiary_name"] = (
+            driver.get("name") or "Livreur du colis" if item["key"] == "driver_payment"
+            else "Denkma" if item["key"] == "denkma_payment" else relay.get("name") or "Votre relais"
+        )
+        item["beneficiary_phone"] = driver.get("phone")
+    return {"actions": items, "total": total, "pending_count": pending_count, "unavailable_count": unavailable,
+            "has_more": skip + len(items) < total}
 
 
 @router.get("/{relay_id}/history", summary="Historique des colis remis par ce relais")
@@ -361,9 +443,75 @@ async def update_relay_point(
             raise bad_request_exception("Sélectionnez au moins un jour et définissez ses horaires d’ouverture.")
     if "address" in updates:
         updates["address"] = (await geocode_relay_address(body.address)).model_dump()
+        if not is_admin:
+            if not updates["address"].get("geopin"):
+                raise bad_request_exception("Choisissez la position précise proposée sur la carte.")
+            current_address = Address.model_validate(_relay_address(relay)).model_dump()
+            proposed = updates.pop("address")
+            if proposed != current_address:
+                pending = relay.get("location_change_request") or {}
+                if pending.get("status") != "pending" or pending.get("address") != proposed:
+                    updates["location_change_request"] = {
+                        "request_id": f"rlc_{uuid.uuid4().hex[:16]}",
+                        "status": "pending", "address": proposed,
+                        "requested_by": current_user["user_id"],
+                        "requested_at": datetime.now(timezone.utc),
+                    }
+        else:
+            # Keep legacy readers on the same approved coordinates.
+            pin = updates["address"].get("geopin") or {}
+            updates["latitude"], updates["longitude"] = pin.get("lat"), pin.get("lng")
+            if (relay.get("location_change_request") or {}).get("status") == "pending":
+                raise conflict_exception("Traitez d’abord la demande de changement d’emplacement du relais.")
     if updates:
         updates["updated_at"] = datetime.now(timezone.utc)
         await db.relay_points.update_one({"relay_id": relay_id}, {"$set": updates})
 
     updated = await db.relay_points.find_one({"relay_id": relay_id}, {"_id": 0})
-    return _with_opening_status(updated)
+    if "location_change_request" in updates:
+        await record_admin_event(
+            AdminEventType.RELAY_LOCATION_REQUESTED,
+            title="Changement d’emplacement à valider",
+            message=f"{relay.get('name') or relay_id} propose une nouvelle adresse. La position actuelle reste publique.",
+            href=f"/dashboard/relays/{relay_id}",
+            metadata={"relay_id": relay_id, "request_id": updates["location_change_request"]["request_id"]},
+        )
+    return _with_opening_status(updated, management=True)
+
+
+@router.post("/{relay_id}/location-review", summary="Valider ou refuser un changement d’emplacement (admin)")
+async def review_relay_location(
+    relay_id: str, body: RelayLocationReview,
+    current_user: dict = Depends(require_role(UserRole.ADMIN, UserRole.SUPERADMIN)),
+):
+    relay = await _get_relay_or_404(relay_id)
+    proposal = relay.get("location_change_request") or {}
+    if proposal.get("request_id") != body.request_id or proposal.get("status") != "pending":
+        raise conflict_exception("Cette demande a déjà été traitée ou remplacée. Actualisez la fiche.")
+    reason = (body.reason or "").strip()
+    if body.decision == "rejected" and not reason:
+        raise bad_request_exception("Indiquez au relais pourquoi cette position est refusée.")
+    now = datetime.now(timezone.utc)
+    updates = {"location_change_request": {
+        **proposal, "status": body.decision, "reason": reason or None,
+        "reviewed_by": current_user["user_id"], "reviewed_at": now,
+        "previous_address": _relay_address(relay),
+    }, "updated_at": now}
+    if body.decision == "approved":
+        address = Address.model_validate(proposal["address"])
+        if address.geopin is None:
+            raise bad_request_exception("La demande ne contient pas de position précise.")
+        updates.update(address=address.model_dump(), latitude=address.geopin.lat, longitude=address.geopin.lng)
+    result = await db.relay_points.update_one({
+        "relay_id": relay_id, "location_change_request.request_id": body.request_id,
+        "location_change_request.status": "pending",
+    }, {"$set": updates})
+    if result.matched_count == 0:
+        raise conflict_exception("La demande a changé. Actualisez la fiche avant de décider.")
+    await record_admin_event(
+        AdminEventType.RELAY_LOCATION_REVIEWED,
+        title="Emplacement relais validé" if body.decision == "approved" else "Emplacement relais refusé",
+        message=f"{relay.get('name') or relay_id} · {reason}", href=f"/dashboard/relays/{relay_id}",
+        metadata={"relay_id": relay_id, "request_id": body.request_id, "decision": body.decision, "admin_id": current_user["user_id"]},
+    )
+    return _with_opening_status(await _get_relay_or_404(relay_id), management=True)

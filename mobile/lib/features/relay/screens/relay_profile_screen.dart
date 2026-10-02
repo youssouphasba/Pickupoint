@@ -10,6 +10,7 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/relay_public_details.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
 import '../providers/relay_provider.dart';
+import 'relay_payments_screen.dart';
 
 class RelayProfileScreen extends ConsumerStatefulWidget {
   const RelayProfileScreen({super.key, this.initialSection});
@@ -111,7 +112,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen>
     return Scaffold(
       appBar: AppBar(
           title: const Text('Mon profil'),
-          actions: const [ProfileAppBarActions()]),
+          actions: const [RelayPaymentsButton(), ProfileAppBarActions()]),
       body: user == null
           ? const Center(
               child: Text('Connectez-vous pour accéder à votre profil.'))
@@ -121,6 +122,7 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen>
                 ref.invalidate(relayPointProfileProvider);
                 ref.invalidate(relayPerformanceProvider);
                 ref.invalidate(relayWalletProvider);
+                ref.invalidate(relayFinancialActionsProvider);
               },
               child: ListView(
                   controller: _scrollController,
@@ -163,6 +165,11 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen>
                                       Text(point.isActive
                                           ? 'Relais activé dans Denkma'
                                           : 'Relais désactivé dans Denkma'),
+                                      if (point.locationChangeRequest?[
+                                              'status'] ==
+                                          'pending')
+                                        const Text(
+                                            'Nouvel emplacement en attente de validation. L’adresse actuelle reste publique.'),
                                       const SizedBox(height: 12),
                                       const ProfileAction(
                                           title: 'Modifier ma fiche publique',
@@ -221,11 +228,11 @@ class _RelayProfileScreenState extends ConsumerState<RelayProfileScreen>
                                   icon: Icons.payments_outlined,
                                   route: '/relay/wallet'),
                               const ProfileAction(
-                                  title: 'Actions de paiement par colis',
+                                  title: 'Actions de paiement',
                                   subtitle:
-                                      'Ouvrez un colis dans le stock pour consulter les montants et actions.',
+                                      'Paiements à effectuer, déclarations et validation Denkma',
                                   icon: Icons.receipt_long_outlined,
-                                  route: '/relay'),
+                                  route: '/relay/payments'),
                             ])),
                     ProfileSection(
                         key: _supportKey,

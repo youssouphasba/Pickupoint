@@ -36,6 +36,8 @@ class AdminEventType:
     MISSION_RELEASED = "mission_released"
     RELAY_ARCHIVED = "relay_archived"
     RELAY_CAPACITY_WARNING = "relay_capacity_warning"
+    RELAY_LOCATION_REQUESTED = "relay_location_requested"
+    RELAY_LOCATION_REVIEWED = "relay_location_reviewed"
     SECURITY_GPS_BLOCKED = "security_gps_blocked"
     PROMOTION_CREATED = "promotion_created"
     PROMOTION_UPDATED = "promotion_updated"
@@ -58,6 +60,8 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     AdminEventType.MISSION_RELEASED: "info",
     AdminEventType.RELAY_ARCHIVED: "warning",
     AdminEventType.RELAY_CAPACITY_WARNING: "warning",
+    AdminEventType.RELAY_LOCATION_REQUESTED: "warning",
+    AdminEventType.RELAY_LOCATION_REVIEWED: "info",
     AdminEventType.SECURITY_GPS_BLOCKED: "critical",
     AdminEventType.PROMOTION_CREATED: "info",
     AdminEventType.PROMOTION_UPDATED: "info",

@@ -149,7 +149,13 @@ class _RelayPublicProfileEditorState
               'Sélectionnez au moins un jour et ses horaires d’ouverture.')));
       return;
     }
-    if (_position == null) {
+    final point = _relay!;
+    final addressChanged = _address.text.trim() != point.addressLabel ||
+        _city.text.trim() != point.city ||
+        _district.text.trim() != (point.district ?? '') ||
+        _position?.latitude != point.lat ||
+        _position?.longitude != point.lng;
+    if (addressChanged && _position == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content:
               Text('Confirmez l’emplacement précis du relais sur la carte.')));
@@ -158,12 +164,6 @@ class _RelayPublicProfileEditorState
     FocusScope.of(context).unfocus();
     setState(() => _saving = true);
     try {
-      final point = _relay!;
-      final addressChanged = _address.text.trim() != point.addressLabel ||
-          _city.text.trim() != point.city ||
-          _district.text.trim() != (point.district ?? '') ||
-          _position?.latitude != point.lat ||
-          _position?.longitude != point.lng;
       final response =
           await ref.read(apiClientProvider).updateRelayPoint(point.id, {
         'name': _name.text.trim(),
@@ -202,9 +202,11 @@ class _RelayPublicProfileEditorState
       ref.invalidate(relayPointsProvider);
       ref.invalidate(relayPerformanceProvider);
       ref.invalidate(relayStockProvider);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'Fiche publique enregistrée. Les clients verront ces informations lorsque le relais sera validé et activé.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(addressChanged &&
+                  saved.locationChangeRequest?['status'] == 'pending'
+              ? 'Nouvel emplacement soumis à Denkma. Votre adresse actuelle reste visible jusqu’à validation.'
+              : 'Informations et horaires enregistrés.')));
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -298,7 +300,7 @@ class _RelayPublicProfileEditorState
                                 ProfileSection(
                                     title: 'Adresse et emplacement',
                                     subtitle:
-                                        'La position précise sert aux clients et aux livreurs. Après modification de l’adresse, confirmez son emplacement sur la carte.',
+                                        'Votre emplacement actuel est conservé. Une nouvelle adresse ou position doit être validée par Denkma avant de devenir visible.',
                                     child: Column(children: [
                                       _field(_address, 'Adresse du relais',
                                           required: true,
@@ -319,6 +321,21 @@ class _RelayPublicProfileEditorState
                                           label: Text(_position == null
                                               ? 'Définir l’emplacement sur la carte'
                                               : 'Emplacement défini · modifier sur la carte')),
+                                      if (_relay?.locationChangeRequest != null)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 12),
+                                          child: Text(switch (
+                                              _relay!.locationChangeRequest![
+                                                  'status']) {
+                                            'pending' =>
+                                              'Nouvel emplacement en attente de validation : ${_relay!.locationChangeRequest!['address']?['label'] ?? ''}. Votre position actuelle reste inchangée.',
+                                            'rejected' =>
+                                              'Changement refusé : ${_relay!.locationChangeRequest!['reason'] ?? 'Contactez le support.'}',
+                                            _ =>
+                                              'Dernier changement d’emplacement validé par Denkma.',
+                                          }),
+                                        ),
                                     ])),
                                 ProfileSection(
                                     title: 'Mes jours et horaires',

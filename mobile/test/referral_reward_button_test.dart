@@ -47,7 +47,8 @@ void main() {
         return Scaffold(
             appBar: AppBar(
           automaticallyImplyLeading: false,
-          toolbarHeight: ClientReferralToolbar.height(context),
+          toolbarHeight: ClientReferralToolbar.height(context,
+              hasReferral: false, actionCount: 5),
           title: ClientReferralToolbar(
             offer: null,
             actions: List.generate(
@@ -66,8 +67,10 @@ void main() {
         expect(centers[i].dx - centers[i - 1].dx,
             closeTo(centers[1].dx - centers[0].dx, .1));
       }
-      expect(tester.getTopLeft(icons.first).dx, closeTo(16, .1));
-      expect(tester.getBottomRight(icons.last).dx, closeTo(width - 16, .1));
+      expect(tester.getTopLeft(icons.first).dx, greaterThanOrEqualTo(16));
+      expect(
+          tester.getBottomRight(icons.last).dx, lessThanOrEqualTo(width - 16));
+      expect(find.byType(SingleChildScrollView), findsNothing);
       expect(tester.takeException(), isNull);
     });
     for (final scale in [1.0, 1.6, 2.0]) {
@@ -86,7 +89,8 @@ void main() {
           builder: (context) => Scaffold(
               appBar: AppBar(
             automaticallyImplyLeading: false,
-            toolbarHeight: ClientReferralToolbar.height(context),
+            toolbarHeight: ClientReferralToolbar.height(context,
+                hasReferral: true, actionCount: 5),
             title: ClientReferralToolbar(
               offer: {...client, 'sponsor_bonus_xof': 100000},
               actions: List.generate(
@@ -97,20 +101,22 @@ void main() {
             ),
           )),
         )));
-        final reward = find.text('Gagnez ${formatXof(100000)}');
+        final reward = find.text(formatXof(100000));
         expect(reward, findsOneWidget);
         expect(find.text('Denkma'), findsNothing);
         expect(find.byType(ClientHeaderLogo), findsOneWidget);
         expect(find.byType(Image), findsOneWidget);
         expect(find.byType(IconButton), findsNWidgets(5));
-        final buttonCenter = tester
-            .getCenter(
-                find.byWidgetPredicate((widget) => widget is FilledButton))
-            .dy;
+        final iconCenter = tester.getCenter(find.byType(IconButton).first).dy;
         for (final icon in find.byType(IconButton).evaluate()) {
           expect(tester.getCenter(find.byWidget(icon.widget)).dy,
-              closeTo(buttonCenter, 0.1));
+              closeTo(iconCenter, 0.1));
+          expect(tester.getTopLeft(find.byWidget(icon.widget)).dx,
+              greaterThanOrEqualTo(0));
+          expect(tester.getBottomRight(find.byWidget(icon.widget)).dx,
+              lessThanOrEqualTo(width));
         }
+        expect(find.byType(SingleChildScrollView), findsNothing);
         await tester.tap(reward);
         expect(opened, isTrue);
         expect(tester.takeException(), isNull);

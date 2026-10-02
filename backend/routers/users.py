@@ -74,6 +74,19 @@ class PinUpdateRequest(BaseModel):
     new_pin: str = Field(..., min_length=4, max_length=4)
 
 
+class PinVerificationRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=12, pattern=r"^\d+$")
+
+
+@router.post("/me/verify-pin", summary="Confirmer le PIN avant activation biométrique")
+@limiter.limit("5/minute")
+async def verify_my_pin(body: PinVerificationRequest, request: Request,
+                        current_user: dict = Depends(get_current_user)):
+    from services.pin_verification import verify_user_pin
+    await verify_user_pin(current_user, body.pin)
+    return {"verified": True}
+
+
 def _current_month_bounds() -> tuple[str, datetime, datetime]:
     now = datetime.now(timezone.utc)
     start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)

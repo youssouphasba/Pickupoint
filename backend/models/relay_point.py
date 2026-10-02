@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -58,3 +58,9 @@ class RelayPointUpdate(BaseModel):
     @classmethod
     def normalize_text_fields(cls, value: Optional[str]) -> Optional[str]:
         return clean_optional_text(value)
+
+
+class RelayLocationReview(BaseModel):
+    request_id: str = Field(min_length=1, max_length=80)
+    decision: Literal["approved", "rejected"]
+    reason: Optional[str] = Field(default=None, max_length=1000)
