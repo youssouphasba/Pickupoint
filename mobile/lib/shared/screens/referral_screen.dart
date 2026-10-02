@@ -44,6 +44,8 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
   @override
   Widget build(BuildContext context) {
     final info = ref.watch(clientReferralProvider);
+    final accountRole =
+        ref.watch(authProvider.select((auth) => auth.valueOrNull?.user?.role));
     return Scaffold(
       appBar: AppBar(title: const Text('Mon parrainage'), actions: [
         IconButton(
@@ -82,6 +84,11 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             final offers = (data['invitation_offers'] as List? ?? [])
                 .whereType<Map>()
                 .map((offer) => Map<String, dynamic>.from(offer))
+                .where((offer) =>
+                    (accountRole == 'client' || accountRole == 'driver') &&
+                    (offer['referred_role'] == 'client' ||
+                        (accountRole == 'driver' &&
+                            offer['referred_role'] == 'driver')))
                 .toList();
             final page =
                 _skip == 0 ? null : ref.watch(referralPageProvider(_skip));
@@ -95,9 +102,6 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
-                const Text(
-                    'Les primes sont payées par Denkma hors de l’application. Elles ne créditent pas votre wallet.'),
-                const SizedBox(height: 16),
                 if (received != null)
                   _referralCard(received, 'Votre prime de filleul', 'referred'),
                 if (received == null &&
@@ -119,50 +123,42 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
                   const SizedBox(height: 16),
                   SelectableText('Votre code : ${data['referral_code']}',
                       style: Theme.of(context).textTheme.titleMedium),
+                  Text('Primes versées hors application.',
+                      style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: 8),
                   for (final offer in offers)
-                    Card(
-                        child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(offer['label']?.toString() ?? '',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                      'Pour vous : ${formatXof((offer['sponsor_bonus_xof'] as num).toDouble())}'),
-                                  Text(
-                                      'Pour votre filleul : ${formatXof((offer['referred_bonus_xof'] as num).toDouble())}'),
-                                  const SizedBox(height: 8),
-                                  const Text('Comment obtenir votre prime ?',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 8),
-                                  const Text(
-                                      '1. Partagez votre code ou votre invitation.'),
-                                  Text(
-                                      '2. Votre proche ajoute votre code à son compte. ${offer['apply_rule'] ?? ''}'),
-                                  Text(
-                                      '3. Votre proche atteint l’objectif : ${offer['reward_rule'] ?? ''}'),
-                                  const Text(
-                                      '4. Une fois le parrainage validé, Denkma vous paie hors de l’application. Le suivi du paiement apparaît ici.'),
-                                  if (offer['referred_role'] == 'driver')
-                                    const Text(
-                                        'Cette offre concerne un compte déjà livreur. Une nouvelle inscription démarre comme compte client.'),
-                                  TextButton.icon(
-                                      onPressed: () => showReferralShareDialog(
-                                              context, {
-                                            ...data,
-                                            'share_message':
-                                                offer['share_message']
-                                          }),
-                                      icon: const Icon(Icons.share_outlined),
-                                      label: const Text(
-                                          'Partager cette invitation')),
-                                ]))),
+                    _InvitationOfferCard(
+                      offer: offer,
+                      onShare: () => showReferralShareDialog(context, {
+                        ...data,
+                        'share_message': offer['share_message'],
+                      }),
+                    ),
+                  const ExpansionTile(
+                    tilePadding: EdgeInsets.symmetric(horizontal: 8),
+                    title: Text('Comment ça marche ?'),
+                    childrenPadding: EdgeInsets.fromLTRB(8, 0, 8, 16),
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('1. Partagez votre invitation.'),
+                      SizedBox(height: 8),
+                      Text(
+                          '2. Votre proche ajoute le code avant la limite indiquée.'),
+                      SizedBox(height: 8),
+                      Text(
+                          '3. Une fois l’objectif atteint, suivez la validation et le paiement ici.'),
+                      SizedBox(height: 12),
+                      Text(
+                          'Denkma verse les primes hors de l’application, séparément de votre solde.'),
+                    ],
+                  ),
                 ],
+                if (data['can_sponsor'] == true && offers.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                        'Aucune invitation disponible pour ce compte actuellement.'),
+                  ),
                 if (data['can_sponsor'] != true)
                   Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -241,6 +237,73 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
                     'qualified_no_bonus'
                   ].contains(item['status'])),
             ])));
+  }
+}
+
+class _InvitationOfferCard extends StatelessWidget {
+  const _InvitationOfferCard({required this.offer, required this.onShare});
+
+  final Map<String, dynamic> offer;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDriver = offer['referred_role'] == 'driver';
+    final sponsorBonus = (offer['sponsor_bonus_xof'] as num? ?? 0).toDouble();
+    final referredBonus = (offer['referred_bonus_xof'] as num? ?? 0).toDouble();
+    final rewardRule = offer['reward_rule']?.toString().trim() ?? '';
+    final applyRule = offer['apply_rule']?.toString().trim() ?? '';
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(isDriver ? 'Inviter un livreur' : 'Inviter un client',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Text('Pour vous : ${formatXof(sponsorBonus)}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                if (referredBonus > 0)
+                  Text('Pour votre filleul : ${formatXof(referredBonus)}'),
+                if (rewardRule.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(rewardRule),
+                ],
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_outlined),
+                  label: const Text('Partager cette invitation'),
+                ),
+              ],
+            ),
+          ),
+          ExpansionTile(
+            title: const Text('Conditions de l’invitation'),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (applyRule.isNotEmpty) Text(applyRule),
+              if (isDriver) ...[
+                const SizedBox(height: 8),
+                const Text('Votre proche doit déjà avoir un compte livreur.'),
+              ],
+              if (referredBonus == 0) ...[
+                const SizedBox(height: 8),
+                const Text('Aucune prime prévue pour le filleul.'),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

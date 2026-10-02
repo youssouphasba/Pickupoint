@@ -18,12 +18,13 @@ import 'package:pickupoint/shared/utils/error_utils.dart';
 import 'package:pickupoint/shared/utils/currency_format.dart';
 
 class WalletAuth extends AuthNotifier {
-  WalletAuth({this.activeView});
+  WalletAuth({this.activeView, this.role = 'driver'});
   final String? activeView;
+  final String role;
   @override
   Future<AuthState> build() async => AuthState(
         status: AuthStatus.authenticated,
-        user: const User(id: 'driver', phone: '+221700000000', role: 'driver'),
+        user: User(id: 'driver', phone: '+221700000000', role: role),
         activeView: activeView,
       );
 }
@@ -51,6 +52,10 @@ class WalletApi extends ApiClient {
   int transactionLoads = 0;
   int retryAttempts = 0;
   int confirmAfterChecks = 1;
+  double earnings = 0;
+  int coursesCount = 0;
+  bool stalePendingTopup = false;
+  final activityCategories = <String>[];
   Response response(Object data) =>
       Response(data: data, requestOptions: RequestOptions(path: '/synthetic'));
   Map<String, dynamic> topup() => {
@@ -116,6 +121,7 @@ class WalletApi extends ApiClient {
   @override
   Future<Response> getWalletActivity(
       {String? period, String category = 'balance', int skip = 0}) async {
+    activityCategories.add(category);
     final transactions = ((await getTransactions(period: period)).data
         as Map)['transactions'] as List;
     return response({
@@ -128,9 +134,13 @@ class WalletApi extends ApiClient {
               })
           .toList(),
       'total': transactions.length,
-      'earnings': {'amount': 0, 'courses_count': 0},
+      'earnings': {'amount': earnings, 'courses_count': coursesCount},
       'pending_payouts': [],
-      'pending_topups': status == 'pending' ? [topup()] : [],
+      'pending_topups': status == 'pending' || stalePendingTopup
+          ? [
+              {...topup(), 'status': 'pending'}
+            ]
+          : [],
     });
   }
 
@@ -278,6 +288,98 @@ void main() {
                 initialTopupId: topupId, returnResult: returnResult))));
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+      'solde et gains restent distincts avec un seul historique filtrable',
+      (tester) async {
+    final api = WalletApi()
+      ..status = 'paid'
+      ..earnings = 18000
+      ..coursesCount = 6;
+    await showWallet(tester, api);
+    expect(find.text(formatXof(6806)), findsOneWidget);
+    expect(find.text(formatXof(18000)), findsOneWidget);
+    expect(find.text('Revenus des courses'), findsOneWidget);
+    expect(find.text('Historique'), findsOneWidget);
+    expect(find.text('6 courses'), findsOneWidget);
+    expect(find.text('Solde'), findsOneWidget);
+    expect(find.text('Courses'), findsOneWidget);
+    expect(
+        find.textContaining('Ils ne sont pas ajoutés au solde'), findsNothing);
+    await tester.ensureVisible(find.text('Courses'));
+    await tester.tap(find.text('Courses'));
+    await tester.pumpAndSettle();
+    expect(api.activityCategories.last, 'revenues');
+    await tester.ensureVisible(find.text('Comprendre les montants'));
+    await tester.tap(find.text('Comprendre les montants'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Ils ne s’ajoutent pas au solde Denkma'),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'un historique indisponible ne masque pas une recharge à vérifier',
+      (tester) async {
+    final api = WalletApi()..failTransactions = true;
+    await showWallet(tester, api);
+    expect(find.text('Opérations en attente (1)'), findsOneWidget);
+    expect(find.text('Non confirmée'), findsOneWidget);
+    await tester.ensureVisible(find.text('Vérifier le paiement'));
+    await tester.tap(find.text('Vérifier le paiement'));
+    await tester.pumpAndSettle();
+    expect(api.checks, 1);
+    expect(api.creations, 0);
+    expect(find.text('Non confirmée'), findsNothing);
+    expect(find.textContaining('créditée sur votre solde'), findsOneWidget);
+  });
+
+  testWidgets('une recharge créditée ne reste pas dans les actions en attente',
+      (tester) async {
+    final api = WalletApi()
+      ..status = 'paid'
+      ..stalePendingTopup = true;
+    await showWallet(tester, api);
+    expect(find.textContaining('Opérations en attente'), findsNothing);
+    expect(find.text('Non confirmée'), findsNothing);
+    expect(find.text('Recharge du solde par carte'), findsOneWidget);
+  });
+
+  testWidgets('un client ne peut pas ouvrir le solde professionnel par son URL',
+      (tester) async {
+    final container = ProviderContainer(overrides: [
+      authProvider.overrideWith(() => WalletAuth(role: 'client')),
+    ]);
+    await container.read(authProvider.future);
+    final router = container.read(appRouterProvider);
+    late BuildContext context;
+    await tester.pumpWidget(MaterialApp(
+        home: Builder(builder: (value) {
+      context = value;
+      return const SizedBox.shrink();
+    })));
+    router.go('/driver/wallet');
+    final destination = await router.routeInformationParser
+        .parseRouteInformationWithDependencies(
+            router.routeInformationProvider.value, context);
+    expect(destination.uri.path, '/client');
+    router.dispose();
+    container.dispose();
+  });
+
+  testWidgets('affichage du solde lisible sur petit écran et texte agrandi',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await showWallet(tester, WalletApi());
+    await tester.ensureVisible(find.text('Comprendre les montants'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
       'paid return verifies server, refreshes balance, then reloads transactions',

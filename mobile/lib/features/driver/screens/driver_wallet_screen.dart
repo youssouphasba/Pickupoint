@@ -250,14 +250,36 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   child: Text(_paymentMessage!),
                 ),
               ],
+              _buildPendingOperations(
+                  activityAsync.valueOrNull, walletAsync.valueOrNull),
               const SizedBox(height: 24),
-              _buildPeriodFilter(),
-              const SizedBox(height: 16),
               activityAsync.when(
-                data: (activity) => _buildActivity(
-                    activity, activityPages, walletAsync.valueOrNull),
-                loading: () => const CircularProgressIndicator(),
-                error: (error, _) => _activityError(error, 0),
+                data: (activity) => _buildActivity(activity, activityPages),
+                loading: () => Column(children: [
+                  _buildPeriodFilter(),
+                  const SizedBox(height: 16),
+                  const CircularProgressIndicator(),
+                ]),
+                error: (error, _) => Column(children: [
+                  _buildPeriodFilter(),
+                  _activityError(error, 0),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              const ExpansionTile(
+                title: Text('Comprendre les montants'),
+                childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                      'Le solde Denkma sert à régler vos commissions. Vous pouvez le recharger ou demander un retrait du montant disponible.'),
+                  SizedBox(height: 8),
+                  Text(
+                      'Les revenus des courses sont encaissés hors de l’application. Ils ne s’ajoutent pas au solde Denkma.'),
+                  SizedBox(height: 8),
+                  Text(
+                      'Les opérations en attente restent visibles, quelle que soit la période choisie.'),
+                ],
               ),
             ],
           ),
@@ -322,13 +344,12 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   style: const TextStyle(color: Colors.white60, fontSize: 13)),
             ],
             const SizedBox(height: 12),
-            const Text(
-                'Ce solde couvre vos commissions. Les revenus encaissés hors plateforme sont présentés séparément.',
+            const Text('Pour régler vos commissions',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 24),
             LoadingButton(
-              label: 'Décaisser mon solde',
+              label: 'Retirer',
               color: Colors.white,
               onPressed: wallet.balance > 0 && wallet.payoutAvailable
                   ? () => _showPayoutDialog(context)
@@ -349,7 +370,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   ? () => _showTopupDialog(context, wallet.topupOptions!)
                   : null,
               icon: const Icon(Icons.add_card),
-              label: const Text('Recharger mon solde'),
+              label: const Text('Recharger'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: const BorderSide(color: Colors.white70),
@@ -406,17 +427,43 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
     );
   }
 
-  Widget _buildTopupsSection(Wallet wallet) {
-    final pending = wallet.topups.where((topup) => topup.isPending).toList();
-    if (pending.isEmpty) return const SizedBox.shrink();
+  Widget _buildPendingOperations(WalletActivity? activity, Wallet? wallet) {
+    final pendingTopups = {
+      for (final topup in activity?.pendingTopups ?? <WalletTopup>[])
+        if (topup.isPending) topup.id: topup,
+    };
+    for (final topup in wallet?.topups ?? <WalletTopup>[]) {
+      if (topup.isPending) {
+        pendingTopups[topup.id] = topup;
+      } else {
+        pendingTopups.remove(topup.id);
+      }
+    }
+    final payouts = activity?.pendingPayouts ?? <PayoutRequest>[];
+    final count = pendingTopups.length + payouts.length;
+    if (count == 0) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Opérations en attente ($count)',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          _buildTopupsSection(pendingTopups.values.toList()),
+          _buildPayoutsSection(payouts),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopupsSection(List<WalletTopup> pending) {
+    if (pending.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.zero,
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Recharges à vérifier',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
           ...pending.map((topup) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: Padding(
@@ -424,35 +471,24 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        Expanded(
-                            child: Text(formatXof(topup.amount),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600))),
-                        _StatusPill(
-                          label: topup.isPaid
-                              ? 'Créditée'
-                              : topup.isPending
-                                  ? 'Non confirmée'
-                                  : topup.status == 'expired'
-                                      ? 'Expirée'
-                                      : 'Échec',
-                          color: topup.isPaid
-                              ? Colors.green
-                              : topup.isPending
-                                  ? Colors.orange
-                                  : Colors.grey,
+                      Wrap(spacing: 12, runSpacing: 8, children: [
+                        Text(formatXof(topup.amount),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                        const _StatusPill(
+                          label: 'Non confirmée',
+                          color: Colors.orange,
                         ),
                       ]),
                       const SizedBox(height: 4),
-                      Text('Carte · ${formatDate(topup.createdAt)}'),
+                      Text(
+                          'Recharge par carte · ${formatDate(topup.createdAt)}'),
                       if (topup.isPending) ...[
                         const SizedBox(height: 8),
                         Text(topup.verificationMessage ??
                             'Vérifiez le paiement avant de payer une deuxième fois.'),
                         TextButton.icon(
-                          onPressed: _refreshing ||
-                                  wallet.topupOptions?.enabled != true
+                          onPressed: _refreshing
                               ? null
                               : () {
                                   _pendingTopupId = topup.id;
@@ -485,17 +521,11 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
         ]),
       );
 
-  Widget _buildActivity(WalletActivity activity,
-      List<AsyncValue<WalletActivity>> pages, Wallet? wallet) {
+  Widget _buildActivity(
+      WalletActivity activity, List<AsyncValue<WalletActivity>> pages) {
     final rows = pages
         .expand((page) => page.valueOrNull?.items ?? <WalletActivityItem>[])
         .toList();
-    final pendingTopups = {
-      for (final topup in activity.pendingTopups) topup.id: topup
-    };
-    for (final topup in wallet?.topups ?? <WalletTopup>[]) {
-      if (topup.isPending) pendingTopups[topup.id] = topup;
-    }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Card(
           child: Padding(
@@ -506,50 +536,23 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                     const Text('Revenus des courses',
                         style: TextStyle(
                             fontWeight: FontWeight.bold, fontSize: 18)),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 16),
+                    _buildPeriodFilter(),
+                    const SizedBox(height: 16),
                     Text(formatXof(activity.earnings),
                         style: const TextStyle(
                             fontSize: 26, fontWeight: FontWeight.bold)),
                     Text(
-                        '${activity.coursesCount} course${activity.coursesCount == 1 ? '' : 's'} · ${_period == null ? 'Toutes les périodes' : _monthLabel(_period!)}'),
+                        '${activity.coursesCount} course${activity.coursesCount == 1 ? '' : 's'}'),
                     const SizedBox(height: 8),
-                    const Text(
-                        'Gains enregistrés, encaissés hors plateforme. Ils ne sont pas ajoutés au solde Denkma.'),
-                    TextButton(
-                        onPressed: () => setState(() {
-                              _historyCategory = 'revenues';
-                              _historyOffsets
-                                ..clear()
-                                ..add(0);
-                            }),
-                        child: const Text(
-                            'Voir les courses et leurs récapitulatifs')),
+                    const Text('Encaissés hors application'),
                   ]))),
-      if (pendingTopups.isNotEmpty || activity.pendingPayouts.isNotEmpty) ...[
-        const SizedBox(height: 24),
-        const Text('À suivre',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        const Text(
-            'Opérations en attente, indépendantes du filtre de période.'),
-        if (wallet != null)
-          _buildTopupsSection(Wallet(
-              id: wallet.id,
-              userId: wallet.userId,
-              balance: wallet.balance,
-              currency: wallet.currency,
-              topupOptions: wallet.topupOptions,
-              topups: pendingTopups.values.toList())),
-        _buildPayoutsSection(AsyncData(activity.pendingPayouts)),
-      ],
       const SizedBox(height: 24),
       const Text('Historique',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
       const SizedBox(height: 8),
       Wrap(spacing: 8, children: [
-        for (final entry in {
-          'balance': 'Opérations du solde',
-          'revenues': 'Revenus des courses'
-        }.entries)
+        for (final entry in {'balance': 'Solde', 'revenues': 'Courses'}.entries)
           ChoiceChip(
               label: Text(entry.value),
               selected: _historyCategory == entry.key,
@@ -593,13 +596,11 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
             : item.status == 'failed'
                 ? 'Échec'
                 : null;
-    final effectLabel = revenue
-        ? 'Hors solde'
-        : item.kind == 'payout' && item.status == 'rejected'
-            ? 'Montant restitué · solde inchangé'
-            : item.effect == 0
-                ? 'Solde inchangé'
-                : 'Effet sur le solde';
+    final effectLabel = item.kind == 'payout' && item.status == 'rejected'
+        ? 'Montant restitué · solde inchangé'
+        : !revenue && item.effect == 0
+            ? 'Solde inchangé'
+            : null;
     return Card(
         child: InkWell(
       onTap: item.missionId == null
@@ -617,7 +618,9 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                       ? Icons.payments_outlined
                       : item.effect < 0
                           ? Icons.remove_circle
-                          : Icons.add_circle,
+                          : item.effect > 0
+                              ? Icons.add_circle
+                              : Icons.payments_outlined,
                   color: color),
               const SizedBox(width: 8),
               Expanded(
@@ -637,7 +640,8 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                           TextStyle(color: color, fontWeight: FontWeight.bold)),
                   if (status != null) _StatusPill(label: status, color: color),
                 ]),
-            Text(effectLabel, style: Theme.of(context).textTheme.bodySmall),
+            if (effectLabel != null)
+              Text(effectLabel, style: Theme.of(context).textTheme.bodySmall),
             Text(formatDate(item.createdAt),
                 style: Theme.of(context).textTheme.bodySmall),
             if (item.rejectionReason != null) Text(item.rejectionReason!),
@@ -659,47 +663,36 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
     );
   }
 
-  Widget _buildPayoutsSection(AsyncValue<List<PayoutRequest>> payoutsAsync) {
-    return payoutsAsync.when(
-      data: (payouts) {
-        final recent =
-            payouts.where((payout) => payout.status == 'pending').toList();
-        if (recent.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Retraits en attente',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...recent.map(
-              (payout) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(
-                    _payoutStatusIcon(payout.status),
-                    color: _payoutStatusColor(payout.status),
-                  ),
-                  title: Text(formatXof(payout.amount)),
-                  subtitle: Text(
-                    '${_payoutMethodLabel(payout.method)} · ${formatDate(payout.updatedAt ?? payout.createdAt)}',
-                  ),
-                  trailing: _StatusPill(
-                    label: _payoutStatusLabel(payout.status),
-                    color: _payoutStatusColor(payout.status),
-                  ),
-                ),
+  Widget _buildPayoutsSection(List<PayoutRequest> payouts) {
+    final recent =
+        payouts.where((payout) => payout.status == 'pending').toList();
+    if (recent.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...recent.map(
+          (payout) => Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              dense: true,
+              leading: Icon(
+                _payoutStatusIcon(payout.status),
+                color: _payoutStatusColor(payout.status),
+              ),
+              title: Text(formatXof(payout.amount)),
+              subtitle: Text(
+                'Retrait · ${_payoutMethodLabel(payout.method)} · ${formatDate(payout.updatedAt ?? payout.createdAt)}',
+              ),
+              trailing: _StatusPill(
+                label: _payoutStatusLabel(payout.status),
+                color: _payoutStatusColor(payout.status),
               ),
             ),
-          ],
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (error, _) => Text(friendlyError(error)),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -757,6 +757,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               builder: (_, __) => const CompletedMissionsScreen()),
           GoRoute(
               path: '/driver/wallet',
+              redirect: (_, __) {
+                final user = ref.read(authProvider).valueOrNull?.user;
+                return user?.isDriver == true
+                    ? null
+                    : _homeForRole(user?.role ?? 'client');
+              },
               builder: (_, state) => DriverWalletScreen(
                     initialTopupId: state.uri.queryParameters['topup_id'],
                     returnResult: state.uri.queryParameters['wallet_return'],
