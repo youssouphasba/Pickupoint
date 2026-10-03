@@ -40,6 +40,7 @@ class Parcel {
     required this.createdAt,
     this.originRelayId,
     this.destinationRelayId,
+    this.recipientCollectionPlan,
     this.senderName,
     this.recipientName,
     this.recipientPhone,
@@ -194,31 +195,45 @@ class Parcel {
   final bool platformCommissionDebt;
   final bool platformCommissionOffered;
   final Map<String, dynamic>? relayFinancial;
+  final Map<String, dynamic>? recipientCollectionPlan;
   final Map<String, dynamic>? loyaltyAward;
 
   factory Parcel.fromJson(Map<String, dynamic> json) {
     // delivery_address est un objet Address { label, city, geopin:{lat,lng} }
-    final deliveryAddr = json['delivery_address'] as Map<String, dynamic>?;
+    final snapshot = json['delivery_destination'] as Map<String, dynamic>?;
+    final destination = snapshot?['type'] == 'relay' ? snapshot : null;
+    final deliveryAddr = destination?['address'] as Map<String, dynamic>? ??
+        json['delivery_address'] as Map<String, dynamic>?;
     final geopin = deliveryAddr?['geopin'] as Map<String, dynamic>?;
     final originArea = json['origin_area_label']?.toString();
     final deliveryArea = json['delivery_area_label']?.toString();
 
     return Parcel(
       loyaltyAward: json['loyalty_award'] as Map<String, dynamic>?,
+      recipientCollectionPlan: json['recipient_collection_plan'] is Map
+          ? Map<String, dynamic>.from(json['recipient_collection_plan'] as Map)
+          : null,
       id: json['parcel_id'] as String? ?? json['id'] as String? ?? '',
       trackingCode: json['tracking_code'] as String? ?? '',
       status: (json['status'] is String
               ? json['status']
               : (json['status'] as Map?)?['value'] ?? 'created')
           .toString(),
-      deliveryMode: (json['delivery_mode'] is String
-              ? json['delivery_mode']
-              : (json['delivery_mode'] as Map?)?['value'] ?? 'relay_to_relay')
-          .toString(),
+      deliveryMode: json['effective_delivery_mode']?.toString() ??
+          (json['redirect_relay_id'] != null && json['delivery_mode'] is String
+              ? '${(json['delivery_mode'] as String).split('_to_').first}_to_relay'
+              : (json['delivery_mode'] is String
+                      ? json['delivery_mode']
+                      : (json['delivery_mode'] as Map?)?['value'] ??
+                          'relay_to_relay')
+                  .toString()),
       senderId: json['sender_user_id']?.toString() ?? '',
       senderName: json['sender_name']?.toString(),
       originRelayId: json['origin_relay_id']?.toString(),
-      destinationRelayId: json['destination_relay_id']?.toString(),
+      destinationRelayId: (json['effective_destination_relay_id'] ??
+              json['redirect_relay_id'] ??
+              json['destination_relay_id'])
+          ?.toString(),
       recipientName: json['recipient_name']?.toString(),
       recipientPhone: json['recipient_phone']?.toString(),
       destinationAddress: deliveryAddr?['label']?.toString() ??
@@ -245,7 +260,8 @@ class Parcel {
       initiatedBy: json['initiated_by']?.toString() ?? 'sender',
       deliveryConfirmed: json['delivery_confirmed'] as bool? ?? false,
       pickupConfirmed: json['pickup_confirmed'] as bool? ?? false,
-      deliveryLocation: json['delivery_location'] as Map<String, dynamic>? ??
+      deliveryLocation: destination?['address'] as Map<String, dynamic>? ??
+          json['delivery_location'] as Map<String, dynamic>? ??
           json['delivery_address'] as Map<String, dynamic>?,
       pickupLocation: json['pickup_location'] as Map<String, dynamic>? ??
           json['origin_location'] as Map<String, dynamic>?,
@@ -254,16 +270,8 @@ class Parcel {
       pinCode: json['relay_pin'] as String? ?? json['pin_code'] as String?,
       pickupCode: json['pickup_code'] as String?,
       returnCode: json['return_code'] as String?,
-      deliveryLat:
-          (json['delivery_address'] as Map<String, dynamic>?)?['geopin'] != null
-              ? ((json['delivery_address']['geopin']['lat']) as num?)
-                  ?.toDouble()
-              : null,
-      deliveryLng:
-          (json['delivery_address'] as Map<String, dynamic>?)?['geopin'] != null
-              ? ((json['delivery_address']['geopin']['lng']) as num?)
-                  ?.toDouble()
-              : null,
+      deliveryLat: (geopin?['lat'] as num?)?.toDouble(),
+      deliveryLng: (geopin?['lng'] as num?)?.toDouble(),
       rating: json['rating'] as int?,
       ratingComment: json['rating_comment'] as String?,
       driverTip: (json['driver_tip'] as num?)?.toDouble() ?? 0.0,

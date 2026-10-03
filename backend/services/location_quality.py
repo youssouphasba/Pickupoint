@@ -3,11 +3,12 @@ from math import isfinite
 
 from config import settings
 from core.exceptions import bad_request_exception
+from core.delivery_destination import effective_delivery_mode
 from services.mission_trace import timestamp
 
 
 def client_live_tracking_allowed(parcel, mission=None, *, is_recipient=False):
-    mode = parcel.get("delivery_mode")
+    mode = effective_delivery_mode(parcel)
     if mode == "home_to_home":
         return True
     return bool(

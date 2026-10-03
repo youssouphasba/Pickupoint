@@ -216,12 +216,12 @@ async def relay_financial_action(
     if not _can_manage_relay(relay, current_user):
         raise forbidden_exception("Accès refusé")
     action = str(body.get("action") or "").strip()
-    if action not in {"driver_payment", "denkma_payment"}:
+    if action not in {"driver_payment", "denkma_payment", "recipient_collection_payment"}:
         raise forbidden_exception("Action financière non autorisée")
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
-    if parcel.get("status") not in RELAY_FINANCIAL_STATUSES:
+    if parcel.get("status") not in RELAY_FINANCIAL_STATUSES and action != "recipient_collection_payment":
         raise bad_request_exception("Les actions de paiement sont disponibles après la collecte du colis.")
     summary = build_relay_financial_summary(parcel, relay_id)
     allowed = {item["key"] for item in summary["actions"]}
@@ -229,21 +229,25 @@ async def relay_financial_action(
         raise forbidden_exception("Cette action ne concerne pas ce relais")
     now = datetime.now(timezone.utc)
     field = "driver_payment_status" if action == "driver_payment" else "denkma_payment_status"
-    current_status = (parcel.get("relay_settlement") or {}).get(field, "pending")
+    applicable = next(item for item in summary["actions"] if item["key"] == action)
+    field_path = applicable.get("settlement_field") or f"relay_settlement.{field}"
+    current_status = applicable["status"]
     if current_status in {"validated", "declared"}:
         return {"ok": True, "relay_financial": summary}
     if current_status not in {"pending", "rejected"}:
         raise forbidden_exception("Ce règlement ne peut pas être déclaré dans son état actuel")
     update = {
-        f"relay_settlement.{field}": "declared",
-        f"relay_settlement.{field}_declared_at": now,
-        f"relay_settlement.{field}_declared_by": current_user.get("user_id"),
+        field_path: "declared",
+        f"{field_path}_declared_at": now,
+        f"{field_path}_declared_by": current_user.get("user_id"),
         "updated_at": now,
     }
-    await db.parcels.update_one(
-        {"parcel_id": parcel_id, f"relay_settlement.{field}": {"$in": [None, "pending", "rejected"]}},
+    result = await db.parcels.update_one(
+        {"parcel_id": parcel_id, "updated_at": parcel.get("updated_at"), field_path: {"$in": [None, "pending", "rejected"]}},
         {"$set": update},
     )
+    if not result.matched_count:
+        raise bad_request_exception("L'encaissement ou le règlement a changé. Actualisez avant de déclarer le reversement.")
     updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     return {"ok": True, "relay_financial": build_relay_financial_summary(updated, relay_id)}
 
@@ -258,8 +262,9 @@ async def relay_financial_actions(
     relay = await _get_relay_or_404(relay_id)
     if not _can_manage_relay(relay, current_user):
         raise forbidden_exception("Accès refusé aux règlements de ce relais")
-    query = {"status": {"$in": sorted(RELAY_FINANCIAL_STATUSES)}, "$or": [
-        {"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}, {"redirect_relay_id": relay_id},
+    query = {"$or": [
+        {"status": {"$in": sorted(RELAY_FINANCIAL_STATUSES)}, "$or": [{"origin_relay_id": relay_id}, {"destination_relay_id": relay_id}, {"redirect_relay_id": relay_id}]},
+        {"recipient_collection_plan.receipts": {"$elemMatch": {"collector": "relay", "collector_id": relay_id}}},
     ]}
     cursor = db.parcels.find(query, {"_id": 0}).sort([("updated_at", -1), ("parcel_id", 1)])
     items, total, pending_count, unavailable = [], 0, 0, 0
@@ -273,7 +278,7 @@ async def relay_financial_actions(
         for action in summary["actions"]:
             if float(action.get("amount_xof") or 0) <= 0:
                 continue
-            actionable = action["key"] in {"driver_payment", "denkma_payment"} and action["status"] in {"pending", "rejected"}
+            actionable = action["key"] in {"driver_payment", "denkma_payment", "recipient_collection_payment"} and action["status"] in {"pending", "rejected"}
             pending_count += int(actionable)
             if pending_only and not actionable:
                 continue
@@ -292,7 +297,7 @@ async def relay_financial_actions(
         driver = lookup.get(item.get("driver_id")) or {}
         item["beneficiary_name"] = (
             driver.get("name") or "Livreur du colis" if item["key"] == "driver_payment"
-            else "Denkma" if item["key"] == "denkma_payment" else relay.get("name") or "Votre relais"
+            else "Denkma" if item["key"] in {"denkma_payment", "recipient_collection_payment"} else relay.get("name") or "Votre relais"
         )
         item["beneficiary_phone"] = driver.get("phone")
     return {"actions": items, "total": total, "pending_count": pending_count, "unavailable_count": unavailable,

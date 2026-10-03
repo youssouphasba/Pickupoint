@@ -312,7 +312,8 @@ def _display_phone(phone: str | None) -> str:
 
 
 def _recipient_access_code(parcel: dict) -> tuple[str | None, str | None]:
-    mode = parcel.get("delivery_mode") or ""
+    from core.delivery_destination import effective_delivery_mode
+    mode = effective_delivery_mode(parcel)
     if mode.endswith("_to_relay"):
         return parcel.get("relay_pin"), "Code de retrait"
     if mode.endswith("_to_home"):
@@ -628,7 +629,7 @@ async def notify_driver_mission_resumed(parcel: dict, new_status: ParcelStatus) 
     )
 
 
-async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
+async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus, *, dedupe_key: Optional[str] = None):
     """Notifie l'expéditeur, le destinataire et le livreur affecté du changement de statut."""
     tracking_code = parcel.get("tracking_code", "")
     relay_pin = parcel.get("relay_pin", "—")
@@ -669,6 +670,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             whatsapp_variables=sender_template_vars,
             skip_whatsapp=not is_creation,
             metadata={"parcel_status": new_status.value},
+            dedupe_key=dedupe_key,
         )
 
     # Notifier destinataire
@@ -737,6 +739,7 @@ async def notify_parcel_status_change(parcel: dict, new_status: ParcelStatus):
             whatsapp_variables=template_vars_recipient,
             whatsapp_button_variables=recipient_button_vars,
             metadata={"parcel_status": new_status.value},
+            dedupe_key=dedupe_key,
         )
         # Le code de retrait/livraison est déjà inclus dans le template principal
         # pour CREATED, AVAILABLE_AT_RELAY et REDIRECTED_TO_RELAY. On envoie un
@@ -2253,8 +2256,78 @@ async def notify_relay_parcel_incoming(relay_id: str, parcel: dict) -> None:
         title="Un colis arrive bientôt",
         body=f"Le colis {tracking_code} est en route vers votre relais. Préparez sa réception.",
         parcel_id=parcel.get("parcel_id"),
-        dedupe_key=f"relay_incoming:{parcel.get('parcel_id')}",
+        dedupe_key=f"relay_incoming:{parcel.get('parcel_id')}:{parcel.get('destination_revision', 0)}",
     )
+
+
+async def notify_recipient_collection_plan(parcel: dict):
+    from core.delivery_destination import effective_relay_id
+    plan = parcel.get("recipient_collection_plan") or {}
+    marker = f"recipient_collection:{parcel['parcel_id']}:{plan.get('revision', 0)}"
+    paid = parcel.get("payment_status") == "paid" or parcel.get("payment_override")
+    collector = {"relay": "au relais de retrait", "driver": "au livreur affecté", "denkma": "à Denkma"}.get(plan.get("collector"), "selon les instructions du support")
+    body = f"Colis {parcel.get('tracking_code')}. " + ("Paiement confirmé : aucun nouvel encaissement." if paid else f"Reste à régler : {plan.get('amount_due_xof', 0):g} FCFA, {collector}. Ne réglez pas à nouveau un montant déjà payé.")
+    recipient_id = parcel.get("recipient_user_id")
+    driver_id = parcel.get("assigned_driver_id")
+    mission = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"], "driver_id": driver_id}, {"_id": 0, "mission_id": 1}, sort=[("updated_at", -1)]) if driver_id else None
+    if not recipient_id and parcel.get("recipient_phone"):
+        recipient = await _find_user_by_phone(parcel["recipient_phone"])
+        recipient_id = (recipient or {}).get("user_id")
+    for user_id in dict.fromkeys(filter(None, (parcel.get("sender_user_id"), recipient_id, parcel.get("assigned_driver_id")))):
+        driver_mission = (mission or {}).get("mission_id") if user_id == driver_id and user_id != recipient_id else None
+        await _store_and_send(user_id=user_id, title="Règlement du destinataire précisé", body=body,
+                              ref_type="mission" if driver_mission else "parcel", ref_id=driver_mission or parcel["parcel_id"],
+                              event_type="mission_detail" if driver_mission else "parcel_detail", target_view="driver" if driver_mission else "client",
+                              category="parcel_updates", skip_whatsapp=True, dedupe_key=marker)
+    if effective_relay_id(parcel):
+        await _notify_relay_users(effective_relay_id(parcel), title="Règlement avant remise", body=body, parcel_id=parcel["parcel_id"], dedupe_key=marker)
+
+
+async def notify_driver_return_requested(parcel: dict, mission_id: str):
+    if parcel.get("assigned_driver_id"):
+        await _store_and_send(user_id=parcel["assigned_driver_id"], title="Retour à l'expéditeur demandé",
+                              body=f"Colis {parcel.get('tracking_code')}. Consultez la destination de retour et demandez le code à l'expéditeur lors de la remise.",
+                              ref_type="mission", ref_id=mission_id, event_type="mission_detail", target_view="driver",
+                              category="parcel_updates", skip_whatsapp=True, dedupe_key=f"return_requested:{mission_id}:{parcel.get('updated_at')}")
+
+
+async def notify_destination_changed(parcel: dict, previous: dict, *, redirected: bool = False):
+    from core.delivery_destination import effective_relay_id
+    from services.admin_events_service import AdminEventType, record_admin_event
+    marker = f"destination_changed:{parcel['parcel_id']}:{parcel.get('destination_revision', 0)}"
+    address = (parcel.get("delivery_destination") or {}).get("address") or {}
+    label = address.get("label") or address.get("city") or "la destination confirmée"
+    body = f"Colis {parcel.get('tracking_code') or parcel['parcel_id']} : nouvelle destination, {label}."
+    recipient_id = parcel.get("recipient_user_id")
+    driver_id = parcel.get("assigned_driver_id")
+    mission = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"], "driver_id": driver_id}, {"_id": 0, "mission_id": 1}, sort=[("updated_at", -1)]) if driver_id else None
+    if not recipient_id and parcel.get("recipient_phone"):
+        recipient = await _find_user_by_phone(parcel["recipient_phone"])
+        recipient_id = (recipient or {}).get("user_id")
+    for user_id in dict.fromkeys(filter(None, (parcel.get("sender_user_id"), recipient_id, parcel.get("assigned_driver_id")))):
+        if redirected and user_id != parcel.get("assigned_driver_id"):
+            continue
+        recipient_body = body
+        driver_mission = (mission or {}).get("mission_id") if user_id == driver_id and user_id != recipient_id else None
+        if user_id == recipient_id and effective_relay_id(parcel):
+            recipient_body += " Attendez la confirmation de réception du relais avant de vous déplacer."
+            if parcel.get("relay_pin"):
+                recipient_body += f" Code de retrait : {parcel['relay_pin']}."
+        await _store_and_send(user_id=user_id, title="Colis redirigé vers un relais" if redirected else "Destination modifiée",
+                              body=recipient_body, ref_type="mission" if driver_mission else "parcel", ref_id=driver_mission or parcel["parcel_id"],
+                              event_type="mission_detail" if driver_mission else "parcel_detail", target_view="driver" if driver_mission else "client", category="parcel_updates",
+                              skip_whatsapp=True, dedupe_key=marker, metadata={"parcel_status": parcel["status"], "destination_revision": parcel.get("destination_revision")})
+    previous_id = previous.get("relay_id")
+    if previous_id and previous_id != effective_relay_id(parcel):
+        await _notify_relay_users(previous_id, title="Destination du colis modifiée", body=f"Le colis {parcel.get('tracking_code')} n'est plus attendu dans votre relais.", event_type="relay_stock", dedupe_key=marker)
+    if effective_relay_id(parcel):
+        await notify_relay_parcel_incoming(effective_relay_id(parcel), parcel)
+    if redirected:
+        await notify_parcel_status_change(parcel, ParcelStatus.REDIRECTED_TO_RELAY, dedupe_key=marker)
+        await notify_tracking_ended([uid for uid in (parcel.get("sender_user_id"), recipient_id) if uid], parcel_id=parcel["parcel_id"])
+    await record_admin_event(AdminEventType.PARCEL_REDIRECTED if redirected else AdminEventType.PARCEL_DESTINATION_CHANGED,
+                             title=f"Destination modifiée — {parcel.get('tracking_code')}", message=body,
+                             href=f"/dashboard/parcels/{parcel['parcel_id']}", metadata={"parcel_id": parcel["parcel_id"], "destination_revision": parcel.get("destination_revision"), "payment_preserved": bool(parcel.get("financial_contract"))}, dedupe_key=marker)
 
 
 async def notify_relay_driver_approaching(
@@ -2326,6 +2399,7 @@ async def notify_relay_settlement_update(
         "driver_payment": "Paiement au livreur",
         "origin_relay_payment": "Commission du relais de départ",
         "destination_relay_payment": "Commission du relais d'arrivée",
+        "recipient_collection_payment": "Reversement de l'encaissement destinataire",
     }
     label = summary_labels.get(action, "Règlement")
     approved = status == "validated"

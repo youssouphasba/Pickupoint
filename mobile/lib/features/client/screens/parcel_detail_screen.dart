@@ -20,10 +20,10 @@ import '../../../shared/utils/currency_format.dart';
 import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
-import 'package:geolocator/geolocator.dart';
 import '../../../core/location/location_snapshot.dart';
 import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
+import '../../../shared/widgets/recipient_collection_card.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
@@ -61,6 +61,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   bool _trackingConnectionError = false;
   GoogleMapController? _mapController;
   bool _isConfirmingLocation = false;
+  bool _isChangingDestination = false;
   String? _confirmLocationStatus;
   double? _confirmLocationAccuracy;
   DateTime? _confirmLocationUpdatedAt;
@@ -406,6 +407,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
 
                 if (_shouldShowReturnCode(parcel, isRecipient)) ...[
                   _buildReturnCodeCard(parcel),
+                  const SizedBox(height: 16),
+                ],
+                if (parcel.recipientCollectionPlan != null) ...[
+                  RecipientCollectionCard(
+                      plan: parcel.recipientCollectionPlan!,
+                      isPaid: parcel.paymentStatus == 'paid' ||
+                          parcel.paymentOverride),
                   const SizedBox(height: 16),
                 ],
 
@@ -1140,9 +1148,11 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
             ],
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Votre colis est disponible au relais. Présentez ce code à l\'agent.',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
+          Text(
+            parcel.status == 'available_at_relay'
+                ? 'Votre colis est disponible au relais. Présentez ce code à l’agent.'
+                : 'Code à conserver. Attendez la confirmation de réception du relais avant de vous déplacer.',
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
           ),
           const SizedBox(height: 14),
           Center(
@@ -1442,9 +1452,13 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
   }
 
   Widget _buildPriceCard(Parcel parcel) {
-    final payerLabel = parcel.whoPays == 'recipient'
-        ? 'À régler au livreur par le destinataire'
-        : 'À régler au livreur par l’expéditeur';
+    final payerLabel = parcel.paymentStatus == 'paid' || parcel.paymentOverride
+        ? 'Paiement confirmé — rien à régler à nouveau'
+        : parcel.recipientCollectionPlan != null
+            ? 'Payeur : destinataire · règlement précisé ci-dessous'
+            : parcel.deliveryMode == 'relay_to_relay'
+                ? 'À régler au relais de départ par ${parcel.whoPays == 'recipient' ? 'le destinataire' : 'l’expéditeur'}'
+                : 'À régler au livreur par ${parcel.whoPays == 'recipient' ? 'le destinataire' : 'l’expéditeur'}';
     final hasPrice = parcel.totalPrice != null;
 
     return Container(
@@ -2281,9 +2295,9 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     final days = diff.inDays;
     final isUrgent = days <= 2;
     final color = isUrgent ? Colors.red : Colors.orange;
-    final label = days <= 0
+    final label = diff <= Duration.zero
         ? 'Délai de retrait expiré'
-        : days == 1
+        : days <= 1
             ? 'Dernier jour pour récupérer'
             : '$days jours restants pour récupérer';
     return Padding(
@@ -2354,134 +2368,140 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
     );
   }
 
-  void _showChangeModeDialog(
+  Future<void> _showChangeModeDialog(
     BuildContext context,
     WidgetRef ref,
     Parcel parcel,
-  ) {
-    final isCurrentlyHome = parcel.deliveryMode.endsWith('_to_home');
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          isCurrentlyHome ? 'Retirer en relais' : 'Livraison à domicile',
-        ),
-        content: Text(
-          isCurrentlyHome
-              ? 'Votre colis sera déposé dans un relais près de chez vous. Le prix sera recalculé.'
-              : 'Un livreur apportera le colis à votre adresse. Le prix sera recalculé.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuler'),
+  ) async {
+    if (_isChangingDestination) return;
+    setState(() => _isChangingDestination = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final toRelay = parcel.deliveryMode.endsWith('_to_home');
+      final body = <String, dynamic>{'new_mode': toRelay ? 'relay' : 'home'};
+      final lat = parcel.destinationLat ?? parcel.deliveryLat;
+      final lng = parcel.destinationLng ?? parcel.deliveryLng;
+      if (toRelay) {
+        final response = lat != null && lng != null
+            ? await api.getNearbyRelays(lat, lng)
+            : await api.getRelayPoints();
+        final rows = (response.data as Map)['relay_points'] as List? ?? [];
+        final relays = rows
+            .map((row) =>
+                RelayPoint.fromJson(Map<String, dynamic>.from(row as Map)))
+            .where((relay) =>
+                relay.isActive &&
+                relay.isVerified &&
+                relay.currentStock < relay.capacity &&
+                relay.lat != null &&
+                relay.lng != null &&
+                relay.id != parcel.originRelayId)
+            .toList();
+        if (!context.mounted) return;
+        if (relays.isEmpty) {
+          throw StateError(
+              'Aucun relais validé avec de la place disponible dans cette zone.');
+        }
+        final chosen = await showDialog<RelayPoint>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Choisir le relais de retrait'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView(
+                shrinkWrap: true,
+                children: relays
+                    .map((relay) => ListTile(
+                          title: Text(relay.name),
+                          subtitle: Text([
+                            relay.addressLabel,
+                            relay.city,
+                            if (relay.openingStatusLabel != null)
+                              relay.openingStatusLabel!,
+                          ].where((text) => text.isNotEmpty).join(' · ')),
+                          onTap: () => Navigator.pop(dialogContext, relay),
+                        ))
+                    .toList(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Annuler'))
+            ],
           ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                final api = ref.read(apiClientProvider);
-                final Map<String, dynamic> body = {};
-                if (isCurrentlyHome) {
-                  // Vers relais — on laisse le backend choisir le relais le plus proche
-                  // Pour l'instant, on demande le relais destination d'origine s'il existe
-                  body['new_mode'] = 'relay';
-                  double? relaySearchLat;
-                  double? relaySearchLng;
-                  try {
-                    final pos = await Geolocator.getCurrentPosition(
-                      desiredAccuracy: LocationAccuracy.high,
-                    );
-                    relaySearchLat = pos.latitude;
-                    relaySearchLng = pos.longitude;
-                  } catch (_) {
-                    relaySearchLat =
-                        parcel.destinationLat ?? parcel.deliveryLat;
-                    relaySearchLng =
-                        parcel.destinationLng ?? parcel.deliveryLng;
-                  }
-                  if (relaySearchLat == null || relaySearchLng == null) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Aucun relais de destination trouvé. Contactez le support.',
-                          ),
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                  body['lat'] = relaySearchLat;
-                  body['lng'] = relaySearchLng;
-                  try {
-                    final nearbyResponse = await api.getNearbyRelays(
-                      relaySearchLat,
-                      relaySearchLng,
-                    );
-                    final nearbyData = Map<String, dynamic>.from(
-                      nearbyResponse.data as Map<String, dynamic>? ?? const {},
-                    );
-                    final nearbyRelays = List<Map<String, dynamic>>.from(
-                      nearbyData['relay_points'] as List? ?? const [],
-                    );
-                    if (nearbyRelays.isNotEmpty) {
-                      body['relay_id'] =
-                          nearbyRelays.first['relay_id']?.toString();
-                      body['selected_relay_name'] =
-                          nearbyRelays.first['name']?.toString();
-                    }
-                  } catch (_) {}
-                } else {
-                  // Vers domicile — utiliser le GPS actuel
-                  body['new_mode'] = 'home';
-                  try {
-                    final pos = await Geolocator.getCurrentPosition(
-                      desiredAccuracy: LocationAccuracy.high,
-                    );
-                    body['lat'] = pos.latitude;
-                    body['lng'] = pos.longitude;
-                  } catch (_) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Impossible d\'obtenir votre position GPS.',
-                          ),
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                }
-                await api.changeDeliveryMode(parcel.id, body);
-                if (context.mounted) {
-                  ref.invalidate(parcelProvider(widget.id));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Mode changé en ${isCurrentlyHome ? "retrait relais" : "livraison domicile"}',
-                      ),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(friendlyError(e)),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Confirmer'),
+        );
+        if (chosen == null) return;
+        body['relay_id'] = chosen.id;
+      } else {
+        if (!context.mounted) return;
+        final chosen = await showModalBottomSheet<MapPickerResult>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => MapPickerModal(
+            title: 'Choisir la nouvelle adresse de livraison',
+            initialPosition:
+                lat != null && lng != null ? LatLng(lat, lng) : null,
           ),
-        ],
-      ),
-    );
+        );
+        if (chosen == null) return;
+        body['lat'] = chosen.position.latitude;
+        body['lng'] = chosen.position.longitude;
+        body['address'] = {
+          'label': chosen.address,
+          'source': chosen.source,
+          'confirmed': true
+        };
+      }
+      final response = await api.previewDeliveryModeChange(parcel.id, body);
+      final preview = Map<String, dynamic>.from(response.data as Map);
+      if (!context.mounted) return;
+      final address = preview['address'] as Map? ?? {};
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Vérifier le changement'),
+          content: Text([
+            address['label']?.toString() ??
+                (toRelay ? 'Relais sélectionné' : 'Nouvelle adresse'),
+            'Prix total : ${formatXof((preview['price_xof'] as num).toDouble())}',
+            preview['payment_preserved'] == true
+                ? 'Le règlement convenu est conservé. Aucun deuxième paiement n’est demandé.'
+                : 'Ce devis remplace le précédent avant la prise en charge.',
+            if (parcel.whoPays == 'recipient' && toRelay)
+              'Si le règlement reste dû, Denkma vous indiquera qui doit l’encaisser. Ne payez pas à nouveau un montant déjà réglé.',
+            if (toRelay)
+              'Attendez la confirmation de réception du relais avant de vous déplacer.',
+          ].join('\n\n')),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Annuler')),
+            FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Confirmer')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await api.changeDeliveryMode(
+          parcel.id, {...body, 'preview_token': preview['preview_token']});
+      ref.invalidate(parcelProvider(widget.id));
+      ref.invalidate(parcelsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'La destination et le parcours du livreur ont été mis à jour.'),
+        ));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyError(error))));
+      }
+    } finally {
+      if (mounted) setState(() => _isChangingDestination = false);
+    }
   }
 }
 

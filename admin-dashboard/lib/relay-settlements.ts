@@ -22,6 +22,7 @@ export type RelaySettlementAction = {
   reviewed_at?: string | null;
   reviewed_by?: string | null;
   note?: string | null;
+  funding_review_required?: boolean;
 };
 
 export type SettlementIssue = { parcel_id: string; tracking_code: string; issue: string };

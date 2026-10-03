@@ -146,8 +146,8 @@ void main() {
   Map<String, dynamic> bothOffers() {
     final data = info();
     final offers = data['invitation_offers'] as List;
-    offers.add({
-      ...offers.first as Map,
+    offers.add(<String, Object>{
+      ...Map<String, Object>.from(offers.first as Map),
       'label': 'Compte déjà livreur',
       'referred_role': 'driver',
       'reward_rule': 'Prime débloquée après trois livraisons effectuées.',
@@ -174,6 +174,8 @@ void main() {
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Inviter un client'), findsOneWidget);
     expect(find.text('Inviter un livreur'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Comment ça marche ?'), 150,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text('Comment ça marche ?'), findsOneWidget);
     expect(find.text('1. Partagez votre invitation.'), findsNothing);
   });

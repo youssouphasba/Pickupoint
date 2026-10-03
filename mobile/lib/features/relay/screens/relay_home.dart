@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
+import '../../../shared/widgets/recipient_collection_card.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -857,6 +858,11 @@ class _RelayParcelDetailSheetState
               'Frais de port',
               '${parcel.totalPrice!.toStringAsFixed(0)} XOF',
             ),
+          if (parcel.recipientCollectionPlan != null)
+            RecipientCollectionCard(
+                plan: parcel.recipientCollectionPlan!,
+                isPaid:
+                    parcel.paymentStatus == 'paid' || parcel.paymentOverride),
           if (parcel.relayFinancial != null) ...[
             const Divider(height: 28),
             _sectionTitle('Répartition'),

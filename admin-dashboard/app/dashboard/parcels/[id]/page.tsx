@@ -36,6 +36,7 @@ import {
 import { formatDate } from "@/lib/utils";
 import { paymentStatusLabel, payerLabel } from "@/lib/admin-display";
 import { RelaySettlementActionCard } from "@/components/relay-settlement-action";
+import { DestinationManagement } from "@/components/destination-management";
 import type { RelaySettlementAction } from "@/lib/relay-settlements";
 import {
   ArrowLeft,
@@ -578,11 +579,13 @@ export default function ParcelDetailPage() {
             </Badge>
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {MODE_LABELS[parcel.delivery_mode] ?? parcel.delivery_mode} • Créé
+            {MODE_LABELS[parcel.effective_delivery_mode ?? parcel.delivery_mode] ?? parcel.delivery_mode} • Créé
             le {formatDate(parcel.created_at)} • ID: {parcel.parcel_id}
           </div>
         </div>
       </div>
+
+      <DestinationManagement parcel={parcel} />
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">

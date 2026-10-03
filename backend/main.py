@@ -326,20 +326,22 @@ async def _gps_confirmation_reminder_loop() -> None:
 
 
 async def _expire_stale_parcels():
-    """Expire les colis AVAILABLE_AT_RELAY / REDIRECTED_TO_RELAY dont expires_at est dépassé."""
+    """Expire uniquement les colis réellement réceptionnés au relais."""
     try:
         from services.notification_service import notify_parcel_expired
         now = datetime.now(timezone.utc)
         query = {
-            "status": {"$in": ["available_at_relay", "redirected_to_relay"]},
+            "status": "available_at_relay",
             "expires_at": {"$lte": now},
         }
         expired_parcels = await db.parcels.find(query, {"_id": 0}).to_list(length=100)
         for parcel in expired_parcels:
-            await db.parcels.update_one(
-                {"parcel_id": parcel["parcel_id"]},
+            result = await db.parcels.update_one(
+                {"parcel_id": parcel["parcel_id"], "status": "available_at_relay", "expires_at": parcel.get("expires_at")},
                 {"$set": {"status": "expired", "updated_at": now}},
             )
+            if not result.matched_count:
+                continue
             await notify_parcel_expired(parcel)
             logger.info("Colis %s expiré automatiquement", parcel.get("tracking_code"))
     except Exception as exc:
@@ -370,7 +372,7 @@ async def _send_operational_reminders_impl() -> None:
         max_expiry = now + timedelta(hours=max(expiry_thresholds))
         parcels = await db.parcels.find(
             {
-                "status": {"$in": ["available_at_relay", "redirected_to_relay"]},
+                "status": "available_at_relay",
                 "expires_at": {"$gt": now, "$lte": max_expiry},
             },
             {"_id": 0},
@@ -624,6 +626,8 @@ scheduler = AsyncIOScheduler()
 scheduler.add_job(hydrate_pending_support_media, "interval", minutes=1, max_instances=1, coalesce=True)
 from services.delivery_completion_service import retry_delivery_completions
 scheduler.add_job(retry_delivery_completions, "interval", minutes=1, max_instances=1, coalesce=True)
+from services.delivery_destination_service import process_destination_jobs
+scheduler.add_job(process_destination_jobs, "interval", minutes=1, max_instances=1, coalesce=True)
 scheduler.add_job(_monthly_ranking_job, "cron", day=1, hour=1, minute=0)
 scheduler.add_job(_expire_stale_parcels, "interval", hours=1)
 scheduler.add_job(_send_operational_reminders, "interval", hours=1)

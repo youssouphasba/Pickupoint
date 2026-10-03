@@ -28,6 +28,7 @@ from services.sending_guide import SendingGuideSettings, sending_guide_payload
 from services.loyalty_rules import compute_tier
 from services.mission_trace import load_trace, summarize_trace, summarize_completion, timestamp
 from services.location_quality import location_is_live
+from services.wallet_service import resolve_delivery_commission_mode
 from models.common import Address, UserRole, ParcelStatus
 from models.delivery import MissionStatus
 from models.wallet import TransactionType
@@ -184,6 +185,84 @@ def _mission_reconciliation_detail(
     }
 
 
+class RecipientCollectionRequest(BaseModel):
+    collector: Literal["relay", "driver", "denkma"]
+    amount_received_xof: float = Field(default=0, ge=0, allow_inf_nan=False)
+    driver_already_paid: bool = False
+    expected_updated_at: datetime
+    note: str = Field(min_length=3, max_length=1000)
+
+
+@router.post("/parcels/{parcel_id}/recipient-collection", summary="Organiser le règlement destinataire après changement")
+async def manage_recipient_collection(parcel_id: str, body: RecipientCollectionRequest, admin_user=Depends(require_admin_dep)):
+    from services.wallet_service import _run_in_transaction
+    from core.delivery_destination import effective_relay_id
+    from services.parcel_service import _record_event
+    now = datetime.now(timezone.utc)
+    if len(body.note.strip()) < 3:
+        raise bad_request_exception("Indiquez une référence ou un motif exploitable.")
+    async def save(session):
+        parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0}, session=session)
+        if not parcel:
+            raise not_found_exception("Colis")
+        if parcel.get("who_pays") != "recipient" or not parcel.get("recipient_collection_plan"):
+            raise bad_request_exception("Ce colis n'a pas de règlement destinataire à organiser.")
+        actual = parcel.get("updated_at")
+        expected = body.expected_updated_at
+        expected = expected.replace(tzinfo=timezone.utc) if expected.tzinfo is None else expected.astimezone(timezone.utc)
+        if actual and actual.replace(tzinfo=timezone.utc) != expected:
+            raise conflict_exception("Le règlement a changé. Actualisez avant de confirmer.")
+        if parcel.get("status") in {"cancelled", "returned", "expired"}:
+            raise conflict_exception("Ce colis est terminé. Traitez le règlement avec le support.")
+        if body.collector == "relay" and not effective_relay_id(parcel):
+            raise bad_request_exception("Le colis n'a pas de relais destinataire.")
+        if body.collector == "driver" and not parcel.get("assigned_driver_id"):
+            raise bad_request_exception("Aucun livreur n'est affecté à ce colis.")
+        price = compute_delivery_commission_breakdown(parcel)["price_xof"]
+        plan = dict(parcel["recipient_collection_plan"])
+        received = float(plan.get("amount_received_xof") or 0)
+        if parcel.get("payment_status") == "paid" or parcel.get("payment_override"):
+            received = price
+        if body.amount_received_xof > round(price - received, 2):
+            raise conflict_exception("Ce montant dépasse le reste à payer. Un paiement déjà effectué ne peut pas être encaissé à nouveau.")
+        received = round(received + body.amount_received_xof, 2)
+        if body.amount_received_xof:
+            collector_id = effective_relay_id(parcel) if body.collector == "relay" else parcel.get("assigned_driver_id") if body.collector == "driver" else "denkma"
+            receipts = list(plan.get("receipts") or [])
+            receipts.append({"collector": body.collector, "collector_id": collector_id, "amount_xof": body.amount_received_xof,
+                             "received_at": now, "recorded_by": admin_user["user_id"]})
+            plan["receipts"] = receipts
+            if body.collector == "relay":
+                remittance = (parcel.get("recipient_collection_remittances") or {}).get(collector_id) or {}
+                if remittance.get("status") == "declared":
+                    raise conflict_exception("Contrôlez d'abord le reversement déjà déclaré par ce relais avant d'ajouter un encaissement.")
+        plan.update(collector=body.collector, amount_received_xof=received, amount_due_xof=round(price - received, 2),
+                    status="paid" if received >= price else "collection_required", updated_at=now,
+                    reviewed_by=admin_user["user_id"], note=body.note.strip(), revision=int(plan.get("revision") or 0) + 1)
+        updates = {"recipient_collection_plan": plan, "updated_at": now}
+        if body.amount_received_xof and body.collector == "relay":
+            updates[f"recipient_collection_remittances.{collector_id}.status"] = "pending"
+        if received >= price:
+            updates.update(payment_status="paid", paid_price=price)
+        if body.driver_already_paid:
+            updates["relay_settlement.driver_payment_status"] = "validated"
+            updates["relay_settlement.driver_payment_status_validated_by"] = admin_user["user_id"]
+            updates["relay_settlement.driver_payment_status_validated_at"] = now
+            updates["relay_settlement.driver_payment_status_note"] = body.note.strip()
+        result = await db.parcels.update_one({"parcel_id": parcel_id, "updated_at": actual}, {"$set": updates}, session=session)
+        if result.matched_count != 1:
+            raise conflict_exception("Ce règlement a changé. Aucun encaissement n'a été ajouté.")
+        await _record_event(parcel_id=parcel_id, event_type="RECIPIENT_COLLECTION_REVIEWED", actor_id=admin_user["user_id"], actor_role=admin_user["role"],
+                            notes=body.note.strip(), metadata={"collector": body.collector, "received_increment_xof": body.amount_received_xof, "remaining_xof": plan["amount_due_xof"], "driver_already_paid": body.driver_already_paid}, session=session)
+        await db.destination_change_jobs.update_one({"_id": f"collection:{parcel_id}:{plan['revision']}"},
+            {"$setOnInsert": {"kind": "recipient_collection", "parcel_id": parcel_id, "revision": plan["revision"], "done": False, "created_at": now}}, upsert=True, session=session)
+        return plan
+    plan = await _run_in_transaction(save)
+    from services.delivery_destination_service import process_destination_jobs
+    await process_destination_jobs(parcel_id)
+    return {"ok": True, "recipient_collection_plan": plan}
+
+
 @router.post("/parcels/{parcel_id}/relay-settlement", summary="Valider un règlement relais")
 async def update_relay_settlement(
     parcel_id: str,
@@ -206,6 +285,8 @@ async def update_relay_settlement(
         raise bad_request_exception("Cette action ne correspond pas aux règlements de ce colis.")
     relay_id = applicable["relay_id"]
     field = f"{action}_status"
+    field_path = applicable["settlement_field"]
+    current_field_value = (parcel.get("recipient_collection_remittances") or {}).get(relay_id, {}).get("status") if action == "recipient_collection_payment" else (parcel.get("relay_settlement") or {}).get(field)
     current_status = applicable["status"]
     if current_status == status:
         return {"ok": True, "parcel_id": parcel_id, "relay_settlement": parcel.get("relay_settlement") or {}, "relay_financial": build_relay_financial_summary(parcel, relay_id)}
@@ -238,14 +319,16 @@ async def update_relay_settlement(
         raise bad_request_exception("Indiquez une référence de paiement ou un motif de rejet (3 à 1 000 caractères).")
     note = note.strip()
     now = datetime.now(timezone.utc)
+    update_fields = {
+        field_path: status, f"{field_path}_validated_at": now,
+        f"{field_path}_validated_by": admin_user.get("user_id"), f"{field_path}_note": note, "updated_at": now,
+    }
+    if action == "recipient_collection_payment" and status == "validated":
+        update_fields[f"recipient_collection_remittances.{relay_id}.amount_validated_xof"] = round(applicable["validated_amount_xof"] + applicable["amount_xof"], 2)
     result = await db.parcels.update_one(
-        {"parcel_id": parcel_id, "updated_at": parcel.get("updated_at"), f"relay_settlement.{field}": (parcel.get("relay_settlement") or {}).get(field)},
+        {"parcel_id": parcel_id, "updated_at": parcel.get("updated_at"), field_path: current_field_value},
         {"$set": {
-            f"relay_settlement.{field}": status,
-            f"relay_settlement.{field}_validated_at": now,
-            f"relay_settlement.{field}_validated_by": admin_user.get("user_id"),
-            f"relay_settlement.{field}_note": note,
-            "updated_at": now,
+            **update_fields,
         }, "$push": {"relay_settlement.history": {
             "action": action, "relay_id": relay_id, "direction": applicable["direction"],
             "amount_xof": applicable["amount_xof"], "previous_status": current_status,
@@ -254,7 +337,7 @@ async def update_relay_settlement(
     )
     if not result.matched_count:
         raise conflict_exception("Le colis ou son règlement a changé. Actualisez les données.")
-    updated = {**parcel, "relay_settlement": {**(parcel.get("relay_settlement") or {}), field: status}}
+    updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     try:
         await notify_relay_settlement_update(
             relay_id,
@@ -1374,7 +1457,8 @@ async def _enrich_parcel_addresses(parcel: dict) -> dict[str, dict[str, Any]]:
             {"$set": updates},
         )
     parcel["origin_address_label"] = _address_label(parcel.get("origin_location"))
-    parcel["destination_address_label"] = _address_label(parcel.get("delivery_address"))
+    from core.delivery_destination import effective_delivery_location
+    parcel["destination_address_label"] = _address_label(effective_delivery_location(parcel))
     relay_ids = [
         parcel.get("origin_relay_id"),
         parcel.get("destination_relay_id"),
@@ -4974,6 +5058,22 @@ async def admin_resolve_incident(
     from services.parcel_service import transition_status, _create_delivery_mission, _record_event
     from models.delivery import MissionStatus
 
+    if body.action not in {"reassign", "return", "cancel"}:
+        raise bad_request_exception("Action de résolution invalide")
+    if parcel.get("status") != "incident_reported":
+        raise conflict_exception("Le colis n'est plus en incident. Actualisez son suivi.")
+    if body.action == "return":
+        mission = await db.delivery_missions.find_one({"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress", "incident_reported"]}}, {"_id": 0})
+        if not mission:
+            raise conflict_exception("Aucune mission active ne permet de confirmer la remise à l'expéditeur.")
+        if not mission.get("return_requested"):
+            from services.delivery_destination_service import request_return
+            from services.notification_service import notify_parcel_status_change, notify_driver_return_requested
+            updated = await request_return(parcel, mission, actor_id=_admin["user_id"], actor_role=_admin["role"], reason=body.notes or "Retour demandé par l'administration")
+            await notify_parcel_status_change(updated, ParcelStatus.INCIDENT_REPORTED)
+            await notify_driver_return_requested(updated, mission["mission_id"])
+        return {"message": "Retour demandé. Le colis ne sera marqué retourné qu'après remise et vérification du code expéditeur."}
+
     # 1. Clôturer l'ancienne mission si elle est encore active
     await db.delivery_missions.update_one(
         {"parcel_id": parcel_id, "status": {"$in": ["assigned", "in_progress", "incident_reported"]}},
@@ -4993,10 +5093,6 @@ async def admin_resolve_incident(
         await _create_delivery_mission(parcel, ParcelStatus(parcel["status"]))
         notes = f"Incident résolu par réassignation. {body.notes or ''}"
     
-    elif body.action == "return":
-        await transition_status(parcel_id, ParcelStatus.RETURNED, notes=f"Incident résolu par retour à l'envoyeur. {body.notes or ''}", **actor)
-        return {"message": "Incident résolu : Colis en cours de retour"}
-
     elif body.action == "cancel":
         await transition_status(parcel_id, ParcelStatus.CANCELLED, notes=f"Incident résolu par annulation. {body.notes or ''}", **actor)
         return {"message": "Incident résolu : Colis annulé"}
@@ -6144,6 +6240,8 @@ async def get_finance_overview(
             "delivery_mode": 1,
             "mode": 1,
             "relay_settlement": 1,
+            "financial_contract": 1,
+            "redirect_relay_commission_xof": 1,
             "delivery_commissions_enabled": 1,
             "commission_rules_snapshot": 1,
             "commission_rules": 1,
@@ -6411,8 +6509,8 @@ async def get_finance_overview(
                 item.pop("amount_xof", None)
                 commission_data_issues[parcel_id] = item
                 continue
-            origin_due = 0.0 if parcel.get("delivery_mode") == "relay_to_relay" else float(breakdown["origin_relay_commission_xof"] or 0.0)
-            destination_due = float(breakdown["destination_relay_commission_xof"] or 0.0)
+            origin_due = 0.0 if resolve_delivery_commission_mode(parcel) == "relay_to_relay" else float(breakdown["origin_relay_commission_xof"] or 0.0)
+            destination_due = float(parcel.get("redirect_relay_commission_xof") or breakdown["destination_relay_commission_xof"] or 0.0) if parcel.get("redirect_relay_id") or parcel.get("destination_relay_id") else 0.0
             relay_due_origin_xof += origin_due
             relay_due_destination_xof += destination_due
             relay_due_xof += origin_due + destination_due

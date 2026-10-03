@@ -145,6 +145,10 @@ async def create_indexes():
         "delivery_completion_jobs": [
             IndexModel([("completed_at", 1), ("lease_until", 1)]),
         ],
+        "destination_change_jobs": [
+            IndexModel([("done", 1), ("created_at", 1)]),
+            IndexModel([("parcel_id", 1)]),
+        ],
         "payout_requests": [
             IndexModel([("payout_id", 1)], unique=True),
             IndexModel([("wallet_id", 1)]),

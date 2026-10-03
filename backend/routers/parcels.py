@@ -9,7 +9,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 logger = logging.getLogger(__name__)
-from typing import Optional
+from typing import Optional, Literal
+from core.delivery_destination import effective_delivery_mode
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -291,8 +292,9 @@ def _relay_detail(relay: dict | None) -> Optional[dict]:
 
 
 async def _enrich_admin_parcel_addresses(parcel: dict, active_mission: Optional[dict] = None) -> None:
+    from core.delivery_destination import effective_delivery_location
     origin_address = parcel.get("origin_location")
-    delivery_address = parcel.get("delivery_address")
+    delivery_address = effective_delivery_location(parcel)
     parcel["origin_address_label"] = _address_label(origin_address)
     parcel["destination_address_label"] = _address_label(delivery_address)
 
@@ -968,7 +970,7 @@ async def get_parcel(parcel_id: str, current_user: dict = Depends(get_current_us
             parcel.pop("return_code", None)
 
         # Filtrage par mode : ne montrer que le code pertinent pour le destinataire/admin
-        mode = parcel.get("delivery_mode", "")
+        mode = effective_delivery_mode(parcel)
         if mode.endswith("_to_home"):
             parcel.pop("relay_pin", None)
         elif mode.endswith("_to_relay"):
@@ -1338,145 +1340,49 @@ async def update_delivery_address(
 
 
 class ChangeDeliveryModeRequest(BaseModel):
-    new_mode: str  # 'relay' ou 'home'
-    relay_id: Optional[str] = None  # requis si new_mode == 'relay'
-    lat: Optional[float] = None  # requis si new_mode == 'home'
-    lng: Optional[float] = None
+    new_mode: Literal["relay", "home"]
+    relay_id: Optional[str] = None
+    lat: Optional[float] = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    address: Optional[dict] = None
+    preview_token: Optional[str] = None
 
 
-@router.put("/{parcel_id}/change-delivery-mode", summary="Changer le mode de livraison (relais↔domicile)")
-async def change_delivery_mode(
-    parcel_id: str,
-    body: ChangeDeliveryModeRequest,
-    current_user: dict = Depends(get_current_user),
-):
-    """Permet au destinataire de basculer entre livraison à domicile et retrait relais.
-    Autorisé uniquement avant IN_TRANSIT."""
+async def _destination_preview(parcel_id, body, current_user):
+    from services.delivery_destination_service import preview_destination_change
     parcel = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
     if not parcel:
         raise not_found_exception("Colis")
+    recipient = parcel.get("recipient_user_id") == current_user["user_id"] or phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
+    if not recipient and not _is_admin(current_user):
+        raise forbidden_exception("Seul le destinataire ou l'admin peut modifier la destination.")
+    address = body.address
+    if body.new_mode == "home":
+        from models.common import Address
+        if body.lat is None or body.lng is None:
+            raise bad_request_exception("Choisissez l'adresse de livraison sur la carte.")
+        address = Address.model_validate({**(address or {}), "geopin": {"lat": body.lat, "lng": body.lng}}).model_dump()
+    relay_id = body.relay_id
+    if body.new_mode == "relay" and not relay_id:
+        raise bad_request_exception("Choisissez explicitement un relais avant de confirmer.")
+    preview = await preview_destination_change(parcel, new_mode=body.new_mode, relay_id=relay_id, address=address)
+    return parcel, preview
 
-    # Vérifier que c'est le destinataire (ou admin)
-    is_recipient = parcel.get("recipient_user_id") == current_user["user_id"]
-    if not is_recipient and parcel.get("recipient_phone"):
-        is_recipient = phones_match(parcel.get("recipient_phone"), current_user.get("phone"))
-    if not is_recipient and not _is_admin(current_user):
-        raise forbidden_exception("Seul le destinataire peut changer le mode de livraison")
 
-    # Autorisé uniquement aux premiers statuts
-    allowed_statuses = {
-        ParcelStatus.CREATED.value,
-        ParcelStatus.DROPPED_AT_ORIGIN_RELAY.value,
-    }
-    if parcel["status"] not in allowed_statuses:
-        raise bad_request_exception("Le mode de livraison ne peut être changé qu'avant la prise en charge par le livreur")
+@router.post("/{parcel_id}/change-delivery-mode/preview", summary="Vérifier la nouvelle destination et son règlement")
+async def preview_delivery_mode_change(parcel_id: str, body: ChangeDeliveryModeRequest, current_user: dict = Depends(get_current_user)):
+    _, preview = await _destination_preview(parcel_id, body, current_user)
+    return preview
 
-    current_mode = parcel.get("delivery_mode", "")
-    origin_part = current_mode.split("_to_")[0] if "_to_" in current_mode else "relay"
-    now = datetime.now(timezone.utc)
-    updates = {"updated_at": now}
 
-    if body.new_mode == "relay":
-        if current_mode.endswith("_to_relay"):
-            raise bad_request_exception("Le colis est déjà en mode relais")
-        relay_id = body.relay_id
-        if not relay_id:
-            fallback_geopin = ((parcel.get("delivery_address") or {}).get("geopin") or {})
-            lookup_lat = body.lat if body.lat is not None else fallback_geopin.get("lat")
-            lookup_lng = body.lng if body.lng is not None else fallback_geopin.get("lng")
-            if lookup_lat is None or lookup_lng is None:
-                raise bad_request_exception("Coordonnées requises pour choisir un relais proche")
-            relay = await _find_nearest_active_relay(float(lookup_lat), float(lookup_lng))
-            if not relay:
-                raise not_found_exception("Relais")
-            relay_id = relay.get("relay_id")
-        else:
-            relay = await db.relay_points.find_one({"relay_id": relay_id, "is_active": True}, {"_id": 0})
-        if not relay:
-            raise not_found_exception("Relais")
-        new_mode = f"{origin_part}_to_relay"
-        updates["delivery_mode"] = new_mode
-        updates["destination_relay_id"] = relay_id
-        updates["redirect_relay_id"] = None
-        # Supprimer delivery_code (pas nécessaire en relais), garder relay_pin
-        updates["delivery_code"] = None
-        updates["relay_pin"] = f"{random.randint(100000, 999999)}"
-        updates["delivery_confirmed"] = False
-
-    elif body.new_mode == "home":
-        if current_mode.endswith("_to_home"):
-            raise bad_request_exception("Le colis est déjà en mode domicile")
-        if not body.lat or not body.lng:
-            raise bad_request_exception("Coordonnées GPS requises pour la livraison à domicile")
-        new_mode = f"{origin_part}_to_home"
-        updates["delivery_mode"] = new_mode
-        updates["destination_relay_id"] = None
-        updates["redirect_relay_id"] = None
-        current_delivery_address = (
-            parcel.get("delivery_address")
-            if isinstance(parcel.get("delivery_address"), dict)
-            else {}
-        )
-        updates["delivery_address"] = {
-            "label": current_delivery_address.get("label"),
-            "district": current_delivery_address.get("district"),
-            "city": current_delivery_address.get("city"),
-            "notes": current_delivery_address.get("notes"),
-            "geopin": {"lat": body.lat, "lng": body.lng},
-            "source": "app_recipient_mode_change",
-            "confirmed": True,
-        }
-        updates["delivery_confirmed"] = True
-        # Générer un delivery_code pour la livraison à domicile
-        updates["delivery_code"] = f"{random.randint(100000, 999999)}"
-        updates["relay_pin"] = None
-    else:
-        raise bad_request_exception("new_mode doit être 'relay' ou 'home'")
-
-    # Recalculer le prix via ParcelQuote
-    from models.common import Address, GeoPin, DeliveryMode
-    origin_addr = None
-    if parcel.get("origin_relay_id"):
-        origin_addr = None  # calculate_price résout via relay_id
-    elif parcel.get("pickup_address"):
-        gp = (parcel["pickup_address"] or {}).get("geopin")
-        if gp:
-            origin_addr = Address(geopin=GeoPin(lat=gp["lat"], lng=gp["lng"]))
-
-    dest_addr = None
-    dest_relay = None
-    if body.new_mode == "relay":
-        dest_relay = updates.get("destination_relay_id")
-    elif body.lat and body.lng:
-        dest_addr = Address(geopin=GeoPin(lat=body.lat, lng=body.lng))
-
-    try:
-        quote = ParcelQuote(
-            delivery_mode=DeliveryMode(updates["delivery_mode"]),
-            origin_relay_id=parcel.get("origin_relay_id"),
-            destination_relay_id=dest_relay,
-            origin_location=origin_addr,
-            delivery_address=dest_addr,
-            weight_kg=parcel.get("weight_kg", 0.5),
-            is_express=parcel.get("is_express", False),
-            who_pays=parcel.get("who_pays", "sender"),
-        )
-        price_result = await calculate_price(quote)
-        updates["quoted_price"] = price_result.price
-    except Exception as e:
-        logger.warning(f"Recalcul prix échoué lors du changement de mode: {e}")
-
-    await db.parcels.update_one({"parcel_id": parcel_id}, {"$set": updates})
-    await _record_event(
-        parcel_id=parcel_id,
-        event_type="DELIVERY_MODE_CHANGED",
-        actor_id=current_user["user_id"],
-        actor_role=current_user["role"],
-        notes=f"Mode changé: {current_mode} → {updates['delivery_mode']}",
-        metadata={"old_mode": current_mode, "new_mode": updates["delivery_mode"]},
-    )
-    updated = await db.parcels.find_one({"parcel_id": parcel_id}, {"_id": 0})
-    return {"ok": True, "message": f"Mode de livraison changé en {updates['delivery_mode']}", "parcel": updated}
+@router.put("/{parcel_id}/change-delivery-mode", summary="Confirmer une destination avant collecte")
+async def change_delivery_mode(parcel_id: str, body: ChangeDeliveryModeRequest, current_user: dict = Depends(get_current_user)):
+    from services.delivery_destination_service import change_destination
+    parcel, preview = await _destination_preview(parcel_id, body, current_user)
+    if not body.preview_token:
+        raise bad_request_exception("Vérifiez le récapitulatif avant de confirmer le changement.")
+    updated = await change_destination(parcel, preview, actor_id=current_user["user_id"], actor_role=current_user["role"], expected_token=body.preview_token)
+    return {"ok": True, "parcel": serialize_parcel(updated, current_user), "payment_preserved": preview["payment_preserved"]}
 
 
 @router.put("/{parcel_id}/cancel", summary="Annuler un colis (si CREATED)")
@@ -1551,7 +1457,6 @@ async def _scan_arrival_at_relay(parcel: dict, current_user: dict, *, batch: boo
         raise bad_request_exception(f"Impossible de receptionner un colis en statut '{current_status}'")
 
     if target_relay_id:
-        await db.relay_points.update_one({"relay_id": target_relay_id}, {"$inc": {"current_load": 1}})
         updated_relay = await db.relay_points.find_one(
             {"relay_id": target_relay_id},
             {"_id": 0},
@@ -1665,14 +1570,15 @@ async def handout_parcel(
     _ensure_relay_action_allowed(
         parcel,
         current_user,
-        parcel.get("redirect_relay_id"),
-        parcel.get("destination_relay_id"),
-        parcel.get("transit_relay_id"),
+        parcel.get("current_relay_id") or parcel.get("redirect_relay_id") or parcel.get("destination_relay_id"),
     )
     if parcel.get("status") not in {ParcelStatus.AVAILABLE_AT_RELAY.value, ParcelStatus.AT_DESTINATION_RELAY.value}:
         raise bad_request_exception("Le colis doit être au relais pour une remise finale")
     if _delivery_is_blocked_by_payment(parcel):
         raise bad_request_exception("Paiement non confirmé. La remise finale est bloquée.")
+    plan = parcel.get("recipient_collection_plan") or {}
+    if parcel.get("payment_status") != "paid" and not parcel.get("payment_override") and plan.get("amount_due_xof", 0) > 0:
+        raise bad_request_exception("Le règlement du destinataire doit être confirmé par l'admin avant la remise. N'encaissez pas une deuxième fois un paiement déjà effectué.")
 
     if proof.proof_type == "pin":
         if not proof.pin_code:
@@ -1930,12 +1836,13 @@ async def fail_delivery(
     _ensure_driver_action_allowed(parcel, current_user)
     if parcel.get("status") != ParcelStatus.OUT_FOR_DELIVERY.value:
         raise bad_request_exception("L'échec ne peut être déclaré que pendant une livraison active")
-    return await transition_status(
+    updated = await transition_status(
         parcel_id, ParcelStatus.DELIVERY_FAILED,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes=body.notes,
         metadata={"failure_reason": body.failure_reason},
     )
+    return serialize_parcel(updated, current_user)
 
 
 @router.post("/{parcel_id}/redirect-relay", summary="Rediriger vers relais après échec")
@@ -1950,27 +1857,16 @@ async def redirect_to_relay(
     if not parcel:
         raise not_found_exception("Colis")
     _ensure_driver_action_allowed(parcel, current_user)
-    if parcel.get("status") not in {ParcelStatus.DELIVERY_FAILED.value, ParcelStatus.OUT_FOR_DELIVERY.value}:
+    if parcel.get("status") not in {ParcelStatus.DELIVERY_FAILED.value, ParcelStatus.OUT_FOR_DELIVERY.value, ParcelStatus.REDIRECTED_TO_RELAY.value}:
         raise bad_request_exception("La redirection n'est possible qu'après un échec ou depuis une livraison active")
 
-    relay = await db.relay_points.find_one(
-        {"relay_id": body.redirect_relay_id, "is_active": True},
-        {"_id": 0, "relay_id": 1},
-    )
-    if not relay:
-        raise bad_request_exception("Relais de redirection invalide ou inactif")
-
-    now = datetime.now(timezone.utc)
-    await db.parcels.update_one(
-        {"parcel_id": parcel_id},
-        {"$set": {"redirect_relay_id": body.redirect_relay_id, "updated_at": now}},
-    )
-    return await transition_status(
-        parcel_id, ParcelStatus.REDIRECTED_TO_RELAY,
+    from services.delivery_destination_service import redirect_destination
+    updated = await redirect_destination(
+        parcel, body.redirect_relay_id,
         actor_id=current_user["user_id"], actor_role=current_user["role"],
         notes=body.notes,
-        metadata={"redirect_relay_id": body.redirect_relay_id},
     )
+    return serialize_parcel(updated, current_user)
 
 @router.get("/{parcel_id}/codes", summary="Codes de validation du colis")
 async def get_parcel_codes(
@@ -2007,7 +1903,7 @@ async def get_parcel_codes(
             and current_user.get("relay_point_id") == parcel.get("origin_relay_id"))
     )
 
-    mode = parcel.get("delivery_mode", "")
+    mode = effective_delivery_mode(parcel)
     show_delivery = (is_admin or is_recipient) and mode.endswith("_to_home")
     show_relay    = (is_admin or is_recipient) and mode.endswith("_to_relay")
     show_return   = is_admin or parcel.get("sender_user_id") == user_id

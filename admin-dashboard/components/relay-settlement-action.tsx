@@ -65,6 +65,7 @@ export function RelaySettlementActionCard({ item }: { item: RelaySettlementActio
       {item.declared_at && <p className="text-xs text-muted-foreground">Déclaré le {formatDate(item.declared_at)}</p>}
       {item.reviewed_at && <p className="text-xs text-muted-foreground">Contrôlé le {formatDate(item.reviewed_at)}</p>}
       {item.note && <p className="break-words text-sm">Référence / motif : {item.note}</p>}
+      {item.funding_review_required && <p className="text-sm text-amber-700">Commission du relais après changement de destination : prise en charge à contrôler par Denkma. Ne la facturez pas une deuxième fois au client et ne repayez pas le livreur.</p>}
       <div className="flex flex-wrap gap-2">
         {item.can_validate && <Button size="sm" onClick={() => open("validated")}>{recordingPayment ? "Enregistrer le versement" : "Valider le paiement"}</Button>}
         {item.can_reject && <Button size="sm" variant="outline" onClick={() => open("rejected")}>Rejeter la déclaration</Button>}

@@ -69,6 +69,31 @@ function appRenderer(pathname, errorKeys = [], overrides = {}, pending = false) 
   return (file, exportName = "default", props = {}) => renderToStaticMarkup(React.createElement(load(file)[exportName], props));
 }
 
+test("destination : paiements destinataire et part du livreur sont contrôlés séparément", () => {
+  const html = appRenderer("/dashboard/parcels/parcel_test")("components/destination-management.tsx", "DestinationManagement", { parcel: {
+    parcel_id: "parcel_test", status: "available_at_relay", delivery_mode: "home_to_home", updated_at: "2026-10-03T10:00:00Z", who_pays: "recipient",
+    financial_contract: { price_xof: 2000, delivery_mode: "home_to_home", breakdown: { driver_revenue_xof: 1700 } },
+    recipient_collection_plan: { status: "collection_required", collector: "relay", amount_due_xof: 1500, amount_received_xof: 500, receipts: [{ collector: "relay", collector_id: "relay_test", amount_xof: 500 }] },
+  } });
+  assert.ok(html.includes("Déjà reçu"));
+  assert.ok(html.includes("Reste dû"));
+  assert.ok(html.includes("Montant supplémentaire réellement reçu, pas le prix complet"));
+  assert.ok(html.includes("encaissement par le relais ne paie pas automatiquement le livreur"));
+  assert.ok(html.includes("reversements à Denkma, séparés de sa commission"));
+  assert.ok(html.includes('max="1500"'));
+});
+
+test("destination : un paiement confirmé et un livreur payé ne sont pas réclamés à nouveau", () => {
+  const html = appRenderer("/dashboard/parcels/parcel_test")("components/destination-management.tsx", "DestinationManagement", { parcel: {
+    parcel_id: "parcel_test", status: "available_at_relay", delivery_mode: "home_to_home", updated_at: "2026-10-03T10:00:00Z", payment_status: "paid", paid_price: 2000,
+    financial_contract: { price_xof: 2000, delivery_mode: "home_to_home", breakdown: { driver_revenue_xof: 1700 } },
+    recipient_collection_plan: { status: "admin_review", amount_due_xof: 2000, amount_received_xof: 0 }, relay_settlement: { driver_payment_status: "validated" },
+  } });
+  assert.ok(html.includes("Aucun nouvel encaissement à demander"));
+  assert.ok(html.includes("Déjà réglée : ne pas payer à nouveau"));
+  assert.ok(html.includes('max="0"'));
+});
+
 test("le menu conserve tous les écrans, le repère actif et la recherche accessible", () => {
   const html = appRenderer("/dashboard/finance")("components/sidebar.tsx", "Sidebar", { admin: { email: "admin@example.test" } });
   assert.match(html, /Navigation principale/);

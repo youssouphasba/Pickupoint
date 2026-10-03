@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -32,6 +33,7 @@ class AdminEventType:
     SIGNAL_LOST = "signal_lost"
     PARCEL_STALE = "parcel_stale"
     PARCEL_REDIRECTED = "parcel_redirected"
+    PARCEL_DESTINATION_CHANGED = "parcel_destination_changed"
     PARCEL_CANCELLED = "parcel_cancelled"
     MISSION_RELEASED = "mission_released"
     RELAY_ARCHIVED = "relay_archived"
@@ -81,6 +83,7 @@ async def record_admin_event(
     severity: Optional[str] = None,
     href: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
+    dedupe_key: Optional[str] = None,
 ) -> str:
     """
     Écrit un événement admin dans `admin_events`. Non bloquant : en cas d'erreur
@@ -89,7 +92,7 @@ async def record_admin_event(
     try:
         now = datetime.now(timezone.utc)
         doc = {
-            "event_id": _event_id(),
+            "event_id": "adm_" + hashlib.sha256(dedupe_key.encode()).hexdigest()[:24] if dedupe_key else _event_id(),
             "event_type": event_type,
             "severity": severity or SEVERITY_BY_TYPE.get(event_type, "info"),
             "title": title,
@@ -99,7 +102,10 @@ async def record_admin_event(
             "created_at": now,
             "read_by": [],  # liste des admin_id ayant marqué comme lu
         }
-        await db.admin_events.insert_one(doc)
+        if dedupe_key:
+            await db.admin_events.update_one({"_id": doc["event_id"]}, {"$setOnInsert": doc}, upsert=True)
+        else:
+            await db.admin_events.insert_one(doc)
         return doc["event_id"]
     except Exception as exc:
         logger.warning("record_admin_event failed: %s", exc)

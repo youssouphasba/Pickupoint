@@ -4,6 +4,7 @@ import unittest
 
 MODULES = (
     "test_audit_regressions",
+    "test_destination_changes",
     "test_busy_driver_notifications",
     "test_delivery_commission_context",
     "test_delivery_commissions_toggle",

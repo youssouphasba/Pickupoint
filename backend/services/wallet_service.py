@@ -102,6 +102,10 @@ def normalize_commission_rules(raw: dict | None) -> dict:
 
 
 def resolve_delivery_commission_mode(parcel: dict | None, mission: dict | None = None) -> str:
+    for source in (parcel, mission):
+        contract = (source or {}).get("financial_contract") or {}
+        if contract.get("delivery_mode") in COMMISSION_MODES:
+            return contract["delivery_mode"]
     for source in (mission, parcel):
         if not isinstance(source, dict):
             continue
@@ -142,6 +146,10 @@ def commission_rules_for(source: dict, mode: str) -> dict:
 
 
 def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | None = None) -> dict:
+    for item in (parcel, mission):
+        contract = (item or {}).get("financial_contract") or {}
+        if contract.get("breakdown"):
+            return dict(contract["breakdown"])
     source: dict = {}
     if isinstance(parcel, dict):
         source.update(parcel)
@@ -215,6 +223,8 @@ def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:
     is_destination = (parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")) == relay_id
     roles = [role for role, enabled in (("origin", is_origin), ("destination", is_destination)) if enabled]
     settlement = parcel.get("relay_settlement") or {}
+    if parcel.get("redirect_relay_commission_xof") and is_destination:
+        breakdown["destination_relay_commission_xof"] = float(parcel.get("redirect_relay_commission_xof") or breakdown["destination_relay_commission_xof"])
     actions = []
     if mode == "relay_to_relay" and is_origin:
         actions.extend([
@@ -223,11 +233,23 @@ def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:
         ])
     if is_origin and mode == "relay_to_home":
         actions.append({"key": "driver_payment", "label": "Remettre la part du livreur", "amount_xof": breakdown["driver_revenue_xof"], "status": settlement.get("driver_payment_status", "pending")})
-        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir de Denkma", "amount_xof": breakdown["origin_relay_commission_xof"], "status": settlement.get("origin_relay_payment_status", "pending")})
-    if is_destination and mode == "home_to_relay":
-        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
-    if is_destination and mode == "relay_to_relay":
-        actions.append({"key": "relay_commission", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
+        actions.append({"key": "relay_commission", "settlement_action": "origin_relay_payment", "label": "Suivre la commission à recevoir de Denkma", "amount_xof": breakdown["origin_relay_commission_xof"], "status": settlement.get("origin_relay_payment_status", "pending")})
+    if is_destination and (mode == "home_to_relay" or parcel.get("redirect_relay_id") or parcel.get("redirect_relay_commission_xof")):
+        actions.append({"key": "relay_commission", "settlement_action": "destination_relay_payment", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
+    if is_destination and mode == "relay_to_relay" and not parcel.get("redirect_relay_id") and not parcel.get("redirect_relay_commission_xof"):
+        actions.append({"key": "relay_commission", "settlement_action": "destination_relay_payment", "label": "Suivre la commission à recevoir", "amount_xof": breakdown["destination_relay_commission_xof"], "status": settlement.get("destination_relay_payment_status", "pending")})
+    plan = parcel.get("recipient_collection_plan") or {}
+    if plan:
+        actions = [item for item in actions if item["key"] not in {"driver_payment", "denkma_payment"} or item["status"] in {"declared", "validated"}]
+        collected = round(sum(float(receipt["amount_xof"]) for receipt in plan.get("receipts", []) if receipt.get("collector") == "relay" and receipt.get("collector_id") == relay_id), 2)
+        remittance = (parcel.get("recipient_collection_remittances") or {}).get(relay_id) or {}
+        transferred = float(remittance.get("amount_validated_xof") or 0)
+        outstanding = round(max(0, collected - transferred), 2)
+        if collected > 0:
+            actions.append({"key": "recipient_collection_payment", "label": "Reverser l'encaissement destinataire à Denkma",
+                            "amount_xof": outstanding or transferred, "status": "validated" if outstanding == 0 else remittance.get("status", "pending"),
+                            "settlement_field": f"recipient_collection_remittances.{relay_id}.status",
+                            "validated_amount_xof": transferred, "received_amount_xof": collected})
     return {
         "mode": mode,
         "roles": roles,
@@ -240,9 +262,11 @@ def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:
         "origin_relay_commission_xof": breakdown["origin_relay_commission_xof"],
         "destination_relay_commission_xof": breakdown["destination_relay_commission_xof"],
         "driver_revenue_xof": breakdown["driver_revenue_xof"],
-        "customer_payment_collector": "origin_relay" if mode == "relay_to_relay" else "driver",
+        "customer_payment_collector": plan.get("collector") if plan else "origin_relay" if mode == "relay_to_relay" else "driver",
         "settlement_model": breakdown["settlement_model"],
         "actions": actions,
+        "redirect_funding_review_required": bool(parcel.get("redirect_relay_commission_xof") and settlement.get("destination_relay_payment_status") != "validated"),
+        "recipient_collection_plan": parcel.get("recipient_collection_plan"),
     }
 
 
@@ -494,7 +518,7 @@ async def distribute_delivery_revenue(parcel: dict):
     if price <= 0:
         return
 
-    mode = parcel.get("delivery_mode", "")
+    mode = resolve_delivery_commission_mode(parcel)
     parcel_id = parcel.get("parcel_id")
 
     if parcel.get("assigned_driver_id") and breakdown["driver_revenue_xof"] > 0:

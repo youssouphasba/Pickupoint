@@ -142,6 +142,8 @@ async def _save_confirmation_voice_note(
 
 
 async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
+    if parcel.get("financial_contract"):
+        return parcel, False
     # Verrou atomique : seule la premiere confirmation qui rend le devis calculable
     # recree le lien de paiement, les requetes paralleles trouvent quoted_price deja
     # rempli et repartent sans toucher au lien existant.
@@ -258,6 +260,7 @@ class LocationPayload(BaseModel):
 
 class RelayChoicePayload(BaseModel):
     relay_id: str = Field(..., min_length=1)
+    preview_token: Optional[str] = None
 
 
 def _confirmation_response(
@@ -695,10 +698,18 @@ def _relay_picker_page(
         btn.disabled = true;
         btn.textContent = 'Enregistrement...';
         try {{
+          const checked = await fetch('/confirm/' + TOKEN + '/relay/preview', {{
+            method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{ relay_id }}),
+          }});
+          if (!checked.ok) throw new Error('Destination indisponible');
+          const preview = await checked.json();
+          if (!confirm('Prix total : ' + preview.price_xof + ' FCFA. ' + (preview.payment_preserved ? 'Le règlement existant est conservé, sans deuxième paiement.' : 'Ce devis remplace le précédent.') + ' Confirmer ce relais ?')) {{
+            btn.disabled = false; btn.textContent = 'Confirmer ce point relais'; return;
+          }}
           const res = await fetch('/confirm/' + TOKEN + '/relay', {{
             method: 'POST',
             headers: {{'Content-Type': 'application/json'}},
-            body: JSON.stringify({{ relay_id }}),
+            body: JSON.stringify({{ relay_id, preview_token: preview.preview_token }}),
           }});
           if (!res.ok) {{
             const msg = await res.text();
@@ -744,14 +755,15 @@ async def confirmation_page(token: str, request: Request):
 
     script_nonce = secrets.token_urlsafe(18)
     role = "recipient" if parcel.get("recipient_confirm_token") == token else "sender"
-    mode = parcel.get("delivery_mode", "") or ""
+    from core.delivery_destination import effective_delivery_mode, effective_relay_id
+    mode = effective_delivery_mode(parcel)
     status = (parcel.get("status") or "").lower()
 
     # Destinataire + livraison vers relais → page choix / modification de relais
     if role == "recipient" and mode.endswith("_to_relay"):
-        relays_cursor = db.relay_points.find({"is_active": True}, {"_id": 0}).sort([("address.city", 1), ("name", 1)]).limit(100)
+        relays_cursor = db.relay_points.find({"is_active": True, "is_verified": True}, {"_id": 0}).sort([("address.city", 1), ("name", 1)]).limit(100)
         relays = await relays_cursor.to_list(length=100)
-        current_relay_id = parcel.get("destination_relay_id") or ""
+        current_relay_id = effective_relay_id(parcel) or ""
         current_relay_name = ""
         if current_relay_id:
             cur = next((r for r in relays if r.get("relay_id") == current_relay_id), None)
@@ -843,6 +855,7 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
 
     if is_recipient:
         updates["delivery_address"] = location
+        updates["delivery_location"] = location
     else:
         updates["origin_location"] = location
     voice_message_id = await _save_confirmation_voice_note(
@@ -925,6 +938,16 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
     return {"ok": True, "confirmed": field_prefix}
 
 
+@router.post("/{token}/relay/preview")
+@limiter.limit("10/minute")
+async def preview_relay_choice(token: str, payload: RelayChoicePayload, request: Request):
+    from services.delivery_destination_service import preview_destination_change
+    parcel = await db.parcels.find_one({"recipient_confirm_token": token}, {"_id": 0})
+    if not parcel or _is_confirm_token_expired(parcel):
+        raise not_found_exception("Lien de confirmation")
+    return await preview_destination_change(parcel, new_mode="relay", relay_id=payload.relay_id)
+
+
 @router.post("/{token}/relay")
 @limiter.limit("10/minute")
 async def choose_destination_relay(token: str, payload: RelayChoicePayload, request: Request):
@@ -936,45 +959,12 @@ async def choose_destination_relay(token: str, payload: RelayChoicePayload, requ
     if _is_confirm_token_expired(parcel):
         raise bad_request_exception("Lien expiré — la livraison est déjà terminée")
 
-    mode = (parcel.get("delivery_mode") or "")
-    if not mode.endswith("_to_relay"):
-        raise bad_request_exception("Ce colis n'est pas en livraison vers un point relais")
-
-    status = (parcel.get("status") or "").lower()
-    if status not in RELAY_CHANGE_ALLOWED_STATUSES:
-        raise bad_request_exception("Le point relais ne peut plus être modifié — le colis est en route")
-
-    relay = await db.relay_points.find_one(
-        {"relay_id": payload.relay_id, "is_active": True},
-        {"_id": 0},
-    )
-    if not relay:
-        raise not_found_exception("Point relais")
-
-    if relay.get("current_load", 0) >= relay.get("max_capacity", 50):
-        raise bad_request_exception("Ce relais est plein, choisissez un autre point relais")
-
-    if relay.get("relay_id") == parcel.get("origin_relay_id"):
-        raise bad_request_exception("Le relais de retrait doit être différent du relais de dépôt")
-
-    now = datetime.now(timezone.utc)
-    await db.parcels.update_one(
-        {"parcel_id": parcel["parcel_id"]},
-        {"$set": {
-            "destination_relay_id": payload.relay_id,
-            "redirect_relay_id": None,
-            "updated_at": now,
-        }},
-    )
-
-    refreshed = await db.parcels.find_one({"parcel_id": parcel["parcel_id"]}, {"_id": 0})
-    if refreshed:
-        try:
-            refreshed, _ = await _refresh_quote_if_ready(refreshed)
-        except Exception:
-            pass
-        await sync_active_mission_with_parcel(refreshed)
-
+    from services.delivery_destination_service import preview_destination_change, change_destination
+    preview = await preview_destination_change(parcel, new_mode="relay", relay_id=payload.relay_id)
+    if not payload.preview_token:
+        raise bad_request_exception("Vérifiez le récapitulatif avant de confirmer.")
+    await change_destination(parcel, preview, actor_id=parcel.get("recipient_user_id") or "recipient_link",
+                             actor_role="recipient", expected_token=payload.preview_token)
     return {"ok": True, "relay_id": payload.relay_id}
 
 

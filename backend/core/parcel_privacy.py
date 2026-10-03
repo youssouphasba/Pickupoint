@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from core.utils import phones_match
+from core.delivery_destination import effective_delivery_mode, effective_relay_id, effective_delivery_location
 
 
 PARCEL_CODES = {"pickup_code", "delivery_code", "relay_pin", "return_code", "pin_code",
@@ -27,7 +28,7 @@ def allowed_parcel_codes(parcel: dict, viewer: dict) -> set[str]:
         allowed.add("sender_confirm_token")
     if recipient:
         allowed.add("recipient_confirm_token")
-        mode = str(parcel.get("delivery_mode") or "")
+        mode = effective_delivery_mode(parcel)
         if mode.endswith("_to_home"):
             allowed.add("delivery_code")
         elif mode.endswith("_to_relay"):
@@ -45,4 +46,27 @@ def redact_codes(value, allowed: set[str]):
 
 
 def serialize_parcel(parcel: dict, viewer: dict) -> dict:
-    return redact_codes(deepcopy(parcel), allowed_parcel_codes(parcel, viewer))
+    result = deepcopy(parcel)
+    result["effective_delivery_mode"] = effective_delivery_mode(parcel)
+    result["effective_destination_relay_id"] = effective_relay_id(parcel)
+    if (result.get("delivery_destination") or {}).get("type") == "home":
+        result["delivery_destination"]["address"] = deepcopy(effective_delivery_location(parcel))
+    if result.get("delivery_destination"):
+        address = effective_delivery_location(parcel)
+        parts = list(dict.fromkeys(str(address[key]).strip() for key in ("district", "city") if address.get(key)))
+        result["delivery_area_label"] = ", ".join(parts) or address.get("label")
+    plan = deepcopy(result.get("recipient_collection_plan") or {})
+    if plan:
+        if result.get("payment_status") == "paid" or result.get("payment_override"):
+            plan["status"] = "paid"
+            plan["amount_due_xof"] = 0
+        if viewer.get("role") not in {"admin", "superadmin"}:
+            plan = {key: value for key, value in plan.items() if key in {"collector", "status", "amount_due_xof", "amount_received_xof", "revision"}}
+        result["recipient_collection_plan"] = plan
+    if viewer.get("role") not in {"admin", "superadmin"}:
+        result.pop("destination_financial_review", None)
+        remittances = result.pop("recipient_collection_remittances", None)
+        relay_id = viewer.get("relay_point_id") if viewer.get("role") == "relay_agent" else None
+        if remittances and relay_id in remittances:
+            result["recipient_collection_remittances"] = {relay_id: remittances[relay_id]}
+    return redact_codes(result, allowed_parcel_codes(parcel, viewer))

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse
 
 from core.datetime_utils import as_aware_utc
+from core.delivery_destination import effective_delivery_mode, effective_delivery_location
 from core.exceptions import not_found_exception
 from core.limiter import limiter
 from database import db
@@ -156,14 +157,15 @@ def _public_tracking_has_expired(
 
 def _build_public_tracking_payload(parcel: dict, timeline: list[dict]) -> dict:
     expires_at = _public_tracking_expires_at(parcel, timeline)
+    mode = effective_delivery_mode(parcel)
     return {
         "tracking_code": parcel.get("tracking_code"),
         "status": parcel.get("status"),
-        "delivery_mode": parcel.get("delivery_mode"),
-        "delivery_mode_label": _delivery_mode_label(parcel.get("delivery_mode")),
+        "delivery_mode": mode,
+        "delivery_mode_label": _delivery_mode_label(mode),
         "app_install_url": _app_install_url(parcel),
         "origin_area_label": _format_public_area_label(parcel.get("origin_location")),
-        "delivery_area_label": _format_public_area_label(parcel.get("delivery_address")),
+        "delivery_area_label": _format_public_area_label(effective_delivery_location(parcel)),
         "current_location_label": _current_location_label(parcel, timeline),
         "created_at": parcel.get("created_at"),
         "updated_at": parcel.get("updated_at"),

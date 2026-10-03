@@ -93,6 +93,7 @@ class DeliveryMission {
     this.etaText,
     this.distanceText,
     this.paymentStatus,
+    this.recipientCollectionPlan,
     this.paymentMethod,
     this.whoPays,
     this.paymentOverride = false,
@@ -165,6 +166,7 @@ class DeliveryMission {
   final String? etaText;
   final String? distanceText;
   final String? paymentStatus;
+  final Map<String, dynamic>? recipientCollectionPlan;
   final String? paymentMethod;
   final String? whoPays;
   final bool paymentOverride;
@@ -254,6 +256,9 @@ class DeliveryMission {
       etaText: json['eta_text'] as String?,
       distanceText: json['distance_text'] as String?,
       paymentStatus: json['payment_status'] as String?,
+      recipientCollectionPlan: json['recipient_collection_plan'] is Map
+          ? Map<String, dynamic>.from(json['recipient_collection_plan'] as Map)
+          : null,
       paymentMethod: json['payment_method'] as String?,
       whoPays: json['who_pays'] as String?,
       paymentOverride: json['payment_override'] as bool? ?? false,

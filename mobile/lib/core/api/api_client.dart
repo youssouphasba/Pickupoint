@@ -237,6 +237,10 @@ class ApiClient {
 
   Future<Response> changeDeliveryMode(String id, Map<String, dynamic> body) =>
       _dio.put('${ApiEndpoints.parcels}/$id/change-delivery-mode', data: body);
+  Future<Response> previewDeliveryModeChange(
+          String id, Map<String, dynamic> body) =>
+      _dio.post('${ApiEndpoints.parcels}/$id/change-delivery-mode/preview',
+          data: body);
 
   Future<Response> dropAtRelay(String id, Map<String, dynamic> body) =>
       _dio.post(ApiEndpoints.parcelEvent(id, 'drop-at-relay'), data: body);

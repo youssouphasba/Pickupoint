@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from core.exceptions import DeliveryCommissionDataError
+from core.delivery_destination import effective_delivery_mode, effective_relay_id
 from models.common import DeliveryMode, ParcelStatus
 from services.wallet_service import build_relay_financial_summary, resolve_delivery_commission_mode
 
@@ -19,6 +20,9 @@ FINANCIAL_PROJECTION = {
     "commission_rules": 1, "origin_relay_id": 1, "destination_relay_id": 1,
     "redirect_relay_id": 1, "assigned_driver_id": 1, "relay_settlement": 1,
     "created_at": 1, "updated_at": 1,
+    "financial_contract": 1, "redirect_relay_commission_xof": 1,
+    "recipient_collection_plan": 1,
+    "recipient_collection_remittances": 1,
 }
 
 
@@ -26,11 +30,12 @@ def settlement_actions(parcel: dict) -> list[dict]:
     mode = resolve_delivery_commission_mode(parcel)
     if mode.startswith("relay_to_") and not parcel.get("origin_relay_id"):
         raise ValueError("Le relais de départ est manquant.")
-    if mode.endswith("_to_relay") and not (parcel.get("redirect_relay_id") or parcel.get("destination_relay_id")):
+    if effective_delivery_mode(parcel).endswith("_to_relay") and not effective_relay_id(parcel):
         raise ValueError("Le relais d’arrivée est manquant.")
     relay_ids = list(dict.fromkeys(filter(None, (
         parcel.get("origin_relay_id"),
         parcel.get("redirect_relay_id") or parcel.get("destination_relay_id"),
+        *(receipt.get("collector_id") for receipt in (parcel.get("recipient_collection_plan") or {}).get("receipts", []) if receipt.get("collector") == "relay"),
     ))))
     settlement = parcel.get("relay_settlement") or {}
     if not isinstance(settlement, dict):
@@ -43,15 +48,18 @@ def settlement_actions(parcel: dict) -> list[dict]:
                 continue
             action = item["key"]
             if action == "relay_commission":
-                action = "origin_relay_payment" if summary["mode"] == "relay_to_home" else "destination_relay_payment"
-            direction = "to_relay" if item["key"] == "relay_commission" else "to_denkma" if action == "denkma_payment" else "to_driver"
+                action = item["settlement_action"]
+            direction = "to_relay" if item["key"] == "relay_commission" else "to_denkma" if action in {"denkma_payment", "recipient_collection_payment"} else "to_driver"
             field = f"{action}_status"
-            status = settlement.get(field) or "pending"
+            status = item["status"] if action == "recipient_collection_payment" else settlement.get(field) or "pending"
+            record = (parcel.get("recipient_collection_remittances") or {}).get(relay_id, {}) if action == "recipient_collection_payment" else settlement
+            record_field = "status" if action == "recipient_collection_payment" else field
             if not isinstance(status, str) or status not in SETTLEMENT_STATUSES:
                 raise ValueError("Le statut d’un règlement est invalide.")
             due = parcel.get("status") == ParcelStatus.DELIVERED.value if direction == "to_relay" else parcel.get("status") in RELAY_FINANCIAL_STATUSES
             # Une déclaration existante reste à contrôler même après annulation ou retour.
             due = due or status in {"declared", "validated", "rejected"}
+            due = due or action == "recipient_collection_payment"
             if not due and parcel.get("status") in TERMINAL_STATUSES:
                 continue
             result.append({
@@ -59,8 +67,9 @@ def settlement_actions(parcel: dict) -> list[dict]:
                 "label": {
                     "driver_payment": "Relais → livreur",
                     "denkma_payment": "Relais → Denkma",
-                    "origin_relay_payment": "Denkma → relais de départ",
-                    "destination_relay_payment": "Denkma → relais d’arrivée",
+                     "origin_relay_payment": "Denkma → relais de départ",
+                     "destination_relay_payment": "Denkma → relais d’arrivée",
+                    "recipient_collection_payment": "Encaissement destinataire → Denkma",
                 }[action],
                 "amount_xof": round(item["amount_xof"], 2), "status": status,
                 "stage": "due" if due else "upcoming",
@@ -71,21 +80,25 @@ def settlement_actions(parcel: dict) -> list[dict]:
                 "parcel_status": parcel.get("status"), "delivery_mode": summary["mode"],
                 "driver_id": parcel.get("assigned_driver_id") if direction == "to_driver" else None,
                 "updated_at": parcel.get("updated_at"),
-                "declared_at": settlement.get(f"{field}_declared_at"),
-                "reviewed_at": settlement.get(f"{field}_validated_at"),
-                "reviewed_by": settlement.get(f"{field}_validated_by"),
-                "note": settlement.get(f"{field}_note"),
+                "declared_at": record.get(f"{record_field}_declared_at"),
+                "reviewed_at": record.get(f"{record_field}_validated_at"),
+                "reviewed_by": record.get(f"{record_field}_validated_by"),
+                "note": record.get(f"{record_field}_note"),
+                "funding_review_required": action == "destination_relay_payment" and summary.get("redirect_funding_review_required", False),
+                "settlement_field": item.get("settlement_field") or f"relay_settlement.{field}",
+                "validated_amount_xof": item.get("validated_amount_xof", 0),
             })
     return result
 
 
 def _parcel_query(relay_id: str | None = None) -> dict:
     if relay_id:
-        return {"$or": [{key: relay_id} for key in ("origin_relay_id", "destination_relay_id", "redirect_relay_id")]}
+        return {"$or": [{key: relay_id} for key in ("origin_relay_id", "destination_relay_id", "redirect_relay_id")] + [{"recipient_collection_plan.receipts": {"$elemMatch": {"collector": "relay", "collector_id": relay_id}}}]}
     relay_modes = [mode.value for mode in DeliveryMode if mode != DeliveryMode.HOME_TO_HOME]
     return {"$or": [
         *[{key: {"$exists": True, "$nin": [None, ""]}} for key in ("origin_relay_id", "destination_relay_id", "redirect_relay_id")],
         {"delivery_mode": {"$in": relay_modes}}, {"mode": {"$in": relay_modes}},
+        {"recipient_collection_plan.receipts.collector": "relay"},
     ]}
 
 
@@ -102,6 +115,7 @@ def empty_totals() -> dict:
 def _add_action(totals: dict, action: dict) -> None:
     direction, status = action["direction"], action["status"]
     amount = Decimal(str(action["amount_xof"]))
+    previously_validated = Decimal(str(action.get("validated_amount_xof") or 0))
     def add(key):
         totals[key] = Decimal(str(totals[key])) + amount
     if action["stage"] == "upcoming":
@@ -111,6 +125,9 @@ def _add_action(totals: dict, action: dict) -> None:
     if status == "validated":
         add(f"{direction}_validated_xof")
         return
+    if previously_validated:
+        key = f"{direction}_validated_xof"
+        totals[key] = Decimal(str(totals[key])) + previously_validated
     add(f"{direction}_xof")
     totals["outstanding_count"] += 1
     totals[f"{status}_count"] += 1

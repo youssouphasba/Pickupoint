@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/recipient_collection_card.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
@@ -1273,7 +1274,12 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                       const SizedBox(height: 20),
 
                       // ── Statut du paiement ─────────────────────────────────────
-                      _buildPaymentStatus(mission),
+                      if (mission.recipientCollectionPlan != null)
+                        RecipientCollectionCard(
+                            plan: mission.recipientCollectionPlan!,
+                            isPaid: mission.isPaid || mission.paymentOverride)
+                      else
+                        _buildPaymentStatus(mission),
                       const SizedBox(height: 20),
                       if ((mission.senderName?.isNotEmpty ?? false) ||
                           (mission.recipientName?.isNotEmpty ?? false)) ...[

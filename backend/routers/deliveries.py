@@ -137,6 +137,7 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
                 "parcel_id": 1,
                 "paid_price": 1,
                 "quoted_price": 1,
+                "financial_contract": 1,
                 "delivery_mode": 1,
                 "mode": 1,
                 "delivery_commissions_enabled": 1,
@@ -163,7 +164,8 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
                 mission.get("mission_id"), mission.get("parcel_id"),
             )
             continue
-        mission["delivery_mode"] = mode
+        from core.delivery_destination import effective_delivery_mode
+        mission["delivery_mode"] = effective_delivery_mode(parcel) or mission.get("delivery_mode") or mode
         mission.pop("commission_data_unavailable", None)
         mission["sender_name"] = mission.get("sender_name") or parcel.get("sender_name")
         mission["sender_phone"] = mission.get("sender_phone") or parcel.get("sender_phone")
@@ -1261,6 +1263,10 @@ async def get_mission(
             "driver_bonus_xof": 1,
             "paid_price": 1,
             "quoted_price": 1,
+            "financial_contract": 1,
+            "redirect_relay_id": 1,
+            "delivery_destination": 1,
+            "recipient_collection_plan": 1,
             "origin_location": 1,
             "delivery_location": 1,
             "delivery_address": 1,
@@ -1272,7 +1278,8 @@ async def get_mission(
         },
     )
     if parcel:
-        mission["delivery_mode"] = resolve_delivery_commission_mode(parcel, mission)
+        from core.delivery_destination import effective_delivery_mode
+        mission["delivery_mode"] = effective_delivery_mode(parcel) or resolve_delivery_commission_mode(parcel, mission)
         breakdown = compute_delivery_commission_breakdown(parcel, mission)
         mission["platform_commission_xof"] = mission.get(
             "platform_commission_xof",
@@ -1303,12 +1310,14 @@ async def get_mission(
         mission["payment_method"] = mission.get("payment_method") or parcel.get("payment_method")
         mission["who_pays"] = mission.get("who_pays") or parcel.get("who_pays")
         mission["payment_override"] = bool(parcel.get("payment_override"))
+        plan = parcel.get("recipient_collection_plan") or {}
+        mission["recipient_collection_plan"] = (plan if is_admin else {key: value for key, value in plan.items() if key in {"collector", "status", "amount_due_xof", "amount_received_xof", "revision"}}) if plan else None
         mission["pickup_voice_note"] = mission.get("pickup_voice_note") or parcel.get("pickup_voice_note")
         mission["delivery_voice_note"] = mission.get("delivery_voice_note") or parcel.get("delivery_voice_note")
         mission["driver_bonus_xof"] = float(parcel.get("driver_bonus_xof", 0.0))
         mission["quoted_price"] = parcel.get("quoted_price")
         mission["paid_price"] = parcel.get("paid_price")
-        mission["delivery_blocked_by_payment"] = False
+        mission["delivery_blocked_by_payment"] = bool(plan and float(plan.get("amount_due_xof") or 0) > 0 and parcel.get("payment_status") != "paid" and not parcel.get("payment_override") and mission.get("delivery_type") != "relay" and not mission.get("return_requested"))
 
     await _hydrate_mission_area_labels(mission, parcel)
 
@@ -1814,6 +1823,7 @@ async def update_location(
     }
     if not is_admin:
         mission_query["driver_id"] = current_user["user_id"]
+    mission_query["destination_revision"] = mission.get("destination_revision")
     location_result = await db.delivery_missions.update_one(mission_query, update_query)
     if not location_result.matched_count:
         return {"message": "La mission ou la position a été actualisée entre-temps", "trace_recorded": False}
@@ -1880,6 +1890,7 @@ async def update_location(
                     "tracking_code": 1,
                     "status": 1,
                     "delivery_mode": 1,
+                    "redirect_relay_id": 1,
                 },
             )
             if (parcel and parcel.get("status") != ParcelStatus.SUSPENDED.value
@@ -2334,31 +2345,11 @@ async def report_incident(
     if mission.get("status") != MissionStatus.IN_PROGRESS.value:
         raise bad_request_exception("Le retour à l'expéditeur n'est possible qu'après la collecte du colis")
 
-    now = datetime.now(timezone.utc)
-    return_code = parcel.get("return_code") or _return_code()
-    # 1. Marquer la mission en incident
-    await db.delivery_missions.update_one(
-        {"mission_id": mission_id},
-        {"$set": {
-            "status": MissionStatus.INCIDENT_REPORTED.value,
-            "failure_reason": body.reason,
-            "updated_at": now
-        }}
-    )
-
-    await db.parcels.update_one(
-        {"parcel_id": mission["parcel_id"]},
-        {"$set": {"return_code": return_code, "updated_at": now}},
-    )
-
-    # 2. Transition colis
-    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
-    await transition_status(
-        mission["parcel_id"],
-        ParcelStatus.INCIDENT_REPORTED,
-        notes=f"Retour à l'expéditeur demandé : {body.reason}. {body.notes or ''}",
-        **actor
-    )
+    from services.delivery_destination_service import request_return
+    from services.notification_service import notify_parcel_status_change
+    updated = await request_return(parcel, mission, actor_id=current_user["user_id"], actor_role=current_user["role"],
+                                   reason=f"Retour à l'expéditeur demandé : {body.reason}. {body.notes or ''}")
+    await notify_parcel_status_change(updated, ParcelStatus.INCIDENT_REPORTED)
 
     await record_admin_event(
         AdminEventType.INCIDENT_REPORTED,
@@ -2422,25 +2413,11 @@ async def confirm_return_to_sender(
         raise bad_request_exception("Code de retour invalide")
     await clear_code_attempts(db, parcel["parcel_id"], "return_code")
 
-    now = datetime.now(timezone.utc)
-    await db.delivery_missions.update_one(
-        {"mission_id": mission_id},
-        {"$set": {
-            "status": MissionStatus.FAILED.value,
-            "failure_reason": "retour_expediteur_confirme",
-            "completed_at": now,
-            "updated_at": now,
-        }},
-    )
-
-    actor = {"actor_id": current_user["user_id"], "actor_role": current_user["role"]}
-    updated = await transition_status(
-        parcel["parcel_id"],
-        ParcelStatus.RETURNED,
-        notes=body.notes or "Retour confirmé par code expéditeur",
-        metadata={"mission_id": mission_id, "return_code_used": True},
-        **actor,
-    )
+    from services.delivery_destination_service import confirm_return
+    from services.notification_service import notify_parcel_status_change
+    updated = await confirm_return(parcel, mission, actor_id=current_user["user_id"], actor_role=current_user["role"],
+                                   notes=body.notes or "Retour confirmé par code expéditeur")
+    await notify_parcel_status_change(updated, ParcelStatus.RETURNED)
 
     await _record_event(
         parcel_id=parcel["parcel_id"],
@@ -2451,7 +2428,8 @@ async def confirm_return_to_sender(
         metadata={"mission_id": mission_id},
     )
 
-    return {"message": "Retour confirmé chez l'expéditeur", "parcel": updated}
+    from core.parcel_privacy import serialize_parcel
+    return {"message": "Retour confirmé chez l'expéditeur", "parcel": serialize_parcel(updated, current_user)}
 
 
 @router.get("/{mission_id}/trail", summary="Trail GPS complet (admin)")
