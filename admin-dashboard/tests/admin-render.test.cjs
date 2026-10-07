@@ -138,6 +138,17 @@ test("le tableau de bord propose des accès utiles et une actualisation", () => 
   assert.ok(!html.includes("KPI"));
 });
 
+test("configuration : taux théoriques, arrondis et protection des contrats sont explicites", () => {
+  const html = appRenderer("/dashboard/configuration", [], { settings: {
+    pricing: { rounding_step_xof: 50 },
+    commission_rules: { home_to_home: { driver_rate: 0.75, platform_rate: 0.25 } },
+  } })("app/dashboard/configuration/page.tsx");
+  assert.match(html, /Ces taux servent de base au calcul/);
+  assert.match(html, /multiples de 50 FCFA/);
+  assert.match(html, /Les montants convenus ne sont pas recalculés/);
+  assert.match(html, /Si la marge est insuffisante/);
+});
+
 test("configuration : toutes les sections, sauvegardes explicites et libellés d’inputs", () => {
   const html = appRenderer("/dashboard/configuration")("app/dashboard/configuration/page.tsx");
   for (const id of ["tarifs", "commissions", "livraison", "diffusion", "recompenses", "guide", "mises-a-jour"]) {

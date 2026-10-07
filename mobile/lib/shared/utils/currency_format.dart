@@ -6,3 +6,7 @@ String formatXof(double amount) {
   final formatted = NumberFormat('#,###', 'fr_FR').format(amount);
   return '$formatted FCFA';
 }
+
+String formatXofExact(double amount) {
+  return '${NumberFormat('#,##0.##', 'fr_FR').format(amount)} FCFA';
+}

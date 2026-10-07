@@ -37,6 +37,8 @@ import { formatDate } from "@/lib/utils";
 import { paymentStatusLabel, payerLabel } from "@/lib/admin-display";
 import { RelaySettlementActionCard } from "@/components/relay-settlement-action";
 import { DestinationManagement } from "@/components/destination-management";
+import { DenkmaRoundingOffer } from "@/components/denkma-rounding-offer";
+import { roundingBenefits, formatRoundingAmount } from "@/lib/delivery-rounding";
 import type { RelaySettlementAction } from "@/lib/relay-settlements";
 import {
   ArrowLeft,
@@ -727,15 +729,16 @@ export default function ParcelDetailPage() {
             <Row
               label="Prix devis"
               value={
-                parcel.quoted_price
+                parcel.quoted_price != null
                   ? `${xof.format(parcel.quoted_price)} XOF`
                   : "—"
               }
             />
+            <DenkmaRoundingOffer amount={roundingBenefits(parcel).customer_discount_xof} />
             <Row
               label="Montant réglé"
               value={
-                parcel.paid_price ? `${xof.format(parcel.paid_price)} XOF` : "—"
+                parcel.paid_price != null ? `${xof.format(parcel.paid_price)} XOF` : "—"
               }
             />
             <Row label="Statut du paiement" value={paymentStatusLabel(parcel.payment_status)} />
@@ -905,6 +908,8 @@ export default function ParcelDetailPage() {
             <Row label="Commission relais" value={`${xof.format(Number(financial.relay_commission_xof ?? 0))} XOF`} />
             <Row label="Qui collecte" value={financial.settlement_model === "origin_relay_collects" ? "Relais de départ" : "Livreur"} />
             <Row label="Solde minimum livreur" value={`${xof.format(Number(financial.wallet_balance_required_xof ?? 0))} XOF`} />
+            <DenkmaRoundingOffer amount={financial.rounding?.driver_bonus_xof} includedInGain />
+            {Number(financial.rounding?.denkma_contribution_xof ?? 0) > 0 && <p className="text-green-800">Marge Denkma consacrée aux arrondis : {formatRoundingAmount(financial.rounding.denkma_contribution_xof)}.</p>}
           </CardContent>
           <CardContent className="grid items-start gap-3 md:grid-cols-2">
             {(financial.relay_actions ?? []).map((item: RelaySettlementAction) => <RelaySettlementActionCard key={`${item.action}:${item.relay_id}`} item={item} />)}

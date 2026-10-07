@@ -11,7 +11,8 @@ from core.exceptions import bad_request_exception, conflict_exception
 from database import db
 from models.common import ParcelStatus
 from models.parcel import ParcelQuote
-from services.wallet_service import _run_in_transaction, compute_delivery_commission_breakdown
+from services.wallet_service import _run_in_transaction, compute_delivery_commission_breakdown, compute_redirect_relay_commission
+from services.delivery_rounding import POLICY_VERSION, financial_rounding_fields
 
 logger = logging.getLogger(__name__)
 EARLY_STATUSES = {"created", "dropped_at_origin_relay"}
@@ -118,6 +119,7 @@ async def preview_destination_change(parcel, *, new_mode, relay_id=None, address
                         who_pays=parcel.get("who_pays") or "sender", promo_code=parcel.get("promo_code")),
             sender_tier=user.get("loyalty_tier", "bronze"), is_frequent=recent >= 10,
             user_id=parcel.get("sender_user_id"), is_first_delivery=total == 0, reserved_promo=parcel.get("promo_snapshot"),
+            financial_context=parcel, legacy_rounding=parcel.get("pricing_policy_version") != POLICY_VERSION,
         )
         if quote.price is None:
             raise bad_request_exception("Le devis ne peut pas être calculé. Confirmez d'abord l'adresse de collecte.")
@@ -163,11 +165,12 @@ async def change_destination(parcel, preview, *, actor_id, actor_role, expected_
         if preview["payment_preserved"]:
             updates["financial_contract"] = _contract(parcel, mission)
             if preview["relay_id"] and updates["financial_contract"]["delivery_mode"].endswith("_to_home"):
-                updates["redirect_relay_commission_xof"] = compute_delivery_commission_breakdown({**parcel, "delivery_mode": preview["delivery_mode"], "financial_contract": None})["destination_relay_commission_xof"]
+                updates["redirect_relay_commission_xof"] = compute_redirect_relay_commission(parcel, preview["delivery_mode"])
             elif not preview["relay_id"] and updates["financial_contract"]["breakdown"]["destination_relay_commission_xof"] > 0:
                 updates["destination_financial_review"] = {"status": "pending", "reason": "unused_destination_relay_commission", "amount_xof": updates["financial_contract"]["breakdown"]["destination_relay_commission_xof"], "previous_relay_id": previous["relay_id"]}
         else:
             updates.update(quoted_price=preview["price_xof"], quote_breakdown=preview["quote_breakdown"], promo_snapshot=preview["promo_snapshot"])
+            updates.update(financial_rounding_fields(preview["quote_breakdown"]))
         if parcel.get("who_pays") == "recipient" and (preview["relay_id"] or parcel.get("recipient_collection_plan")):
             updates["recipient_collection_plan"] = _recipient_collection({**parcel, **updates}, previous_relay_id=previous["relay_id"])
         result = await db.parcels.update_one(
@@ -205,7 +208,7 @@ async def redirect_destination(parcel, relay_id, *, actor_id, actor_role, notes=
         original = parcel.get("original_delivery_destination") or {"delivery_mode": parcel["delivery_mode"], "address": parcel.get("delivery_location") or parcel.get("delivery_address"), "relay_id": parcel.get("destination_relay_id")}
         previous = {"delivery_mode": effective_delivery_mode(parcel), "relay_id": effective_relay_id(parcel), "address": effective_delivery_location(parcel)}
         redirected = {**parcel, "delivery_mode": effective_delivery_mode({**parcel, "redirect_relay_id": relay_id})}
-        extra = compute_delivery_commission_breakdown({**redirected, "financial_contract": None}, {"delivery_mode": redirected["delivery_mode"], "financial_contract": None})["destination_relay_commission_xof"]
+        extra = compute_redirect_relay_commission(parcel, redirected["delivery_mode"])
         updates = {
             "redirect_relay_id": relay_id, "original_delivery_destination": original,
             "delivery_destination": {"type": "relay", "relay_id": relay_id, "address": address, "changed_at": now},

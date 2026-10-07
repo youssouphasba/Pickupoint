@@ -7,6 +7,7 @@ import '../../../core/notifications/notification_service.dart';
 import '../../../core/models/parcel.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/utils/error_utils.dart';
 import '../../../shared/notifications/notifications_bell_button.dart';
@@ -764,6 +765,8 @@ class _ParcelCard extends StatelessWidget {
                       ),
                   ],
                 ),
+              if (parcel.totalPrice != null)
+                DenkmaRoundingOffer(amount: parcel.rounding.customerDiscount),
               if (parcel.deliveryBlockedByPayment) ...[
                 const SizedBox(height: 10),
                 Container(

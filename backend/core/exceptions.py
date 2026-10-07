@@ -12,6 +12,19 @@ class DeliveryCommissionDataError(HTTPException):
         )
 
 
+class DeliveryRoundingError(HTTPException):
+    def __init__(self, *, insufficient_margin: bool = False):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "La marge de cette course ne permet pas de financer les arrondis sans "
+                "augmenter le prix client ou réduire le gain du livreur. Contactez le support."
+                if insufficient_margin else
+                "Les montants de cette course sont incohérents. Actualisez le devis ou contactez le support."
+            ),
+        )
+
+
 def credentials_exception() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

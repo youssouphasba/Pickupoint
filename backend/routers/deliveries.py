@@ -15,7 +15,8 @@ from pymongo import ReturnDocument
 
 from config import settings
 from core.dependencies import get_current_user, require_role
-from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception
+from core.mission_privacy import serialize_mission
+from core.exceptions import DeliveryCommissionDataError, DeliveryRoundingError, not_found_exception, bad_request_exception, forbidden_exception
 from database import db
 from services.mission_trace import archive_position, load_trace, summarize_completion, timestamp
 from models.common import UserRole, ParcelStatus
@@ -138,6 +139,7 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
                 "paid_price": 1,
                 "quoted_price": 1,
                 "financial_contract": 1,
+                "financial_rounding": 1,
                 "delivery_mode": 1,
                 "mode": 1,
                 "delivery_commissions_enabled": 1,
@@ -157,10 +159,10 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
         try:
             mode = resolve_delivery_commission_mode(parcel, mission)
             breakdown = compute_delivery_commission_breakdown(parcel, mission)
-        except DeliveryCommissionDataError:
+        except (DeliveryCommissionDataError, DeliveryRoundingError):
             mission["commission_data_unavailable"] = True
             logger.warning(
-                "Commission non calculable : mission=%s colis=%s mode de livraison manquant ou invalide",
+                "Commission non calculable : mission=%s colis=%s données financières invalides",
                 mission.get("mission_id"), mission.get("parcel_id"),
             )
             continue
@@ -195,6 +197,12 @@ async def _attach_commission_requirements(missions: list[dict]) -> None:
             "wallet_balance_required_xof",
             breakdown["wallet_balance_required_xof"],
         )
+        if breakdown.get("rounding"):
+            mission["financial_rounding"] = breakdown
+            mission.update({key: breakdown[key] for key in (
+                "platform_commission_xof", "relay_commission_xof", "origin_relay_commission_xof",
+                "destination_relay_commission_xof", "total_commission_xof", "wallet_balance_required_xof",
+            )})
 
 
 def _mask_recipient_phone_for_driver(missions: list[dict], current_user: dict) -> None:
@@ -837,7 +845,8 @@ async def available_missions(
         await _attach_commission_requirements(result)
         result = [mission for mission in result if not mission.get("commission_data_unavailable")]
         _mask_recipient_phone_for_driver(result, current_user)
-        return {"missions": result, "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
+        return {"missions": [serialize_mission(mission, current_user) for mission in result],
+                "driver_lat": lat, "driver_lng": lng, "radius_km": radius_km}
 
     if current_user["role"] == UserRole.DRIVER.value:
         return {
@@ -852,7 +861,8 @@ async def available_missions(
     missions.sort(key=lambda m: m["created_at"])
     await _attach_commission_requirements(missions)
     missions = [mission for mission in missions if not mission.get("commission_data_unavailable")]
-    return {"missions": missions, "driver_lat": None, "driver_lng": None, "radius_km": None}
+    return {"missions": [serialize_mission(mission, current_user) for mission in missions],
+            "driver_lat": None, "driver_lng": None, "radius_km": None}
 
 
 @router.get("/my", summary="Mes missions (driver)")
@@ -890,7 +900,7 @@ async def my_missions(
     _mask_recipient_phone_for_driver(missions, current_user)
 
     return {
-        "missions": missions,
+        "missions": [serialize_mission(mission, current_user) for mission in missions],
         "total": total,
         "limit": limit,
         "skip": skip,
@@ -1008,7 +1018,7 @@ async def mission_preview(
         delivery_distance_text = _format_distance_text(delivery_distance_meters)
 
     return {
-        "mission": mission,
+        "mission": serialize_mission(mission, current_user),
         "preview": {
             "pickup_distance_km": pickup_distance_km,
             "pickup_distance_text": pickup_distance_text,
@@ -1264,6 +1274,7 @@ async def get_mission(
             "paid_price": 1,
             "quoted_price": 1,
             "financial_contract": 1,
+            "financial_rounding": 1,
             "redirect_relay_id": 1,
             "delivery_destination": 1,
             "recipient_collection_plan": 1,
@@ -1305,6 +1316,12 @@ async def get_mission(
             "wallet_balance_required_xof",
             breakdown["wallet_balance_required_xof"],
         )
+        if breakdown.get("rounding"):
+            mission["financial_rounding"] = breakdown
+            mission.update({key: breakdown[key] for key in (
+                "platform_commission_xof", "relay_commission_xof", "origin_relay_commission_xof",
+                "destination_relay_commission_xof", "total_commission_xof", "wallet_balance_required_xof",
+            )})
         mission["parcel_status"] = parcel.get("status")
         mission["payment_status"] = parcel.get("payment_status", "pending")
         mission["payment_method"] = mission.get("payment_method") or parcel.get("payment_method")
@@ -1380,7 +1397,7 @@ async def get_mission(
 
     _mask_recipient_phone_for_driver([mission], current_user)
 
-    return mission
+    return serialize_mission(mission, current_user)
 
 
 @router.post("/{mission_id}/accept", summary="Accepter une mission")
@@ -1455,6 +1472,9 @@ async def accept_mission(
         "commission_charge_mode": "wallet_hold",
         "platform_commission_wallet_reference": f"commission:{mission_id}:{uuid.uuid4().hex}",
     }
+    if breakdown.get("rounding"):
+        mission_set["financial_rounding"] = breakdown
+        mission_set["earn_amount"] = breakdown["driver_revenue_xof"] + float(parcel.get("driver_bonus_xof") or 0)
     mission_push = None
     if body is not None:
         driver_location = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy}

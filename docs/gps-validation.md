@@ -17,7 +17,7 @@ Les points capturés hors connexion sont conservés dans le stockage sécurisé 
 
 ## Vérification sur appareils réels
 
-1. Android : autorisation « Toujours », position précise, puis disponibilité activée dans l’app ouverte. iOS : position précise et autorisation pendant l’utilisation ou toujours, avec le suivi démarré dans l’app ouverte.
+1. Android : autorisation « Toujours autoriser », position précise, puis disponibilité activée dans l’app ouverte. iOS : position précise et autorisation « Toujours », avec le suivi démarré dans l’app ouverte. Sur les deux systèmes, vérifier que l’autorisation pendant l’utilisation seule ne permet ni d’activer la disponibilité, ni d’accepter une course, ni de démarrer le suivi professionnel ; après modification dans les réglages, le retour dans Denkma doit actualiser l’état. Révoquer « Toujours » pendant un suivi, puis revenir dans Denkma : la capture doit s’arrêter et les indications doivent demander l’autorisation adaptée au téléphone.
 2. Consulter la flotte admin, passer sur une autre application, verrouiller l’écran, parcourir une distance et vérifier les coordonnées et la date de mesure.
 3. Répéter en mission pour domicile → domicile et pour chaque mode avec relais. En relais → domicile, vérifier l’absence de carte avant collecte puis son apparition pour le destinataire uniquement après collecte, avec distance/estimation vers le domicile. L’expéditeur ne doit pas avoir accès au live pour ce mode. Vérifier également l’absence de live entre relais et pour domicile → relais et relais → relais.
 4. Couper le GPS puis le réactiver. Vérifier l’état du signal, la reprise au retour dans l’application et l’absence de double notification de service GPS.

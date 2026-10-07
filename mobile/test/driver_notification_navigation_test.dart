@@ -34,6 +34,20 @@ class DriverAuth extends AuthNotifier {
 
 class DriverGps extends GeolocatorPlatform {
   @override
+  Future<Position> getCurrentPosition(
+          {LocationSettings? locationSettings}) async =>
+      Position(
+          latitude: 14.7,
+          longitude: -17.4,
+          timestamp: DateTime.now(),
+          accuracy: 10,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0);
+  @override
   Future<LocationPermission> checkPermission() async =>
       LocationPermission.always;
   @override
@@ -81,6 +95,25 @@ class QuietNotifications implements NotificationService {
 
 class PreviewApi extends ApiClient {
   final previews = <String>[];
+  int accepts = 0;
+  String missionStatus = 'pending';
+  void Function()? onAccept;
+  @override
+  Future<Response> acceptMission(String id,
+      {Map<String, dynamic>? location}) async {
+    accepts++;
+    missionStatus = 'assigned';
+    onAccept?.call();
+    return Response(data: {}, requestOptions: RequestOptions(path: '/accept'));
+  }
+
+  @override
+  Future<Response> getMission(String id) async => Response(data: {
+        'mission_id': id,
+        'parcel_id': 'parcel-$id',
+        'status': missionStatus,
+        'created_at': '2026-10-01T12:00:00Z'
+      }, requestOptions: RequestOptions(path: '/mission'));
   @override
   Future<Response> getMissionPreview(String id,
       {double? lat, double? lng}) async {
@@ -170,6 +203,14 @@ void main() {
                     state.extra as DriverMissionNotificationRequest?,
               )),
       GoRoute(
+          path: '/driver/mission/:id',
+          builder: (_, state) => Scaffold(body: Consumer(builder: (_, ref, __) {
+                final detail =
+                    ref.watch(missionProvider(state.pathParameters['id']!));
+                return Text(
+                    'Detail: ${detail.valueOrNull?.status ?? 'loading'}');
+              }))),
+      GoRoute(
           path: '/elsewhere',
           builder: (_, __) => const Scaffold(body: Text('Other screen'))),
     ]);
@@ -213,6 +254,39 @@ void main() {
 
   TabController tabs(WidgetTester tester) =>
       tester.widget<TabBar>(find.byType(TabBar)).controller!;
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets('empty available list supports pull to refresh on $platform',
+        (tester) async {
+      available = [];
+      await show(tester);
+      final before = availableRequests;
+      await tester.drag(
+          find.byType(CustomScrollView).first, const Offset(0, 400));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(availableRequests, greaterThan(before));
+    }, variant: TargetPlatformVariant.only(platform));
+    testWidgets('acceptance refreshes cached detail and navigates on $platform',
+        (tester) async {
+      await container.read(missionProvider('first').future);
+      api.onAccept = () {
+        available = [];
+        mine = [mission('first', status: 'assigned')];
+      };
+      await show(tester);
+      await tester.tap(find.text('Voir course'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accepter'));
+      await tester.pumpAndSettle();
+      expect(api.accepts, 1);
+      expect(find.text('Detail: assigned'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(tabs(tester).index, 1);
+    }, variant: TargetPlatformVariant.only(platform));
+  }
 
   testWidgets('multiple current courses open Disponibles without a preview',
       (tester) async {

@@ -13,6 +13,8 @@ import { DateRangeFilter, type DateRange } from "@/components/date-range-filter"
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { DenkmaRoundingOffer } from "@/components/denkma-rounding-offer";
+import { roundingBenefits } from "@/lib/delivery-rounding";
 
 const STATUS_LABELS: Record<string, string> = {
   created: "Créé",
@@ -284,6 +286,7 @@ export default function ParcelsPage() {
           return (
             <div className="flex flex-col">
               <span className="font-medium">{xof.format(paid ?? quoted)} XOF</span>
+              <DenkmaRoundingOffer amount={roundingBenefits(parcel).customer_discount_xof} />
               <span className="text-[11px] text-muted-foreground">
                 {parcel.payment_override
                   ? "override admin"

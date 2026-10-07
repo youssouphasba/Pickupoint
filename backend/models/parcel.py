@@ -75,6 +75,7 @@ class ParcelCreate(BaseModel):
     is_express: bool = False
     who_pays: str = Field(default="sender", pattern="^(sender|recipient)$")
     promo_id: Optional[str] = Field(default=None, max_length=80)
+    expected_price_xof: Optional[float] = Field(default=None, ge=0, le=1_000_000_000, allow_inf_nan=False)
     initiated_by: str = Field(default="sender", pattern="^(sender|recipient)$")
     sender_phone: Optional[str] = Field(default=None, max_length=32)
     pickup_voice_note: Optional[str] = None

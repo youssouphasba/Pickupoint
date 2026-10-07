@@ -16,8 +16,10 @@ import UIKit
     }
 
     GeneratedPluginRegistrant.register(with: self)
-    if let controller = window?.rootViewController as? FlutterViewController {
-      DriverMissionActivityBridge.register(with: controller.binaryMessenger)
+    if let registrar = registrar(forPlugin: "DenkmaDriverMissionActivity") {
+      DriverMissionActivityBridge.register(with: registrar.messenger())
+    } else {
+      NSLog("[Denkma] Le canal des activités en direct n’a pas pu être enregistré.")
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
@@ -858,6 +859,8 @@ class _RelayParcelDetailSheetState
               'Frais de port',
               '${parcel.totalPrice!.toStringAsFixed(0)} XOF',
             ),
+          if (parcel.totalPrice != null)
+            DenkmaRoundingOffer(amount: parcel.rounding.customerDiscount),
           if (parcel.recipientCollectionPlan != null)
             RecipientCollectionCard(
                 plan: parcel.recipientCollectionPlan!,

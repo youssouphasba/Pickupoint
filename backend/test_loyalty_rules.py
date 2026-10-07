@@ -131,4 +131,8 @@ class LoyaltyPriceTests(unittest.IsolatedAsyncioTestCase):
     async def test_discount_display_matches_express_and_rounding(self):
         quote = await self.price(express=True)
         self.assertEqual(quote.breakdown["price_before_loyalty"], 1300)
-        self.assertEqual(quote.price + quote.breakdown["loyalty_discount_xof"], 1300)
+        self.assertEqual(
+            quote.price + quote.breakdown["loyalty_discount_xof"]
+            + quote.breakdown["financial_rounding"]["rounding"]["customer_discount_xof"],
+            1300,
+        )

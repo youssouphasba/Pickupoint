@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../core/models/parcel.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/widgets/parcel_status_badge.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/widgets/state_feedback.dart';
@@ -202,6 +203,8 @@ class _TrackingScreenState extends ConsumerState<TrackingScreen> {
                 _infoRow('Destination', parcel.destinationAddress!),
               if (parcel.totalPrice != null)
                 _infoRow('Montant', formatXof(parcel.totalPrice!)),
+              if (parcel.totalPrice != null)
+                DenkmaRoundingOffer(amount: parcel.rounding.customerDiscount),
               if (parcel.whoPays != null)
                 _infoRow('Règlement', _paymentLabel(parcel)),
               if (parcel.etaText != null) _infoRow('ETA', parcel.etaText!),

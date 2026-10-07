@@ -336,7 +336,7 @@ export async function fetchNotificationBroadcasts(limit = 50) {
 
 // ───────────────────────── Parcels ─────────────────────────
 
-export type AdminParcel = {
+export type AdminParcel = import("./delivery-rounding").RoundingSource & {
   parcel_id: string;
   tracking_code: string;
   status: string;

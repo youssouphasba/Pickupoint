@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from core.dependencies import require_role
-from core.exceptions import DeliveryCommissionDataError, not_found_exception, bad_request_exception, forbidden_exception, conflict_exception
+from core.exceptions import DeliveryCommissionDataError, DeliveryRoundingError, not_found_exception, bad_request_exception, forbidden_exception, conflict_exception
 from core.private_documents import can_access_kyc_documents, has_kyc_document, require_kyc_access, serialize_private_user
 from core.limiter import limiter
 from core.security import hash_password
@@ -391,12 +391,12 @@ async def _refresh_pending_delivery_commissions(enabled: bool, *, prepare_only=F
 
     for mission in pending_missions:
         parcel = parcel_lookup.get(mission.get("parcel_id"))
-        if not parcel:
+        if not parcel or parcel.get("financial_rounding"):
             continue
         parcel_for_calc = {**parcel, "delivery_commissions_enabled": enabled}
         mission_for_calc = {**mission, "delivery_commissions_enabled": enabled}
         breakdown = compute_delivery_commission_breakdown(parcel_for_calc, mission_for_calc)
-        earn_amount = round(breakdown["driver_revenue_xof"]) + round(parcel.get("driver_bonus_xof", 0.0))
+        earn_amount = breakdown["driver_revenue_xof"] + float(parcel.get("driver_bonus_xof") or 0)
         planned.append((mission["mission_id"],
             {
                 "$set": {
@@ -4263,6 +4263,7 @@ async def get_parcel_audit_rich(parcel_id: str, _admin=Depends(require_admin_dep
             "destination_relay_commission_xof": commission_breakdown["destination_relay_commission_xof"],
             "total_commission_xof": commission_breakdown["total_commission_xof"],
             "wallet_balance_required_xof": commission_breakdown["wallet_balance_required_xof"],
+            "rounding": commission_breakdown.get("rounding"),
             "origin_relay_commission_recorded": origin_relay_credit_tx is not None,
             "destination_relay_commission_recorded": destination_relay_credit_tx is not None,
             "origin_relay_commission_recorded_at": (
@@ -5988,6 +5989,7 @@ async def update_operational_settings(body: dict, _admin=Depends(require_admin_d
         await db.parcels.update_many(
         {
             "assigned_driver_id": None,
+            "financial_rounding": None,
             "status": {
                 "$in": [
                     ParcelStatus.CREATED.value,
@@ -6241,6 +6243,7 @@ async def get_finance_overview(
             "mode": 1,
             "relay_settlement": 1,
             "financial_contract": 1,
+            "financial_rounding": 1,
             "redirect_relay_commission_xof": 1,
             "delivery_commissions_enabled": 1,
             "commission_rules_snapshot": 1,
@@ -6271,6 +6274,7 @@ async def get_finance_overview(
             "commission_debt_xof": 1,
             "platform_commission_wallet_reference": 1,
             "sponsored_commission_xof": 1,
+            "financial_rounding": 1,
             "admin_assignment_status": 1,
             "created_at": 1,
         },
@@ -6361,6 +6365,7 @@ async def get_finance_overview(
             {
                 "_id": 0, "parcel_id": 1, "tracking_code": 1, "status": 1,
                 "paid_price": 1, "quoted_price": 1, "delivery_mode": 1,
+                "financial_rounding": 1, "financial_contract": 1,
                 "delivery_commissions_enabled": 1, "commission_rules_snapshot": 1,
                 "commission_rules": 1, "sender_name": 1, "recipient_name": 1,
             },
@@ -6501,10 +6506,10 @@ async def get_finance_overview(
         if parcel_status == ParcelStatus.DELIVERED.value:
             try:
                 breakdown = compute_delivery_commission_breakdown(parcel)
-            except DeliveryCommissionDataError:
+            except (DeliveryCommissionDataError, DeliveryRoundingError):
                 item = _parcel_detail(
                     parcel,
-                    meta="Vérifiez le mode de livraison du colis. Ses commissions sont exclues des totaux jusqu'à correction.",
+                    meta="Vérifiez le mode de livraison et les montants du colis. Ses commissions sont exclues des totaux jusqu'à correction.",
                 )
                 item.pop("amount_xof", None)
                 commission_data_issues[parcel_id] = item
@@ -6578,10 +6583,10 @@ async def get_finance_overview(
 
         try:
             breakdown = compute_delivery_commission_breakdown(parcel, mission)
-        except DeliveryCommissionDataError:
+        except (DeliveryCommissionDataError, DeliveryRoundingError):
             item = _mission_detail(
                 mission, parcel,
-                meta="Vérifiez le colis associé et son mode de livraison. Ses commissions sont exclues des totaux jusqu'à correction.",
+                meta="Vérifiez le colis associé, son mode et ses montants. Ses commissions sont exclues des totaux jusqu'à correction.",
             )
             item.pop("amount_xof", None)
             item["title"] = str((parcel or {}).get("tracking_code") or mission.get("parcel_id") or mission.get("mission_id"))

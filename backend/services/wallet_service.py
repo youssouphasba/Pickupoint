@@ -175,6 +175,15 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         raise DeliveryCommissionDataError()
     mode = resolve_delivery_commission_mode(parcel, mission)
 
+    snapshot = (parcel or {}).get("financial_rounding") or (mission or {}).get("financial_rounding")
+    if snapshot:
+        from services.delivery_rounding import validate_financial_rounding
+        financial_source = parcel if (parcel or {}).get("financial_rounding") else source
+        financial_price = financial_source.get("paid_price")
+        if financial_price is None:
+            financial_price = financial_source.get("quoted_price")
+        return validate_financial_rounding(snapshot, price=financial_price, mode=mode)
+
     commissions_are_enabled = delivery_commissions_enabled(source)
     rules = commission_rules_for(source, mode)
     if not commissions_are_enabled:
@@ -213,6 +222,22 @@ def compute_delivery_commission_breakdown(parcel: dict | None, mission: dict | N
         "destination_relay_rate": destination_share_rate,
         "settlement_model": "origin_relay_collects" if mode == "relay_to_relay" else "driver_collects",
     }
+
+
+def compute_redirect_relay_commission(parcel: dict, mode: str) -> float:
+    if not delivery_commissions_enabled(parcel):
+        return 0
+    from services.delivery_rounding import decimal_amount, round_down
+    snapshot = parcel.get("financial_rounding") or {}
+    rounding = snapshot.get("rounding") or {}
+    price = rounding.get("basis_price_xof")
+    if price is None:
+        price = parcel.get("paid_price")
+    if price is None:
+        price = parcel.get("quoted_price") or 0
+    rules = commission_rules_for(parcel, mode)
+    from decimal import Decimal
+    return round_down(decimal_amount(price) * Decimal(str(rules["destination_relay_rate"])), rounding.get("step_xof"))
 
 
 def build_relay_financial_summary(parcel: dict, relay_id: str) -> dict:

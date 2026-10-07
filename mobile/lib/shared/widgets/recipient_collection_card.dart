@@ -3,10 +3,14 @@ import '../utils/currency_format.dart';
 
 class RecipientCollectionCard extends StatelessWidget {
   const RecipientCollectionCard(
-      {super.key, required this.plan, this.isPaid = false});
+      {super.key,
+      required this.plan,
+      this.isPaid = false,
+      this.showAmount = true});
 
   final Map<String, dynamic> plan;
   final bool isPaid;
+  final bool showAmount;
 
   @override
   Widget build(BuildContext context) {
@@ -18,11 +22,15 @@ class RecipientCollectionCard extends StatelessWidget {
       'denkma' => 'à Denkma',
       _ => null,
     };
+    final paymentLabel = showAmount
+        ? 'Reste à régler : ${formatXof(due)}'
+        : 'Règlement en attente';
     final text = paid
         ? 'Paiement déjà confirmé. Aucun nouvel encaissement.'
         : plan['status'] == 'admin_review' || collector == null
-            ? 'Reste à régler : ${formatXof(due)}. Denkma doit préciser qui encaisse avant la remise. Ne payez pas une deuxième fois un montant déjà réglé.'
-            : 'Reste à régler : ${formatXof(due)}, $collector. La confirmation du règlement est nécessaire avant la remise.';
+            ? '$paymentLabel. Denkma doit préciser qui encaisse avant la remise. '
+                '${showAmount ? 'Ne payez pas une deuxième fois un montant déjà réglé.' : 'N’effectuez aucun nouvel encaissement sans confirmation de Denkma.'}'
+            : '$paymentLabel, $collector. La confirmation du règlement est nécessaire avant la remise.';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),

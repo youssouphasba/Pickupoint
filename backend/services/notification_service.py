@@ -2267,6 +2267,10 @@ async def notify_recipient_collection_plan(parcel: dict):
     paid = parcel.get("payment_status") == "paid" or parcel.get("payment_override")
     collector = {"relay": "au relais de retrait", "driver": "au livreur affecté", "denkma": "à Denkma"}.get(plan.get("collector"), "selon les instructions du support")
     body = f"Colis {parcel.get('tracking_code')}. " + ("Paiement confirmé : aucun nouvel encaissement." if paid else f"Reste à régler : {plan.get('amount_due_xof', 0):g} FCFA, {collector}. Ne réglez pas à nouveau un montant déjà payé.")
+    driver_body = f"Colis {parcel.get('tracking_code')}. " + (
+        "Paiement confirmé : aucun nouvel encaissement." if paid
+        else f"Règlement en attente, {collector}. Vérifiez la confirmation du paiement avant la remise."
+    )
     recipient_id = parcel.get("recipient_user_id")
     driver_id = parcel.get("assigned_driver_id")
     mission = await db.delivery_missions.find_one({"parcel_id": parcel["parcel_id"], "driver_id": driver_id}, {"_id": 0, "mission_id": 1}, sort=[("updated_at", -1)]) if driver_id else None
@@ -2275,7 +2279,8 @@ async def notify_recipient_collection_plan(parcel: dict):
         recipient_id = (recipient or {}).get("user_id")
     for user_id in dict.fromkeys(filter(None, (parcel.get("sender_user_id"), recipient_id, parcel.get("assigned_driver_id")))):
         driver_mission = (mission or {}).get("mission_id") if user_id == driver_id and user_id != recipient_id else None
-        await _store_and_send(user_id=user_id, title="Règlement du destinataire précisé", body=body,
+        await _store_and_send(user_id=user_id, title="Règlement du destinataire précisé",
+                              body=driver_body if user_id == driver_id else body,
                               ref_type="mission" if driver_mission else "parcel", ref_id=driver_mission or parcel["parcel_id"],
                               event_type="mission_detail" if driver_mission else "parcel_detail", target_view="driver" if driver_mission else "client",
                               category="parcel_updates", skip_whatsapp=True, dedupe_key=marker)

@@ -306,6 +306,7 @@ workflows:
             shorebird release ios \
               --export-options-plist=/Users/builder/export_options.plist -- --no-tree-shake-icons
           fi
+          python3 "$CM_BUILD_DIR/scripts/verify_ios_live_activity.py" --ipa-dir "$CM_BUILD_DIR/$PROJECT_PATH/build/ios/ipa" --bundle-id "$BUNDLE_ID" --extension-bundle-id "$LIVE_ACTIVITY_BUNDLE_ID"
           python3 "$CM_BUILD_DIR/scripts/sync_app_update_settings.py" --platform ios --pubspec "$CM_BUILD_DIR/$PROJECT_PATH/pubspec.yaml"
       - name: Scan iOS private and deprecated APIs
         script: |

@@ -95,11 +95,12 @@ class _DriverBackgroundLocationTileState
   Widget build(BuildContext context) {
     if (kIsWeb) return const SizedBox.shrink();
     final health = ref.watch(driverLocationHealthProvider);
-    final android = defaultTargetPlatform == TargetPlatform.android;
     final permissionLabel = switch (_permission) {
       LocationPermission.always => 'Position autorisée en permanence',
-      LocationPermission.whileInUse => android
-          ? 'Position autorisée pendant l’utilisation · choisissez « Toujours autoriser » pour les courses.'
+      LocationPermission.whileInUse => DriverLocationConsent
+              .requiresAlwaysPermission
+          ? 'Position autorisée pendant l’utilisation · choisissez '
+              '« ${DriverLocationConsent.permissionOptionLabel} » pour les courses.'
           : 'Position autorisée pendant l’utilisation',
       LocationPermission.denied ||
       LocationPermission.deniedForever =>

@@ -1,3 +1,4 @@
+from core.mission_privacy import serialize_mission
 from services.wallet_service import get_or_create_wallet
 
 
@@ -18,10 +19,12 @@ async def wallet_activity(database, user, period_filter, *, category="balance", 
         parcel_ids = [row.get("parcel_id") for row in rows if row.get("parcel_id")]
         missions = await database.delivery_missions.find(
             {"parcel_id": {"$in": parcel_ids}, "driver_id": user["user_id"], "status": "completed"},
-            {"_id": 0, "mission_id": 1, "parcel_id": 1},
+            {"_id": 0, "mission_id": 1, "parcel_id": 1, "financial_rounding": 1, "financial_contract": 1},
         ).to_list(length=None) if parcel_ids else []
         by_parcel = {mission["parcel_id"]: mission["mission_id"] for mission in missions}
+        financials = {mission["parcel_id"]: (mission.get("financial_contract") or {}).get("breakdown") or mission.get("financial_rounding") for mission in missions}
         items = [{**row, "kind": "revenue", "status": "recorded", "effect": 0,
+                  "financial_rounding": financials.get(row.get("parcel_id")) if str(row.get("reference") or "").startswith("driver_revenue:") else None,
                   "mission_id": by_parcel.get(row.get("parcel_id"))} for row in rows]
     else:
         tx_query = {"wallet_id": wallet["wallet_id"], "tx_type": {"$ne": "revenue"},
@@ -50,6 +53,7 @@ async def wallet_activity(database, user, period_filter, *, category="balance", 
     pending_topups = await database.wallet_topups.find(
         {"wallet_id": wallet["wallet_id"], "status": "pending"}, {"_id": 0},
     ).sort("created_at", -1).to_list(length=None)
-    return {"items": items, "total": total, "skip": skip, "limit": limit, "earnings": earnings,
+    return {"items": [serialize_mission(item, user) for item in items],
+            "total": total, "skip": skip, "limit": limit, "earnings": earnings,
             "pending_payouts": pending_payouts,
             "pending_topups": [{key: row[key] for key in ("topup_id", "amount", "status", "created_at")} for row in pending_topups]}

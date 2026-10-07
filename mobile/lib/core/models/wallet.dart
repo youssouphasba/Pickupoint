@@ -1,3 +1,5 @@
+import 'delivery_rounding.dart';
+
 class Wallet {
   const Wallet({
     required this.id,
@@ -212,6 +214,7 @@ class WalletActivityItem {
         description = json['description'] as String? ?? 'Opération du solde',
         createdAt = DateTime.parse(json['created_at'] as String),
         missionId = json['mission_id'] as String?,
+        rounding = DeliveryRounding.fromJson(json),
         rejectionReason = json['rejection_reason'] as String?;
 
   final String id;
@@ -222,5 +225,6 @@ class WalletActivityItem {
   final String description;
   final DateTime createdAt;
   final String? missionId;
+  final DeliveryRounding rounding;
   final String? rejectionReason;
 }

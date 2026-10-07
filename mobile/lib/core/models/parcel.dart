@@ -1,3 +1,5 @@
+import 'delivery_rounding.dart';
+
 class ParcelEvent {
   const ParcelEvent({
     required this.id,
@@ -53,6 +55,7 @@ class Parcel {
     this.declaredValue,
     this.hasInsurance = false,
     this.totalPrice,
+    this.rounding = const DeliveryRounding(),
     this.paymentStatus,
     this.externalRef,
     this.events = const [],
@@ -131,6 +134,7 @@ class Parcel {
   final double? declaredValue;
   final bool hasInsurance;
   final double? totalPrice;
+  final DeliveryRounding rounding;
   final String? paymentStatus;
   final String? externalRef;
   final List<ParcelEvent> events;
@@ -248,6 +252,7 @@ class Parcel {
       hasInsurance: json['is_insured'] as bool? ?? false,
       totalPrice: (json['paid_price'] as num?)?.toDouble() ??
           (json['quoted_price'] as num?)?.toDouble(),
+      rounding: DeliveryRounding.fromJson(json),
       paymentStatus: json['payment_status']?.toString(),
       externalRef: json['external_ref']?.toString(),
       events: (json['events'] as List<dynamic>?)

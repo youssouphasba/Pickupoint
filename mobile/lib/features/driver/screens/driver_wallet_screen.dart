@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/driver_provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/utils/date_format.dart';
 import '../../../core/models/wallet.dart';
 import '../../../shared/widgets/loading_button.dart';
@@ -278,7 +279,8 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                   _buildActivity(activity, displayedPages,
                       loading: activityAsync.isLoading,
                       summaryCurrent: _lastActivityPeriod == _period,
-                      error: activityAsync.hasError ? activityAsync.error : null)
+                      error:
+                          activityAsync.hasError ? activityAsync.error : null)
                 else
                   activityAsync.when(
                     data: (activity) => _buildActivity(activity, activityPages),
@@ -601,8 +603,7 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
       ]),
       const SizedBox(height: 12),
       SizedBox(
-          height: 4,
-          child: loading ? const LinearProgressIndicator() : null),
+          height: 4, child: loading ? const LinearProgressIndicator() : null),
       if (error != null) _activityError(error, 0),
       if (!loading &&
           error == null &&
@@ -622,7 +623,8 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
           pages[index].when(
               data: (_) => const SizedBox.shrink(),
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => _activityError(error, _historyOffsets[index])),
+              error: (error, _) =>
+                  _activityError(error, _historyOffsets[index])),
       if (!loading &&
           error == null &&
           pages.every((page) => page.hasValue) &&
@@ -726,6 +728,11 @@ class _DriverWalletScreenState extends ConsumerState<DriverWalletScreen>
                 ]),
             if (effectLabel != null)
               Text(effectLabel, style: Theme.of(context).textTheme.bodySmall),
+            if (revenue)
+              DenkmaRoundingOffer(
+                amount: item.rounding.driverBonus,
+                includedInGain: true,
+              ),
             Text(formatDate(item.createdAt),
                 style: Theme.of(context).textTheme.bodySmall),
             if (item.rejectionReason != null) Text(item.rejectionReason!),

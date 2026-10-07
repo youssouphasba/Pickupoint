@@ -18,6 +18,7 @@ from models.common import ParcelStatus, DeliveryMode
 from models.delivery import ACTIVE_MISSION_STATUSES
 from models.parcel import ParcelCreate, ParcelEvent, ParcelQuote, QuoteResponse
 from services.pricing_service import calculate_price
+from services.delivery_rounding import POLICY_VERSION, decimal_amount, financial_rounding_fields
 from services.wallet_service import (
     compute_delivery_commission_breakdown,
     default_commission_rules,
@@ -653,6 +654,7 @@ async def sync_active_mission_with_parcel(
         breakdown = compute_delivery_commission_breakdown(parcel)
         update_doc.update({key: breakdown[key] for key in ("platform_commission_xof", "relay_commission_xof", "origin_relay_commission_xof", "destination_relay_commission_xof", "total_commission_xof", "wallet_balance_required_xof")})
         update_doc.update(quoted_price=parcel.get("quoted_price"), paid_price=parcel.get("paid_price"), earn_amount=breakdown["driver_revenue_xof"] + float(parcel.get("driver_bonus_xof") or 0))
+        update_doc.update(financial_rounding_fields(parcel.get("quote_breakdown")))
 
     if mission.get("status") in {"pending", "assigned"}:
         pickup_source = parcel.get("origin_location") or parcel.get("pickup_location") or {}
@@ -691,7 +693,9 @@ async def sync_active_mission_with_parcel(
 
 async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
     """Recalcule le devis dès que les adresses GPS nécessaires sont disponibles."""
-    if parcel.get("financial_contract"):
+    if (parcel.get("financial_contract") or parcel.get("payment_status") == "paid"
+            or parcel.get("paid_price") is not None or parcel.get("assigned_driver_id")
+            or parcel.get("payment_override")):
         return parcel, False
     sender_user_id = parcel.get("sender_user_id")
     user = await db.users.find_one({"user_id": sender_user_id}) if sender_user_id else None
@@ -728,6 +732,8 @@ async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         user_id=sender_user_id,
         is_first_delivery=(total_delivered == 0),
         reserved_promo=parcel.get("promo_snapshot"),
+        financial_context=parcel,
+        legacy_rounding=parcel.get("pricing_policy_version") != POLICY_VERSION,
     )
 
     previous_price = parcel.get("quoted_price")
@@ -757,6 +763,7 @@ async def refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
                 "promo_id": quote.promo_applied.get("promo_id") if quote.promo_applied else None,
                 "promo_snapshot": quote.promo_applied,
                 "quote_breakdown": quote.breakdown,
+                **financial_rounding_fields(quote.breakdown),
                 "updated_at": now,
             }}, session=session,
         )
@@ -928,6 +935,10 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         user_id=sender_user_id,
         is_first_delivery=is_first
     )
+    if data.expected_price_xof is not None and (
+        quote.price is None or decimal_amount(quote.price) != decimal_amount(data.expected_price_xof)
+    ):
+        raise conflict_exception("Le tarif a changé. Actualisez le devis et vérifiez le nouveau montant avant de confirmer.")
 
     sender_name_str = (user or {}).get("name", "Expéditeur")
     sender_phone_value = normalize_phone(sender_phone or data.sender_phone or (user or {}).get("phone", ""))
@@ -960,6 +971,9 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
     commission_rules_snapshot = normalize_commission_rules(
         settings_doc.get("commission_rules") or default_commission_rules()
     )
+    financial_fields = financial_rounding_fields(quote.breakdown)
+    delivery_commissions_enabled = financial_fields.get("delivery_commissions_enabled", delivery_commissions_enabled)
+    commission_rules_snapshot = financial_fields.get("commission_rules_snapshot", commission_rules_snapshot)
 
     parcel_doc = {
         "parcel_id":             parcel_id,
@@ -978,6 +992,8 @@ async def create_parcel(data: ParcelCreate, sender_user_id: str, sender_phone: s
         "origin_location":       origin_location,
         "delivery_commissions_enabled": delivery_commissions_enabled,
         "commission_rules_snapshot": commission_rules_snapshot,
+        "pricing_policy_version": POLICY_VERSION,
+        "financial_rounding": financial_fields.get("financial_rounding"),
         "weight_kg":             data.weight_kg,
         "dimensions":            data.dimensions,
         "declared_value":        data.declared_value,
@@ -1685,7 +1701,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
     driver_rate = (settings.DRIVER_RATE + settings.RELAY_RATE
                    if mode == "home_to_home" else settings.DRIVER_RATE)
     commission_breakdown = compute_delivery_commission_breakdown(parcel)
-    earn_amount = round(commission_breakdown["driver_revenue_xof"]) + round(parcel.get("driver_bonus_xof", 0.0))
+    earn_amount = commission_breakdown["driver_revenue_xof"] + float(parcel.get("driver_bonus_xof") or 0)
 
     now = datetime.now(timezone.utc)
     mission_doc = {
@@ -1701,6 +1717,7 @@ async def _create_delivery_mission(parcel: dict, from_status: ParcelStatus) -> N
         "delivery_commissions_enabled": bool(parcel.get("delivery_commissions_enabled", True)),
         "commission_rules_snapshot": parcel.get("commission_rules_snapshot"),
         "financial_contract": parcel.get("financial_contract"),
+        "financial_rounding": parcel.get("financial_rounding"),
         "destination_revision": int(parcel.get("destination_revision") or 0),
         # Pickup
         "pickup_type":      pickup_type,   # 'relay' | 'gps'

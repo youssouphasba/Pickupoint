@@ -236,11 +236,9 @@ void main() {
     expect(api.live.first.$1, 'm1');
   });
 
-  test('iOS accepts while-in-use for an already active location session',
-      () async {
+  test('iOS starts an active mission with Always permission', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     final service = await setup(available: false);
-    gps.granted = LocationPermission.whileInUse;
     container.read(missionState.notifier).state =
         AsyncData([mission('in_progress')]);
     await drain();
@@ -250,6 +248,50 @@ void main() {
     expect((gps.settings as AppleSettings).pauseLocationUpdatesAutomatically,
         false);
     expect(gps.subscriptions, 1);
+  });
+
+  test('iOS does not track an active mission with while-in-use permission',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final service = await setup(available: false);
+    gps.granted = LocationPermission.whileInUse;
+    container.read(missionState.notifier).state =
+        AsyncData([mission('in_progress')]);
+    await drain();
+    await service.reconcile(container.read(authProvider).valueOrNull);
+    await drain();
+    expect(gps.subscriptions, 0);
+    expect(api.live, isEmpty);
+  });
+
+  test('iOS does not start available-driver tracking without Always', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final service = await setup(available: false);
+    gps.granted = LocationPermission.whileInUse;
+    container.read(authProvider.notifier).updateUserAvailability(true);
+    await service.reconcile(container.read(authProvider).valueOrNull);
+    await drain();
+    expect(gps.subscriptions, 0);
+    expect(api.presence, isEmpty);
+  });
+
+  test(
+      'iOS stops on permission downgrade and restarts after Always is restored',
+      () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final service = await setup();
+    expect(gps.subscriptions, 1);
+    gps.granted = LocationPermission.whileInUse;
+    await service.handleLifecycleState(AppLifecycleState.resumed);
+    await drain();
+    expect(gps.subscriptions, 0);
+    expect(container.read(driverLocationHealthProvider).error,
+        contains('« Toujours »'));
+    gps.granted = LocationPermission.always;
+    await service.handleLifecycleState(AppLifecycleState.resumed);
+    await drain();
+    expect(gps.subscriptions, 1);
+    expect(gps.maxSubscriptions, 1);
   });
 
   test('Android does not start without background permission', () async {

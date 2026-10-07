@@ -17,6 +17,8 @@ import '../../../shared/widgets/loading_button.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../shared/widgets/authenticated_image.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
+import '../../../core/models/delivery_rounding.dart';
 import '../../../shared/utils/date_format.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_endpoints.dart';
@@ -1507,6 +1509,7 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
                   ),
                 ),
                 if (hasPrice) ...[
+                  DenkmaRoundingOffer(amount: parcel.rounding.customerDiscount),
                   const SizedBox(height: 2),
                   Text(
                     payerLabel,
@@ -2461,18 +2464,27 @@ class _ParcelDetailScreenState extends ConsumerState<ParcelDetailScreen>
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Vérifier le changement'),
-          content: Text([
-            address['label']?.toString() ??
-                (toRelay ? 'Relais sélectionné' : 'Nouvelle adresse'),
-            'Prix total : ${formatXof((preview['price_xof'] as num).toDouble())}',
-            preview['payment_preserved'] == true
-                ? 'Le règlement convenu est conservé. Aucun deuxième paiement n’est demandé.'
-                : 'Ce devis remplace le précédent avant la prise en charge.',
-            if (parcel.whoPays == 'recipient' && toRelay)
-              'Si le règlement reste dû, Denkma vous indiquera qui doit l’encaisser. Ne payez pas à nouveau un montant déjà réglé.',
-            if (toRelay)
-              'Attendez la confirmation de réception du relais avant de vous déplacer.',
-          ].join('\n\n')),
+          content: SingleChildScrollView(
+              child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text([
+                address['label']?.toString() ??
+                    (toRelay ? 'Relais sélectionné' : 'Nouvelle adresse'),
+                'Prix total : ${formatXof((preview['price_xof'] as num).toDouble())}',
+                preview['payment_preserved'] == true
+                    ? 'Le règlement convenu est conservé. Aucun deuxième paiement n’est demandé.'
+                    : 'Ce devis remplace le précédent avant la prise en charge.',
+                if (parcel.whoPays == 'recipient' && toRelay)
+                  'Si le règlement reste dû, Denkma vous indiquera qui doit l’encaisser. Ne payez pas à nouveau un montant déjà réglé.',
+                if (toRelay)
+                  'Attendez la confirmation de réception du relais avant de vous déplacer.',
+              ].join('\n\n')),
+              DenkmaRoundingOffer(
+                  amount: DeliveryRounding.fromJson(preview).customerDiscount),
+            ],
+          )),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),

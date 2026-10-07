@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_provider.dart';
+import '../../../core/models/delivery_rounding.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/utils/currency_format.dart';
 import '../../../shared/widgets/loading_button.dart';
 import '../providers/client_provider.dart';
@@ -24,7 +26,11 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
   final _promoController = TextEditingController();
   bool _promoLoading = false;
   Map<String, dynamic>? _promoResult;
+  Map<String, dynamic>? _refreshedQuote;
   String? _promoError;
+
+  Map<String, dynamic> get _currentQuote =>
+      _asMap(_promoResult?['quote'] ?? _refreshedQuote ?? widget.data['quote']);
 
   @override
   void dispose() {
@@ -43,37 +49,87 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     });
 
     try {
-      final quote = _asMap(widget.data['quote']);
+      final quote = _currentQuote;
       final breakdown = _asMap(quote['breakdown']);
       final formData = _asMap(widget.data['formData']);
-      final price = _numNullable(quote['price']);
-      if (price == null) {
+      if (_numNullable(quote['price']) == null) {
         throw Exception('Prix indisponible');
       }
       final mode = breakdown['delivery_mode']?.toString() ??
           formData['delivery_mode']?.toString() ??
           'relay_to_relay';
 
-      final res =
-          await ref.read(apiClientProvider).checkPromoCode(code, price, mode);
+      final res = await ref.read(apiClientProvider).getQuote({
+        ...formData,
+        'delivery_mode': mode,
+        'promo_code': code,
+      });
       final data = _asMap(res.data);
-      setState(() => _promoResult = data);
+      final promo = _asMap(data['promo_applied']);
+      if (promo.isEmpty || _numNullable(data['price']) == null) {
+        throw Exception('Code invalide ou non applicable');
+      }
+      if (!mounted) return;
+      setState(() => _promoResult = {
+            'quote': data,
+            'promo_code': code,
+            'promo_title': promo['title'],
+            'discount_xof': data['discount_xof'],
+          });
     } catch (e) {
-      setState(() => _promoError = 'Code invalide ou non applicable');
+      if (mounted) setState(() => _promoError = friendlyError(e));
     } finally {
       if (mounted) setState(() => _promoLoading = false);
     }
   }
 
   void _removePromo() {
+    if (_promoLoading || _isConfirming) return;
     setState(() {
       _promoResult = null;
       _promoError = null;
       _promoController.clear();
     });
+    _refreshQuote();
+  }
+
+  Future<void> _refreshQuote() async {
+    if (_promoLoading || _isConfirming) return;
+    final code = _promoResult?['promo_code'] as String?;
+    setState(() => _promoLoading = true);
+    try {
+      final response = await ref.read(apiClientProvider).getQuote({
+        ..._asMap(widget.data['formData']),
+        if (code != null) 'promo_code': code,
+      });
+      final quote = _asMap(response.data);
+      final promo = _asMap(quote['promo_applied']);
+      if (!mounted) return;
+      setState(() {
+        _refreshedQuote = quote;
+        _promoResult = code != null && promo.isNotEmpty
+            ? {
+                'quote': quote,
+                'promo_code': code,
+                'promo_title': promo['title'],
+                'discount_xof': quote['discount_xof'],
+              }
+            : null;
+        _promoError = code != null && promo.isEmpty
+            ? 'Cette promotion n’est plus applicable. Le devis a été actualisé.'
+            : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      if (mounted) setState(() => _promoLoading = false);
+    }
   }
 
   Future<void> _confirmAndPay() async {
+    if (_promoLoading || _isConfirming) return;
     setState(() => _isConfirming = true);
     try {
       final api = ref.read(apiClientProvider);
@@ -82,14 +138,15 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       );
       final pickupVoicePath = formData.remove('pickup_voice_path') as String?;
       final parcelPhotoPath = formData.remove('parcel_photo_path') as String?;
-      final promoCode = _promoResult != null
-          ? _promoController.text.trim().toUpperCase()
-          : null;
+      final promoCode =
+          _promoResult != null ? _promoResult!['promo_code'] as String? : null;
       final payload = {
         ...formData,
         'recipient_name': widget.data['recipient_name'],
         'recipient_phone': widget.data['recipient_phone'],
         if (promoCode != null) 'promo_id': promoCode,
+        if (_numNullable(_currentQuote['price']) != null)
+          'expected_price_xof': _numNullable(_currentQuote['price']),
       };
 
       final res = await api.createParcel(payload);
@@ -128,7 +185,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final quote = _asMap(widget.data['quote']);
+    final quote = _currentQuote;
     final breakdown = _asMap(quote['breakdown']);
     final total = _numNullable(quote['price']);
     final base = _num(breakdown['base']);
@@ -152,12 +209,22 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
     final durationAvailable = breakdown['duration_available'] == true &&
         estHours != null &&
         estHours.isNotEmpty;
-    final finalAmount = _promoResult != null
-        ? (_promoResult!['final_price'] as num?)?.toDouble() ?? total
-        : total;
+    final finalAmount = total;
+    final rounding = DeliveryRounding.fromJson(quote);
+    final originalPrice = _numNullable(quote['original_price']);
+    final promo = _asMap(quote['promo_applied']);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Votre devis')),
+      appBar: AppBar(
+        title: const Text('Votre devis'),
+        actions: [
+          IconButton(
+            onPressed: _promoLoading || _isConfirming ? null : _refreshQuote,
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Actualiser le devis',
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -182,9 +249,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        if (_promoResult != null) ...[
+                        if (originalPrice != null && originalPrice > total) ...[
                           Text(
-                            formatXof(total),
+                            formatXofExact(originalPrice),
                             style: const TextStyle(
                               color: Colors.white54,
                               fontSize: 18,
@@ -200,6 +267,10 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                             fontSize: 36,
                             fontWeight: FontWeight.bold,
                           ),
+                        ),
+                        DenkmaRoundingOffer(
+                          amount: rounding.customerDiscount,
+                          onColoredBackground: true,
                         ),
                         const SizedBox(height: 4),
                         if (durationAvailable)
@@ -271,20 +342,28 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
               if (isExpress && expressCost > 0) ...[
                 const SizedBox(height: 4),
                 _row(
-                  'Supplément express (+30 %)',
+                  'Supplément express',
                   expressCost,
                   color: const Color(0xFFFF6B00),
                 ),
               ],
               if (_num(breakdown['loyalty_discount_xof']) > 0) ...[
                 const Divider(height: 20),
-                _row('Prix avant fidélité (hors promo)', _num(breakdown['price_before_loyalty'])),
-                _row('Avantage fidélité', -_num(breakdown['loyalty_discount_xof']), color: Colors.green.shade700),
+                _row('Prix avant fidélité (hors promo)',
+                    _num(breakdown['price_before_loyalty'])),
+                _row('Avantage fidélité',
+                    -_num(breakdown['loyalty_discount_xof']),
+                    color: Colors.green.shade700),
               ],
               const SizedBox(height: 20),
               _buildPromoSection(),
+              if (_promoResult == null && promo.isNotEmpty)
+                _row(promo['title']?.toString() ?? 'Promotion',
+                    -_num(quote['discount_xof']),
+                    color: Colors.green.shade700),
               const Divider(height: 20),
               _row('TOTAL', finalAmount ?? 0, bold: true, large: true),
+              DenkmaRoundingOffer(amount: rounding.customerDiscount),
             ],
             const SizedBox(height: 20),
             _sectionTitle('Informations pratiques'),
@@ -322,7 +401,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
             LoadingButton(
               label: 'Confirmer la demande',
               isLoading: _isConfirming,
-              onPressed: _confirmAndPay,
+              onPressed: _promoLoading ? null : _confirmAndPay,
             ),
             if (!priceAvailable) ...[
               const SizedBox(height: 12),
@@ -399,7 +478,8 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                   ),
                 ),
                 IconButton(
-                  onPressed: _removePromo,
+                  onPressed:
+                      _promoLoading || _isConfirming ? null : _removePromo,
                   icon: const Icon(Icons.close, size: 18),
                   tooltip: 'Retirer',
                 ),
@@ -444,7 +524,7 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
                       ),
                     )
                   : FilledButton(
-                      onPressed: _checkPromoCode,
+                      onPressed: _isConfirming ? null : _checkPromoCode,
                       child: const Text('OK'),
                     ),
             ],
@@ -550,8 +630,9 @@ class _QuoteScreenState extends ConsumerState<QuoteScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: style),
-          Text(formatXof(amount), style: style),
+          Expanded(child: Text(label, style: style)),
+          const SizedBox(width: 12),
+          Text(formatXofExact(amount), style: style),
         ],
       ),
     );

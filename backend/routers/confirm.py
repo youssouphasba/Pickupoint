@@ -142,8 +142,11 @@ async def _save_confirmation_voice_note(
 
 
 async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
-    if parcel.get("financial_contract"):
+    if (parcel.get("financial_contract") or parcel.get("payment_status") == "paid"
+            or parcel.get("paid_price") is not None or parcel.get("assigned_driver_id")
+            or parcel.get("payment_override")):
         return parcel, False
+    from services.delivery_rounding import POLICY_VERSION, financial_rounding_fields
     # Verrou atomique : seule la premiere confirmation qui rend le devis calculable
     # recree le lien de paiement, les requetes paralleles trouvent quoted_price deja
     # rempli et repartent sans toucher au lien existant.
@@ -170,9 +173,9 @@ async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         delivery_address=parcel.get("delivery_address"),
         weight_kg=float(parcel.get("weight_kg") or 0.5),
         declared_value=parcel.get("declared_value"),
-        is_express=bool(parcel.get("is_express")),
+        is_express=bool(parcel.get("requested_express", parcel.get("is_express"))),
         who_pays=parcel.get("who_pays") or "sender",
-        promo_code=None,
+        promo_code=parcel.get("promo_code"),
     )
 
     quote = await calculate_price(
@@ -181,6 +184,9 @@ async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         is_frequent=delivered_count >= 10,
         user_id=sender_user_id,
         is_first_delivery=(total_delivered == 0),
+        reserved_promo=parcel.get("promo_snapshot"),
+        financial_context=parcel,
+        legacy_rounding=parcel.get("pricing_policy_version") != POLICY_VERSION,
     )
 
     previous_price = parcel.get("quoted_price")
@@ -205,6 +211,7 @@ async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
             {"$set": {
                 "quoted_price": quote.price,
                 "quote_breakdown": quote.breakdown,
+                **financial_rounding_fields(quote.breakdown),
                 "updated_at": datetime.now(timezone.utc),
             }},
         )
@@ -218,6 +225,7 @@ async def _refresh_quote_if_ready(parcel: dict) -> tuple[dict, bool]:
         {"$set": {
             "quoted_price": quote.price,
             "quote_breakdown": quote.breakdown,
+            **financial_rounding_fields(quote.breakdown),
             "updated_at": now,
         }},
     )
@@ -933,7 +941,12 @@ async def confirm_location(token: str, payload: LocationPayload, request: Reques
         if (not is_recipient) and mode.startswith("home_to_") and status == ParcelStatus.CREATED.value:
             await _create_delivery_mission(updated_parcel, ParcelStatus.CREATED)
 
-        await sync_active_mission_with_parcel(updated_parcel)
+        refresh_finances = bool(updated_parcel.get("financial_rounding")) and not (
+            updated_parcel.get("financial_contract") or updated_parcel.get("assigned_driver_id")
+            or updated_parcel.get("payment_status") == "paid" or updated_parcel.get("paid_price") is not None
+            or updated_parcel.get("payment_override")
+        )
+        await sync_active_mission_with_parcel(updated_parcel, **({"refresh_finances": True} if refresh_finances else {}))
 
     return {"ok": True, "confirmed": field_prefix}
 

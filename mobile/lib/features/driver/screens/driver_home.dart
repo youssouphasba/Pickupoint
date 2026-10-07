@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +10,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../providers/driver_provider.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import '../../../shared/utils/phone_utils.dart';
 import '../../../shared/widgets/account_switcher.dart';
 import '../../../shared/widgets/support_whatsapp_tile.dart';
@@ -22,7 +22,6 @@ import '../../../shared/promotions/campaign_banner.dart';
 import '../../../core/location/driver_location_consent.dart';
 import '../../../core/location/driver_presence_service.dart';
 import '../../../core/location/fresh_position_helper.dart';
-import '../../../core/notifications/notification_service.dart';
 import '../../../core/notifications/notification_navigation.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../widgets/completed_mission_card.dart';
@@ -96,6 +95,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   bool _toggling = false;
   bool _notificationActionHandled = false;
   bool _notificationActionLoading = false;
+  String? _missionActionId;
   int _notificationActionGeneration = 0;
   ModalRoute<dynamic>? _notificationPreviewRoute;
   Timer? _refreshTimer;
@@ -180,7 +180,7 @@ class _DriverHomeState extends ConsumerState<DriverHome>
   }
 
   Future<void> _refreshBackgroundPermission() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (!DriverLocationConsent.requiresAlwaysPermission) return;
     final permission = await Geolocator.checkPermission();
     if (mounted) {
       setState(() {
@@ -339,6 +339,129 @@ class _DriverHomeState extends ConsumerState<DriverHome>
     }
   }
 
+  Future<void> _acceptMission(DeliveryMission mission) async {
+    if (!mounted || _missionActionId != null) return;
+    setState(() => _missionActionId = mission.id);
+    final router = GoRouter.of(context);
+    try {
+      if (!await DriverLocationConsent.ensureForWork(context)) return;
+      if (!context.mounted) return;
+      final requiredBalance = mission.walletBalanceRequiredXof > 0
+          ? mission.walletBalanceRequiredXof
+          : mission.totalCommissionXof;
+      if (requiredBalance > 0) {
+        final wallet = await ref.refresh(driverWalletProvider.future);
+        if (!mounted) return;
+        if (wallet.balance < requiredBalance) {
+          if (context.mounted) {
+            await _showRechargeRequiredDialog(
+              context,
+              requiredBalance: requiredBalance,
+              currentBalance: wallet.balance,
+            );
+          }
+          return;
+        }
+      }
+      final api = ref.read(apiClientProvider);
+      final position = await FreshPositionHelper.getDriverSearchPosition();
+      if (!mounted) return;
+      await api.acceptMission(
+        mission.id,
+        location: {
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'accuracy': position.accuracy,
+          'captured_at': position.timestamp.toUtc().toIso8601String(),
+        },
+      );
+      if (!mounted) return;
+      ref.invalidate(missionProvider(mission.id));
+      ref.invalidate(availableMissionsProvider);
+      ref.invalidate(myMissionsProvider);
+      ref.invalidate(driverWalletProvider);
+      _tabController.animateTo(1);
+      unawaited(ActionFeedback.mission());
+      router.push('/driver/mission/${mission.id}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Course acceptée')),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        final msg = friendlyError(e);
+        if (msg.toLowerCase().contains('solde insuffisant')) {
+          await _showRechargeRequiredDialog(context);
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _missionActionId = null);
+    }
+  }
+
+  Future<void> _declineMission(DeliveryMission mission) async {
+    if (!mounted || _missionActionId != null) return;
+    setState(() => _missionActionId = mission.id);
+    try {
+      await ref.read(apiClientProvider).declineMission(mission.id);
+      if (!mounted) return;
+      ref.invalidate(availableMissionsProvider);
+      unawaited(ActionFeedback.confirm());
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Mission refusée.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(friendlyError(e)),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _missionActionId = null);
+    }
+  }
+
+  Future<void> _showRechargeRequiredDialog(
+    BuildContext context, {
+    double? requiredBalance,
+    double? currentBalance,
+  }) async {
+    final details = requiredBalance == null
+        ? 'Rechargez votre wallet pour accepter cette course.'
+        : 'Solde requis : ${formatXof(requiredBalance)}. Solde actuel : ${formatXof(currentBalance ?? 0)}.';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Recharge nécessaire'),
+        content: Text(details),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.go('/driver/wallet');
+            },
+            child: const Text('Recharger'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<bool> _ensureGpsReady() async {
     return DriverLocationConsent.ensure(context, userInitiated: true);
   }
@@ -432,6 +555,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
         isAvailable: true,
         driverLoc: location,
         ensureGpsReady: _ensureGpsReady,
+        onAccept: _acceptMission,
+        onDecline: _declineMission,
       );
       setState(() => _notificationActionLoading = false);
       await card._showPreviewSheet(
@@ -485,28 +610,6 @@ class _DriverHomeState extends ConsumerState<DriverHome>
         _tabController.animateTo(1);
       });
     }
-    if (myMissionsAsync.hasValue) {
-      DeliveryMission? activeMission;
-      for (final mission in myMissions) {
-        if (activeDriverMissionStatuses.contains(mission.status)) {
-          activeMission = mission;
-          break;
-        }
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        unawaited(
-            ref.read(notificationServiceProvider).syncDriverMissionNotification(
-                  missionId: activeMission?.id,
-                  trackingCode: activeMission?.trackingCode,
-                  assignedAt:
-                      activeMission?.assignedAt ?? activeMission?.createdAt,
-                  startedAt: activeMission?.startedAt,
-                  pickupConfirmationDeadline:
-                      activeMission?.pickupConfirmationDeadlineAt,
-                ));
-      });
-    }
     _handleNotificationAction();
 
     final locationMessage = !_backgroundLocationAllowed &&
@@ -520,7 +623,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                 : _locationError ??
                     (hasGps
                         ? 'Missions autour de vous'
-                        : 'Choisissez « Toujours autoriser » pour voir les missions');
+                        : 'Choisissez « ${DriverLocationConsent.permissionOptionLabel} » '
+                            'pour voir les missions');
     final locationActionVisible =
         !_backgroundLocationAllowed && !_locationAccessLoading && !_gpsLoading;
 
@@ -566,7 +670,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         minimumSize: const Size(0, 30),
                       ),
-                      child: const Text('Activer « Toujours autoriser »'),
+                      child: Text('Activer '
+                          '« ${DriverLocationConsent.permissionOptionLabel} »'),
                     ),
                 ]),
               ),
@@ -705,6 +810,8 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                       backgroundLocationAllowed: _backgroundLocationAllowed,
                       onEnableBackgroundLocation: () =>
                           _prepareLocationAccess(userInitiated: true),
+                      onAccept: _acceptMission,
+                      onDecline: _declineMission,
                     ),
                     _MissionsList(
                       asyncValue: myMissionsAsync,
@@ -714,7 +821,9 @@ class _DriverHomeState extends ConsumerState<DriverHome>
                     ),
                   ],
                 ),
-                if (_gpsLoading || _notificationActionLoading)
+                if (_gpsLoading ||
+                    _notificationActionLoading ||
+                    _missionActionId != null)
                   const Align(
                     alignment: Alignment.topCenter,
                     child: LinearProgressIndicator(minHeight: 2),
@@ -736,6 +845,8 @@ class _MissionsList extends ConsumerWidget {
     required this.ensureGpsReady,
     this.backgroundLocationAllowed = true,
     this.onEnableBackgroundLocation,
+    this.onAccept,
+    this.onDecline,
   });
   final AsyncValue<List<DeliveryMission>> asyncValue;
   final bool isAvailable;
@@ -743,6 +854,8 @@ class _MissionsList extends ConsumerWidget {
   final Future<bool> Function() ensureGpsReady;
   final bool backgroundLocationAllowed;
   final VoidCallback? onEnableBackgroundLocation;
+  final Future<void> Function(DeliveryMission)? onAccept;
+  final Future<void> Function(DeliveryMission)? onDecline;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -777,6 +890,7 @@ class _MissionsList extends ConsumerWidget {
             }
 
             return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               children: [
                 if (active.isNotEmpty) ...[
@@ -845,10 +959,9 @@ class _MissionsList extends ConsumerWidget {
           if (missions.isEmpty) {
             if (!backgroundLocationAllowed) {
               return _buildEmpty(
-                'Dans les réglages, ouvrez Autorisations > Localisation, '
-                'choisissez « Toujours autoriser » pour recevoir des courses '
-                'à proximité, puis revenez dans Denkma.',
-                actionLabel: 'Activer « Toujours autoriser »',
+                DriverLocationConsent.settingsInstructions,
+                actionLabel: 'Activer '
+                    '« ${DriverLocationConsent.permissionOptionLabel} »',
                 onAction: onEnableBackgroundLocation,
               );
             }
@@ -857,6 +970,7 @@ class _MissionsList extends ConsumerWidget {
                 : 'Activez la localisation pour voir les courses');
           }
           return ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(12),
             itemCount: missions.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
@@ -867,12 +981,14 @@ class _MissionsList extends ConsumerWidget {
                 isAvailable: true,
                 driverLoc: driverLoc,
                 ensureGpsReady: ensureGpsReady,
+                onAccept: onAccept,
+                onDecline: onDecline,
               ),
             ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, __) => Center(child: Text(friendlyError(e))),
+        error: (e, __) => _buildEmpty(friendlyError(e)),
       ),
     );
   }
@@ -882,28 +998,39 @@ class _MissionsList extends ConsumerWidget {
     String? actionLabel,
     VoidCallback? onAction,
   }) =>
-      Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.local_shipping_outlined,
-              size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Text(
-              msg,
-              style: const TextStyle(fontSize: 15, color: Colors.grey),
-              textAlign: TextAlign.center,
+      CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.local_shipping_outlined,
+                        size: 64, color: Colors.grey.shade300),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 28),
+                      child: Text(
+                        msg,
+                        style:
+                            const TextStyle(fontSize: 15, color: Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    if (actionLabel != null && onAction != null) ...[
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: onAction,
+                        icon: const Icon(Icons.settings_outlined),
+                        label: Text(actionLabel),
+                      ),
+                    ],
+                  ]),
             ),
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: onAction,
-              icon: const Icon(Icons.settings_outlined),
-              label: Text(actionLabel),
-            ),
-          ],
-        ]),
+          )
+        ],
       );
 }
 
@@ -969,17 +1096,23 @@ class _MissionEntrance extends StatelessWidget {
   }
 }
 
+enum _MissionPreviewAction { accept, decline }
+
 class _MissionCard extends ConsumerWidget {
   const _MissionCard({
     required this.mission,
     required this.isAvailable,
     required this.driverLoc,
     required this.ensureGpsReady,
+    this.onAccept,
+    this.onDecline,
   });
   final DeliveryMission mission;
   final bool isAvailable;
   final DriverLocation driverLoc;
   final Future<bool> Function() ensureGpsReady;
+  final Future<void> Function(DeliveryMission)? onAccept;
+  final Future<void> Function(DeliveryMission)? onDecline;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1059,6 +1192,10 @@ class _MissionCard extends ConsumerWidget {
             ),
           ]),
           const SizedBox(height: 14),
+          DenkmaRoundingOffer(
+            amount: mission.rounding.driverBonus,
+            includedInGain: true,
+          ),
           // Pickup
           _locationRow(
             icon: mission.pickupIsRelay
@@ -1157,8 +1294,8 @@ class _MissionCard extends ConsumerWidget {
     WidgetRef ref, {
     void Function(ModalRoute<dynamic> route)? onOpened,
   }) async {
-    final parentContext = context;
-    await showModalBottomSheet<void>(
+    final previewFuture = _loadPreview(ref);
+    final action = await showModalBottomSheet<_MissionPreviewAction>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1175,7 +1312,7 @@ class _MissionCard extends ConsumerWidget {
             child: SafeArea(
               top: false,
               child: FutureBuilder<_MissionPreview>(
-                future: _loadPreview(ref),
+                future: previewFuture,
                 builder: (builderContext, snapshot) {
                   final preview = snapshot.data;
                   final isLoading =
@@ -1255,6 +1392,10 @@ class _MissionCard extends ConsumerWidget {
                                 ],
                               ),
                               const SizedBox(height: 14),
+                              DenkmaRoundingOffer(
+                                amount: mission.rounding.driverBonus,
+                                includedInGain: true,
+                              ),
                               Row(
                                 children: [
                                   Expanded(
@@ -1280,10 +1421,11 @@ class _MissionCard extends ConsumerWidget {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () async {
-                                        Navigator.of(sheetContext).pop();
-                                        await _decline(parentContext, ref);
-                                      },
+                                      onPressed: onDecline == null
+                                          ? null
+                                          : () => Navigator.of(sheetContext)
+                                              .pop(_MissionPreviewAction
+                                                  .decline),
                                       style: OutlinedButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
                                         side: BorderSide(
@@ -1306,10 +1448,11 @@ class _MissionCard extends ConsumerWidget {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: FilledButton(
-                                      onPressed: () async {
-                                        Navigator.of(sheetContext).pop();
-                                        await _accept(parentContext, ref);
-                                      },
+                                      onPressed: onAccept == null
+                                          ? null
+                                          : () => Navigator.of(sheetContext)
+                                              .pop(
+                                                  _MissionPreviewAction.accept),
                                       style: FilledButton.styleFrom(
                                         minimumSize: const Size.fromHeight(52),
                                         backgroundColor:
@@ -1431,6 +1574,11 @@ class _MissionCard extends ConsumerWidget {
         );
       },
     );
+    if (action == _MissionPreviewAction.accept) {
+      await onAccept?.call(mission);
+    } else if (action == _MissionPreviewAction.decline) {
+      await onDecline?.call(mission);
+    }
   }
 
   Widget _buildPreviewMap(_MissionPreview? preview) {
@@ -1708,194 +1856,6 @@ class _MissionCard extends ConsumerWidget {
         ]),
       ),
     ]);
-  }
-
-  Future<void> _accept(BuildContext context, WidgetRef ref) async {
-    final router = GoRouter.of(context);
-    try {
-      if (!await DriverLocationConsent.ensureForWork(context)) return;
-      if (!context.mounted) return;
-      final requiredBalance = mission.walletBalanceRequiredXof > 0
-          ? mission.walletBalanceRequiredXof
-          : mission.totalCommissionXof;
-      if (requiredBalance > 0) {
-        final wallet = await ref.read(driverWalletProvider.future);
-        if (wallet.balance < requiredBalance) {
-          if (context.mounted) {
-            await _showRechargeRequiredDialog(
-              context,
-              requiredBalance: requiredBalance,
-              currentBalance: wallet.balance,
-            );
-          }
-          return;
-        }
-      }
-      final gpsReady = await ensureGpsReady();
-      if (!gpsReady) {
-        return;
-      }
-      final api = ref.read(apiClientProvider);
-      final position = await FreshPositionHelper.getDriverSearchPosition();
-      await api.acceptMission(
-        mission.id,
-        location: {
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'accuracy': position.accuracy,
-          'captured_at': position.timestamp.toUtc().toIso8601String(),
-        },
-      );
-      ref.invalidate(availableMissionsProvider);
-      ref.invalidate(myMissionsProvider);
-      await ActionFeedback.mission();
-      if (context.mounted) {
-        await _showMissionAccepted(context);
-      }
-      router.push('/driver/mission/${mission.id}');
-    } catch (e) {
-      if (context.mounted) {
-        String msg = friendlyError(e);
-        if (e is DioException) {
-          final data = e.response?.data;
-          if (data is Map) msg = data['detail']?.toString() ?? msg;
-        }
-        if (msg.toLowerCase().contains('solde insuffisant')) {
-          await _showRechargeRequiredDialog(context);
-          return;
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _showMissionAccepted(BuildContext context) async {
-    final navigator = Navigator.of(context, rootNavigator: true);
-    final closed = showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black45,
-      transitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (_, __, ___) => PopScope(
-        canPop: false,
-        child: Center(
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 176,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 28,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x24000000),
-                    blurRadius: 24,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.check_circle,
-                    size: 58,
-                    color: Colors.green,
-                  ),
-                  SizedBox(height: 12),
-                  Text(
-                    'Course acceptée',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-      transitionBuilder: (_, animation, __, child) => FadeTransition(
-        opacity: animation,
-        child: ScaleTransition(
-          scale: Tween<double>(begin: 0.82, end: 1).animate(
-            CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutBack,
-            ),
-          ),
-          child: child,
-        ),
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 650));
-    if (navigator.mounted) {
-      navigator.pop();
-    }
-    await closed;
-  }
-
-  Future<void> _decline(BuildContext context, WidgetRef ref) async {
-    try {
-      await ref.read(apiClientProvider).declineMission(mission.id);
-      ref.invalidate(availableMissionsProvider);
-      await ActionFeedback.confirm();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Mission refusée.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(friendlyError(e)),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _showRechargeRequiredDialog(
-    BuildContext context, {
-    double? requiredBalance,
-    double? currentBalance,
-  }) async {
-    final details = requiredBalance == null
-        ? 'Rechargez votre wallet pour accepter cette course.'
-        : 'Solde requis : ${formatXof(requiredBalance)}. Solde actuel : ${formatXof(currentBalance ?? 0)}.';
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Recharge nécessaire'),
-        content: Text(details),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              context.go('/driver/wallet');
-            },
-            child: const Text('Recharger'),
-          ),
-        ],
-      ),
-    );
   }
 }
 

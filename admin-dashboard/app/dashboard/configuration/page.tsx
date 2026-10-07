@@ -449,6 +449,8 @@ export default function ConfigurationPage() {
           <CardHeader>
             <CardTitle>Répartition des commissions</CardTitle>
             <p className="text-sm text-muted-foreground">Chaque ligne doit totaliser 100 %. Les taux sont conservés sur le colis au moment de sa création.</p>
+            <p className="text-sm text-muted-foreground">Ces taux servent de base au calcul. Le prix client et les parts relais sont arrondis vers le bas, le gain du livreur vers le haut. Denkma conserve le reste et finance l’écart sur sa commission. Les montants convenus ne sont pas recalculés après une modification des taux.</p>
+            {data?.pricing?.rounding_step_xof != null && <p className="text-sm text-muted-foreground">Arrondis de caisse : multiples de {data.pricing.rounding_step_xof} FCFA. Si la marge est insuffisante, le devis est bloqué au lieu d’augmenter le prix client ou de diminuer le gain du livreur.</p>}
           </CardHeader>
           <CardContent className="space-y-4">
             {Object.entries(form.commission_rules).map(([mode, rule]) => {
@@ -552,7 +554,7 @@ export default function ConfigurationPage() {
                 <div>
                   <div className="font-medium">Commissions Denkma</div>
                   <div className="text-sm text-muted-foreground">
-                    Quand ce réglage est désactivé, aucune commission n’est retenue sur les nouvelles courses et les missions encore en attente. Le livreur garde 100 % de la course.
+                    Quand ce réglage est désactivé, aucune commission n’est retenue sur les nouvelles courses. Le livreur garde 100 % de la course. Les nouveaux devis déjà convenus conservent leur répartition. Sans marge Denkma, un tarif non arrondi ne peut pas financer simultanément une réduction client et un complément livreur.
                   </div>
                 </div>
                 <Badge tone={form.delivery_commissions_enabled ? "success" : "default"}>

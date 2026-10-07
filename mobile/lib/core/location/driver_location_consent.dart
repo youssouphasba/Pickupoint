@@ -1,20 +1,45 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
 class DriverLocationConsent {
+  static bool get requiresAlwaysPermission =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  static bool isPermissionAllowed(LocationPermission permission) =>
+      permission == LocationPermission.always ||
+      (!requiresAlwaysPermission &&
+          permission == LocationPermission.whileInUse);
+
+  static String get permissionOptionLabel =>
+      defaultTargetPlatform == TargetPlatform.iOS
+          ? 'Toujours'
+          : 'Toujours autoriser';
+
+  static String get settingsInstructions =>
+      defaultTargetPlatform == TargetPlatform.iOS
+          ? 'Dans Réglages > Confidentialité et sécurité > Service de '
+              'localisation > Denkma, choisissez « Toujours », puis revenez '
+              'dans Denkma.'
+          : 'Dans les réglages, ouvrez Autorisations de l’application > '
+              'Position, choisissez « Toujours autoriser », puis revenez '
+              'dans Denkma.';
+
   static Future<bool> ensureForWork(BuildContext context) async {
     final allowed = await ensure(context, userInitiated: true);
     if (!allowed || !context.mounted) return false;
-    if (Theme.of(context).platform != TargetPlatform.android) return true;
+    if (!requiresAlwaysPermission) return true;
     final permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.always) return true;
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-          'Choisissez Toujours autoriser pour vous rendre disponible '
+          'Choisissez « $permissionOptionLabel » pour vous rendre disponible '
           'ou accepter une course.',
         ),
       ));
@@ -26,8 +51,9 @@ class DriverLocationConsent {
       'Denkma collecte et transmet votre position à ses serveurs pour vous '
       'proposer les courses proches et permettre le suivi de vos livraisons '
       'par l’expéditeur, le destinataire et l’équipe Denkma, même lorsque '
-      'l’application est fermée ou non utilisée. Appuyez sur « Continuer » '
-      'pour donner votre accord avant la demande d’autorisation Android.';
+      'l’application est en arrière-plan ou le téléphone verrouillé. '
+      'Appuyez sur « Continuer » pour donner votre accord avant la demande '
+      'd’autorisation du téléphone.';
 
   static const _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -124,8 +150,6 @@ class DriverLocationConsent {
     BuildContext context, {
     required bool userInitiated,
   }) async {
-    final isAndroid =
-        context.mounted && Theme.of(context).platform == TargetPlatform.android;
     final savedChoice = await _read(_storageKey);
     if (savedChoice == _declined && !userInitiated) {
       return false;
@@ -134,7 +158,8 @@ class DriverLocationConsent {
     final currentPermission = await Geolocator.checkPermission();
     final disclosureRequired = currentPermission == LocationPermission.denied ||
         currentPermission == LocationPermission.deniedForever ||
-        (isAndroid && currentPermission != LocationPermission.always);
+        (requiresAlwaysPermission &&
+            currentPermission != LocationPermission.always);
     if (disclosureRequired || savedChoice != _accepted) {
       if (!context.mounted) return false;
       final accepted = await showDialog<bool>(
@@ -177,7 +202,7 @@ class DriverLocationConsent {
       }
     }
 
-    var permission = currentPermission;
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
@@ -187,34 +212,31 @@ class DriverLocationConsent {
       final returned = await _offerSettings(
         context,
         title: 'Autoriser la position',
-        message: 'Ouvrez « Autorisations de l’application », appuyez sur '
-            '« Position », puis autorisez l’accès à votre position.',
+        message: requiresAlwaysPermission
+            ? settingsInstructions
+            : 'Autorisez l’accès à votre position dans les réglages du téléphone.',
         open: Geolocator.openAppSettings,
       );
       if (!returned) return false;
       permission = await Geolocator.checkPermission();
     }
 
-    final backgroundPromptShown =
-        isAndroid ? await _read(_backgroundPromptKey) != null : true;
+    final backgroundPromptShown = await _read(_backgroundPromptKey) != null;
     if (permission == LocationPermission.whileInUse &&
         context.mounted &&
-        isAndroid &&
+        requiresAlwaysPermission &&
         (userInitiated || !backgroundPromptShown)) {
       final returned = await _offerSettings(
         context,
         title: 'Position en arrière-plan',
-        message: 'Pour recevoir les courses proches en arrière-plan, ouvrez '
-            '« Autorisations de l’application » > « Position » et choisissez '
-            '« Toujours autoriser ».',
+        message: 'Pour vous rendre disponible et accepter des courses, '
+            'la position doit être autorisée en permanence. $settingsInstructions',
         open: Geolocator.openAppSettings,
       );
       if (returned) permission = await Geolocator.checkPermission();
       await _storage.write(key: _backgroundPromptKey, value: 'shown');
     }
 
-    if (isAndroid) return permission == LocationPermission.always;
-    return permission == LocationPermission.whileInUse ||
-        permission == LocationPermission.always;
+    return isPermissionAllowed(permission);
   }
 }

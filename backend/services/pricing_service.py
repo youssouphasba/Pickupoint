@@ -5,7 +5,7 @@ Formule :
   sous_total = base_mode + (distance_km × PRICE_PER_KM)
              + (max(0, weight_kg - FREE_WEIGHT_KG) × PRICE_PER_KG)
   prix = sous_total × coefficient_fidélité × (EXPRESS_MULTIPLIER si express)
-  prix = max(prix, MIN_PRICE)  — arrondi à 50 XOF supérieurs
+  prix = max(prix, MIN_PRICE), promotions, puis arrondi inférieur pour le client.
 """
 import math
 import logging
@@ -17,6 +17,7 @@ from database import db
 from models.common import DeliveryMode
 from models.parcel import ParcelQuote, QuoteResponse
 from services.dynamic_pricing import get_dynamic_coefficient
+from services.delivery_rounding import build_financial_rounding, decimal_amount, money, round_up
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 async def get_pricing_settings() -> dict:
     """Retourne les règles tarifaires configurées dans l'admin, avec fallback env."""
     settings_doc = await db.app_settings.find_one({"key": "global"}, {"_id": 0}) or {}
+    from services.wallet_service import normalize_commission_rules
     return {
         "base_relay_to_relay": float(settings_doc.get("base_relay_to_relay", settings.BASE_RELAY_TO_RELAY)),
         "base_relay_to_home": float(settings_doc.get("base_relay_to_home", settings.BASE_RELAY_TO_HOME)),
@@ -37,6 +39,9 @@ async def get_pricing_settings() -> dict:
         "night_multiplier": float(settings_doc.get("night_multiplier", settings.NIGHT_MULTIPLIER)),
         "default_distance_km": float(settings_doc.get("default_distance_km", settings.DEFAULT_DISTANCE_KM)),
         "express_enabled": bool(settings_doc.get("express_enabled", False)),
+        "commission_rules": normalize_commission_rules(settings_doc.get("commission_rules")),
+        "delivery_commissions_enabled": bool(settings_doc.get("delivery_commissions_enabled", True)),
+        "rounding_step_xof": settings.DELIVERY_ROUNDING_STEP_XOF,
     }
 
 
@@ -131,11 +136,6 @@ def _base_price(mode: DeliveryMode, pricing_settings: dict) -> float:
     }[mode]
 
 
-def _round_to_50(value: float) -> float:
-    """Arrondit au multiple de 50 supérieur (propre pour le client)."""
-    return math.ceil(value / 50) * 50
-
-
 def _has_delivery_geopin(quote: ParcelQuote) -> bool:
     gp = (
         quote.delivery_address.geopin
@@ -201,6 +201,8 @@ async def calculate_price(
     user_id: Optional[str] = None,
     is_first_delivery: bool = False,
     reserved_promo: Optional[dict] = None,
+    financial_context: Optional[dict] = None,
+    legacy_rounding: bool = False,
 ) -> QuoteResponse:
     requirements = _quote_requirements_status(quote)
     if not requirements["ready"]:
@@ -259,19 +261,24 @@ async def calculate_price(
 
     # Express — uniquement si activé globalement par l'admin
     express_cost = 0.0
-    standard_price = _round_to_50(max(price_with_coeff, pricing_settings["min_price"]))
+    standard_price = float(decimal_amount(max(price_with_coeff, pricing_settings["min_price"])))
+    if legacy_rounding:
+        standard_price = round_up(standard_price)
     if quote.is_express:
         if pricing_settings["express_enabled"]:
             express_multiplier = pricing_settings["express_multiplier"]
             express_cost = price_with_coeff * (express_multiplier - 1)
             price_with_coeff *= express_multiplier
 
-    # Min + arrondi 50 XOF
-    final = _round_to_50(max(price_with_coeff, pricing_settings["min_price"]))
+    final = float(decimal_amount(max(price_with_coeff, pricing_settings["min_price"])))
+    if legacy_rounding:
+        final = round_up(final)
     without_loyalty = sous_total * frequent_discount
     if quote.is_express and pricing_settings["express_enabled"]:
         without_loyalty *= pricing_settings["express_multiplier"]
-    price_before_loyalty = _round_to_50(max(without_loyalty, pricing_settings["min_price"]))
+    price_before_loyalty = float(decimal_amount(max(without_loyalty, pricing_settings["min_price"])))
+    if legacy_rounding:
+        price_before_loyalty = round_up(price_before_loyalty)
     loyalty_discount_xof = max(price_before_loyalty - final, 0)
 
     # ── Promotions (Bloc E) ──
@@ -314,6 +321,23 @@ async def calculate_price(
         quote.is_express or bool((promo_applied_data or {}).get("express_free"))
     )
 
+    financial_rounding = None
+    if not legacy_rounding:
+        from services.wallet_service import normalize_commission_rules
+        context = financial_context or {}
+        rules = normalize_commission_rules(
+            context.get("commission_rules_snapshot") or pricing_settings.get("commission_rules")
+        )
+        enabled = context.get("delivery_commissions_enabled")
+        if enabled is None:
+            enabled = pricing_settings.get("delivery_commissions_enabled", True)
+        previous_rounding = (context.get("financial_rounding") or {}).get("rounding") or {}
+        financial_rounding = build_financial_rounding(
+            final, quote.delivery_mode.value, rules, enabled=enabled,
+            step=previous_rounding.get("step_xof"),
+        )
+        final = financial_rounding["price_xof"]
+
     # Estimation du temps de livraison affiché
     estimated_hours = _estimate_delivery_hours(
         distance, quote.delivery_mode, effective_express
@@ -323,16 +347,16 @@ async def calculate_price(
         "delivery_mode":  quote.delivery_mode.value,
         "base":           base,
         "distance_km":    distance,
-        "distance_cost":  round(dist_cost),
+        "distance_cost":  float(money(dist_cost)),
         "weight_kg":      quote.weight_kg,
         "weight_extra_kg": extra_kg,
-        "weight_cost":    round(weight_cost),
-        "sous_total":     round(sous_total),
+        "weight_cost":    float(money(weight_cost)),
+        "sous_total":     float(money(sous_total)),
         "inter_city_cost": round(inter_city_cost),
         "coefficient":    coeff,
         "coeff_factors":  coeff_factors,
         "is_express":     effective_express,
-        "express_cost":   round(express_cost),
+        "express_cost":   float(money(express_cost)),
         "loyalty_tier":   sender_tier,
         "is_frequent":    is_frequent,
         "loyalty_coeff":  round(loyalty_coeff, 2),
@@ -349,6 +373,8 @@ async def calculate_price(
         "missing_points": [],
         "status_label": "Disponible",
     }
+    if financial_rounding:
+        breakdown["financial_rounding"] = financial_rounding
 
     return QuoteResponse(
         price=final, 

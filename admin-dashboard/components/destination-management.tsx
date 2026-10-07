@@ -6,6 +6,8 @@ import { api, fetchRelays } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatSettlementAmount } from "@/lib/relay-settlements";
+import { DenkmaRoundingOffer } from "@/components/denkma-rounding-offer";
+import { roundingBenefits, type RoundingSource } from "@/lib/delivery-rounding";
 
 type CollectionPlan = { collector?: string | null; status: string; amount_due_xof: number; amount_received_xof: number; receipts?: { collector: string; collector_id: string; amount_xof: number }[] };
 type ManagedParcel = {
@@ -26,7 +28,7 @@ export function DestinationManagement({ parcel }: { parcel: ManagedParcel }) {
   const [driverPaid, setDriverPaid] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [error, setError] = React.useState<string>();
-  const [preview, setPreview] = React.useState<{ preview_token: string; price_xof: number; payment_preserved: boolean }>();
+  const [preview, setPreview] = React.useState<RoundingSource & { preview_token: string; price_xof: number; payment_preserved: boolean }>();
   const queryClient = useQueryClient();
   const early = ["created", "dropped_at_origin_relay"].includes(parcel.status);
   const redirectable = ["out_for_delivery", "delivery_failed", "redirected_to_relay"].includes(parcel.status);
@@ -85,7 +87,7 @@ export function DestinationManagement({ parcel }: { parcel: ManagedParcel }) {
           {relays.data?.relay_points.filter((relay) => relay.is_verified && relay.max_capacity != null && (relay.current_load ?? 0) < relay.max_capacity).map((relay) => <option value={relay.relay_id} key={relay.relay_id}>{relay.name}</option>)}
         </select>
         {relays.isError && <p role="alert">La liste des relais n’a pas pu être chargée.</p>}
-        {preview && <p className="text-sm">Prix total : {formatSettlementAmount(preview.price_xof)}. {preview.payment_preserved ? "Paiement existant conservé, sans deuxième demande." : "Ce devis remplace le précédent."}</p>}
+        {preview && <div className="space-y-1"><p className="text-sm">Prix total : {formatSettlementAmount(preview.price_xof)}. {preview.payment_preserved ? "Paiement existant conservé, sans deuxième demande." : "Ce devis remplace le précédent."}</p><DenkmaRoundingOffer amount={roundingBenefits(preview).customer_discount_xof} /></div>}
         <Button disabled={!relayId || mutation.isPending || (!early && note.trim().length < 3)} onClick={() => mutation.mutate(early && !preview ? "preview" : "destination")}>{early && !preview ? "Vérifier le changement" : "Confirmer le nouveau relais"}</Button>
         {!early && <p className="text-sm text-muted-foreground">Un relais ouvert est obligatoire. Le livreur est informé et l’ancien itinéraire est invalidé.</p>}
       </div>}

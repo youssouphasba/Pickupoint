@@ -7,6 +7,8 @@ MODULES = (
     "test_destination_changes",
     "test_busy_driver_notifications",
     "test_delivery_commission_context",
+    "test_delivery_rounding",
+    "test_driver_mission_financial_privacy",
     "test_delivery_commissions_toggle",
     "test_mission_notification_reminders",
     "test_mission_notification_location",

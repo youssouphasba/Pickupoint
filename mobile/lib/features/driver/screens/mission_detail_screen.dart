@@ -12,6 +12,7 @@ import '../../../shared/widgets/parcel_chat_widget.dart';
 import '../../../shared/widgets/authenticated_avatar.dart';
 import '../../../core/models/delivery_mission.dart';
 import '../../../shared/utils/currency_format.dart';
+import '../../../shared/widgets/denkma_rounding_offer.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart';
@@ -25,6 +26,8 @@ import '../../../shared/utils/error_utils.dart';
 import '../../../shared/widgets/success_celebration.dart';
 import '../../../shared/feedback/action_feedback.dart';
 import '../../../core/location/driver_location_consent.dart';
+import '../../../core/location/external_navigation.dart';
+import '../../../core/notifications/notification_service.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../shared/utils/date_format.dart';
 
@@ -42,7 +45,8 @@ class MissionDetailScreen extends ConsumerStatefulWidget {
       _MissionDetailScreenState();
 }
 
-class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
+class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen>
+    with WidgetsBindingObserver {
   bool _isProcessing = false;
   GoogleMapController? _mapController;
   Position? _driverPosition;
@@ -61,6 +65,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refreshDriverPosition(silent: true);
     _assignmentCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
@@ -71,6 +76,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callStatusTimer?.cancel();
     _assignmentCountdownTimer?.cancel();
     _callPeerConnection?.close();
@@ -81,8 +87,22 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   @override
   void didUpdateWidget(covariant MissionDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.id != widget.id) {
+      _proofBase64 = null;
+      _messageRevealScheduled = false;
+      ref.invalidate(missionProvider(widget.id));
+      _refreshDriverPosition(silent: true);
+    }
     if (oldWidget.initialMessageId != widget.initialMessageId) {
       _messageRevealScheduled = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      ref.invalidate(missionProvider(widget.id));
+      _refreshDriverPosition(silent: true);
     }
   }
 
@@ -118,8 +138,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         final serviceEnabled = await Geolocator.isLocationServiceEnabled();
         final permission = await Geolocator.checkPermission();
         if (!serviceEnabled ||
-            (permission != LocationPermission.whileInUse &&
-                permission != LocationPermission.always)) {
+            !DriverLocationConsent.isPermissionAllowed(permission)) {
           return;
         }
       } else {
@@ -269,12 +288,6 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   // ── Ouvrir navigation externe (Google Maps / Waze) ───────────────────────
   Future<void> _openNavigation(double lat, double lng, String label) async {
-    final googleMapsUrl = Uri.parse('google.navigation:q=$lat,$lng&mode=d');
-    final googleMapsWeb = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
-    );
-    final wazeUrl = Uri.parse('waze://ul?ll=$lat,$lng&navigate=yes');
-
     if (!mounted) {
       return;
     }
@@ -325,17 +338,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 label: 'Google Maps',
                 onTap: () async {
                   Navigator.pop(ctx);
-                  // Essayer l'app native, sinon web (toujours disponible)
-                  final launched = await launchUrl(
-                    googleMapsUrl,
-                    mode: LaunchMode.externalApplication,
-                  );
-                  if (!launched) {
-                    await launchUrl(
-                      googleMapsWeb,
-                      mode: LaunchMode.externalApplication,
-                    );
-                  }
+                  await _launchNavigation(NavigationApp.googleMaps, lat, lng);
                 },
               ),
               const SizedBox(height: 8),
@@ -346,17 +349,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                 label: 'Waze',
                 onTap: () async {
                   Navigator.pop(ctx);
-                  final launched = await launchUrl(
-                    wazeUrl,
-                    mode: LaunchMode.externalApplication,
-                  );
-                  if (!launched) {
-                    // Waze non installé → Google Maps web
-                    await launchUrl(
-                      googleMapsWeb,
-                      mode: LaunchMode.externalApplication,
-                    );
-                  }
+                  await _launchNavigation(NavigationApp.waze, lat, lng);
                 },
               ),
               const SizedBox(height: 8),
@@ -365,6 +358,21 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _launchNavigation(
+      NavigationApp app, double lat, double lng) async {
+    final launched = await ExternalNavigation.open(
+      app: app,
+      latitude: lat,
+      longitude: lng,
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Impossible d’ouvrir la navigation. Réessayez.')),
+      );
+    }
   }
 
   Widget _navOption(
@@ -526,20 +534,16 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   // ── Prendre une photo (Preuve) + Compression WebP (Phase 7) ───────────────
   Future<void> _takePhoto() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(
-      source: ImageSource.camera,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 80,
-    );
-
-    if (image == null) {
-      return;
-    }
-
+    if (_isProcessing) return;
     setState(() => _isProcessing = true);
     try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 80,
+      );
+      if (image == null || !mounted) return;
       final bytes = await image.readAsBytes();
       final result = await FlutterImageCompress.compressWithList(
         bytes,
@@ -548,7 +552,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         quality: 70,
         format: CompressFormat.webp,
       );
-
+      if (!mounted) return;
       setState(() {
         _proofBase64 = base64Encode(result);
       });
@@ -1164,6 +1168,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(foregroundNotificationRefreshProvider, (_, __) {
+      ref.invalidate(missionProvider(widget.id));
+    });
     final missionAsync = ref.watch(missionProvider(widget.id));
     final currentMission = missionAsync.valueOrNull;
     final isFinished =
@@ -1194,6 +1201,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                       ],
                       if (!mission.isCompleted && !mission.isFailed)
                         Container(
+                          width: double.infinity,
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             color: Colors.blue.shade50,
@@ -1202,29 +1210,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildAmountSummary(
-                                      label: 'PRIX DE LA COURSE',
-                                      amount: mission.coursePrice,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  Container(
-                                    width: 1,
-                                    height: 48,
-                                    color: Colors.blue.shade100,
-                                  ),
-                                  const SizedBox(width: 20),
-                                  Expanded(
-                                    child: _buildAmountSummary(
-                                      label: 'VOTRE GAIN',
-                                      amount: mission.earnAmount,
-                                      color: Colors.blue,
-                                    ),
-                                  ),
-                                ],
+                              _buildAmountSummary(
+                                label: 'VOTRE GAIN',
+                                amount: mission.earnAmount,
+                                color: Colors.blue,
                               ),
                               if (mission.driverBonusXof > 0) ...[
                                 const SizedBox(height: 8),
@@ -1236,6 +1225,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                                   ),
                                 ),
                               ],
+                              DenkmaRoundingOffer(
+                                amount: mission.rounding.driverBonus,
+                                includedInGain: true,
+                              ),
                               if (mission.etaText != null) ...[
                                 const SizedBox(height: 12),
                                 Divider(color: Colors.blue.shade100, height: 1),
@@ -1277,6 +1270,7 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
                       if (mission.recipientCollectionPlan != null)
                         RecipientCollectionCard(
                             plan: mission.recipientCollectionPlan!,
+                            showAmount: false,
                             isPaid: mission.isPaid || mission.paymentOverride)
                       else
                         _buildPaymentStatus(mission),
@@ -1522,6 +1516,10 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ],
             ),
             const SizedBox(height: 18),
+            DenkmaRoundingOffer(
+              amount: mission.rounding.driverBonus,
+              includedInGain: true,
+            ),
             Divider(color: statusColor.withValues(alpha: 0.2), height: 1),
             const SizedBox(height: 14),
             _completionLine(
@@ -1621,8 +1619,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
   }
 
   Widget _buildRouteMap(DeliveryMission mission) {
-    final hasPickup = mission.pickupLat != null;
-    final hasDelivery = mission.deliveryLat != null;
+    final hasPickup = mission.pickupLat != null && mission.pickupLng != null;
+    final hasDelivery =
+        mission.deliveryLat != null && mission.deliveryLng != null;
     if (!hasPickup && !hasDelivery) return const SizedBox.shrink();
 
     final center = hasPickup
@@ -1630,7 +1629,9 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
         : LatLng(mission.deliveryLat!, mission.deliveryLng!);
 
     // Destination de navigation selon le statut de la mission
-    final navToDelivery = mission.status == 'in_progress' && hasDelivery;
+    final navToDelivery =
+        (mission.startedAt != null || mission.status == 'in_progress') &&
+            hasDelivery;
     final navLat = navToDelivery
         ? mission.deliveryLat!
         : (hasPickup ? mission.pickupLat! : mission.deliveryLat!);
@@ -1702,8 +1703,18 @@ class _MissionDetailScreenState extends ConsumerState<MissionDetailScreen> {
               ),
               clipBehavior: Clip.hardEdge,
               child: GoogleMap(
+                key: ValueKey((
+                  mission.id,
+                  mission.pickupLat,
+                  mission.pickupLng,
+                  mission.deliveryLat,
+                  mission.deliveryLng,
+                  navToDelivery
+                )),
                 initialCameraPosition: CameraPosition(
-                  target: center,
+                  target: navToDelivery
+                      ? LatLng(mission.deliveryLat!, mission.deliveryLng!)
+                      : center,
                   zoom: 13.0,
                 ),
                 onMapCreated: (controller) => _mapController = controller,

@@ -20,7 +20,7 @@ FINANCIAL_PROJECTION = {
     "commission_rules": 1, "origin_relay_id": 1, "destination_relay_id": 1,
     "redirect_relay_id": 1, "assigned_driver_id": 1, "relay_settlement": 1,
     "created_at": 1, "updated_at": 1,
-    "financial_contract": 1, "redirect_relay_commission_xof": 1,
+    "financial_contract": 1, "financial_rounding": 1, "redirect_relay_commission_xof": 1,
     "recipient_collection_plan": 1,
     "recipient_collection_remittances": 1,
 }

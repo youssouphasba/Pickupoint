@@ -47,6 +47,7 @@ import '../../features/driver/screens/driver_performance_screen.dart';
 import '../../features/driver/screens/completed_missions_screen.dart';
 import '../../features/driver/providers/driver_provider.dart';
 import '../../features/driver/widgets/pickup_confirmation_countdown_badge.dart';
+import '../../features/driver/widgets/driver_mission_activity_notice.dart';
 import '../location/driver_location_consent.dart';
 import '../location/driver_presence_service.dart';
 import '../../features/admin/screens/admin_dashboard.dart';
@@ -1017,6 +1018,7 @@ class _DriverShellState extends ConsumerState<DriverShell>
         bottom: false,
         child: Column(
           children: [
+            if (hasTrackableMission) const DriverMissionActivityNotice(),
             if (pickupCountdownMission?.pickupConfirmationDeadlineAt != null &&
                 pickupCountdownMission?.pickupConfirmationTimeoutMinutes !=
                     null)

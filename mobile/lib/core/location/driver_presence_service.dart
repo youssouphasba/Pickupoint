@@ -201,14 +201,14 @@ class DriverPresenceService {
       return;
     }
     final permission = await platform.permission();
-    final allowed = defaultTargetPlatform == TargetPlatform.android
-        ? permission == LocationPermission.always
-        : permission == LocationPermission.always ||
-            permission == LocationPermission.whileInUse;
+    final allowed = DriverLocationConsent.isPermissionAllowed(permission);
     if (!allowed) {
       await _stopStream(keepRecovery: true);
       _health(
-          error: 'Autorisez la localisation dans les réglages du téléphone.');
+          error: DriverLocationConsent.requiresAlwaysPermission
+              ? 'Choisissez « ${DriverLocationConsent.permissionOptionLabel} » '
+                  'dans les réglages de localisation pour travailler.'
+              : 'Autorisez la localisation dans les réglages du téléphone.');
       _scheduleRetry();
       return;
     }
