@@ -82,7 +82,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Denkma utilise votre position pour afficher les courses proches et suivre les livraisons.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Denkma utilise votre position même lorsque l'application est fermée pour proposer les courses proches et actualiser la flotte.</string>
+	<string>Pour les livreurs disponibles ou en livraison, Denkma utilise votre position même en arrière-plan ou lorsque l’écran est verrouillé, afin de proposer les courses proches et permettre le suivi de votre livraison.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Denkma utilise l'appareil photo pour scanner les codes et prendre les preuves de dépôt.</string>
 	<key>NSContactsUsageDescription</key>

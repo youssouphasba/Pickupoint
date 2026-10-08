@@ -16,6 +16,11 @@ import UIKit
     }
 
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = registrar(forPlugin: "DenkmaDriverLocationPermission") {
+      DriverLocationPermissionBridge.register(with: registrar.messenger())
+    } else {
+      NSLog("[Denkma] Le canal d’autorisation de localisation du livreur n’a pas pu être enregistré.")
+    }
     if let registrar = registrar(forPlugin: "DenkmaDriverMissionActivity") {
       DriverMissionActivityBridge.register(with: registrar.messenger())
     } else {

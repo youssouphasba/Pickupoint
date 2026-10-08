@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'driver_always_location_permission.dart';
+
 class DriverLocationConsent {
   static bool get requiresAlwaysPermission =>
       !kIsWeb &&
@@ -222,6 +224,14 @@ class DriverLocationConsent {
     }
 
     final backgroundPromptShown = await _read(_backgroundPromptKey) != null;
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        permission == LocationPermission.whileInUse &&
+        context.mounted &&
+        (userInitiated || !backgroundPromptShown)) {
+      permission = await DriverAlwaysLocationPermission.requestUpgrade();
+      if (!context.mounted) return false;
+    }
     if (permission == LocationPermission.whileInUse &&
         context.mounted &&
         requiresAlwaysPermission &&

@@ -19,6 +19,8 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		D410000000000001 /* DenkmaLiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D410000000000011 /* DenkmaLiveActivityBridge.swift */; };
+		D42000000000000000000001 /* DriverLocationPermissionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42000000000000000000011 /* DriverLocationPermissionBridge.swift */; };
+		D42000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D42000000000000000000012 /* PrivacyInfo.xcprivacy */; };
 		D410000000000002 /* DenkmaLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D410000000000012 /* DenkmaLiveActivity.swift */; };
 		D410000000000004 /* DenkmaLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D410000000000014 /* DenkmaLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -85,6 +87,8 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D410000000000011 /* DenkmaLiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DenkmaLiveActivityBridge.swift; sourceTree = "<group>"; };
+		D42000000000000000000011 /* DriverLocationPermissionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverLocationPermissionBridge.swift; sourceTree = "<group>"; };
+		D42000000000000000000012 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D410000000000012 /* DenkmaLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DenkmaLiveActivity.swift; sourceTree = "<group>"; };
 		D410000000000013 /* DenkmaLiveActivity Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D410000000000014 /* DenkmaLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DenkmaLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -158,6 +162,8 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				D410000000000011 /* DenkmaLiveActivityBridge.swift */,
+				D42000000000000000000011 /* DriverLocationPermissionBridge.swift */,
+				D42000000000000000000012 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -289,6 +295,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D42000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 				A1D2E3F41B2C3D4E5F607182 /* GoogleService-Info.plist in Resources */,
 				D31000000000000000000001 /* denkma_message.wav in Resources */,
 				D31000000000000000000002 /* denkma_mission.wav in Resources */,
@@ -359,6 +366,7 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				D410000000000001 /* DenkmaLiveActivityBridge.swift in Sources */,
+				D42000000000000000000001 /* DriverLocationPermissionBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
